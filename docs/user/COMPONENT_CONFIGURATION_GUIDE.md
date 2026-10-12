@@ -61,7 +61,7 @@ When a component is marked as a crown jewel, its node on the canvas receives a *
 
 ## Classifying Data Items
 
-A data item can carry two pieces of classification context — **sensitivity** and **regulatory flags** — set on the **General** tab of the Data dialog (open a data item's settings and stay on the **General** tab). Both feed security and compliance analysis.
+A data item can carry four pieces of classification context — **sensitivity**, **regulatory flags**, **origin**, and the **credential** flag — set on the **General** tab of the Data dialog (open a data item's settings and stay on the **General** tab). Sensitivity and regulatory flags feed security and compliance analysis; origin and the credential flag record who can write the content and whether it is a credential.
 
 ### Sensitivity
 
@@ -92,6 +92,28 @@ The **Regulatory flags** field is a free-text tag input: type any label and pres
 These are **suggestions, not a closed list** — you can type your own labels for any regime the suggestions don't cover. When you do match a recommended regime, prefer the suggested label exactly as written: flags are matched case-sensitively, so a custom variant like `pci cardholder` will not be picked up by compliance queries that look for `PCI cardholder`.
 
 **Note**: Sensitivity and regulatory flags are the same fields the AI enrichment path populates. Whether you set them here by hand or let the AI workflow classify the data item, they read from one shared list of recommended flags, so the GUI suggestions and the AI output stay aligned.
+
+### Origin
+
+**Origin** is your own assertion of who can write the data item's content. Pick it from the **Origin** dropdown, which lists the levels from most to least trusted, each with a one-line meaning:
+
+| Origin | Meaning |
+|--------|---------|
+| **Authenticated first party** | Written only by the operator's own authenticated users or systems |
+| **Curated internal** | Internal content that passed a review or curation step |
+| **Agent relayed** | Produced or forwarded by another agent; at most this trusted |
+| **Model generated** | Written by a model and later read as input; at most this trusted |
+| **Third party** | Written by a known external party under an agreement |
+| **Arbitrary public** | Anyone can write it |
+| **Not assessed** | Answered as not established; treated as untrusted |
+
+The last three carry an **untrusted** chip in the list. Choose the **least-trusted** source of what the item holds: if any part of it comes from somewhere anyone can write, the item is **Arbitrary public**. Leaving the field blank shows **Unclassified** — nobody has answered yet, which is not the same as **Not assessed**. To clear a value, use the field's clear icon. For the full vocabulary, see the [canonical data-origin and credential vocabulary](../architecture/dethereal/THREAT_MODELING_WORKFLOW.md#canonical-data-origin-and-credential-vocabulary).
+
+### Credential
+
+The **Credential** dropdown records whether the data item is a credential — a password, token, key, secret, or certificate. Pick **Yes — a credential** or **No**; leaving it blank shows **Unknown**. **No** is a real answer and is kept as such.
+
+**Note**: Origin and the credential flag are the same fields the AI enrichment path asks about. The AI workflow proposes them for you to confirm and never sets either on its own.
 
 ## How an Element Gets Its Class
 

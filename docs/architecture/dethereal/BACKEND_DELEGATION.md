@@ -162,14 +162,14 @@ Output: {
 | Priority | Match type | Confidence | Example | Cost |
 |----------|-----------|------------|---------|------|
 | 1 | IaC mapping table | high | `aws_rds_instance` → "Database" | Deterministic lookup |
-| 2 | Exact name match | high | "PostgreSQL" → "PostgreSQL" class | Case-insensitive string compare |
-| 2b | Fuzzy name match | high | "Postgres" → "PostgreSQL" class | Levenshtein / substring, no AI |
-| 3 | Vector similarity | medium | "payment processor backend" → "Web Application" (see Section 6) | Requires embedding index |
+| 2a | Exact name match | high | "PostgreSQL" → "PostgreSQL" class | Case-insensitive string compare |
+| 2b | Vector similarity | medium | "payment processor backend" → "Web Application" (see Section 6) | Requires class embeddings |
+| 3 | Fuzzy name match | high | "Postgres" → "PostgreSQL" class | Levenshtein / substring, no AI |
 | 4 | Type-filtered heuristic | low | STORE element → STORE-typed classes | Returns all type-matching classes |
 
-Priorities 1-2b are deterministic and free. Priority 2b catches common abbreviations and naming variations ("K8s" → "Kubernetes", "Postgres" → "PostgreSQL") without needing embeddings. Priority 3 requires the vector index (optional — see Section 6). Priority 4 is the baseline fallback.
+Priorities 2a and 2b run together: exact-name hits come first, then the vector hits not already listed, so a name hit does not keep the vector tier from running. Priorities 3 and 4 run only when 2a and 2b both find nothing. Priorities 1, 2a and 3 are deterministic and free. Priority 3 catches common abbreviations and naming variations ("K8s" → "Kubernetes", "Postgres" → "PostgreSQL") without needing embeddings. Priority 2b requires class embeddings (optional — see Section 6). Priority 4 is the baseline fallback.
 
-If the vector index is not available, Priority 3 is skipped. Elements that remain unmatched (or matched only at Priority 3-4) are returned in the `unmatched` array or flagged as low-confidence. The agent handles these via **Pass 2 LLM reasoning** — applying boundary context, connected flow analysis, and peer inference that the server-side tool cannot do. This preserves the two-pass methodology: `match_classes` handles Pass 1 (deterministic + semantic), the agent handles Pass 2 (contextual).
+If vector search is not available, Priority 2b is skipped. Elements that remain unmatched (or matched only at Priority 2b or 4) are returned in the `unmatched` array or flagged as low-confidence. The agent handles these via **Pass 2 LLM reasoning** — applying boundary context, connected flow analysis, and peer inference that the server-side tool cannot do. This preserves the two-pass methodology: `match_classes` handles Pass 1 (deterministic + semantic), the agent handles Pass 2 (contextual).
 
 **Turn savings:** 6+ `get_classes` calls + in-context matching → 1 tool call. The agent's job shifts from "match all elements" to "confirm high-confidence matches, reason about low-confidence ones."
 
@@ -351,14 +351,9 @@ The current approach pushes this to the LLM agent (Priority 4 — agent-side rea
 
 The key design principle is **embed before insert** — vectors are computed before class nodes enter the database. This eliminates eventual consistency concerns: if a class node exists, it already has its embedding. There is no window where a class is queryable by name but not by vector similarity.
 
-**Step 1 — Create the index (once per label):**
+**Step 1 — No vector index:**
 
-```cypher
-CREATE VECTOR INDEX class_embeddings ON :ComponentClass(embedding)
-  WITH CONFIG {"dimension": 768, "capacity": 500, "metric": "cos"};
-```
-
-One index per class label (`ComponentClass`, `ControlClass`, `DataFlowClass`, etc.). Created at platform setup or on first module install. Not idempotent — check existence first via `vector_search.show_index_info()`. Vector search is built into Memgraph core since version 3.0 (not a MAGE add-on).
+Class vectors need no index. The query scores every candidate class with the database's own cosine function (see *Query-time flow*), so there is nothing to create, size or repair before the first install. This works on Memgraph 3.6+ and on Neo4j 5.26 Community.
 
 **Step 2 — Pre-compute embeddings (before inserting module data):**
 
@@ -389,16 +384,9 @@ CREATE (c:ComponentClass {
 })
 ```
 
-Because the HNSW index already exists on the `embedding` property, Memgraph normally adds each new node to the USearch vector index in memory as it is created. No separate indexing step. No async pipeline. No `embeddingReady` flag needed.
+Because the search reads the `embedding` property directly, a class is searchable as soon as the write commits. No separate indexing step. No async pipeline. No `embeddingReady` flag needed.
 
-**The exception: a re-keyed index.** Memgraph 3.8.x can recover a vector index from a snapshot under a different label or property than it was created on. Writes to the intended label and property then miss the index, so classes and MITRE nodes written after such a recovery cannot be found by vector similarity, and nothing reports an error. A snapshot written while an index was mis-keyed keeps the wrong key, even on a later Memgraph release. The platform therefore verifies its vector indexes and rebuilds any index that is mis-keyed or missing entries. Creating an index indexes every node that already carries the property.
-
-- **Class indexes** are verified at every platform start, after a module reset, and on the 10-minute vector-availability probe.
-- **MITRE indexes** are verified on the first MITRE match after start and on the same probe.
-
-See [Class and control resolver spec → Index health and self-heal](../backend/LLD/CLASS_AND_CONTROL_RESOLVER_SPEC.md#index-health-and-self-heal).
-
-**Module update:** When a module is updated (classes renamed, descriptions changed), the ingestion tool re-embeds the affected classes and issues `SET c.embedding = $new_vector` on the existing nodes. The HNSW index updates in place.
+**Module update:** When a module is updated (classes renamed, descriptions changed), the ingestion tool re-embeds the affected classes and issues `SET c.embedding = $new_vector` on the existing nodes. The next search reads the new vector.
 
 This follows the same pattern as `mitre-frameworks/ingest.py` — pre-compute all data, then bulk-insert via Cypher. The embedding step adds ~250ms for 50 classes with a local model, negligible compared to the rest of module ingestion.
 
@@ -412,7 +400,7 @@ The embedding model is optional and configurable per deployment:
 | Self-hosted (local) | Local model | all-MiniLM-L6-v2 (~80MB) or similar | No network dependency, ~5ms per embedding, 384 dimensions. Sufficient for class matching. |
 | SaaS | Cloud API | OpenAI, Bedrock Titan, or Cohere embedding API | Highest quality, managed, ~$0.0001 per embedding (fractions of a cent per module install) |
 
-**Cost profile:** Embeddings are computed once per class on module install/update — not per query. A module with 50 classes costs 50 embedding calls. Queries use the pre-computed index.
+**Cost profile:** Embeddings are computed once per class on module install/update — not per query. A module with 50 classes costs 50 embedding calls. Queries use the pre-computed vectors.
 
 **Model integrity:** When using a local embedding model, verify the model file against a pinned checksum at load time. A compromised model would taint every classification decision. The platform should bundle the model or download from a pinned URL with integrity verification.
 
@@ -423,39 +411,39 @@ At match time, `match_classes` embeds each element's `name + description` and pe
 ```
 match_classes(elements: [...], type: PROCESS)
   → Batch embed all element texts in one call
-  → For each element: HNSW search across PROCESS-typed classes in active modules
+  → For each element: exact cosine search across PROCESS-typed classes in active modules
   → Returns ranked candidates with similarity scores
 ```
 
 **Batch embedding at query time:** When `match_classes` receives N elements, embed all N texts in a single batch call (most embedding APIs and local models support this). For 15 elements with a local model, this is ~5ms total; with a cloud API, one network round-trip.
 
 ```cypher
-// Query (at match time, per element)
-// vector_search.search() takes (index_name, limit, query_vector) — no filter parameter
-CALL vector_search.search('class_embeddings', 10, $query_vector)
-YIELD node, similarity
-WHERE similarity >= 0.75
-  AND ($element_type IS NULL OR node.type = $element_type)
-RETURN node.id, node.name, node.description, similarity
-ORDER BY similarity DESC
-LIMIT 5;
+// Query (at match time, per element); no vector index, every candidate is scored
+MATCH (m:Module)-[:HAS_CLASS]->(n:ComponentClass)
+WHERE n.embeddingModel = $profileId AND size(n.embedding) = $dims
+  AND ($element_type IS NULL OR n.type = $element_type)
+WITH n, vector_search.cosine_similarity(n.embedding, $query_vector) AS similarity
+WHERE similarity >= $threshold
+RETURN n.id, n.name, n.description, similarity
+ORDER BY similarity DESC, n.id ASC
+LIMIT $k;
 ```
 
-Neo4j deployments skip vector search entirely (Priority 3 is Memgraph-only for this phase).
+On Neo4j the score is `2 * vector.similarity.cosine(a, b) - 1` (Neo4j returns `(1 + cos) / 2`), so scores and thresholds are cosines on both engines. Only vectors of the active embedding model are compared. See [Class and control resolver spec → Vector tier](../backend/LLD/CLASS_AND_CONTROL_RESOLVER_SPEC.md#vector-tier-optional-requires-embeddings).
 
 ### Match priority integration
 
-Vector similarity is Priority 3 in the `match_classes` pipeline:
+Vector similarity is Priority 2b in the `match_classes` pipeline and runs together with exact name match:
 
 ```
 1.  IaC mapping table       → deterministic, confidence: high
-2.  Exact name match        → deterministic, confidence: high
-2b. Fuzzy name match        → deterministic, confidence: high
-3.  Vector similarity       → semantic, confidence: medium (threshold ≥ 0.75)
+2a. Exact name match        → deterministic, confidence: high   (listed first)
+2b. Vector similarity       → semantic, confidence: medium (threshold ≥ 0.75; runs with 2a, hits follow 2a's)
+3.  Fuzzy name match        → deterministic, confidence: high   (only when 2a and 2b find nothing)
 4.  Type-filtered heuristic → fallback, confidence: low
 ```
 
-Priorities 1-2b are deterministic and free. Priority 3 replaces most of what the agent currently does in-context. Priority 4 remains as a rare fallback. Elements matched at Priority 3-4 go through Pass 2 agent reasoning for contextual validation.
+Priorities 1, 2a and 3 are deterministic and free. Priority 2b replaces most of what the agent currently does in-context. Priority 4 remains as a rare fallback. Elements matched at Priority 2b or 4 go through Pass 2 agent reasoning for contextual validation.
 
 ### What gets embedded
 
@@ -473,10 +461,10 @@ Example: `"payment-db. Stores customer payment records and transaction history. 
 
 ### Scope filtering
 
-Vector search is scoped by two dimensions. `vector_search.search()` takes no filter, so both scopes are applied as filters on the nearest-neighbour result, after the search:
+Vector search is scoped by two dimensions. Both are ordinary `WHERE` filters applied before ranking, since the search scores every candidate:
 
 1. **Type filtering:** Only classes whose `type` matches the element's type (PROCESS, STORE, EXTERNAL_ENTITY) are kept. Eliminates cross-type false positives.
-2. **Module filtering:** When `activeModules` is set, only classes from those modules are kept. Uses the `module_ids` parameter on `match_classes`. A module-scoped match searches **every** embedded class of the label before filtering. A fixed multiple of `top_n` would return nothing for a module whenever other modules' classes were nearer to the query.
+2. **Module filtering:** When `activeModules` is set, only classes from those modules are kept. Uses the `module_ids` parameter on `match_classes`.
 
 ### Similarity threshold calibration
 
@@ -484,9 +472,9 @@ The 0.75 cosine similarity threshold is a starting value, not an empirically cal
 
 ### Generalized matching infrastructure
 
-`match_classes` is already the generalized matching service. It handles all five class types via the `class_type` parameter — one HNSW index per label (`ComponentClass`, `ControlClass`, `DataFlowClass`, `SecurityBoundaryClass`, `DataClass`), one service that targets the right index based on `class_type`. No separate `MatchService` abstraction is needed.
+`match_classes` is already the generalized matching service. It handles all five class types via the `class_type` parameter — one service that searches the right label (`ComponentClass`, `ControlClass`, `DataFlowClass`, `SecurityBoundaryClass`, `DataClass`) based on `class_type`. No separate `MatchService` abstraction is needed.
 
-The vector ingestion pipeline during module install embeds all five class types in a single pass — each class node gets an `embedding` property regardless of its label. The HNSW indexes are created per label at platform setup.
+The vector ingestion pipeline during module install embeds all five class types in a single pass — each class node gets an `embedding` property regardless of its label.
 
 ### Trust and integrity
 
@@ -497,10 +485,10 @@ The vector ingestion pipeline during module install embeds all five class types 
 If embeddings are disabled (no embedding model configured):
 
 - Module ingestion skips the embedding step — class nodes are created without the `embedding` property
-- `match_classes` skips Priority 3 (vector search finds no nodes with embeddings) and returns only Priority 1-2b matches
+- `match_classes` skips Priority 2b (vector search finds no nodes with embeddings) and returns only deterministic matches
 - Unmatched elements are returned in the `unmatched` array for Pass 2 agent reasoning
 
-This makes the vector index a **progressive enhancement**: it improves match quality when available but the system is fully functional without it. A class either has its embedding (computed atomically at insert) or it doesn't. The one partial state is an index that lost entries in a snapshot recovery, and the platform's index verification rebuilds it (see *The exception: a re-keyed index* above).
+This makes vector search a **progressive enhancement**: it improves match quality when available but the system is fully functional without it. A class either has its embedding (computed atomically at insert) or it doesn't.
 
 ---
 
@@ -515,8 +503,8 @@ Phase A: match_classes
   → Unblocks classification scaling for ALL class types (every model, every workflow)
   → Also enables the brownfield control workflow (match_classes + manage_controls)
   → Sub-phases:
-      A1: Priority 1-2b (deterministic + fuzzy) — no vector infrastructure needed
-      A2: Priority 3 (vector) — add embedding pipeline, HNSW indexes for all 5 class labels
+      A1: deterministic tiers (exact + fuzzy name) — no vector infrastructure needed
+      A2: vector tier — add embedding pipeline and exact vector search for all 5 class labels
 
 Phase B: compute_control_coverage
   → Extends validate_model_json (independent of match_classes)
@@ -533,7 +521,7 @@ Not all services run in the same place. The architecture has two execution conte
 
 | Service | Runs in | Accesses |
 |---------|---------|----------|
-| `match_classes` | dt-ws (backend) | Graph database (+ embedding model for Priority 3) |
+| `match_classes` | dt-ws (backend) | Graph database (+ embedding model for the vector tier) |
 | `get_control_gaps` | dt-ws (backend) | Graph database only |
 | `compute_control_coverage` | dethereal (MCP server) | Local filesystem + GraphQL to dt-ws |
 

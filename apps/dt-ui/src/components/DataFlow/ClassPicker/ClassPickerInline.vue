@@ -119,15 +119,17 @@
       fields: ['description', 'category', 'type'],
     })
     currentResults.value = [...(store.matchResults.get(stateKey.value) ?? [])]
-    // Auto-focus only for high-signal name-based tiers.
-    // vector_similarity must NOT auto-focus (avoid biasing the user toward
-    // low-confidence picks). type_match falls through to null too — the
+    // Auto-focus only for high-signal name-based tiers: an exact-name top hit
+    // (vector hits may follow it), or a list made only of name matches.
+    // A vector_similarity top hit must NOT auto-focus (avoid biasing the user
+    // toward low-confidence picks). type_match falls through to null too — the
     // child renders an alphabetical browse list there.
     const shouldAutoFocus =
       currentResults.value.length > 0 &&
-      currentResults.value.every(
-        c => c.matchType === 'exact_name' || c.matchType === 'fuzzy_name',
-      )
+      (currentResults.value[0].matchType === 'exact_name' ||
+        currentResults.value.every(
+          c => c.matchType === 'exact_name' || c.matchType === 'fuzzy_name',
+        ))
     focusedIndex.value = shouldAutoFocus ? 0 : null
   }
 

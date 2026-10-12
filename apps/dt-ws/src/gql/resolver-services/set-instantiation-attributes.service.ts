@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nest
 import { ConfigService } from '@nestjs/config';
 import { ModuleRegistryService } from '../module-management-services/module-registry.service';
 import { safeErrorMessage } from '../../common/utils/safe-error-message';
+import { isRetriableError } from 'neo4j-driver';
 import {
   sanitiseExposureAttrs,
   sanitiseCountermeasureAttrs,
@@ -188,6 +189,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       upsertCountermeasures: 0,
       linkExternalObjects: 0,
     },
+    retriableConflicts: 0,
     batchProcessing: {
       totalBatches: 0,
       totalOperations: 0,
@@ -305,10 +307,15 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         this.logger,
       );
 
+      // Anchored at the element and expanded outward: a write never walks a class's incoming edges, where other
+      // transactions are creating findings for the same class (Memgraph raises on reading a vertex its snapshot
+      // does not hold). The class is checked by property on the far side of the element's own findings.
       const result = await tx.run(
         `
-        MATCH (c {id: $elementId})-[:${request.elementToOriginRelation}]->(e {name: $originName})-[:IS_EXPOSURE_OF|IS_COUNTERMEASURE_OF]->(klass {id: $classId})
-        WHERE e.createdBy = 'SYSTEM' OR e.createdBy IS NULL
+        MATCH (c {id: $elementId})
+        WITH c
+        MATCH (c)-[:${request.elementToOriginRelation}]->(e {name: $originName})-[:IS_EXPOSURE_OF|IS_COUNTERMEASURE_OF]->(klass)
+        WHERE klass.id = $classId AND (e.createdBy = 'SYSTEM' OR e.createdBy IS NULL)
         OPTIONAL MATCH (t:${request.target.label}) WHERE t.${request.target.property} = $value
         WITH e, t
         WHERE t IS NOT NULL
@@ -365,6 +372,12 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       };
 
     } catch (error) {
+      // A transient conflict must reach the managed transaction, which retries it; anything else is logged and
+      // the link is skipped, as before.
+      if (isRetriableError(error)) {
+        this.noteRetriableConflict('linkExternalObjects', operationId, error, Date.now() - startTime);
+        throw error;
+      }
       const duration = Date.now() - startTime;
       this.recordOperation('linkExternalObjects', false, duration, {
         elementId: request.elementId,
@@ -420,11 +433,16 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       // current declaration. Legacy null-createdBy nodes (pre-provenance-
       // field data) are treated as SYSTEM-style and are eligible for
       // cleanup.
+      // Anchored at the element and expanded outward: a write never walks a class's incoming edges, where other
+      // transactions are creating findings for the same class (Memgraph raises on reading a vertex its snapshot
+      // does not hold). The class is checked by property on the far side of the element's own findings.
       const result = await tx.run(
         `
-        MATCH (class {id: $classId})
-        MATCH (c {id: $elementId})-[r:${request.relation}]->(e)-[]->(class)
-        WHERE NOT e.name IN $validNames
+        MATCH (c {id: $elementId})
+        WITH c
+        MATCH (c)-[r:${request.relation}]->(e)-[:IS_EXPOSURE_OF|IS_COUNTERMEASURE_OF]->(class)
+        WHERE class.id = $classId
+          AND NOT e.name IN $validNames
           AND (e.createdBy = 'SYSTEM' OR e.createdBy IS NULL)
         DETACH DELETE e
         RETURN COUNT(e) as deletedCount
@@ -455,6 +473,11 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       };
 
     } catch (error) {
+      // A transient conflict must reach the managed transaction, which retries it.
+      if (isRetriableError(error)) {
+        this.noteRetriableConflict('deleteObsolete', operationId, error, Date.now() - startTime);
+        throw error;
+      }
       const duration = Date.now() - startTime;
       
       this.logger.error('Failed to delete obsolete external objects', {
@@ -592,10 +615,13 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       // just-created node, and the subsequent SET silently no-ops.
       const result = await tx.run(
         `
-        MATCH (c {id: $componentId}), (klass {id: $classId})
+        MATCH (c {id: $componentId})
+        WITH c
+        MATCH (klass {id: $classId})
         WHERE any(l IN labels(klass) WHERE l ENDS WITH 'Class')
-        OPTIONAL MATCH (c)-[:HAS_EXPOSURE]->(existing:Exposure {name: $attributes.name})-[:IS_EXPOSURE_OF]->(klass)
-          WHERE existing.createdBy = 'SYSTEM' OR existing.createdBy IS NULL
+        WITH c, klass
+        OPTIONAL MATCH (c)-[:HAS_EXPOSURE]->(existing:Exposure {name: $attributes.name})-[:IS_EXPOSURE_OF]->(ofClass)
+          WHERE ofClass = klass AND (existing.createdBy = 'SYSTEM' OR existing.createdBy IS NULL)
         WITH c, klass, existing
         FOREACH (_ IN CASE WHEN existing IS NULL THEN [1] ELSE [] END |
           CREATE (c)-[:HAS_EXPOSURE]->(:Exposure {
@@ -605,8 +631,8 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
           })-[:IS_EXPOSURE_OF]->(klass)
         )
         WITH c, klass
-        MATCH (c)-[:HAS_EXPOSURE]->(e:Exposure {name: $attributes.name})-[:IS_EXPOSURE_OF]->(klass)
-        WHERE e.createdBy = 'SYSTEM' OR e.createdBy IS NULL
+        MATCH (c)-[:HAS_EXPOSURE]->(e:Exposure {name: $attributes.name})-[:IS_EXPOSURE_OF]->(ofClass)
+        WHERE ofClass = klass AND (e.createdBy = 'SYSTEM' OR e.createdBy IS NULL)
         SET e += $attributes
         SET e.createdBy = 'SYSTEM'
         SET e.unresolvedReferences = $unresolvedReferences
@@ -778,10 +804,13 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       // `name` inline-set requirement.
       const result = await tx.run(
         `
-        MATCH (c {id: $componentId}), (klass {id: $classId})
+        MATCH (c {id: $componentId})
+        WITH c
+        MATCH (klass {id: $classId})
         WHERE any(l IN labels(klass) WHERE l ENDS WITH 'Class')
-        OPTIONAL MATCH (c)-[:HAS_COUNTERMEASURE]->(existing:Countermeasure {name: $attributes.name})-[:IS_COUNTERMEASURE_OF]->(klass)
-          WHERE existing.createdBy = 'SYSTEM' OR existing.createdBy IS NULL
+        WITH c, klass
+        OPTIONAL MATCH (c)-[:HAS_COUNTERMEASURE]->(existing:Countermeasure {name: $attributes.name})-[:IS_COUNTERMEASURE_OF]->(ofClass)
+          WHERE ofClass = klass AND (existing.createdBy = 'SYSTEM' OR existing.createdBy IS NULL)
         WITH c, klass, existing
         FOREACH (_ IN CASE WHEN existing IS NULL THEN [1] ELSE [] END |
           CREATE (c)-[:HAS_COUNTERMEASURE]->(:Countermeasure {
@@ -791,8 +820,8 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
           })-[:IS_COUNTERMEASURE_OF]->(klass)
         )
         WITH c, klass
-        MATCH (c)-[:HAS_COUNTERMEASURE]->(cm:Countermeasure {name: $attributes.name})-[:IS_COUNTERMEASURE_OF]->(klass)
-        WHERE cm.createdBy = 'SYSTEM' OR cm.createdBy IS NULL
+        MATCH (c)-[:HAS_COUNTERMEASURE]->(cm:Countermeasure {name: $attributes.name})-[:IS_COUNTERMEASURE_OF]->(ofClass)
+        WHERE ofClass = klass AND (cm.createdBy = 'SYSTEM' OR cm.createdBy IS NULL)
         SET cm += $attributes
         SET cm.createdBy = 'SYSTEM'
         SET cm.unresolvedReferences = $unresolvedReferences
@@ -985,8 +1014,12 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         const r1 = await tx.run(
           `
           MATCH (c {id: $componentId})
-          MATCH (t {id: $classId})<-[:HAS_CLASS]-(m:Module)
+          WITH c
+          // The class is reached over the element's own binding (never from the class's side, whose edges other
+          // writes are changing); only its HAS_CLASS edges, which module installs write, are read backwards.
           MATCH (c)-[r:IS_INSTANCE_OF]->(t)
+          WHERE t.id = $classId
+          MATCH (t)<-[:HAS_CLASS]-(m:Module)
           // First WITH: snapshot priorAttrs from the relationship BEFORE any SET.
           WITH c, t, m, r, properties(r) AS priorAttrs, $attributes AS newAttrs
           // Second WITH: materialise changedKeys as a scalar list.
@@ -1368,10 +1401,10 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       errors.push('classId is required and must be a string');
     }
 
-    if (!request.attributes || typeof request.attributes !== 'object') {
+    // An empty object is a valid request: it writes nothing and evaluates the element against the answers already
+    // on its binding, so an element bound to a class with no answers still gets that class's exposures.
+    if (!request.attributes || typeof request.attributes !== 'object' || Array.isArray(request.attributes)) {
       errors.push('attributes is required and must be an object');
-    } else if (Object.keys(request.attributes).length === 0) {
-      errors.push('attributes cannot be empty');
     } else {
       // Pre-validate value shapes. Memgraph property values are primitives
       // or homogeneous lists of primitives — nested objects and mixed-type
@@ -1428,6 +1461,23 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
     // Blank authorization implementation as per established pattern
     // Authorization is handled by the GraphQL schema directives
     return;
+  }
+
+  /**
+   * A transient conflict inside a finding write, about to be rethrown for the managed transaction to retry: logged
+   * and counted on its own (it is not a finished operation), so a run of them shows.
+   */
+  private noteRetriableConflict(operation: 'linkExternalObjects' | 'deleteObsolete', operationId: string, error: unknown, duration: number): void {
+    const code = (error as { code?: string } | null)?.code;
+    this.statistics.retriableConflicts++;
+    this.logger.warn('Transient conflict in a finding write; the transaction will retry', { operation, operationId, code });
+    this.monitoringService.recordOperation({
+      operationName: 'setInstantiation.retriableConflict',
+      success: false,
+      duration,
+      timestamp: new Date(),
+      metadata: { operation, operationId, code },
+    });
   }
 
   private recordOperation(
@@ -1518,9 +1568,13 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       const diag = await tx.run(
         `
         OPTIONAL MATCH (c {id: $componentId})
+        WITH c
+        OPTIONAL MATCH (c)-[r:IS_INSTANCE_OF]->(bound)
+        WHERE bound.id = $classId
+        WITH c, r
         OPTIONAL MATCH (t {id: $classId})
+        WITH c, r, t
         OPTIONAL MATCH (t)<-[:HAS_CLASS]-(m:Module)
-        OPTIONAL MATCH (c)-[r:IS_INSTANCE_OF]->(t)
         RETURN c IS NOT NULL AS elementFound,
                labels(c) AS elementLabels,
                t IS NOT NULL AS classFound,
@@ -1843,6 +1897,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         upsertCountermeasures: 0,
         linkExternalObjects: 0,
       },
+      retriableConflicts: 0,
       batchProcessing: {
         totalBatches: 0,
         totalOperations: 0,

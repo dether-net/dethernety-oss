@@ -14,6 +14,8 @@ export const ADD_DATA_ITEM = gql`
         }
         sensitivity
         regulatoryFlags
+        origin
+        isCredential
         # elements {
         #   id
         # }
@@ -41,6 +43,8 @@ export const UPDATE_DATA_ITEM = gql`
         }
         sensitivity
         regulatoryFlags
+        origin
+        isCredential
         # elements {
         #   id
         # }

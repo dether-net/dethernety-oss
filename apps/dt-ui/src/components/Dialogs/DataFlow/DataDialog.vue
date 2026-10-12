@@ -4,7 +4,7 @@
   import { computed, onMounted, onUnmounted, ref, shallowRef, watch, nextTick } from 'vue'
   import type { UISchemaElement } from '@jsonforms/core'
   import { flattenProperties, unflattenProperties } from '@/utils/dataFlowUtils'
-  import { Exposure, RECOMMENDED_REGULATORY_FLAGS } from '@dethernety/dt-core'
+  import { Exposure, ORIGIN_LEVELS, RECOMMENDED_REGULATORY_FLAGS } from '@dethernety/dt-core'
   import AttributesForm from '@/components/DataFlow/AttributesForm.vue'
   import AttributesDialog from '@/components/DataFlow/AttributesDialog.vue'
   import ClassPicker from '@/components/DataFlow/ClassPicker/ClassPicker.vue'
@@ -46,6 +46,26 @@
   // Suggested regulatory flags (free-text still allowed). Sourced from dt-core's
   // canonical set so the GUI suggestions stay aligned with the dethereal/AI path.
   const regulatoryFlagItems = RECOMMENDED_REGULATORY_FLAGS.map(f => f.flag)
+
+  // Origin (who can write the content) holds the platform DataOrigin token or null (unclassified); the list
+  // follows dt-core's ORIGIN_LEVELS, most to least trusted. isCredential is a tri-state: true, false, or null
+  // (unknown). Both follow sensitivity: sent only when edited, and a cleared value travels as an explicit null.
+  const origin = ref<string | null>(null)
+  const isCredential = ref<boolean | null>(null)
+  const originText: Record<(typeof ORIGIN_LEVELS)[number], { title: string; subtitle: string; untrusted: boolean }> = {
+    authenticated_first_party: { title: 'Authenticated first party', subtitle: "Written only by the operator's own authenticated users or systems", untrusted: false },
+    curated_internal: { title: 'Curated internal', subtitle: 'Internal content that passed a review or curation step', untrusted: false },
+    agent_relayed: { title: 'Agent relayed', subtitle: 'Produced or forwarded by another agent; at most this trusted', untrusted: false },
+    model_generated: { title: 'Model generated', subtitle: 'Written by a model and later read as input; at most this trusted', untrusted: false },
+    third_party: { title: 'Third party', subtitle: 'Written by a known external party under an agreement', untrusted: true },
+    arbitrary_public: { title: 'Arbitrary public', subtitle: 'Anyone can write it', untrusted: true },
+    not_assessed: { title: 'Not assessed', subtitle: 'Answered as not established; treated as untrusted', untrusted: true },
+  }
+  const originOptions = ORIGIN_LEVELS.map(level => ({ value: level.toUpperCase(), ...originText[level] }))
+  const credentialOptions = [
+    { value: true, title: 'Yes — a credential' },
+    { value: false, title: 'No' },
+  ]
   const regulatoryFlagFramework: Record<string, string> = Object.fromEntries(
     RECOMMENDED_REGULATORY_FLAGS.map(f => [f.flag, f.framework])
   )
@@ -85,12 +105,14 @@
   // fields; attributesDirty (declared above) signals the Attributes-tab portion. isDirty drives
   // the close-guard at v-dialog level so the user can't lose edits via Esc / backdrop / X, and
   // gates the Save button enable + Revert button visibility in the toolbar.
-  const initialState = ref<{ name: string; description: string; dataClass: string | null; sensitivity: string | null; regulatoryFlags: string[] }>({
+  const initialState = ref<{ name: string; description: string; dataClass: string | null; sensitivity: string | null; regulatoryFlags: string[]; origin: string | null; isCredential: boolean | null }>({
     name: '',
     description: '',
     dataClass: null,
     sensitivity: null,
     regulatoryFlags: [],
+    origin: null,
+    isCredential: null,
   })
   const showDiscardChangesDialog = ref(false)
 
@@ -124,6 +146,8 @@
     ...(!flagsEqual(regulatoryFlags.value, initialState.value.regulatoryFlags) && {
       regulatoryFlags: [...regulatoryFlags.value],
     }),
+    ...(origin.value !== initialState.value.origin && { origin: origin.value }),
+    ...(isCredential.value !== initialState.value.isCredential && { isCredential: isCredential.value }),
   })
 
   const isDirty = computed(() =>
@@ -247,6 +271,8 @@
     dataClass.value = initialState.value.dataClass
     sensitivity.value = initialState.value.sensitivity
     regulatoryFlags.value = [...initialState.value.regulatoryFlags]
+    origin.value = initialState.value.origin
+    isCredential.value = initialState.value.isCredential
     // Attributes: authoritative re-fetch via the debounced init. If dataClass changed,
     // the watcher coalesces with this call (single initializeAttributes run after 100 ms).
     debouncedInitializeAttributes()
@@ -310,6 +336,8 @@
           dataClass.value = currentDataItem.dataClass?.id ?? null
           sensitivity.value = currentDataItem.sensitivity ?? null
           regulatoryFlags.value = currentDataItem.regulatoryFlags ? [...currentDataItem.regulatoryFlags] : []
+          origin.value = currentDataItem.origin ?? null
+          isCredential.value = currentDataItem.isCredential ?? null
           // Initialize attributes using our centralized function
           if (dataClass.value) {
             debouncedInitializeAttributes()
@@ -322,6 +350,8 @@
             dataClass: currentDataItem.dataClass?.id ?? null,
             sensitivity: currentDataItem.sensitivity ?? null,
             regulatoryFlags: currentDataItem.regulatoryFlags ? [...currentDataItem.regulatoryFlags] : [],
+            origin: currentDataItem.origin ?? null,
+            isCredential: currentDataItem.isCredential ?? null,
           }
         } catch (error) {
           console.error('Failed to get attributes from class relationship', error)
@@ -368,6 +398,8 @@
             dataClass: dataClass.value,
             sensitivity: sensitivity.value,
             regulatoryFlags: [...regulatoryFlags.value],
+            origin: origin.value,
+            isCredential: isCredential.value,
           }
           emit('update:snackBar', { show: true, message: 'Data entity updated successfully', color: 'success' })
         }
@@ -389,6 +421,8 @@
           elementId: flowStore.selectedItem.id,
           sensitivity: sensitivity.value,
           regulatoryFlags: regulatoryFlags.value,
+          origin: origin.value,
+          isCredential: isCredential.value,
           // Remove attributes from here - they're handled separately
         })
         
@@ -546,7 +580,7 @@
   // CARRIES is the thing under test and there is no other way to reach it from outside.
   defineExpose({
     onClassChangeDiscard, onSubmit, name, description, dataClass,
-    sensitivity, regulatoryFlags, attributesDirty, pendingClassId, initialState,
+    sensitivity, regulatoryFlags, origin, isCredential, attributesDirty, pendingClassId, initialState,
   })
 
 </script>
@@ -650,6 +684,35 @@
                                 <v-list-item v-bind="itemProps" :subtitle="regulatoryFlagFramework[item.title]" />
                               </template>
                             </v-combobox>
+                          </div>
+                          <div class="d-flex ga-4 align-start">
+                            <v-select
+                              v-model="origin"
+                              clearable
+                              hint="Who can write this content, most to least trusted"
+                              :items="originOptions"
+                              label="Origin"
+                              persistent-placeholder
+                              placeholder="Unclassified"
+                              style="flex: 0 0 56%"
+                            >
+                              <template #item="{ props: itemProps, item }">
+                                <v-list-item v-bind="itemProps" :subtitle="item.raw.subtitle">
+                                  <template #append>
+                                    <v-chip v-if="item.raw.untrusted" color="warning" size="x-small" variant="tonal">untrusted</v-chip>
+                                  </template>
+                                </v-list-item>
+                              </template>
+                            </v-select>
+                            <v-select
+                              v-model="isCredential"
+                              clearable
+                              :items="credentialOptions"
+                              label="Credential"
+                              persistent-placeholder
+                              placeholder="Unknown"
+                              class="flex-grow-1"
+                            />
                           </div>
                         </v-col>
                         <v-col cols="5">

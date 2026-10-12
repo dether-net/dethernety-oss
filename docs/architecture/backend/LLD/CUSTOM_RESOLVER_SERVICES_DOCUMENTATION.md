@@ -1166,7 +1166,7 @@ See [Disposition fields on Exposure and Countermeasure](./SCHEMA.md#disposition-
 
 ### Purpose
 
-Resolves user-typed text to candidate MITRE entities for the technique picker. Backs the `matchMitreTechniques` query. Structurally mirrors the query path of the class-matching resolver — same auth + monitoring wrapping, same idempotent index-ensure, same graceful-degradation cascade.
+Resolves user-typed text to candidate MITRE entities for the technique picker. Backs the `matchMitreTechniques` query. Structurally mirrors the query path of the class-matching resolver — same auth + monitoring wrapping, same exact vector search (`VectorSearchService`), same graceful degradation to the name tiers when the vector tier is unavailable. Unlike class matching, which runs its exact-name and vector tiers together, the MITRE cascade short-circuits (below).
 
 ### Surfaces
 
@@ -1194,62 +1194,48 @@ Tiers 1–4 are deterministic and need no embeddings, so they serve results even
 
 ### Vector tier
 
-The vector tier uses Memgraph HNSW indexes — one per corpus that has nodes — ensured lazily and idempotently. The label-property key indexes for the deterministic seeks are not created here: they are startup DDL on both graph engines (`EnsureIndexesService`, [`src/bootstrap/ensure-indexes.service.ts`](../../../../apps/dt-ws/src/bootstrap/ensure-indexes.service.ts)). HNSW indexes are created with:
+The vector tier is an **exact search** in Cypher, with no vector index: every addressable node of the kind's label that carries a vector of the active embedding model is scored with the database's own cosine function (`vector_search.cosine_similarity` on Memgraph; `2 * vector.similarity.cosine(a, b) - 1` on Neo4j, which returns `(1 + cos) / 2`). Scores and the threshold are therefore cosines on both engines. The label-property key indexes for the deterministic seeks are not created here: they are startup DDL on both graph engines (`EnsureIndexesService`, [`src/bootstrap/ensure-indexes.service.ts`](../../../../apps/dt-ws/src/bootstrap/ensure-indexes.service.ts)).
 
 ```cypher
-CREATE VECTOR INDEX <indexName> ON :<Label>(embedding)
-WITH CONFIG {"dimension": <d>, "capacity": <c>, "metric": "cos"}
-```
-
-and queried via:
-
-```cypher
-CALL vector_search.search('<indexName>', <searchLimit>, $query_vector)
-YIELD node, similarity
-WITH id(node) AS hit, similarity
-WHERE similarity >= $threshold
-MATCH (node) WHERE id(node) = hit
+MATCH (node:<Label>)
+WHERE node.<key> IS NOT NULL
+  AND node.embedding IS NOT NULL
+  AND node.embeddingModel = $profileId
+  AND size(node.embedding) = $dims
+WITH node, <cosine(node.embedding, $query_vector)> AS similarity
+WHERE $threshold IS NULL OR similarity >= $threshold
 WITH node, similarity
-...
+ORDER BY similarity DESC, node.<key> ASC
+LIMIT $k
+// tactic hop for these k nodes only, then ORDER BY similarity DESC, mitreId ASC
 ```
 
-Each hit is re-matched by its internal id. On newer Memgraph releases (seen on 3.13.2), a node deleted after it was indexed is still returned by the search until the database's garbage collection runs, and reading it fails. The re-match skips it, which is what Memgraph 3.8.1 does on its own.
+The order of operations is fixed: score → threshold → top `k` by score (ties by MITRE id) → tactic hop → final order by score, then id. `k` is `topN`, clamped to 1..50 and passed as a Bolt integer. Because every node is scored, there is no oversampling and no stale-hit re-match.
 
-The query **oversamples** — `searchLimit = max(topN * 10, 50)` — so candidates below the threshold do not starve the result of valid hits deeper in the HNSW result set.
+### MITRE vector indexes
 
-### Index health and self-heal
+The resolver's own search does not use a vector index. It still keeps one Memgraph HNSW index per healthy kind, for consumers that search the MITRE corpus by index name. On Neo4j this upkeep does nothing. It runs in the background after a precheck refresh (so on the first MITRE match after start, and again after the 10-minute cache expires), and it **never affects `vectorAvailable`**:
 
-An index can lose entries even though no write fails. Memgraph 3.8.x can recover a label+property vector index from a snapshot under a different label or property than it was created on. Writes to the intended label then miss the index, so MITRE nodes written after such a recovery cannot be found by vector similarity. A snapshot written while an index was mis-keyed keeps the wrong key, even on a later Memgraph release that recovers keys correctly.
+- A missing index is created with `CREATE VECTOR INDEX <indexName> ON :<Label>(embedding) WITH CONFIG {"dimension": <d>, "capacity": <c>, "metric": "cos"}`.
+- An index whose dimension differs from the embedder's is rebuilt.
+- An index keyed on another label or property, or holding fewer entries than there are nodes of its label with an `embedding`, is dropped and created again on its intended key. Memgraph 3.8.x can recover a vector index from a snapshot under the wrong label or property, and a snapshot written while an index was mis-keyed keeps the wrong key. The key and size come from `vector_search.show_index_info()`; the helpers live in `src/gql/services/vector-index-keys.ts`.
+- A rebuild is logged as `MITRE vector index <name> rebuilt: holds <n> of <embedded> embedded nodes`. A failure is logged (`… could not be verified or rebuilt`) and leaves the index as it was.
 
-The ensure pass therefore verifies every existing index of each healthy kind:
-
-- The key and size come from `vector_search.show_index_info()`.
-- An index keyed on another label or property, or holding fewer entries than there are nodes of its label with an `embedding`, is dropped and created again on its intended key. Creating the index indexes the nodes that already carry the property.
-- The helpers are shared with class matching (`src/gql/services/vector-index-keys.ts`).
-- The rebuild is logged as `MITRE vector index <name> rebuilt: holds <n> of <embedded> embedded nodes`.
-- A failure is logged (`… could not be verified or rebuilt`) and leaves the index as it was.
-
-The ensure pass runs lazily, not at startup:
-
-- on the **first MITRE match after the platform starts**
-- again on the first match after the 10-minute vector-availability cache expires, so a database-only restart is repaired while the platform keeps running
-
-Class vector indexes have their own checks; see [Class and control resolver spec → Index health and self-heal](./CLASS_AND_CONTROL_RESOLVER_SPEC.md#index-health-and-self-heal).
+Class matching keeps no vector index; see [Class and control resolver spec → Vector tier](./CLASS_AND_CONTROL_RESOLVER_SPEC.md#vector-tier-optional-requires-embeddings).
 
 ### Graceful degradation
 
-A per-corpus model-coherence precheck computes `vectorAvailable` and a structured `vectorDisabledReason`:
+Two checks compute `vectorAvailable` and a structured `vectorDisabledReason`. First, the embedder must be enabled and ready, and the database must pass the vector self-test (`VectorSearchService.healthy()`: the cosine of orthogonal vectors must be 0 and of opposite vectors -1; a failure is retried after 60 seconds). Then a per-kind precheck counts, among the kind's addressable nodes, those with a usable vector of the active embedding model (right model, right length) and those with another model's vector:
 
 | Reason | Cause |
 |--------|-------|
-| `EMBEDDING_DISABLED` | Embedding is disabled in the deployment's environment |
-| `NO_INDEX_MODULE` | The graph backend lacks the `vector_search` procedure (Neo4j, or older Memgraph) |
-| `NO_VECTORS` | No embeddings shipped, or per-label coverage is incomplete |
-| `MODEL_MISMATCH` | The corpus's `embeddingModel` disagrees with the runtime model |
+| `EMBEDDING_DISABLED` | The embedder is disabled or not ready, or the database cannot run vector search (failed self-test) |
+| `NO_VECTORS` | Some nodes lack a usable vector of the active model (missing vectors or a partial install) |
+| `MODEL_MISMATCH` | No node carries a vector of the active model, but some carry another model's |
 
-A kind with no nodes (its framework is not loaded) is skipped by the precheck with a log line and gets no HNSW index; the tier stays on for the other kinds, and a query for the skipped kind reports `NO_VECTORS`. Among the kinds that have nodes, each stands on its own: a failing kind loses the vector tier and reports its own reason, and the healthy kinds keep it. The tier is off for every kind only when no loaded kind is healthy, and then the dominant reason is surfaced.
+A kind is available only when **every** addressable node carries a usable vector of the active model. A kind with no nodes (its framework is not loaded) is skipped by the precheck with a log line and gets no index; the tier stays on for the other kinds, and a query for the skipped kind reports `NO_VECTORS`. Among the kinds that have nodes, each stands on its own: a failing kind loses the vector tier and reports its own reason, and the healthy kinds keep it. The tier is off for every kind only when no loaded kind is healthy, and then the dominant reason is surfaced.
 
-The embedding model is swappable; all corpus nodes must share the runtime `embeddingModel` or the tier degrades with `MODEL_MISMATCH`. Vector availability is cached (10-minute TTL); the MITRE corpus is cached (5-minute TTL). When the vector tier is off, the response still carries deterministic-tier matches.
+The embedding model is swappable; a vector of another model is never compared with the query. The precheck is cached (10-minute TTL); the MITRE corpus is cached (5-minute TTL). When the vector tier is off, the response still carries deterministic-tier matches.
 
 ### Privacy and observability
 
@@ -1359,7 +1345,7 @@ Whether embedding is enabled in the deployment's environment.
 The runtime embedding model identifier (compared against each corpus node's `embeddingModel` in the model-coherence precheck).
 
 ##### `getDimensions(): number`
-Vector dimensionality, used when creating HNSW indexes.
+Vector dimensionality. Every vector query filters `size(embedding)` on it, and the MITRE index upkeep creates indexes with it.
 
 ##### `getThreshold(): number`
 Minimum cosine similarity for a vector hit to qualify.
@@ -1368,7 +1354,7 @@ Minimum cosine similarity for a vector hit to qualify.
 Embeds a batch of strings into vectors.
 
 ##### `disableForSession(reason: string): void`
-Disables the vector tier for the current process when an index/model mismatch is detected.
+Disables embedding, and with it the vector tier, for the current process.
 
 ---
 

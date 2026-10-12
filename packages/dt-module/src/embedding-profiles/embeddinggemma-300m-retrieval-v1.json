@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "id": "embeddinggemma-300m-retrieval-v1",
+  "label": "EmbeddingGemma 300m, retrieval prompts",
+  "source": {
+    "hub": "https://huggingface.co",
+    "repo": "onnx-community/embeddinggemma-300m-ONNX",
+    "revision": "5090578d9565bb06545b4552f76e6bc2c93e4a66",
+    "gated": false,
+    "files": [
+      {
+        "path": "config.json",
+        "bytes": 1765,
+        "sha256": "6e1f06404b7163e0325ed2ea3e6781cde50f4a50b31780a95ad0d30e8404d77b"
+      },
+      {
+        "path": "onnx/model.onnx",
+        "bytes": 479932,
+        "sha256": "ea91fd315a7c152d427d231746f0f811a1ac93beaba656abfdf2b24e091265e4"
+      },
+      {
+        "path": "onnx/model.onnx_data",
+        "bytes": 1234521088,
+        "sha256": "ef835ae565d8695236652475903078e8ed794c7c35faf1164d78ec3238e8a88d"
+      },
+      {
+        "path": "tokenizer.json",
+        "bytes": 20323312,
+        "sha256": "4dda02faaf32bc91031dc8c88457ac272b00c1016cc679757d1c441b248b9c47"
+      },
+      {
+        "path": "tokenizer_config.json",
+        "bytes": 1156830,
+        "sha256": "3ca953eea6c3c9fcda9cf3df22949ff18b216f7c74bd6459230f3f1013953f3a"
+      }
+    ]
+  },
+  "licence": {
+    "name": "Gemma Terms of Use",
+    "hubCardLicence": "gemma",
+    "url": "https://ai.google.dev/gemma/terms"
+  },
+  "runtime": {
+    "engine": "onnx",
+    "dtype": "fp32",
+    "output": "sentence_embedding",
+    "pooling": "in-graph",
+    "normalize": "l2",
+    "dimensions": 768,
+    "maxTokens": 2048
+  },
+  "prompts": {
+    "query": "task: search result | query: {text}",
+    "document": "title: {title} | text: {text}",
+    "title": "name"
+  },
+  "thresholds": {
+    "classes": 0.35,
+    "mitre": 0.301,
+    "components": null
+  },
+  "calibration": {
+    "set": "360 class and ATT&CK technique retrieval queries",
+    "date": "2026-10-10",
+    "rule": "the highest cosine threshold at which at least 99% of the queries that find an expected match in their top 3 results with no threshold still find one"
+  }
+}

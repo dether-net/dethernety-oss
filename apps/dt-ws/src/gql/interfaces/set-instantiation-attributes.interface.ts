@@ -232,6 +232,8 @@ export interface SetInstantiationStatistics {
     upsertCountermeasures: number;
     linkExternalObjects: number;
   };
+  /** Transient conflicts inside a finding write, each retried by the managed transaction. */
+  retriableConflicts: number;
   batchProcessing: BatchProcessingStatistics;
 }
 

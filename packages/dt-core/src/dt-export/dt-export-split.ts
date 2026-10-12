@@ -359,6 +359,9 @@ export class DtExportSplit {
     if (item.regulatoryFlags && item.regulatoryFlags.length > 0) {
       result.regulatory_flags = item.regulatoryFlags
     }
+    const origin = platformEnumToLocal(item.origin)
+    if (origin) result.origin = origin
+    if (typeof item.isCredential === 'boolean') result.is_credential = item.isCredential
 
     return result
   }

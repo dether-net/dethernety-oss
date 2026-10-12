@@ -129,6 +129,8 @@ export const UPDATE_BOUNDARY = gql`
           }
           sensitivity
           regulatoryFlags
+          origin
+          isCredential
           # elements {
           #   id
           # }

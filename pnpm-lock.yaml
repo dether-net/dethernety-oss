@@ -284,6 +284,9 @@ importers:
       '@dethernety/dt-module':
         specifier: workspace:*
         version: link:../../packages/dt-module
+      '@dethernety/embedder':
+        specifier: workspace:*
+        version: link:../../packages/embedder
       '@graphql-tools/schema':
         specifier: ^10.1.3
         version: 10.1.3(graphql@16.14.2)
@@ -577,6 +580,25 @@ importers:
       '@types/uuid':
         specifier: ^10.0.0
         version: 10.0.0
+      vitest:
+        specifier: ^4.1.11
+        version: 4.1.11(@types/node@25.9.9)(happy-dom@20.14.5)(vite@8.3.3(@types/node@25.9.9)(esbuild@0.28.2)(sass@1.100.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+
+  packages/embedder:
+    dependencies:
+      '@dethernety/dt-module':
+        specifier: workspace:*
+        version: link:../dt-module
+      '@huggingface/tokenizers':
+        specifier: 0.2.0
+        version: 0.2.0
+      onnxruntime-node:
+        specifier: 1.30.0
+        version: 1.30.0
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.9
+        version: 25.9.9
       vitest:
         specifier: ^4.1.11
         version: 4.1.11(@types/node@25.9.9)(happy-dom@20.14.5)(vite@8.3.3(@types/node@25.9.9)(esbuild@0.28.2)(sass@1.100.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
@@ -1499,6 +1521,9 @@ packages:
     engines: {node: '>=20'}
     peerDependencies:
       hono: ^4.13.5
+
+  '@huggingface/tokenizers@0.2.0':
+    resolution: {integrity: sha512-LidMHe1FpcSYH4vcSjXooda34pC0M8m1gmDOv7SQi6Iv+ib1zX7J3sHBCC9/3FPCkn2k1b55FneVqMRxrr99pg==}
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -3643,6 +3668,10 @@ packages:
     engines: {node: '>=0.4.0'}
     hasBin: true
 
+  adm-zip@0.6.1:
+    resolution: {integrity: sha512-Xwrja8nx9e5o2N1my4DsKCeKpdrnACyr1wtbPxBDgGzKzKyE9kRtBFA8mWldI+RVlD7CBZNWY/wQ2+ydwOR6kQ==}
+    engines: {node: '>=14.0'}
+
   agent-base@6.0.2:
     resolution: {integrity: sha512-RZNwNclF7+MS/8bDg70amg32dyeZGZxiDuQmZxKLAlQjr3jGyLx+4Kkk58UO7D2QdgFIQCovuSuZESne6RG6XQ==}
     engines: {node: '>= 6.0.0'}
@@ -5482,6 +5511,10 @@ packages:
     resolution: {integrity: sha512-Wjlyrolmm8uDpm/ogGyXZXb1Z+Ca2B8NbJwqBVg0axK9GbBeoS7yGV6vjXnYdGm6X53iehEuxxbyiKp8QmN4Vw==}
     engines: {node: 18 || 20 || >=22}
 
+  global-agent@4.1.3:
+    resolution: {integrity: sha512-KUJEViiuFT3I97t+GYMikLPJS2Lfo/S2F+DQuBWzuzaMPnvt5yyZePzArx36fBzpGTxZjIpDbXLeySLgh+k76g==}
+    engines: {node: '>=10.0'}
+
   globals@13.24.0:
     resolution: {integrity: sha512-AhO5QUcj8llrbG09iWhPU2B204J1xnPeL8kQmVorSsy+Sjj1sk8gIyh6cUocGmH4L0UuhAJy+hJMRA4mgA4mFQ==}
     engines: {node: '>=8'}
@@ -6523,6 +6556,10 @@ packages:
   maska@2.1.11:
     resolution: {integrity: sha512-IGqWjBnKxMYcVa06pb4mPfag9sJjnR2T15CdGfQ2llR3gajiSd4AxXCvNqHMEq9W3UBhjjTazgWumsP3sWrUSg==}
 
+  matcher@4.0.0:
+    resolution: {integrity: sha512-S6x5wmcDmsDRRU/c2dkccDwQPXoFczc5+HpQ2lON8pnvHlnvHAHj5WlLVvw6n6vNyHuVugYrFohYxbS+pvFpKQ==}
+    engines: {node: '>=10'}
+
   math-intrinsics@1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
     engines: {node: '>= 0.4'}
@@ -6857,6 +6894,13 @@ packages:
   onetime@5.1.2:
     resolution: {integrity: sha512-kbpaSSGJTWdAY5KPVeMOKXSrPtr8C8C7wodJbcsd51jRnmD+GZu8Y0VoU6Dm5Z4vWr0Ig/1NKuWRKf7j5aaYSg==}
     engines: {node: '>=6'}
+
+  onnxruntime-common@1.30.0:
+    resolution: {integrity: sha512-7fdVWjAID1dVhH/G8qK3APARunV4VkBFoCQAP7qp4Wkab0mrorvmc+sqiT+mKXOzDqdjN5j+/Z9nb4gzNPWcyA==}
+
+  onnxruntime-node@1.30.0:
+    resolution: {integrity: sha512-twhs1C2C/BFkz1yc5OY0KIU2GUq6DURO7hD4bx5Q2Qy3nAMJwRXW8xU3NVczE29VA9lolLOYepoD8fjTGOfIqw==}
+    os: [win32, darwin, linux]
 
   open@11.0.4:
     resolution: {integrity: sha512-++Zlftm0kVLPmzC06t6epuWmcRMDbI4z5P3NNX979WA/k23+NtSOynEGzsVfZwguKw2mi5umVgnBlJQMwRz4Pg==}
@@ -7419,6 +7463,10 @@ packages:
   send@1.2.1:
     resolution: {integrity: sha512-1gnZf7DFcoIcajTjTwjwuDjzuz4PPcY2StKPlsGAQ1+YH20IRVrBaXSWmdjowTJ6u8Rc01PoYOGHXfP1mYcZNQ==}
     engines: {node: '>= 18'}
+
+  serialize-error@8.1.0:
+    resolution: {integrity: sha512-3NnuWfM6vBYoy5gZFvHiYsVbafvI9vZv/+jlIigFn4oP4zjNPK3LhcY0xSCgeb1a5L8jO71Mit9LlNoi2UfDDQ==}
+    engines: {node: '>=10'}
 
   serve-static@2.2.1:
     resolution: {integrity: sha512-xRXBn0pPqQTVQiC8wyQrKs2MOlX24zQ0POGaj0kultvoOCstBQM5yvOhAVSUwOMjQtTvsPWoNCHfPGwaaQJhTw==}
@@ -9513,6 +9561,8 @@ snapshots:
   '@hono/node-server@2.1.3(hono@4.13.13)':
     dependencies:
       hono: 4.13.13
+
+  '@huggingface/tokenizers@0.2.0': {}
 
   '@humanfs/core@0.19.2':
     dependencies:
@@ -11888,6 +11938,8 @@ snapshots:
 
   acorn@8.19.0: {}
 
+  adm-zip@0.6.1: {}
+
   agent-base@6.0.2:
     dependencies:
       debug: 4.4.3
@@ -14037,6 +14089,13 @@ snapshots:
       minipass: 7.1.3
       path-scurry: 2.0.2
 
+  global-agent@4.1.3:
+    dependencies:
+      globalthis: 1.0.4
+      matcher: 4.0.0
+      semver: 7.8.5
+      serialize-error: 8.1.0
+
   globals@13.24.0:
     dependencies:
       type-fest: 0.20.2
@@ -15179,6 +15238,10 @@ snapshots:
 
   maska@2.1.11: {}
 
+  matcher@4.0.0:
+    dependencies:
+      escape-string-regexp: 4.0.0
+
   math-intrinsics@1.1.0: {}
 
   mdn-data@2.27.1: {}
@@ -15455,6 +15518,14 @@ snapshots:
   onetime@5.1.2:
     dependencies:
       mimic-fn: 2.1.0
+
+  onnxruntime-common@1.30.0: {}
+
+  onnxruntime-node@1.30.0:
+    dependencies:
+      adm-zip: 0.6.1
+      global-agent: 4.1.3
+      onnxruntime-common: 1.30.0
 
   open@11.0.4:
     dependencies:
@@ -16084,6 +16155,10 @@ snapshots:
       statuses: 2.0.2
     transitivePeerDependencies:
       - supports-color
+
+  serialize-error@8.1.0:
+    dependencies:
+      type-fest: 0.20.2
 
   serve-static@2.2.1:
     dependencies:

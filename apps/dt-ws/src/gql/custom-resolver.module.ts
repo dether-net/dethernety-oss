@@ -27,6 +27,7 @@ import { MonitoringService } from './services/monitoring.service';
 import { TemplateCacheService } from './services/template-cache.service';
 import { AnalysisCacheService } from './services/analysis-cache.service';
 import { EmbeddingService } from './services/embedding.service';
+import { VectorSearchService } from './services/vector-search.service';
 import gqlConfig from './gql.config';
 const resolverServiceClasses = [
   TemplateResolverService,
@@ -70,6 +71,7 @@ const resolverServiceClasses = [
     TemplateCacheService,
     AnalysisCacheService,
     EmbeddingService,
+    VectorSearchService,
 
     // Resolver services
     AnalysisResolverService,
@@ -97,6 +99,7 @@ const resolverServiceClasses = [
     TemplateCacheService,
     AnalysisCacheService,
     EmbeddingService,
+    VectorSearchService,
 
     // Resolver services
     ...resolverServiceClasses,

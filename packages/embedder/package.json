@@ -1,0 +1,21 @@
+{
+  "name": "@dethernety/embedder",
+  "version": "0.10.1",
+  "private": true,
+  "description": "In-process text embedder for the built-in embedding profiles: weight acquisition with sha256 verification and an onnxruntime session on the text graph.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@dethernety/dt-module": "workspace:*",
+    "@huggingface/tokenizers": "0.2.0",
+    "onnxruntime-node": "1.30.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.9",
+    "vitest": "^4.1.11"
+  }
+}

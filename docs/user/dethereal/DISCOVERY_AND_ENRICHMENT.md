@@ -218,6 +218,39 @@ For cross-boundary flows carrying sensitive data, the plugin proposes data items
 | Internal (Tier 3) | — | Metrics, operational logs |
 | Public (Tier 4) | — | Documentation, public APIs |
 
+#### Origin and credential flag
+
+Two more answers sit beside sensitivity on each data item. Both start unanswered, and the plugin never fills either in on its own — it asks or proposes, and you confirm.
+
+**Origin** records who can write the item's content — and so whether an element that reads it is reading trusted input:
+
+| Origin | Meaning | Untrusted |
+|--------|---------|-----------|
+| Authenticated first party | Written only by the operator's own authenticated users or systems | |
+| Curated internal | Internal content that passed a review or curation step | |
+| Agent relayed | Produced or forwarded by another agent; at most this trusted | |
+| Model generated | Written by a model and later read as input; at most this trusted | |
+| Third party | Written by a known external party under an agreement | yes |
+| Arbitrary public | Anyone can write it | yes |
+| Not assessed | Answered as not established; treated as untrusted | yes |
+
+Typical Arbitrary public content: web pages, inbound email, public issues, public forms.
+
+Pick the **least-trusted** source of what the item holds: if any part of it comes from a public form, the item is Arbitrary public. When the source of the content is known, the plugin asks for the origin; when it is not, the item stays unanswered, which is different from Not assessed. The full vocabulary, with the tokens written to `data-items.json`, is in the [canonical data-origin and credential vocabulary](../../architecture/dethereal/THREAT_MODELING_WORKFLOW.md#canonical-data-origin-and-credential-vocabulary).
+
+**Credential** records whether the item is a credential — a password, token, key, secret, or certificate. It is yes, no, or unknown. When a data item is classified with a credential-like data class (for example *User Credentials* or *Authentication Tokens*, or any class whose name mentions a token, secret, password, key, or certificate) and you have not answered yet, the plugin proposes **yes** in the batch confirmation table:
+
+```
+| # | Data item          | Class                 | Proposed credential |
+|---|--------------------|-----------------------|---------------------|
+| 1 | Session token      | Authentication Tokens | yes                 |
+| 2 | Login password     | User Credentials      | yes                 |
+```
+
+Accept, change, or skip each row. If you answer **no**, the plugin keeps your answer and stops proposing. These proposals do not change the quality score; `/dethereal:review` lists any still-unanswered items, and data items without an origin that flow to external parties or to model- or agent-driven components, as informational findings.
+
+You can set or change both fields later in the platform: open the data item and use the **Origin** and **Credential** selects on its **General** tab. Untrusted origins carry an **untrusted** chip in the list.
+
 ### Boundary Enforcement
 
 For each trust boundary, the enricher captures enforcement posture:

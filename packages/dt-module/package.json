@@ -10,9 +10,9 @@
       "default": "./dist/index.js"
     },
     "./embedding": {
-      "types": "./dist/embedding-text.d.ts",
-      "require": "./dist/embedding-text.js",
-      "default": "./dist/embedding-text.js"
+      "types": "./dist/embedding.d.ts",
+      "require": "./dist/embedding.js",
+      "default": "./dist/embedding.js"
     },
     "./rego-adhoc": {
       "types": "./dist/rego-adhoc.d.ts",
@@ -38,7 +38,7 @@
   "typesVersions": {
     "*": {
       "embedding": [
-        "dist/embedding-text.d.ts"
+        "dist/embedding.d.ts"
       ],
       "rego-adhoc": [
         "dist/rego-adhoc.d.ts"

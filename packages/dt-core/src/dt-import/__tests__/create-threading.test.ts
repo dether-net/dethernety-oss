@@ -49,4 +49,18 @@ describe('DtImport — asset-context threading (create)', () => {
       regulatoryFlags: ['PCI cardholder'],
     });
   });
+
+  it('createDataItems forwards origin + is_credential to createDataItem', async () => {
+    const dtImport = new DtImport({} as any) as any;
+    const spy = vi.fn().mockResolvedValue({ id: 'd1' });
+    dtImport.dtDataitem.createDataItem = spy;
+
+    await dtImport.createDataItems(
+      [{ id: 'd1', name: 'Ticket', origin: 'arbitrary_public', is_credential: false }],
+      'm1',
+      {},
+    );
+
+    expect(spy.mock.calls[0][0]).toMatchObject({ origin: 'arbitrary_public', isCredential: false });
+  });
 });

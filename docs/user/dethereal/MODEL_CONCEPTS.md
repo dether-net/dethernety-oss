@@ -174,6 +174,26 @@ Data items can carry **regulatory flags** — free-text compliance labels, kept 
 
 A data item may carry several flags; its sensitivity is the highest applicable floor. This set is the [single source of truth in the architecture docs](../../architecture/dethereal/THREAT_MODELING_WORKFLOW.md#canonical-sensitivity-and-regulatory-flag-vocabulary) — it's extensible, but emit the canonical casing so scope queries match. Your compliance drivers (set during scope definition) determine which regulatory prompts appear during enrichment.
 
+### Origin
+
+**Origin** records who can write a data item's content (`origin` in `data-items.json`). From most to least trusted:
+
+| Origin | Meaning | Untrusted |
+|--------|---------|-----------|
+| `authenticated_first_party` | Written only by the operator's own authenticated users or systems | |
+| `curated_internal` | Internal content that passed a review or curation step | |
+| `agent_relayed` | Produced or forwarded by another agent; at most this trusted | |
+| `model_generated` | Written by a model and later read as input; at most this trusted | |
+| `third_party` | Written by a known external party under an agreement | yes |
+| `arbitrary_public` | Anyone can write it | yes |
+| `not_assessed` | Answered as not established; treated as untrusted | yes |
+
+Use the least-trusted source of what the item holds — one public source makes it `arbitrary_public`. Leave it absent when you don't know; absent is not the same as `not_assessed`. See the [canonical data-origin and credential vocabulary](../../architecture/dethereal/THREAT_MODELING_WORKFLOW.md#canonical-data-origin-and-credential-vocabulary).
+
+### Credential Flag
+
+**`is_credential`** records whether the data item is a credential — a password, token, key, secret, or certificate. It is `true`, `false`, or absent (unknown). When an item is bound to a credential-like data class and the flag is unanswered, enrichment proposes `true` for you to confirm; it never sets the flag on its own, and an answered `false` is kept. See [Discovery and Enrichment](DISCOVERY_AND_ENRICHMENT.md#origin-and-credential-flag).
+
 ---
 
 ## Classes and Modules

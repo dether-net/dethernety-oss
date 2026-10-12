@@ -61,3 +61,13 @@ Tiers 1–4 are deterministic and need no embedding backend. Tier 5 is the seman
 - **Five corpora.** `MitreKind` gains `ATLAS_TECHNIQUE` and `ATLAS_MITIGATION`, read from `MitreAtlasTechnique` / `MitreAtlasMitigation` by `atlas_id` and searched through their own HNSW indexes, `mitre_atlas_technique_embeddings` and `mitre_atlas_mitigation_embeddings`. Every candidate also carries `tacticOrder`, the matrix position of its tactic (ATT&CK and ATLAS; null for D3FEND and mitigations).
 - **A kind with no nodes is skipped.** When a framework is not loaded, its kind is left out of the vector precheck with a log line, and no vector index is created for it; the tier stays on for the other kinds, and a query for the skipped kind reports `NO_VECTORS`. Among the kinds that have nodes the precheck is still global: one failing kind disables the tier for all of them.
 - **Key indexes are startup DDL.** The auxiliary label-property indexes are no longer created lazily by the picker (that path ran on Memgraph only). They are created at application bootstrap on both graph engines, for every MITRE lookup key: ATT&CK technique and mitigation `attack_id`, D3FEND technique `d3fendId`, and ATLAS technique and mitigation `atlas_id`. The HNSW vector indexes are still created lazily.
+
+## Update (2026-10-11)
+
+The vector tier no longer searches HNSW indexes. It is an **exact cosine search** in the database: every candidate node that carries a vector of the active embedding model is scored with the engine's own cosine function (`vector_search.cosine_similarity` on Memgraph, `vector.similarity.cosine` mapped back to the cosine on Neo4j). The cascade and the tiers above are unchanged. What changed:
+
+- **No index mechanics on the search path.** Class matching has no vector index DDL, availability probe, capacity or index heal any more; `reindexClassEmbeddings` lost its `capacity` argument. The MITRE resolver's search does not use an index either. It still keeps its Memgraph HNSW indexes in the background for consumers that search the corpus by index name, and that upkeep never affects availability. The sticky process-wide disable on an index dimension mismatch described in the operational note no longer happens: a mismatched MITRE index is rebuilt.
+- **Neo4j is supported.** The vector tier runs on Memgraph and Neo4j.
+- **`NO_INDEX_MODULE` is removed** from `VectorDisabledReason`. `EMBEDDING_DISABLED` now also covers an embedder that is not ready and a database that fails the vector self-test.
+
+A later ADR will record the full embedding-profile design.

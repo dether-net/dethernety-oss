@@ -38,7 +38,7 @@ See [BACKEND_DELEGATION.md](BACKEND_DELEGATION.md) Section 1 for the full proble
 | **Deterministic coverage reporting** | Server-side arithmetic for coverage percentages -- no LLM-computed numbers |
 | **Dual-client support** | Every backend service is consumable by both the Dethereal MCP plugin (via dt-core) and the Dethernety web UI (via GraphQL) |
 | **Progressive vector enhancement** | Semantic class matching via embeddings improves results when available, but the system is fully functional without it |
-| **Database portability** | All deterministic services work on both Neo4j and Memgraph; vector search is Memgraph-only for this phase |
+| **Database portability** | All services, vector search included, work on both Neo4j and Memgraph |
 
 ### Non-goals
 
@@ -62,7 +62,7 @@ These principles are defined in the [Platform Architecture Overview](../README.m
 | **Extensibility** | The match_classes service is generalized across all five class types via a single `classLabel` parameter. New class types added by modules are automatically searchable. The embedding pipeline embeds all class labels without code changes. |
 | **Standards-based** | Gap analysis is grounded in MITRE ATT&CK and D3FEND. Recommendations are linked to specific techniques and mitigations, not heuristic rules. |
 | **Secure by design** | Custom resolvers bypass `@neo4j/graphql`'s auto-generated `@authentication` directive, so each resolver explicitly checks authorization via `AuthorizationService`. No exception, no shortcut. |
-| **Database portability** | Deterministic matching (priorities 1-2) and gap analysis work on both Neo4j and Memgraph. Vector search uses Memgraph's built-in HNSW indexes (available since 3.0); Neo4j deployments gracefully skip Priority 3. |
+| **Database portability** | Deterministic matching (priorities 1-2) and gap analysis work on both Neo4j and Memgraph. Vector search is an exact cosine search in Cypher with each engine's own cosine function, so it runs on both engines without a vector index. |
 
 ### Dethereal principles applied
 
@@ -155,8 +155,8 @@ Every service in this architecture was evaluated against this framework. The res
                               │  Graph Database         │
                               │  (Neo4j or Memgraph)    │
                               │                        │
-                              │  + HNSW Vector Index   │
-                              │    (Memgraph only)     │
+                              │  + class embeddings    │
+                              │    (exact cosine)      │
                               └────────────────────────┘
 ```
 
@@ -191,7 +191,7 @@ Database access uses the Neo4j Bolt driver injected via `@Inject('NEO4J_DRIVER')
 
 **Role:** Given a list of elements (name, type, description), find the best matching classes from the class catalog. Covers all five class types: ComponentClass, DataFlowClass, SecurityBoundaryClass, DataClass, ControlClass.
 
-**Architecture pattern:** Multi-priority pipeline with short-circuit evaluation.
+**Architecture pattern:** Exact-name and vector tiers merged per element, then short-circuit fallbacks.
 
 ```
                             Input: elements[]
@@ -201,52 +201,50 @@ Database access uses the Neo4j Bolt driver injected via `@Inject('NEO4J_DRIVER')
                     ▼              ▼              ▼
                element₁      element₂      element₃  ...
                     │
-     ┌──────────────┼──────────────────────────────────┐
-     │              │                                  │
-     │    ┌─────────▼──────────┐                       │
-     │    │ Priority 1         │                       │
-     │    │ Exact name match   │──── hit ──→ done      │
-     │    │ (case-insensitive) │                       │
-     │    └─────────┬──────────┘                       │
-     │         no match                                │
-     │    ┌─────────▼──────────┐                       │
-     │    │ Priority 2         │                       │
-     │    │ Fuzzy name match   │──── hit ──→ done      │
-     │    │ (substring)        │                       │
-     │    └─────────┬──────────┘                       │
-     │         no match                                │
-     │    ┌─────────▼──────────┐                       │
-     │    │ Priority 3         │                       │
-     │    │ Vector similarity  │──── hit ──→ done      │
-     │    │ (HNSW, optional)   │                       │
-     │    └─────────┬──────────┘                       │
-     │     no match / unavailable                      │
-     │    ┌─────────▼──────────┐                       │
-     │    │ Priority 4         │                       │
-     │    │ Type-filtered      │──→ fallback candidates│
-     │    │ heuristic          │                       │
-     │    └────────────────────┘                       │
-     │                                                 │
-     └──────── per-element pipeline ───────────────────┘
+     ┌──────────────┼──────────────────────────────────────────┐
+     │           ┌──┴────────────────────┐                     │
+     │           ▼                       ▼                     │
+     │ ┌────────────────────┐  ┌────────────────────┐          │
+     │ │ Exact name match   │  │ Vector similarity  │          │
+     │ │ (case-insensitive) │  │ (exact, optional)  │          │
+     │ └─────────┬──────────┘  └─────────┬──────────┘          │
+     │           └───────────┬───────────┘                     │
+     │                       ▼                                 │
+     │                   any hits? ── yes ──→ exact-name hits  │
+     │                       │                first, then new  │
+     │                       no               vector hits;     │
+     │                       │                topN → done      │
+     │             ┌─────────▼──────────┐                      │
+     │             │ Fallback 1         │                      │
+     │             │ Name containment   │──── hit ──→ done     │
+     │             └─────────┬──────────┘                      │
+     │                   no match                              │
+     │             ┌─────────▼──────────┐                      │
+     │             │ Fallback 2         │                      │
+     │             │ Type-filtered      │──→ fallback          │
+     │             │ heuristic          │    candidates        │
+     │             └────────────────────┘                      │
+     │                                                         │
+     └──────── per-element pipeline ───────────────────────────┘
                     │
                     ▼
             Output: matches[] + unmatched[]
 ```
 
-**Priority characteristics:**
+**Tier characteristics:**
 
-| Priority | Method | Confidence | Cost | Database | Deterministic |
+| Tier | Method | Confidence | Cost | Database | Deterministic |
 |----------|--------|------------|------|----------|:---:|
-| 1 | Exact name (case-insensitive) | high | Cypher `toLower` compare | Neo4j + Memgraph | Yes |
-| 2 | Substring containment | high | In-memory string ops | Neo4j + Memgraph | Yes |
-| 3 | Vector similarity (cosine, threshold >= 0.75) | medium | HNSW search + query-time embedding | Memgraph only | No |
-| 4 | Type-filtered heuristic | low | Cypher label match | Neo4j + Memgraph | Yes |
+| Exact name | Exact name (case-insensitive) | high | Cypher `toLower` compare | Neo4j + Memgraph | Yes |
+| Vector (runs with exact name) | Vector similarity (cosine, threshold >= 0.75) | medium | Exact cosine in Cypher + query-time embedding | Neo4j + Memgraph | No |
+| Fallback 1 | Substring containment | high | In-memory string ops | Neo4j + Memgraph | Yes |
+| Fallback 2 | Type-filtered heuristic | low | Cypher label match | Neo4j + Memgraph | Yes |
 
 **Key design decisions:**
 
 - **Single generalized service.** One `classLabel` parameter selects which node label to search. No per-class-type services, no separate `match_controls` tool. The `ClassLabelEnum` maps directly to graph labels: `COMPONENT` -> `ComponentClass`, `CONTROL` -> `ControlClass`, etc.
-- **`componentType` filter only for COMPONENT.** The `ComponentType` enum (PROCESS, STORE, EXTERNAL_ENTITY) is a property of `ComponentClass` only. Other class labels have no type property to filter on. Priority 4 returns `topN` classes of the label for non-COMPONENT types.
-- **Short-circuit per element, not per batch.** Each element walks the priority pipeline independently. A batch of 15 elements may have some matched at Priority 1 and others falling through to Priority 3.
+- **`componentType` filter only for COMPONENT.** The `ComponentType` enum (PROCESS, STORE, EXTERNAL_ENTITY) is a property of `ComponentClass` only. Other class labels have no type property to filter on. The type-filtered heuristic returns `topN` classes of the label for non-COMPONENT types.
+- **Exact name and vector together, fallbacks short-circuit.** A name hit no longer keeps the vector tier from running: the candidates are the exact-name hits first, then the vector hits not already listed (deduplicated by class id), cut to `topN`. The exact-name candidate stays first, so consumers that auto-accept `exact_name` keep working. Name containment and the type-filtered heuristic run only when both tiers are empty. Each element walks the pipeline independently.
 - **No IaC mapping table.** Dropped during review -- the same results are achieved by exact/fuzzy name matching against class names. An IaC-to-class mapping table would duplicate class naming and drift.
 - **`fields` parameter for follow-up elimination.** The caller can request `description`, `category`, `type` in the match response. This eliminates the most common follow-up `get_classes` call -- the agent can present confirmation tables from a single `match_classes` call.
 
@@ -370,10 +368,10 @@ Two new properties are added to class nodes when embeddings are enabled:
 
 | Property | Labels | Type | Purpose |
 |----------|--------|------|---------|
-| `embedding` | All 5 class labels | `float[]` (768 dimensions) | Vector for HNSW similarity search |
+| `embedding` | All 5 class labels | `float[]` (768 dimensions) | Vector for exact cosine similarity search |
 | `embeddingModel` | All 5 class labels | `string` | Model identifier for version drift detection |
 
-These properties are **optional**. Class nodes without them are valid and fully functional -- they simply do not participate in Priority 3 vector search.
+These properties are **optional**. Class nodes without them are valid and fully functional -- they simply do not participate in the vector tier.
 
 ### Relationship usage map
 
@@ -443,8 +441,8 @@ The shipped vector path, the on-the-fly path, and the CLI (`module-manager embed
   (single Cypher transaction)
          │
          ▼
-  HNSW index auto-includes new nodes
-  (Memgraph automatic indexing)
+  Searchable at once: the vector tier scans
+  the nodes, there is no index to update
 ```
 
 ### Embedding service architecture
@@ -481,67 +479,34 @@ A thin HTTP client, not a model runtime. The service calls any OpenAI-compatible
 
 **Default model: `embeddinggemma`** (768 dimensions). Chosen for quality-to-size ratio, local deployment via Ollama, and suitability for the domain (technical infrastructure descriptions). The embedding model is configurable per deployment.
 
-### Vector index topology
+### Vector search
 
-One HNSW index per class label, created at platform startup. Memgraph-only -- Neo4j deployments skip this entirely.
+There is no vector index. The vector tier is an **exact search** in Cypher: every active class of the label that carries a vector of the active embedding model is scored with the database's own cosine function, and the query keeps the top `k`. Because no index is involved, the scope filters (`componentType`, `moduleIds`) are ordinary `WHERE` clauses. The query builder lives in `@dethernety/dt-module/embedding` (`packages/dt-module/src/vector-search.ts`: `cosineExpr`, `buildRankQuery`); `VectorSearchService` (`apps/dt-ws/src/gql/services/vector-search.service.ts`) runs it in a read transaction.
 
-```
-  component_class_embeddings    → ComponentClass.embedding
-  control_class_embeddings      → ControlClass.embedding
-  dataflow_class_embeddings     → DataFlowClass.embedding
-  boundary_class_embeddings     → SecurityBoundaryClass.embedding
-  data_class_embeddings         → DataClass.embedding
-```
+| Engine | Cosine expression | Scale |
+|--------|-------------------|-------|
+| Memgraph (3.6+) | `vector_search.cosine_similarity(a, b)` | cosine, -1..1 |
+| Neo4j (5.26 Community) | `2 * vector.similarity.cosine(a, b) - 1` | Neo4j returns `(1 + cos) / 2`; mapped back to the cosine |
 
-Created via Memgraph DDL `CREATE VECTOR INDEX`. Vector search is **built into Memgraph core since version 3.0** -- it is not a MAGE add-on. The `memgraph-mage:3.6.2` image includes it, but so does the plain `memgraph/memgraph` image.
-
-Index creation syntax:
+Scores and thresholds are therefore cosines on both engines. Every query also filters `embeddingModel = <active model>` and `size(embedding) = <dimensions>`, so a vector of another embedding model is never compared with the query vector. Ties order by class id; `k` is clamped to 1..50 and passed as a Bolt integer.
 
 ```cypher
-CREATE VECTOR INDEX component_class_embeddings ON :ComponentClass(embedding)
-WITH CONFIG {"dimension": 768, "capacity": 500, "metric": "cos"};
+MATCH (m:Module)-[:HAS_CLASS]->(n:ComponentClass)
+WHERE n.embedding IS NOT NULL
+  AND n.embeddingModel = $profileId
+  AND size(n.embedding) = $dims
+  AND ($componentType IS NULL OR n.type = $componentType)
+  AND ($moduleIds IS NULL OR m.id IN $moduleIds)
+WITH n, m, vector_search.cosine_similarity(n.embedding, $vector) AS score
+WHERE $threshold IS NULL OR score >= $threshold
+RETURN n.id AS id, n.name AS name, m.id AS moduleId, m.name AS moduleName, score
+ORDER BY score DESC, id ASC
+LIMIT $k
 ```
 
-**Capacity strategy:** Start small (500), monitor via `vector_search.show_index_info()` (check `size` vs `capacity`), and resize by dropping and recreating the index with larger capacity during `reindexClassEmbeddings`. The reindex mutation already re-embeds all classes, so it is the natural place to resize. Memgraph rounds capacity up internally (e.g. 100 → 256, 500 → 512). At target scale (10-20 modules × 50 classes = 500-1000 per label), a capacity of 2000-5000 is appropriate. The `reindexClassEmbeddings` mutation should accept an optional `capacity` parameter to control this.
+### Database detection and self-test
 
-**Note:** The metric name is `"cos"`, not `"cosine"`. Creation is **not idempotent** -- creating a duplicate index raises an error. The application must check for existence first via `vector_search.show_index_info()` or wrap creation in error handling.
-
-### Vector search query syntax
-
-The `vector_search.search()` procedure takes exactly 3 parameters in this order: `(index_name, limit, query_vector)`. There is no filter parameter -- post-filter with `WHERE`:
-
-```cypher
-CALL vector_search.search('component_class_embeddings', 10, $query_vector)
-YIELD node, similarity
-WHERE node.type = $component_type AND similarity >= 0.75
-MATCH (node)<-[:HAS_CLASS]-(m:Module)
-WHERE $module_ids IS NULL OR m.id IN $module_ids
-RETURN node.id, node.name, node.description, node.category, m.name AS moduleName, similarity
-ORDER BY similarity DESC
-LIMIT $top_n
-```
-
-Since pre-filtering is not supported, request more results from the index (e.g., 2-3x `topN`) and filter in Cypher. This is a meaningful design consideration for indexes with many class types.
-
-### Database detection
-
-The codebase currently has no mechanism to detect whether the graph database is Neo4j or Memgraph -- both are accessed via the same Bolt driver with `NEO4J_URI`. Vector search requires knowing the database type to decide whether to attempt HNSW operations.
-
-**Detection strategy:** Runtime feature detection via `SHOW VECTOR INDEX INFO`. Before executing any vector operation, the resolver calls:
-
-```cypher
-SHOW VECTOR INDEX INFO
-```
-
-If this succeeds, vector search is available (Memgraph 3.0+). If it throws (syntax error or procedure not found), the system is running Neo4j or an older Memgraph -- log a warning and skip Priority 3. This is preferred over a `DATABASE_TYPE` env var because it detects actual capability, not declared intent.
-
-To check for a specific index:
-
-```cypher
-CALL vector_search.show_index_info() YIELD index_name
-WHERE index_name = 'component_class_embeddings'
-RETURN index_name
-```
+The dialect comes from the engine probe (`DatabaseService.getEngineInfo()`, which reads `dbms.components()`). Before any search runs, `VectorSearchService` runs a memoized **self-test**: the engine's cosine of two orthogonal vectors must be 0 and of two opposite vectors -1. This proves the function exists and that its scale maps as expected. A failed self-test keeps the vector tier off and is retried after 60 seconds, so a database that comes up later is picked up without a restart.
 
 ### Module ingestion integration
 
@@ -565,17 +530,17 @@ The embedding pipeline integrates into the existing `ModuleManagementService.ups
 
 ### Query-time element embedding
 
-When `match_classes` reaches Priority 3 for an unmatched element, the resolver embeds the query element on the fly:
+When `match_classes` runs the vector tier for an element with a description, the resolver embeds the query element on the fly:
 
 1. Compose embedding text via `EmbeddingService.composeElementText(element)` -- produces `"{name}. {description}. Type: {type}."`
 2. Call `EmbeddingService.embedBatch([text])` to get the query vector
-3. Pass the query vector to `vector_search.search()` against the appropriate HNSW index
+3. Rank the label's classes against the query vector with the exact cosine search (see [Vector search](#vector-search))
 
-This is a per-element call at query time, not a batch. For a batch of 15 elements where 10 matched at Priority 1-2, only the remaining 5 trigger embedding calls. If the embedding service is unavailable at query time, Priority 3 is skipped (same as when embeddings are disabled) and the element falls through to Priority 4.
+This is a per-element call at query time, not a batch. Every element with a description triggers an embedding call, including elements that also have an exact-name hit. If the embedding service is unavailable at query time, the vector tier is skipped (same as when embeddings are disabled): exact-name hits stand alone, and an element without one falls through to name containment and the type-filtered heuristic.
 
 ### Model version tracking and re-indexing
 
-The `embeddingModel` property on class nodes tracks which model produced the vector. At query time, if the configured model differs from the stored model, a warning is logged. A `reindexClassEmbeddings` mutation allows re-computing all vectors after an embedding model change -- this is a blocking operation to prevent stale vectors from producing incorrect rankings during a partial reindex.
+The `embeddingModel` property on class nodes tracks which model produced the vector. The vector search only compares vectors of the active model, and `vectorAvailable` is false (with a logged warning) when no class in scope has one. A `reindexClassEmbeddings` mutation allows re-computing all vectors after an embedding model change -- this is a blocking operation to prevent stale vectors from producing incorrect rankings during a partial reindex.
 
 ---
 
@@ -672,11 +637,11 @@ The embedding service is deployment-configured. No code changes between local an
 
 | Capability | Neo4j | Memgraph |
 |-----------|-------|----------|
-| Deterministic matching (priorities 1-2-4) | Yes | Yes |
+| Deterministic matching (exact name, containment, type heuristic) | Yes | Yes |
 | Gap analysis (multi-hop Cypher) | Yes | Yes |
 | `findControls` / `assignControlToElements` | Yes | Yes |
-| Vector similarity (Priority 3) | **No** (future) | **Yes** (built-in since 3.0) |
-| HNSW index | N/A | Built into Memgraph core (not a MAGE add-on) |
+| Vector similarity tier | **Yes** (5.26 Community; `vector.similarity.cosine`) | **Yes** (3.6+, tested on 3.13.2; `vector_search.cosine_similarity`) |
+| Vector index | Not used | Not used for classes (exact search) |
 
 ---
 
@@ -686,7 +651,7 @@ The embedding service is deployment-configured. No code changes between local an
 
 | Scenario | Target | Notes |
 |----------|--------|-------|
-| `match_classes`: 15 elements, 300 classes, deterministic | < 100ms | Priorities 1-2-4 only |
+| `match_classes`: 15 elements, 300 classes, deterministic | < 100ms | Deterministic tiers only |
 | `match_classes`: 15 elements, 300 classes, with vector | < 500ms | Including batch embedding call |
 | `get_control_gaps`: 20 components, 50 exposures | < 200ms | Cypher execution time |
 | Module install: 50 classes + embeddings (local) | < 2s | Total ingestion including embedding |
@@ -697,7 +662,7 @@ The embedding service is deployment-configured. No code changes between local an
 | Dimension | Current | Target | Architecture response |
 |-----------|---------|--------|----------------------|
 | Module count | 3 | 10-20 | `match_classes` scopes by `moduleIds`, class count bounded by module filtering |
-| Classes per module | 30-50 | 30-50 | HNSW search is O(log n), deterministic matching is bounded by module scope |
+| Classes per module | 30-50 | 30-50 | Exact vector search is linear in the classes of the label (hundreds per label), deterministic matching is bounded by module scope |
 | Model elements | 15-30 | 50-100 | Batch processing, `LIMIT` on final results, not intermediate matches |
 | Exposures per model | 10-50 | 100-500 | Gap analysis batches by element groups for large models |
 
@@ -705,10 +670,10 @@ The embedding service is deployment-configured. No code changes between local an
 
 | Component | Unavailable | System behavior |
 |-----------|-------------|-----------------|
-| Embedding model | Down | Vector search (Priority 3) skipped. Deterministic matching continues. Logged warning. |
+| Embedding model | Down | Vector tier skipped. Deterministic matching continues. Logged warning. |
 | Embedding model at module install | Down | Module install fails after 3 retries. Clear error message. |
 | Graph database | Down | All services fail. Existing platform behavior. |
-| Memgraph < 3.0 or Neo4j | Vector search unavailable | Priority 3 skipped (`SHOW VECTOR INDEX INFO` fails). System functional. |
+| Database cosine function | Missing or unexpected scale | Vector tier skipped (the vector self-test fails; retried after 60 s). System functional. |
 
 ---
 
@@ -720,10 +685,8 @@ The embedding service is deployment-configured. No code changes between local an
 |-----------|--------|--------|
 | dt-core uses Apollo Client only | Established architecture (all consumers share dt-core) | `findControls` cannot execute Cypher for element filtering; requires `controlIdsByElements` helper query on dt-ws |
 | Memgraph polymorphic interface performance | Database limitation (5+ sec on interface queries) | `findControls` and `get_control_gaps` use direct Cypher instead of auto-generated GraphQL for element traversals |
-| Vector search Memgraph-only | Built into Memgraph core since 3.0; not available on Neo4j | Priority 3 is skipped on Neo4j; full system functionality maintained via fallback |
-| No database type detection | Codebase uses same Bolt driver for Neo4j and Memgraph; no `DATABASE_TYPE` flag | Vector search uses runtime feature detection (`SHOW VECTOR INDEX INFO`) rather than configuration |
-| No pre-filter on vector search | Memgraph `vector_search.search()` has no filter parameter | Request 2-3x `topN` results from index, post-filter with `WHERE` in Cypher |
-| Non-idempotent index creation | `CREATE VECTOR INDEX` raises error on duplicate | Must check existence via `vector_search.show_index_info()` before creating, or wrap in error handling |
+| Engine-specific cosine function | Memgraph and Neo4j name the function differently, and Neo4j returns `(1 + cos) / 2` | The query builder emits the dialect's expression and maps Neo4j's score back to the cosine; a self-test verifies the scale before the tier is used |
+| Same Bolt driver for Neo4j and Memgraph; no `DATABASE_TYPE` flag | Codebase convention | The dialect comes from the runtime engine probe rather than configuration |
 | Embedding model at module install | No partial state allowed (module registry won't re-ingest) | Embedding failure fails the entire module install -- no "install without embeddings" path |
 | Authorization pass-through | `AuthorizationService.checkAuthorization()` currently returns `{ allowed: true }` | New resolvers are authenticated (JWT) but not operation-authorized; acceptable until RBAC is introduced |
 
@@ -735,7 +698,7 @@ The embedding service is deployment-configured. No code changes between local an
 | **Fail module install** vs install without embeddings | Fail after 3 retries | Install without embeddings, log warning | A module installed without embeddings is never re-processed. Frontends that rely on vector search would silently produce degraded results. Explicit failure is honest. |
 | **Application-level partitioning** for unaddressable exposures vs complex Cypher `NOT EXISTS` | Application code | Single Cypher query with `NOT EXISTS` | `NOT EXISTS` semantics differ between Neo4j and Memgraph. Two simple queries (one for unmitigated, one to check addressability) are portable and debuggable. |
 | **Helper query** for element-based control lookup vs interface query | `controlIdsByElements` Cypher helper on dt-ws | Auto-generated `ControlWhere` with interface filter | Memgraph interface queries take 5+ seconds. Direct Cypher takes < 50ms. The helper adds one extra round-trip but eliminates a known performance pathology. |
-| **No fuzzy Levenshtein** in Priority 2 | Substring containment only | Levenshtein edit distance | Character-level edit distance on short identifiers produces false positives ("DB" matching "DeBug"). Substring matching catches the common cases ("Postgres" -> "PostgreSQL", "K8s" -> "Kubernetes"). Ambiguous matches fall through to vector search (Priority 3) or agent reasoning (Pass 2). |
+| **No fuzzy Levenshtein** in name containment | Substring containment only | Levenshtein edit distance | Character-level edit distance on short identifiers produces false positives ("DB" matching "DeBug"). Substring matching catches the common cases ("Postgres" -> "PostgreSQL", "K8s" -> "Kubernetes"). Approximate matching is left to the vector tier, which runs before containment, and to agent reasoning (Pass 2). |
 
 ### Offline behavior
 

@@ -166,7 +166,7 @@ If user chooses **cancel**: stop.
 - The tool handles: structural diff, applying changes, sync.json update
 - `delete_orphaned` is always `true` because at this point the user has either confirmed deletion of platform additions (P4a → push), or no platform additions exist (P4 → no conflicts). The conflict resolution decision happens at the skill level (push/pull/cancel), not at the tool parameter level.
 
-Both tools also publish the model's **asset context**: model scope (read from `.dethereal/scope.json`), per-component `crownJewel` (first-class in `structure.json`), and per-data `sensitivity` / `regulatoryFlags` (first-class in `data-items.json`). These use REPLACE semantics — clearing a value locally clears it on the platform on the next push.
+Both tools also publish the model's **asset context**: model scope (read from `.dethereal/scope.json`), per-component `crownJewel` (first-class in `structure.json`), and per-data `sensitivity` / `regulatoryFlags` / `origin` / `isCredential` (first-class in `data-items.json` as `sensitivity`, `regulatory_flags`, `origin`, `is_credential`). These use REPLACE semantics — clearing a value locally clears it on the platform on the next push; an `is_credential: false` is an answer and is published as such.
 
 ### P6. Post-Push
 
@@ -815,7 +815,7 @@ Call `mcp__plugin_dethereal_dethereal__export_model` with:
 - `model_id`: the selected platform model ID
 - `directory_path`: the target directory
 
-The tool writes: `manifest.json`, `structure.json`, `dataflows.json`, `data-items.json`, `attributes/`, `.dethereal/scope.json`, and `.dethereal/sync.json`. Model scope is materialised into `.dethereal/scope.json` (merge-preserving any local-only keys such as `crown_jewels` / `adversary_classes` / `activeModules`); component `crownJewel` is written first-class into `structure.json`; per-data `sensitivity` / `regulatoryFlags` are written first-class into `data-items.json`.
+The tool writes: `manifest.json`, `structure.json`, `dataflows.json`, `data-items.json`, `attributes/`, `.dethereal/scope.json`, and `.dethereal/sync.json`. Model scope is materialised into `.dethereal/scope.json` (merge-preserving any local-only keys such as `crown_jewels` / `adversary_classes` / `activeModules`); component `crownJewel` is written first-class into `structure.json`; per-data `sensitivity` / `regulatoryFlags` / `origin` / `isCredential` are written first-class into `data-items.json` (`origin` lowercased, `is_credential` written including `false`; an unset value is omitted).
 
 ### L4.5. Materialize Control Library Files
 

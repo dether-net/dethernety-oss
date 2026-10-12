@@ -37,6 +37,12 @@ export interface DataItem extends Identifiable {
 
   /** Regulatory scopes this data falls under (free-text, e.g. "PCI cardholder", "PHI"). */
   regulatory_flags?: string[];
+
+  /** Author-asserted origin of the content: who can write it (snake/lowercase local, one of `ORIGIN_LEVELS`). */
+  origin?: string;
+
+  /** Author-asserted: the item is a credential (password, token, key, secret, certificate). Absent ⇒ unknown. */
+  is_credential?: boolean;
 }
 
 /**

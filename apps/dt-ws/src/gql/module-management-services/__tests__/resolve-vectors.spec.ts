@@ -2,7 +2,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { ModuleManagementService } from '../module-management.service';
 import { EmbeddingService } from '../../services/embedding.service';
-import { MatchClassesResolverService } from '../../resolver-services/match-classes-resolver.service';
 import { ClassReconciler } from '../class-reconciler.service';
 import { ClassIdentityEventLog } from '../class-identity-event-log.service';
 
@@ -10,12 +9,13 @@ type Stub<T> = Partial<T>;
 
 async function buildService(overrides: {
   embedding?: Stub<EmbeddingService>;
-  matchClasses?: Stub<MatchClassesResolverService>;
   driver?: any;
   config?: Stub<ConfigService>;
 }) {
   const embedding: Stub<EmbeddingService> = {
     isEnabled: jest.fn(() => true),
+    isPending: jest.fn(() => false),
+    getState: jest.fn(() => 'ready' as const),
     getDimensions: jest.fn(() => 3),
     getModel: jest.fn(() => 'nomic-embed-text'),
     embedBatch: jest.fn(async (texts: string[]) =>
@@ -23,12 +23,6 @@ async function buildService(overrides: {
     ),
     composeClassText: jest.fn((cls: any) => `TEXT:${cls.name}`),
     ...overrides.embedding,
-  };
-
-  const matchClasses: Stub<MatchClassesResolverService> = {
-    ensureVectorIndexes: jest.fn(async () => {}),
-    healClassVectorIndexes: jest.fn(async () => []),
-    ...overrides.matchClasses,
   };
 
   const driver = overrides.driver ?? {
@@ -55,7 +49,6 @@ async function buildService(overrides: {
       ModuleManagementService,
       { provide: ConfigService, useValue: configService },
       { provide: EmbeddingService, useValue: embedding },
-      { provide: MatchClassesResolverService, useValue: matchClasses },
       { provide: 'NEO4J_DRIVER', useValue: driver },
       { provide: ClassReconciler, useValue: reconciler },
       { provide: ClassIdentityEventLog, useValue: eventLog },
@@ -65,7 +58,6 @@ async function buildService(overrides: {
   return {
     svc: mod.get(ModuleManagementService),
     embedding,
-    matchClasses,
   };
 }
 
@@ -86,24 +78,16 @@ describe('ModuleManagementService.resolveVectors', () => {
     expect(result).toBeNull();
   });
 
-  it('calls ensureVectorIndexes before resolving (bootstrap gate)', async () => {
-    const ensureVectorIndexes = jest.fn(async () => {});
-    const { svc } = await buildService({
-      matchClasses: { ensureVectorIndexes },
+  it('returns pending when embedding is enabled but the embedder is not ready, and says so once per boot', async () => {
+    const { svc, embedding } = await buildService({
+      embedding: { isEnabled: jest.fn(() => false), isPending: jest.fn(() => true), getState: jest.fn(() => 'loading' as const) },
     });
-    await svc.resolveVectors(metadataWithClasses([{ name: 'A' }]));
-    expect(ensureVectorIndexes).toHaveBeenCalled();
-  });
-
-  it('returns null when the dim cross-check flipped disabled mid-bootstrap', async () => {
-    // The ensureVectorIndexes call disables embedding via disableForSession.
-    const isEnabled = jest
-      .fn()
-      .mockReturnValueOnce(true) // initial snapshot
-      .mockReturnValueOnce(false); // after ensureVectorIndexes
-    const { svc } = await buildService({ embedding: { isEnabled } });
-    const result = await svc.resolveVectors(metadataWithClasses([{ name: 'A' }]));
-    expect(result).toBeNull();
+    const warn = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => {});
+    expect(await svc.resolveVectors(metadataWithClasses([{ name: 'A' }]))).toBe('pending');
+    expect(await svc.resolveVectors(metadataWithClasses([{ name: 'B' }]))).toBe('pending');
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][1]).toEqual({ state: 'loading' });
+    expect(embedding.embedBatch).not.toHaveBeenCalled();
   });
 
   it('uses pre-computed vectors from the module', async () => {
@@ -117,11 +101,11 @@ describe('ModuleManagementService.resolveVectors', () => {
       module as any,
     );
     expect(result).not.toBeNull();
-    expect(result!.get('A')).toEqual([1, 2, 3]);
+    expect((result as Map<string, number[]>).get('A')).toEqual([1, 2, 3]);
     // B gets embedded on the fly by the stubbed embedBatch.
-    expect(result!.get('B')).toEqual([9, 9, 9]);
+    expect((result as Map<string, number[]>).get('B')).toEqual([9, 9, 9]);
     // Pre-computed were NOT re-embedded.
-    expect(embedding.embedBatch).toHaveBeenCalledWith(['TEXT:B']);
+    expect(embedding.embedBatch).toHaveBeenCalledWith(['TEXT:B'], 'document', ['B']);
   });
 
   it('passes the SLUGIFIED model name to getEmbedding', async () => {
@@ -154,8 +138,8 @@ describe('ModuleManagementService.resolveVectors', () => {
       metadataWithClasses([{ name: 'A' }]),
       module as any,
     );
-    expect(result!.get('A')).toEqual([9, 9, 9]);
-    expect(embedding.embedBatch).toHaveBeenCalledWith(['TEXT:A']);
+    expect((result as Map<string, number[]>).get('A')).toEqual([9, 9, 9]);
+    expect(embedding.embedBatch).toHaveBeenCalledWith(['TEXT:A'], 'document', ['A']);
   });
 
   it('treats all classes as missing when EMBEDDING_MODEL is empty', async () => {
@@ -174,7 +158,7 @@ describe('ModuleManagementService.resolveVectors', () => {
     );
     // getEmbedding must NOT be called with empty slug.
     expect(getEmbedding).not.toHaveBeenCalled();
-    expect(result!.get('A')).toEqual([9, 9, 9]);
+    expect((result as Map<string, number[]>).get('A')).toEqual([9, 9, 9]);
     expect(embedding.embedBatch).toHaveBeenCalled();
   });
 
@@ -198,7 +182,7 @@ describe('ModuleManagementService.resolveVectors', () => {
       metadataWithClasses([{ name: 'A' }]),
       module as any,
     );
-    expect(result!.get('A')).toEqual([9, 9, 9]);
+    expect((result as Map<string, number[]>).get('A')).toEqual([9, 9, 9]);
     expect(embedding.embedBatch).toHaveBeenCalled();
   });
 
@@ -209,7 +193,7 @@ describe('ModuleManagementService.resolveVectors', () => {
       metadataWithClasses([{ name: 'A' }]),
       module,
     );
-    expect(result!.get('A')).toEqual([9, 9, 9]);
+    expect((result as Map<string, number[]>).get('A')).toEqual([9, 9, 9]);
   });
 
   it('returns an empty map when the module has no classes', async () => {

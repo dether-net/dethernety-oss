@@ -22,7 +22,7 @@ Author workflow: see
 
 ## Overview
 
-`match_classes` Priority 3 (vector similarity) requires every class node to
+The `match_classes` vector tier (vector similarity) requires every class node to
 carry an `embedding` property. By default the platform embeds every class
 at install time via `EmbeddingService.embedBatch()` — an HTTP call to the
 configured endpoint (Ollama, OpenAI, or compatible). For large modules
@@ -210,27 +210,18 @@ Algorithm:
    by the module are **ignored** in this mode — the platform isn't
    configured for vector similarity, writing embedding properties would
    be inconsistent.
-3. `await matchClassesResolverService.ensureVectorIndexes()`. That
-   method creates the vector indexes on first call and projects their
-   `dimension` from `CALL vector_search.show_index_info()` for a
-   cross-check against `embeddingService.getDimensions()`. On mismatch
-   it calls `embeddingService.disableForSession(reason)` — the re-
-   snapshotted `isEnabled()` below then returns false. On Memgraph
-   versions that don't project `dimension`, a single warn is logged and
-   the check is skipped (no fail-open into wrong-dim writes).
-4. Re-snapshot `isEnabled()` in case step 3 flipped the flag.
-5. Slugify the configured model (`slugifyModelName(getModel())`). If the
+3. Slugify the configured model (`slugifyModelName(getModel())`). If the
    model string is empty, skip the per-class `getEmbedding(className, "")`
    calls and treat every class as missing.
-6. For each class, call
+4. For each class, call
    `moduleInstance?.getEmbedding?.(cls.name, modelSlug) ?? null`
    (undefined is coerced to null because optional chaining returns
    undefined). Dimension-check the returned vector; mismatched vectors
    are warned-on and treated as missing.
-7. Batch-embed only the missing classes via `embeddingService.embedBatch()`.
+5. Batch-embed only the missing classes via `embeddingService.embedBatch()`.
    On failure, throw — the caller's per-module try/catch decides whether
    to skip the module.
-8. Return the merged map.
+6. Return the merged map.
 
 ### `upsertModule` signature
 
@@ -336,12 +327,14 @@ module owns both helpers; runtime and CLI import from the same file.
 
 ### Session-level embedding disable
 
-`EmbeddingService.enabled` is mutable (not `readonly`). The dim-mismatch
-path in `ensureVectorIndexes` calls
-`embeddingService.disableForSession(reason)`, which flips the flag,
-logs once, and causes all subsequent `isEnabled()` reads to return
-false. The flag is process-scoped and not flipped back on — a misconfig
-requires a restart to recover, which is the intended safety behavior.
+`EmbeddingService.enabled` is mutable (not `readonly`).
+`embeddingService.disableForSession(reason)` flips the flag, logs once,
+and causes all subsequent `isEnabled()` reads to return false. The flag
+is process-scoped and not flipped back on — a misconfig requires a
+restart to recover, which is the intended safety behavior. Install does
+not check a vector index dimension: class vectors are searched without
+a vector index, so there is no index to create, check or repair before
+writing them.
 
 ## CLI — `module-manager embed`
 
@@ -469,10 +462,8 @@ model.
 | Embedding disabled in platform, module ships vectors | Vectors ignored; no `embedding` property written. |
 | Reinstall after `EMBEDDING_MODEL` switch | Classes without a vector for the new model have `embedding` / `embeddingModel` **removed** via the REMOVE clause. No stale data. |
 | Malformed `{slug}.json` (non-array, non-finite, oversized) | Cache warns with the vector path as metadata and treats the class as missing. |
-| `EMBEDDING_DIMENSIONS` ≠ vector index dimension at bootstrap | `disableForSession` flips the flag; install proceeds with no embedding property written; error logged once. |
 | `updateAllModules` — every module's `resolveVectors` throws | All modules skipped; Phase B loop empty; `deleteOldModules` **not** called; `errorCount === modules.size`. |
 | `resetSingleModule` — endpoint unreachable | Throws to caller (not swallowed). Distinct from bulk semantic. |
-| Memgraph version that doesn't project `dimension` from `show_index_info()` | Single warn logged; cross-check skipped; embedding stays enabled (no fail-open-into-wrong-dim — the check was attempted but not authoritative on this version). |
 
 ## Non-goals
 

@@ -4,7 +4,7 @@ import * as Apollo from '@apollo/client'
 import { DataItem } from '../interfaces/core-types-interface.js'
 import { ADD_DATA_ITEM, UPDATE_DATA_ITEM, DELETE_DATA_ITEM } from './dt-dataitem-gql.js'
 import { DtClass, ChangeElementBindingResult } from '../dt-class/dt-class.js'
-import { localEnumToPlatform, SENSITIVITY_LEVELS } from '../schemas/index.js'
+import { localEnumToPlatform, ORIGIN_LEVELS, SENSITIVITY_LEVELS } from '../schemas/index.js'
 
 /**
  * Bundled-method return shape: the residual UPDATE_DATA_ITEM surfaces
@@ -40,17 +40,20 @@ export class DtDataItem {
    * @returns The created data item
    */
   createDataItem = async (
-    { name, description, classId, elementId, modelId, sensitivity, regulatoryFlags }:
-    { name: string, description: string, elementId: string, classId: string | null, modelId: string, sensitivity?: string, regulatoryFlags?: string[] }
+    { name, description, classId, elementId, modelId, sensitivity, regulatoryFlags, origin, isCredential }:
+    { name: string, description: string, elementId: string, classId: string | null, modelId: string, sensitivity?: string, regulatoryFlags?: string[], origin?: string, isCredential?: boolean | null }
   ): Promise<DataItem | null> => {
     try {
       // Asset-context on create: set present fields only (fresh node, nothing to
       // clear). Sensitivity validated + uppercased; an unknown value is dropped
       // (warned) rather than sending an invalid enum. Flags are free-text.
       const platformSensitivity = localEnumToPlatform(sensitivity, SENSITIVITY_LEVELS)
+      const platformOrigin = localEnumToPlatform(origin, ORIGIN_LEVELS)
       const assetContext = {
         ...(platformSensitivity ? { sensitivity: platformSensitivity } : {}),
         ...(regulatoryFlags?.length ? { regulatoryFlags } : {}),
+        ...(platformOrigin ? { origin: platformOrigin } : {}),
+        ...(typeof isCredential === 'boolean' ? { isCredential } : {}),
       }
       const variables = {
         input: [{
@@ -138,7 +141,7 @@ export class DtDataItem {
    * @returns UpdateDataItemResult — both halves observable.
    */
   updateDataItem = async (
-    { dataItemId, name, description, classId, attributes: _attributes, sensitivity, regulatoryFlags }:
+    { dataItemId, name, description, classId, attributes: _attributes, sensitivity, regulatoryFlags, origin, isCredential }:
     {
       dataItemId: string | null,
       name?: string,
@@ -149,6 +152,8 @@ export class DtDataItem {
       // which is what let a caller wipe a classification it had never been asked to touch.
       sensitivity?: string | null,
       regulatoryFlags?: string[],
+      origin?: string | null,
+      isCredential?: boolean | null,
     }
   ): Promise<UpdateDataItemResult> => {
     if (!dataItemId) {
@@ -195,6 +200,11 @@ export class DtDataItem {
             sensitivity: { set: localEnumToPlatform(sensitivity, SENSITIVITY_LEVELS) ?? null },
           }),
           ...(regulatoryFlags !== undefined && { regulatoryFlags: { set: regulatoryFlags } }),
+          // Origin follows sensitivity: validated and uppercased, an unknown value clears with a warning.
+          ...(origin !== undefined && {
+            origin: { set: localEnumToPlatform(origin, ORIGIN_LEVELS) ?? null },
+          }),
+          ...(isCredential !== undefined && { isCredential: { set: isCredential } }),
         },
       }
 

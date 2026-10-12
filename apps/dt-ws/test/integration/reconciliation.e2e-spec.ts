@@ -29,12 +29,12 @@ const configStub: any = {
 };
 const embeddingStub: any = {
   isEnabled: () => false,
+  isPending: () => false,
   getModel: () => '',
   getDimensions: () => 0,
   composeClassText: (_c: any) => '',
   embedBatch: async () => null,
 };
-const matchStub: any = { ensureVectorIndexes: async () => undefined, healClassVectorIndexes: async () => [] };
 
 // Run against the test container's "memgraph" database explicitly.
 // Return type is `any` (loose) because callers access `.records[*].get(...)`
@@ -92,7 +92,6 @@ describe('module reconciliation — install / orphan / revive end-to-end', () =>
       mg.driver,
       configStub,
       embeddingStub,
-      matchStub,
       reconciler,
       log,
     );

@@ -2,7 +2,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { ModuleManagementService } from '../module-management.service';
 import { EmbeddingService } from '../../services/embedding.service';
-import { MatchClassesResolverService } from '../../resolver-services/match-classes-resolver.service';
 import { ClassReconciler } from '../class-reconciler.service';
 import { ClassIdentityEventLog } from '../class-identity-event-log.service';
 
@@ -29,7 +28,6 @@ describe('ModuleManagementService.upsertClass — embedding REMOVE semantic', ()
           provide: EmbeddingService,
           useValue: { getModel: () => 'nomic-embed-text' },
         },
-        { provide: MatchClassesResolverService, useValue: {} },
         { provide: 'NEO4J_DRIVER', useValue: { session: () => ({ close: async () => {}, run: async () => ({ records: [] }) }) } },
         { provide: ClassReconciler, useValue: reconciler },
         { provide: ClassIdentityEventLog, useValue: eventLog },
@@ -94,5 +92,16 @@ describe('ModuleManagementService.upsertClass — embedding REMOVE semantic', ()
     expect(setCall!.cypher).toContain('REMOVE c.embedding, c.embeddingModel');
     expect(setCall!.params.nodeProperties.embedding).toBeUndefined();
     expect(setCall!.params.nodeProperties.embeddingModel).toBeUndefined();
+  });
+
+  it('keeps the stored embedding when no vector is provided because the embedder is not ready', async () => {
+    const svc = await buildService();
+    const captured: { cypher: string; params: any }[] = [];
+    const cls = { id: 'class-1', name: 'ClassA', type: 'STORE' };
+    await svc.upsertClass(fakeTxCaseA(captured, cls) as any, 'mod-1', cls, 'ComponentClass', undefined, undefined, undefined, true);
+    const setCall = captured.find((c) => c.cypher.includes('SET c += $nodeProperties'));
+    expect(setCall).toBeDefined();
+    expect(setCall!.cypher).not.toContain('REMOVE');
+    expect(setCall!.params.nodeProperties.embedding).toBeUndefined();
   });
 });

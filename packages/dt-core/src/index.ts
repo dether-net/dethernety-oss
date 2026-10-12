@@ -57,6 +57,8 @@ export {
   splitToMonolithic,
   validateMonolithicModel,
   RECOMMENDED_REGULATORY_FLAGS,
+  ORIGIN_LEVELS,
+  UNTRUSTED_ORIGINS,
   RECOMMENDED_COMPLIANCE_DRIVERS,
   platformScopeToLocal,
 } from './schemas/index.js'

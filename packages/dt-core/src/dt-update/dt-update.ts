@@ -55,6 +55,9 @@ export interface UpdateOptions {
   deleteOrphaned?: boolean
 }
 
+// Attribute writes run this many at a time once every element is written (see attributeWrites).
+const ATTRIBUTE_WRITE_CONCURRENCY = 4
+
 export class DtUpdate {
   private apolloClient: Apollo.ApolloClient
   private dtUtils: DtUtils
@@ -71,6 +74,10 @@ export class DtUpdate {
   private idMapping: Map<string, string> = new Map()
   private errors: UpdateError[] = []
   private warnings: string[] = []
+  // Attribute writes queued while the elements are written. Each write also evaluates the element's class, and the
+  // platform holds every write for a short debounce, so they run a few at a time once all elements are written
+  // rather than one by one.
+  private attributeWrites: Array<() => Promise<void>> = []
   private currentModelId: string = ''
   private defaultBoundaryId: string = ''
   private assignedModuleIds: string[] = []
@@ -125,6 +132,7 @@ export class DtUpdate {
     this.idMapping = new Map()
     this.errors = []
     this.warnings = []
+    this.attributeWrites = []
     this.currentModelId = ''
     this.defaultBoundaryId = ''
     this.assignedModuleIds = []
@@ -305,6 +313,10 @@ export class DtUpdate {
       if (jsonData.dataFlows) {
         await this.updateDataFlows(jsonData.dataFlows)
       }
+
+      // The attribute writes queued while writing data items, boundaries, components and data flows
+      await DtUtils.runWithConcurrency(this.attributeWrites, ATTRIBUTE_WRITE_CONCURRENCY)
+      this.attributeWrites = []
 
       this.updateProgress(8, 'Cleaning up orphaned elements')
 
@@ -709,12 +721,19 @@ export class DtUpdate {
             // sync, so a field the file omits is CLEARED — and the writer now leaves a field it was not
             // given alone, so that clear has to be stated rather than left to an absence.
             sensitivity: itemData.sensitivity ?? null,
-            regulatoryFlags: itemData.regulatory_flags ?? []
+            regulatoryFlags: itemData.regulatory_flags ?? [],
+            origin: itemData.origin ?? null,
+            isCredential: itemData.is_credential ?? null
           })
           // Map + mark processed regardless of outcome: the item EXISTS, so it must
           // not become an orphan-delete target even if the update itself failed.
           this.idMapping.set(itemId, itemId)
           this.processedDataitemIds.add(itemId)
+          // updateDataItem bound the class; queue its attributes, even none, as for every other element kind: the
+          // write is what persists edited answers and evaluates a class bound with no answers yet
+          if (itemData.classData?.id) {
+            await this.setElementAttributes(itemId, itemData.classData.id, itemData.attributes ?? {}, itemData.name)
+          }
           // updateDataItem never throws — it encodes failure as residualOk:false.
           // Count as updated only on genuine success; otherwise surface an error so
           // `success` reflects it (was an unconditional stats.updated++ = miscounted).
@@ -739,14 +758,21 @@ export class DtUpdate {
             classId: itemData.classData?.id,
             modelId: this.currentModelId,
             sensitivity: itemData.sensitivity,
-            regulatoryFlags: itemData.regulatory_flags
+            regulatoryFlags: itemData.regulatory_flags,
+            origin: itemData.origin,
+            isCredential: itemData.is_credential
           })
 
           if (createdItem && itemData.id) {
             this.idMapping.set(itemData.id, createdItem.id)
             this.processedDataitemIds.add(createdItem.id)
             this.stats.created++
-          } else if (!createdItem) {
+          }
+          if (createdItem && itemData.classData?.id) {
+            // Set attributes, even none: the write also evaluates the class
+            await this.setElementAttributes(createdItem.id, itemData.classData.id, itemData.attributes ?? {}, itemData.name)
+          }
+          if (!createdItem) {
             // createDataItem returned no row (the mutation didn't persist) — a real
             // errors throw is caught below; a silent null was previously ignored.
             this.errors.push({
@@ -891,15 +917,14 @@ export class DtUpdate {
           target: { kind: 'CLASS', classIds: [boundaryData.classData.id] }
         })
 
-        // Set instantiation attributes if provided
-        if (boundaryData.attributes) {
-          await this.setElementAttributes(
-            boundaryId,
-            boundaryData.classData.id,
-            boundaryData.attributes,
-            boundaryData.name
-          )
-        }
+        // Set instantiation attributes, even none: re-binding the same class changes nothing, so this write is
+        // what evaluates an element that has no answers yet
+        await this.setElementAttributes(
+          boundaryId,
+          boundaryData.classData.id,
+          boundaryData.attributes ?? {},
+          boundaryData.name
+        )
       } else if (boundaryData.classData === null) {
         await this.dtClass.changeElementBinding({
           elementId: boundaryId,
@@ -949,11 +974,12 @@ export class DtUpdate {
         defaultBoundaryId: parentBoundaryId || this.defaultBoundaryId
       })
 
-      if (createdBoundary && boundaryData.attributes && classId) {
+      // Sent even with no answers: the write also evaluates the class, which gives the element its exposures
+      if (createdBoundary && classId) {
         await this.setElementAttributes(
           createdBoundary.id,
           classId,
-          boundaryData.attributes,
+          boundaryData.attributes ?? {},
           boundaryData.name
         )
       }
@@ -1187,15 +1213,14 @@ export class DtUpdate {
           target: { kind: 'CLASS', classIds: [componentData.classData.id] }
         })
 
-        // Set instantiation attributes if provided
-        if (componentData.attributes) {
-          await this.setElementAttributes(
-            componentId,
-            componentData.classData.id,
-            componentData.attributes,
-            componentData.name
-          )
-        }
+        // Set instantiation attributes, even none: re-binding the same class changes nothing, so this write is
+        // what evaluates an element that has no answers yet
+        await this.setElementAttributes(
+          componentId,
+          componentData.classData.id,
+          componentData.attributes ?? {},
+          componentData.name
+        )
       } else if (componentData.classData === null) {
         await this.dtClass.changeElementBinding({
           elementId: componentId,
@@ -1245,11 +1270,12 @@ export class DtUpdate {
         defaultBoundaryId: parentBoundaryId || this.defaultBoundaryId
       })
 
-      if (createdComponent && componentData.attributes && classId) {
+      // Sent even with no answers: the write also evaluates the class, which gives the element its exposures
+      if (createdComponent && classId) {
         await this.setElementAttributes(
           createdComponent.id,
           classId,
-          componentData.attributes,
+          componentData.attributes ?? {},
           componentData.name
         )
       }
@@ -1392,15 +1418,14 @@ export class DtUpdate {
           target: { kind: 'CLASS', classIds: [flowData.classData.id] }
         })
 
-        // Set instantiation attributes if provided
-        if (flowData.attributes) {
-          await this.setElementAttributes(
-            flowId,
-            flowData.classData.id,
-            flowData.attributes,
-            flowData.name
-          )
-        }
+        // Set instantiation attributes, even none: re-binding the same class changes nothing, so this write is
+        // what evaluates an element that has no answers yet
+        await this.setElementAttributes(
+          flowId,
+          flowData.classData.id,
+          flowData.attributes ?? {},
+          flowData.name
+        )
       } else if (flowData.classData === null) {
         await this.dtClass.changeElementBinding({
           elementId: flowId,
@@ -1443,11 +1468,12 @@ export class DtUpdate {
         classId
       })
 
-      if (createdFlow && flowData.attributes && classId) {
+      // Sent even with no answers: the write also evaluates the class, which gives the element its exposures
+      if (createdFlow && classId) {
         await this.setElementAttributes(
           createdFlow.id,
           classId,
-          flowData.attributes,
+          flowData.attributes ?? {},
           flowData.name
         )
       }
@@ -1550,7 +1576,17 @@ export class DtUpdate {
     }
   }
 
+  /** Queues the attribute write for `elementId`; updateModel runs the queue once every element is written. */
   private setElementAttributes = async (
+    elementId: string,
+    classId: string,
+    attributes: any,
+    elementName: string
+  ): Promise<void> => {
+    this.attributeWrites.push(() => this.writeElementAttributes(elementId, classId, attributes, elementName))
+  }
+
+  private writeElementAttributes = async (
     elementId: string,
     classId: string,
     attributes: any,

@@ -1103,8 +1103,8 @@ export const useFlowStore = defineStore('flow', () => {
   /// ////////////////////////////////
   // DataItem functions
   const createDataItem = async (
-    { name, description, classId, elementId, sensitivity, regulatoryFlags }:
-    { name: string, description: string, elementId: string, classId: string | null, sensitivity?: string | null, regulatoryFlags?: string[] }
+    { name, description, classId, elementId, sensitivity, regulatoryFlags, origin, isCredential }:
+    { name: string, description: string, elementId: string, classId: string | null, sensitivity?: string | null, regulatoryFlags?: string[], origin?: string | null, isCredential?: boolean | null }
   ): Promise<DataItem | null> => {
     const operationKey = 'createDataItem'
     
@@ -1132,6 +1132,8 @@ export const useFlowStore = defineStore('flow', () => {
         modelId: modelId.value || '',
         sensitivity: sensitivity ?? undefined,
         regulatoryFlags,
+        origin: origin ?? undefined,
+        isCredential: isCredential ?? undefined,
       })
 
       if (!createdDataItem) {
@@ -1187,8 +1189,8 @@ export const useFlowStore = defineStore('flow', () => {
    * changed in between. An explicit `null` sensitivity or empty flag list is still a CLEAR.
    */
   const updateDataItem = async (
-    { dataItemId, name, description, classId, sensitivity, regulatoryFlags }:
-    { dataItemId: string | null, name?: string, description?: string, classId?: string | null, sensitivity?: string | null, regulatoryFlags?: string[] }
+    { dataItemId, name, description, classId, sensitivity, regulatoryFlags, origin, isCredential }:
+    { dataItemId: string | null, name?: string, description?: string, classId?: string | null, sensitivity?: string | null, regulatoryFlags?: string[], origin?: string | null, isCredential?: boolean | null }
   ): Promise<boolean> => {
     if (!dataItemId) return false
     
@@ -1216,6 +1218,8 @@ export const useFlowStore = defineStore('flow', () => {
         // null into an absence here would turn the dialog's "clear the classification" into a no-op.
         ...(sensitivity !== undefined && { sensitivity }),
         ...(regulatoryFlags !== undefined && { regulatoryFlags }),
+        ...(origin !== undefined && { origin }),
+        ...(isCredential !== undefined && { isCredential }),
       })
 
       if (bindingResult?.errorCode) {

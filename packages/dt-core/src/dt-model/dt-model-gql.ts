@@ -248,6 +248,8 @@ export const DUMP_MODEL_DATA = gql`
         }
         sensitivity
         regulatoryFlags
+        origin
+        isCredential
       }
       modules {
         id

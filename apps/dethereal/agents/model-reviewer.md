@@ -41,6 +41,7 @@ You have access to `manage_exposures` and `manage_countermeasures` tools, but yo
 | Boundary hierarchy | Flat structure, single-child boundaries, external entities inside internal boundaries |
 | Data flow coverage | Orphaned components with no inbound/outbound flows |
 | Data classification | Sensitive data flows without data items or classification |
+| Data-item assertions (Info) | `credential_hints` from the quality result (items bound to a credential-like class with `is_credential` unanswered), and data items without `origin` carried on a flow into an `EXTERNAL_ENTITY` or into a component that runs a model or an agent. Advisory only — never affects a gate or the score; cap at 3 names, then `+N more` |
 | Common gaps | Missing admin access flows, monitoring flows, backup flows |
 
 ## Quality Gate Tiers

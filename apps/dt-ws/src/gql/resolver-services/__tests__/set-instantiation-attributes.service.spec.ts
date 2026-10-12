@@ -242,9 +242,8 @@ describe('SetInstantiationAttributesService — MITRE-link anchor scoping', () =
 
     const link = calls.find((c) => c.query.includes('EXPLOITED_BY'));
     expect(link).toBeDefined();
-    expect(link!.query).toContain(
-      "-[:IS_EXPOSURE_OF|IS_COUNTERMEASURE_OF]->(klass {id: $classId})",
-    );
+    expect(link!.query).toContain('-[:IS_EXPOSURE_OF|IS_COUNTERMEASURE_OF]->(klass)');
+    expect(link!.query).toContain('klass.id = $classId');
     expect(link!.query).toContain(
       "e.createdBy = 'SYSTEM' OR e.createdBy IS NULL",
     );
@@ -536,5 +535,80 @@ describe('SetInstantiationAttributesService — reference pre-pass', () => {
       errorCode: null,
       errorMessage: null,
     });
+  });
+});
+
+describe('SetInstantiationAttributesService — per-element lock spans the batch debounce', () => {
+  // The batch queue executes only the latest queued request for an element. That drops nothing only because the
+  // resolver holds the element's lock across the whole debounce: a second write to the same element waits for the
+  // first batch to finish and then runs as its own batch. If the lock and the batch ever stop nesting this way, the
+  // earlier write would be silently discarded.
+  it('two concurrent writes to one element both reach setAttributes, in order', async () => {
+    const { service } = makeService();
+    (service as any).config.batchEnabled = true;
+    (service as any).config.batchDebounceTime = 10;
+    const events: string[] = [];
+    jest.spyOn(service as any, 'setAttributes').mockImplementation(async (request: any) => {
+      const key = Object.keys(request.attributes).join(',');
+      events.push(`start ${key}`);
+      await new Promise((r) => setTimeout(r, 20));
+      events.push(`end ${key}`);
+      return { success: true, staleFlippedCount: 0 };
+    });
+
+    const mutation = service.getResolvers().Mutation.setInstantiationAttributes;
+    const [first, second] = await Promise.all([
+      mutation(null, { componentId: 'comp-1', classId: 'cls-1', attributes: { x: 1 } }, {}),
+      mutation(null, { componentId: 'comp-1', classId: 'cls-1', attributes: { y: 2 } }, {}),
+    ]);
+
+    expect(first.success).toBe(true);
+    expect(second.success).toBe(true);
+    expect(events).toEqual(['start x', 'end x', 'start y', 'end y']);
+  });
+});
+
+describe('SetInstantiationAttributesService — empty attributes evaluate the element as it stands', () => {
+  function withWrite(service: any, row: RecordMap) {
+    const run = jest.fn().mockResolvedValue({ records: [toRecord(row)] });
+    service.neo4jDriver.session = jest.fn(() => ({
+      executeWrite: jest.fn(async (work: any) => work({ run })),
+      close: jest.fn(async () => {}),
+    }));
+    service.moduleRegistry.getModuleByName = jest.fn(() => ({}));
+    return run;
+  }
+
+  it('accepts {}: one write that changes nothing, no stale flip, and the exposures are still evaluated', async () => {
+    const { service } = makeService();
+    const run = withWrite(service, { moduleName: 'mod-1', type: 'Component', valueChanged: false, changedKeys: [] });
+    const evaluate = jest.spyOn(service as any, 'processComponentExposures').mockResolvedValue([]);
+
+    const result = await service.setAttributes({ componentId: 'comp-1', classId: 'cls-1', attributes: {} });
+
+    expect(result.success).toBe(true);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0][1]).toMatchObject({ componentId: 'comp-1', classId: 'cls-1', attributes: {} });
+    expect(evaluate).toHaveBeenCalledWith(expect.anything(), 'comp-1', 'cls-1', expect.anything(), expect.any(String), undefined);
+  });
+
+  it('still rejects attributes that are not an object, an array included', async () => {
+    const { service } = makeService();
+    const run = withWrite(service, {});
+    for (const attributes of [[], 'x', 7]) {
+      const result = await service.setAttributes({ componentId: 'comp-1', classId: 'cls-1', attributes: attributes as any });
+      expect(result).toMatchObject({ success: false, errorCode: 'VALIDATION_ERROR' });
+      expect(result.error).toContain('attributes is required and must be an object');
+    }
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('still rejects a nested value', async () => {
+    const { service } = makeService();
+    const run = withWrite(service, {});
+    const result = await service.setAttributes({ componentId: 'comp-1', classId: 'cls-1', attributes: { k: { nested: true } } as any });
+    expect(result).toMatchObject({ success: false, errorCode: 'VALIDATION_ERROR' });
+    expect(result.error).toContain('attributes.k');
+    expect(run).not.toHaveBeenCalled();
   });
 });

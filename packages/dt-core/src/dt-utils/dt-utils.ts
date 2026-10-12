@@ -354,6 +354,21 @@ export class DtUtils {
   }
 
   /**
+   * Run independent tasks with at most `limit` in flight, starting them in order. Each task handles its own
+   * errors: a rejection rejects the whole run at once, while tasks already started carry on unobserved.
+   */
+  static async runWithConcurrency(tasks: Array<() => Promise<void>>, limit: number): Promise<void> {
+    let next = 0
+    const lanes = Array.from({ length: Math.min(Math.max(1, limit), tasks.length) }, async () => {
+      while (next < tasks.length) {
+        const task = tasks[next++]
+        await task()
+      }
+    })
+    await Promise.all(lanes)
+  }
+
+  /**
    * Unflatten properties and reconstruct nested objects from dot-notation keys.
    * Converts flat dictionary with dot-notation keys back into nested structure.
    *

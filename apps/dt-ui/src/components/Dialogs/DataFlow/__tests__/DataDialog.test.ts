@@ -20,6 +20,8 @@ const DATA_ITEM = {
   dataClass: { id: 'classA' },
   sensitivity: 'LOW',
   regulatoryFlags: ['GDPR'],
+  origin: 'THIRD_PARTY',
+  isCredential: false,
 }
 
 const mocks = vi.hoisted(() => ({
@@ -56,9 +58,11 @@ interface Exposed {
   dataClass: string | null
   sensitivity: string | null
   regulatoryFlags: string[]
+  origin: string | null
+  isCredential: boolean | null
   attributesDirty: boolean
   pendingClassId: string | null
-  initialState: { name: string; description: string; dataClass: string | null; sensitivity: string | null; regulatoryFlags: string[] }
+  initialState: { name: string; description: string; dataClass: string | null; sensitivity: string | null; regulatoryFlags: string[]; origin: string | null; isCredential: boolean | null }
 }
 
 // v-hover exposes a scoped slot ({ isHovering, props }); the shallowMount auto-stub doesn't
@@ -199,5 +203,46 @@ describe('DataDialog — a save carries only what changed', () => {
     await vm(w).onSubmit()
 
     expect(mocks.flow.updateDataItem).not.toHaveBeenCalled()
+  })
+})
+
+describe('DataDialog — origin and credential', () => {
+  const lastSave = () => mocks.flow.updateDataItem.mock.calls.at(-1)![0]
+  const ready = async () => {
+    const w = mountDialog()
+    await flushPromises()
+    mocks.flow.updateDataItem.mockClear()
+    return w
+  }
+
+  it('seeds both from the loaded item and snapshots them, so nothing is dirty on open', async () => {
+    const w = await ready()
+    expect(vm(w).origin).toBe('THIRD_PARTY')
+    expect(vm(w).isCredential).toBe(false)
+    expect(vm(w).initialState).toMatchObject({ origin: 'THIRD_PARTY', isCredential: false })
+    await vm(w).onSubmit()
+    expect(mocks.flow.updateDataItem).not.toHaveBeenCalled()
+  })
+
+  it('sends the origin alone when only the origin changed', async () => {
+    const w = await ready()
+    vm(w).origin = 'ARBITRARY_PUBLIC'
+    await vm(w).onSubmit()
+    expect(lastSave()).toEqual({ dataItemId: 'd1', origin: 'ARBITRARY_PUBLIC' })
+  })
+
+  it('sends an explicit null when the origin or the credential flag is cleared', async () => {
+    const w = await ready()
+    vm(w).origin = null
+    vm(w).isCredential = null
+    await vm(w).onSubmit()
+    expect(lastSave()).toEqual({ dataItemId: 'd1', origin: null, isCredential: null })
+  })
+
+  it('sends true when the item is marked a credential', async () => {
+    const w = await ready()
+    vm(w).isCredential = true
+    await vm(w).onSubmit()
+    expect(lastSave()).toEqual({ dataItemId: 'd1', isCredential: true })
   })
 })

@@ -482,19 +482,30 @@ Manages data classification entities.
 
 | Method | Description | Parameters | Returns |
 |--------|-------------|------------|---------|
-| `createDataItem` | Create new data item, attached to an element and a model | `{ name, description, elementId, classId: string \| null, modelId, sensitivity?, regulatoryFlags? }` | `Promise<DataItem \| null>` |
-| `updateDataItem` | Update data item — bundled binding + residual write. When `classId` is supplied the call routes the binding portion through `DtClass.changeElementBinding` and the residual property update through the auto-generated `updateData` mutation. | `{ dataItemId, name?, description?, classId?, sensitivity?, regulatoryFlags?, attributes? }` | `Promise<UpdateDataItemResult>` |
+| `createDataItem` | Create new data item, attached to an element and a model | `{ name, description, elementId, classId: string \| null, modelId, sensitivity?, regulatoryFlags?, origin?, isCredential? }` | `Promise<DataItem \| null>` |
+| `updateDataItem` | Update data item — bundled binding + residual write. When `classId` is supplied the call routes the binding portion through `DtClass.changeElementBinding` and the residual property update through the auto-generated `updateData` mutation. | `{ dataItemId, name?, description?, classId?, sensitivity?, regulatoryFlags?, origin?, isCredential?, attributes? }` | `Promise<UpdateDataItemResult>` |
 | `deleteDataItem` | Delete data item | `{ dataItemId }` | `Promise<boolean>` |
 
 > **`updateDataItem` return shape.** `UpdateDataItemResult` is `{ dataItem: DataItem \| null, bindingResult: ChangeElementBindingResult \| null, residualOk: boolean }`. The bundled return surfaces both halves so callers can render partial-failure UX: if the class binding committed but the residual property update failed, `bindingResult.success` is `true`, `dataItem` is `null`, and `residualOk` is `false`. The frontend uses this to fire a separate "settings could not be saved" toast in addition to the class-change delta-receipt snackbar.
 
 > **Asset context is presence-gated, and `null` is not `undefined`.** The residual input emits `name`,
-> `description`, `sensitivity`, and `regulatoryFlags` only when the caller supplies them. The two
-> asset-context fields are the expensive half of that contract: `sensitivity: null` or
-> `regulatoryFlags: []` is a **clear** and has to be said, whereas leaving either out leaves the platform
-> value alone. An unrecognised `sensitivity` drops to `null` with a warning rather than failing the save
-> — the value typically comes from a file somebody hand-edited. `attributes` is accepted in the argument
+> `description`, `sensitivity`, `regulatoryFlags`, `origin`, and `isCredential` only when the caller
+> supplies them. The asset-context fields are the expensive half of that contract: `sensitivity: null`,
+> `regulatoryFlags: []`, `origin: null`, or `isCredential: null` is a **clear** and has to be said,
+> whereas leaving a field out leaves the platform value alone. `isCredential: false` is an answer, not a
+> clear. An unrecognised `sensitivity` or `origin` (checked against `SENSITIVITY_LEVELS` /
+> [`ORIGIN_LEVELS`](./DOMAIN_MODEL.md#dataitem), then uppercased) drops to `null` with a warning rather
+> than failing the save — the value typically comes from a file somebody hand-edited. `attributes` is accepted in the argument
 > type but is not read by the writer; nothing in the residual mutation writes it.
+
+> **Create sets present fields only.** `createDataItem` writes `sensitivity`, `regulatoryFlags`, `origin`,
+> and `isCredential` only when given (a fresh node has nothing to clear); `isCredential: false` is written.
+> An unrecognised `sensitivity` or `origin` is dropped with a warning and the field stays unset.
+
+> **The model push is a full sync.** When `DtUpdate` pushes `data-items.json` onto existing data items, a
+> field the file omits is sent as an explicit clear (`sensitivity`, `origin`, and `isCredential` as `null`,
+> `regulatoryFlags` as `[]`), so the platform matches the file. Interactive callers such as the Data
+> dialog send only what the user edited.
 
 > **Three states for `classId`.** Truthy targets `CLASS`, explicit `null` targets `NONE` (sweeping
 > SYSTEM-derived findings), and **omitted** attempts no binding change at all — `bindingResult` comes
@@ -989,9 +1000,9 @@ Vector-tier semantic match surface over the MITRE corpus. A thin façade over th
 |--------|-------------|------------|---------|
 | `matchTechniques` | Match user-typed queries against a MITRE corpus through the five-tier cascade | `{ queries: string[], kind: MitreKind, topN? }` | `Promise<MatchMitreTechniquesResult>` |
 
-**Cascade.** The server evaluates each query through five tiers and returns at most one tier's results per query: `EXACT_ID` → `PREFIX_ID` → `NAME_MATCH` → `DESCRIPTION_MATCH` → `VECTOR_SIMILARITY`. The vector tier reads a Memgraph HNSW index built from an embedding model and degrades gracefully — `vectorAvailable: false` plus a structured `vectorDisabledReason` (`EMBEDDING_DISABLED` | `NO_INDEX_MODULE` | `NO_VECTORS` | `MODEL_MISMATCH`) when the index is absent or mismatched.
+**Cascade.** The server evaluates each query through five tiers and returns at most one tier's results per query: `EXACT_ID` → `PREFIX_ID` → `NAME_MATCH` → `DESCRIPTION_MATCH` → `VECTOR_SIMILARITY`. The vector tier is an exact cosine search in the database (Memgraph or Neo4j) over vectors of the active embedding model, and degrades gracefully — `vectorAvailable: false` plus a structured `vectorDisabledReason` (`EMBEDDING_DISABLED` | `NO_VECTORS` | `MODEL_MISMATCH`) when the embedder or the database's vector search is unavailable, or the corpus lacks vectors of the active model.
 
-**`kind`** selects the corpus and the index the server reads: `ATTACK_TECHNIQUE`, `DEFEND_TECHNIQUE`, `ATTACK_MITIGATION`, `ATLAS_TECHNIQUE`, or `ATLAS_MITIGATION`. A kind whose framework is not loaded reports `NO_VECTORS` while the other kinds keep the vector tier. Each candidate carries `tactic` and `tacticOrder`, the tactic's matrix position (ATT&CK and ATLAS; null for D3FEND and mitigations), for ordering tactic facets. **`topN`** caps candidates per query; the server clamps to `[1, 50]` and defaults to `3` when omitted.
+**`kind`** selects the corpus the server searches: `ATTACK_TECHNIQUE`, `DEFEND_TECHNIQUE`, `ATTACK_MITIGATION`, `ATLAS_TECHNIQUE`, or `ATLAS_MITIGATION`. A kind whose framework is not loaded reports `NO_VECTORS` while the other kinds keep the vector tier. Each candidate carries `tactic` and `tacticOrder`, the tactic's matrix position (ATT&CK and ATLAS; null for D3FEND and mitigations), for ordering tactic facets. **`topN`** caps candidates per query; the server clamps to `[1, 50]` and defaults to `3` when omitted.
 
 **Cancellation.** `matchTechniques` routes through `dtUtils.withCancellableLatest` keyed by `matchTechniques:${kind}`, so rapid keystrokes from one picker supersede each other while mixed-kind pickers proceed in parallel. Superseded calls reject with `CancelledError` (callers exit silently).
 

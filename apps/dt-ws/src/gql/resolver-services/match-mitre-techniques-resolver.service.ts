@@ -5,6 +5,8 @@ import { MonitoringService } from '../services/monitoring.service';
 import { EmbeddingService } from '../services/embedding.service';
 import { safeErrorMessage } from '../../common/utils/safe-error-message';
 import { isMiskeyed, readVectorIndexKeys, rebuildVectorIndex } from '../services/vector-index-keys';
+import { VectorSearchService } from '../services/vector-search.service';
+import neo4j from 'neo4j-driver';
 
 /**
  * Resolver for the matchMitreTechniques query.
@@ -43,11 +45,7 @@ type MitreMatchType =
   | 'NAME_MATCH'
   | 'DESCRIPTION_MATCH'
   | 'VECTOR_SIMILARITY';
-type VectorDisabledReason =
-  | 'EMBEDDING_DISABLED'
-  | 'NO_INDEX_MODULE'
-  | 'NO_VECTORS'
-  | 'MODEL_MISMATCH';
+type VectorDisabledReason = 'EMBEDDING_DISABLED' | 'NO_VECTORS' | 'MODEL_MISMATCH';
 
 const MITRE_KINDS: MitreKind[] = [
   'ATTACK_TECHNIQUE',
@@ -127,8 +125,7 @@ const MITRE_INDEX_CAPACITY_BY_KIND: Record<MitreKind, number> = {
 // dominant reason for the response envelope.
 const REASON_PRIORITY: Record<VectorDisabledReason, number> = {
   MODEL_MISMATCH: 4,
-  NO_VECTORS: 3,
-  NO_INDEX_MODULE: 2,
+  NO_VECTORS: 2,
   EMBEDDING_DISABLED: 1,
 };
 
@@ -220,22 +217,33 @@ function dominantReason(
   return best;
 }
 
+/**
+ * A kind's precheck outcome from its counts: EMPTY when it has no addressable nodes; healthy (null)
+ * when every one carries a usable vector of the active profile; MODEL_MISMATCH when none does but
+ * some carry another model's; otherwise NO_VECTORS (missing or incomplete).
+ */
+export function decideKindPrecheck(total: number, active: number, others: number): KindPrecheck {
+  if (total === 0) return 'EMPTY';
+  if (active === total) return null;
+  if (active === 0 && others > 0) return 'MODEL_MISMATCH';
+  return 'NO_VECTORS';
+}
+
 // --- Service ---
 
 @Injectable()
 export class MatchMitreTechniquesResolverService {
   private readonly logger = new Logger(MatchMitreTechniquesResolverService.name);
 
-  private vectorSearchAvailable: boolean | null = null;
-  private vectorSearchAvailableCheckedAt = 0;
   private vectorIndexesEnsured = false;
   // Single-flight handle so concurrent cold-cache callers await one ensure
   // pass instead of racing two CREATE VECTOR INDEX statements.
   private ensurePromise: Promise<void> | null = null;
-  // Global precheck outcome: null while at least one loaded kind is healthy
-  // (or a tier-wide fault such as a missing vector module or an index
-  // dimension mismatch otherwise).
+  // Global precheck outcome: null while at least one loaded kind is healthy, otherwise the
+  // dominant per-kind reason.
   private vectorPrecheckResult: PrecheckState | null = null;
+  // Single-flight handle for a precheck refresh.
+  private precheckRun: Promise<void> | null = null;
   // Healthy kinds, indexed by the last precheck. A kind outside it has no
   // vector tier of its own: either it has no nodes, or it is in kindReasons.
   private vectorKinds = new Set<MitreKind>();
@@ -254,6 +262,7 @@ export class MatchMitreTechniquesResolverService {
     private readonly authorizationService: AuthorizationService,
     private readonly monitoringService: MonitoringService,
     private readonly embeddingService: EmbeddingService,
+    private readonly vectorSearch: VectorSearchService,
   ) {
     this.logger.log('MatchMitreTechniquesResolverService initialized');
   }
@@ -296,106 +305,68 @@ export class MatchMitreTechniquesResolverService {
   // --- Vector availability ---
 
   /**
-   * Detect whether the database supports vector search (Memgraph 3.0+).
-   * Mirrors MatchClassesResolverService.checkVectorSearchAvailability —
-   * cached with VECTOR_CHECK_TTL_MS so an upgrade/rollback toggle is
-   * picked up without restart but per-request probing is avoided.
-   */
-  private async checkVectorSearchAvailability(): Promise<boolean> {
-    const now = Date.now();
-    if (
-      this.vectorSearchAvailable !== null &&
-      now - this.vectorSearchAvailableCheckedAt < VECTOR_CHECK_TTL_MS
-    ) {
-      return this.vectorSearchAvailable;
-    }
-    const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name'),
-    });
-    try {
-      await session.executeRead(async (tx: any) =>
-        tx.run('CALL vector_search.show_index_info() YIELD *'),
-      );
-      this.vectorSearchAvailable = true;
-      this.logger.log('Vector search is available (Memgraph detected)');
-    } catch {
-      this.vectorSearchAvailable = false;
-      this.logger.log('Vector search not available (Neo4j or older Memgraph)');
-    } finally {
-      await session.close();
-    }
-    this.vectorSearchAvailableCheckedAt = now;
-    return this.vectorSearchAvailable;
-  }
-
-  /**
-   * Per-label model-coherence precheck.
-   * Single Cypher per kind; returns the per-label disabled reason, `null`
-   * when the kind's corpus is healthy, or `EMPTY` when it has no nodes.
+   * Per-kind precheck against the active embedding profile: how many addressable nodes the kind has,
+   * how many carry a usable vector of the active profile, and how many carry another model's vector.
+   * Unkeyed taxonomy artifacts are not embedded by the build and cannot surface in results, so they
+   * do not count.
    */
   private async runPrecheckForKind(kind: MitreKind): Promise<KindPrecheck> {
     const label = MITRE_LABEL_BY_KIND[kind];
     const keyProperty = MITRE_KEY_PROPERTY_BY_KIND[kind];
-    const runtimeModel = this.embeddingService.getModel();
-    const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name'),
-    });
-    try {
-      // Restrict the corpus to addressable nodes (n.<keyProperty> IS NOT NULL).
-      // Unkeyed taxonomy artifacts are not embedded by the build script and
-      // cannot surface in picker results, so they must not count against
-      // coverage.
-      const r = await session.executeRead(async (tx: any) =>
-        tx.run(
-          `MATCH (n:${label})
-           WHERE n.${keyProperty} IS NOT NULL
-           WITH count(n) AS total,
-                count(CASE WHEN n.embeddingModel IS NOT NULL THEN 1 END) AS withModel,
-                collect(DISTINCT n.embeddingModel) AS models
-           RETURN total, withModel, models`,
-        ),
-      );
-      const rec = r.records[0];
-      const total = toNumber(rec.get('total'));
-      const withModel = toNumber(rec.get('withModel'));
-      const modelsRaw = (rec.get('models') ?? []) as Array<string | null>;
-      const models = modelsRaw.filter(
-        (m): m is string => m != null,
-      );
-
-      if (total === 0) return 'EMPTY';
-      if (withModel === 0) return 'NO_VECTORS';
-      if (withModel < total) return 'NO_VECTORS';
-      if (models.length > 1) return 'MODEL_MISMATCH';
-      if (models[0] !== runtimeModel) return 'MODEL_MISMATCH';
-      return null;
-    } finally {
-      await session.close();
-    }
+    const records = await this.vectorSearch.read(
+      `MATCH (n:${label})
+       WHERE n.${keyProperty} IS NOT NULL
+       WITH count(n) AS total,
+            count(CASE WHEN n.embedding IS NOT NULL AND n.embeddingModel = $profileId
+                       AND size(n.embedding) = $dims THEN 1 END) AS active,
+            count(CASE WHEN n.embeddingModel IS NOT NULL AND n.embeddingModel <> $profileId THEN 1 END) AS others
+       RETURN total, active, others`,
+      { profileId: this.embeddingService.getModel(), dims: neo4j.int(this.embeddingService.getDimensions()) },
+    );
+    const rec = records[0];
+    return decideKindPrecheck(toNumber(rec.get('total')), toNumber(rec.get('active')), toNumber(rec.get('others')));
   }
 
   /**
-   * Lazy-idempotent ensure: run the per-label precheck and create the HNSW
-   * index of every healthy kind. An unhealthy kind (nodes present, embeddings
-   * missing or from another model) is excluded on its own. The
-   * label-property key indexes are startup DDL (EnsureIndexesService).
-   *
-   * Sets vectorPrecheckResult on every call so the cascade can read the
-   * aggregated reason; sets vectorIndexesEnsured only after a fully
-   * successful pass so failure modes are retried on the next call after
-   * VECTOR_CHECK_TTL_MS (or process restart).
+   * Run the precheck for every kind. A kind with no nodes (its framework is not loaded) is skipped,
+   * not counted: a deployment without ATLAS keeps the vector tier for ATT&CK and D3FEND.
    */
-  async ensureMitreVectorIndexes(): Promise<void> {
-    if (this.vectorIndexesEnsured) return;
-    // Coalesce concurrent cold-cache callers onto one ensure pass: without
-    // this, two queries could both pass the index-existence check and both
-    // issue CREATE VECTOR INDEX — the loser's CREATE throws uncaught and fails
-    // that query.
-    if (this.ensurePromise) return this.ensurePromise;
-    this.ensurePromise = this.runEnsureMitreVectorIndexes().finally(() => {
-      this.ensurePromise = null;
-    });
-    return this.ensurePromise;
+  private async runPrecheck(): Promise<void> {
+    const checked: Array<{ kind: MitreKind; reason: VectorDisabledReason | null }> = [];
+    for (const kind of MITRE_KINDS) {
+      let outcome: KindPrecheck;
+      try {
+        outcome = await this.runPrecheckForKind(kind);
+      } catch (err) {
+        this.logger.warn(`MITRE precheck failed for kind ${kind}`, { error: safeErrorMessage(err) });
+        // A failed read is treated conservatively as NO_VECTORS: the warning is in the logs and the
+        // picker degrades to its deterministic tiers.
+        outcome = 'NO_VECTORS';
+      }
+      if (outcome === 'EMPTY') {
+        this.logger.log(`MITRE vector kind ${kind} skipped: no :${MITRE_LABEL_BY_KIND[kind]} nodes`);
+        continue;
+      }
+      checked.push({ kind, reason: outcome });
+    }
+    const healthy = checked.filter((c) => c.reason === null).map((c) => c.kind);
+    this.vectorKinds = new Set(healthy);
+    this.kindReasons = new Map(
+      checked
+        .filter((c): c is { kind: MitreKind; reason: VectorDisabledReason } => c.reason !== null)
+        .map((c) => [c.kind, c.reason]),
+    );
+    const perLabel = checked.map((c) => `${c.kind}: ${c.reason ?? 'OK'}`).join('; ');
+    // The tier is down only when no loaded kind is healthy; then the dominant per-kind reason is
+    // the tier's reason.
+    const aggregate =
+      healthy.length > 0 ? null : checked.length === 0 ? 'NO_VECTORS' : dominantReason(checked.map((c) => c.reason));
+    this.vectorPrecheckResult = { reason: aggregate, checkedAt: Date.now() };
+    if (aggregate !== null) {
+      this.logger.log('MITRE vector tier disabled', { reason: aggregate, perLabel });
+    } else if (this.kindReasons.size > 0) {
+      this.logger.warn('MITRE vector tier disabled for some kinds; the others keep it', { perLabel });
+    }
   }
 
   /**
@@ -430,144 +401,70 @@ export class MatchMitreTechniquesResolverService {
     }
   }
 
+  /**
+   * Keep a Memgraph HNSW index on every healthy MITRE kind. The search in this resolver does not use
+   * them (it is exact); they stay for consumers that still search the MITRE corpus by index name.
+   * Lazy and idempotent; concurrent callers share one pass. Never affects availability.
+   */
+  async ensureMitreVectorIndexes(): Promise<void> {
+    if (this.vectorIndexesEnsured) return;
+    // Coalesce concurrent callers onto one pass: without this, two could both pass the
+    // index-existence check and both issue CREATE VECTOR INDEX.
+    if (this.ensurePromise) return this.ensurePromise;
+    this.ensurePromise = this.runEnsureMitreVectorIndexes().finally(() => {
+      this.ensurePromise = null;
+    });
+    return this.ensurePromise;
+  }
+
   private async runEnsureMitreVectorIndexes(): Promise<void> {
-    // 1. Vector_search module availability
-    const supported = await this.checkVectorSearchAvailability();
-    if (!supported) {
-      this.vectorPrecheckResult = {
-        reason: 'NO_INDEX_MODULE',
-        checkedAt: Date.now(),
-      };
+    if ((await this.vectorSearch.dialect()) !== 'memgraph') {
+      this.vectorIndexesEnsured = true;
       return;
     }
+    if (this.vectorPrecheckResult === null) await this.runPrecheck();
 
-    // 2. Per-label precheck. A kind with no nodes (its framework is not
-    // loaded) is skipped, not counted: a deployment without ATLAS keeps the
-    // vector tier for ATT&CK and D3FEND.
-    const checked: Array<{ kind: MitreKind; reason: VectorDisabledReason | null }> = [];
-    for (const kind of MITRE_KINDS) {
-      let outcome: KindPrecheck;
-      try {
-        outcome = await this.runPrecheckForKind(kind);
-      } catch (err) {
-        this.logger.warn(`MITRE precheck failed for kind ${kind}`, {
-          error: safeErrorMessage(err),
-        });
-        // Read failure on the precheck Cypher is treated conservatively
-        // as NO_VECTORS — operator sees the warn in logs and the picker
-        // gracefully degrades.
-        outcome = 'NO_VECTORS';
-      }
-      if (outcome === 'EMPTY') {
-        this.logger.log(
-          `MITRE vector kind ${kind} skipped: no :${MITRE_LABEL_BY_KIND[kind]} nodes`,
-        );
-        continue;
-      }
-      checked.push({ kind, reason: outcome });
-    }
-    const healthy = checked.filter((c) => c.reason === null).map((c) => c.kind);
-    this.vectorKinds = new Set(healthy);
-    this.kindReasons = new Map(
-      checked
-        .filter((c): c is { kind: MitreKind; reason: VectorDisabledReason } => c.reason !== null)
-        .map((c) => [c.kind, c.reason]),
-    );
-    const perLabel = checked.map((c) => `${c.kind}: ${c.reason ?? 'OK'}`).join('; ');
-    // The tier is down only when no loaded kind is healthy; then the dominant
-    // per-kind reason is the tier's reason.
-    const aggregate =
-      healthy.length > 0
-        ? null
-        : checked.length === 0
-          ? 'NO_VECTORS'
-          : dominantReason(checked.map((c) => c.reason));
-    this.vectorPrecheckResult = { reason: aggregate, checkedAt: Date.now() };
-
-    if (aggregate !== null) {
-      this.logger.log('MITRE vector tier disabled', { reason: aggregate, perLabel });
-      return;
-    }
-    if (this.kindReasons.size > 0) {
-      this.logger.warn('MITRE vector tier disabled for some kinds; the others keep it', { perLabel });
-    }
-
-    // 3. Dimension cross-check + HNSW index creation
     const session = this.neo4jDriver.session({
       database: this.configService.get('database.name'),
     });
     try {
-      let existingIndexes: Set<string>;
-      let existingDimensions: Map<string, number> | null;
+      let existingDimensions: Map<string, number>;
       try {
         const r = await session.executeRead(async (tx: any) =>
-          tx.run(
-            'CALL vector_search.show_index_info() YIELD index_name, dimension RETURN index_name, dimension',
-          ),
+          tx.run('CALL vector_search.show_index_info() YIELD index_name, dimension RETURN index_name, dimension'),
         );
-        existingIndexes = new Set<string>();
         existingDimensions = new Map<string, number>();
-        for (const rec of r.records as any[]) {
-          const name = rec.get('index_name');
-          existingIndexes.add(name);
-          const dim = toNumber(rec.get('dimension'));
-          if (Number.isFinite(dim)) existingDimensions.set(name, dim);
-        }
+        for (const rec of r.records as any[]) existingDimensions.set(rec.get('index_name'), toNumber(rec.get('dimension')));
       } catch (err) {
-        this.logger.warn(
-          'Memgraph vector index dimension projection not available — skipping cross-check',
-          { error: safeErrorMessage(err) },
-        );
-        const r = await session.executeRead(async (tx: any) =>
-          tx.run(
-            'CALL vector_search.show_index_info() YIELD index_name RETURN index_name',
-          ),
-        );
-        existingIndexes = new Set<string>(
-          r.records.map((rec: any) => rec.get('index_name')),
-        );
-        existingDimensions = null;
+        this.logger.warn('MITRE vector indexes not checked: vector_search.show_index_info is not available', {
+          error: safeErrorMessage(err),
+        });
+        return;
       }
 
       const dimensions = this.embeddingService.getDimensions();
       const keys = await readVectorIndexKeys(session);
-
       for (const kind of this.vectorKinds) {
         const indexName = MITRE_INDEX_NAME_BY_KIND[kind];
         const label = MITRE_LABEL_BY_KIND[kind];
         const capacity = MITRE_INDEX_CAPACITY_BY_KIND[kind];
-
-        if (!existingIndexes.has(indexName)) {
-          this.logger.log(
-            `Creating MITRE vector index: ${indexName} on :${label}(embedding)`,
-          );
-          // DDL must run as auto-committing (implicit) transaction —
-          // Memgraph rejects CREATE VECTOR INDEX inside explicit/multi-
-          // command transactions.
+        const spec = { indexName, label, property: 'embedding', dimensions, capacity };
+        const existing = existingDimensions.get(indexName);
+        if (existing === undefined) {
+          this.logger.log(`Creating MITRE vector index: ${indexName} on :${label}(embedding)`);
+          // DDL must run as an auto-committing (implicit) transaction: Memgraph rejects CREATE VECTOR
+          // INDEX inside explicit or multi-command transactions.
           await session.run(
             `CREATE VECTOR INDEX ${indexName} ON :${label}(embedding) ` +
               `WITH CONFIG {"dimension": ${dimensions}, "capacity": ${capacity}, "metric": "cos"}`,
           );
-        } else if (existingDimensions) {
-          const existing = existingDimensions.get(indexName);
-          if (existing !== undefined && existing !== dimensions) {
-            this.embeddingService.disableForSession(
-              `MITRE vector index ${indexName} has dimension ${existing} but EMBEDDING_DIMENSIONS=${dimensions}. ` +
-                `Pre-existing vectors would be scored against mismatched new vectors. ` +
-                `Recommended: drop the index and restart, or set EMBEDDING_DIMENSIONS to ${existing}.`,
-            );
-            this.vectorPrecheckResult = {
-              reason: 'MODEL_MISMATCH',
-              checkedAt: Date.now(),
-            };
-            return;
-          }
-        }
-        if (existingIndexes.has(indexName)) {
-          await this.healMitreVectorIndex(session, { indexName, label, property: 'embedding', dimensions, capacity }, keys?.get(indexName));
+        } else if (Number.isFinite(existing) && existing !== dimensions) {
+          this.logger.warn(`MITRE vector index ${indexName} has dimension ${existing}, the embedder ${dimensions} — rebuilding it`);
+          await rebuildVectorIndex(session, spec);
+        } else {
+          await this.healMitreVectorIndex(session, spec, keys?.get(indexName));
         }
       }
-
       this.vectorIndexesEnsured = true;
     } finally {
       await session.close();
@@ -575,37 +472,37 @@ export class MatchMitreTechniquesResolverService {
   }
 
   /**
-   * Compute vectorAvailable + vectorDisabledReason for the response
-   * envelope. Reads through the cached precheck state when fresh; refreshes
-   * on TTL expiry.
+   * vectorAvailable and vectorDisabledReason for the response envelope. Reads the cached precheck
+   * when fresh and refreshes it on TTL expiry.
    */
   private async computeVectorAvailability(kind: MitreKind): Promise<{
     vectorAvailable: boolean;
     vectorDisabledReason: VectorDisabledReason | null;
   }> {
-    if (!this.embeddingService.isEnabled()) {
-      return {
-        vectorAvailable: false,
-        vectorDisabledReason: 'EMBEDDING_DISABLED',
-      };
+    // The embedder is off or not ready, or this database cannot run exact vector search.
+    if (!this.embeddingService.isEnabled() || !(await this.vectorSearch.healthy())) {
+      return { vectorAvailable: false, vectorDisabledReason: 'EMBEDDING_DISABLED' };
     }
 
-    // Refresh the precheck if stale or absent.
     const fresh =
       this.vectorPrecheckResult !== null &&
       Date.now() - this.vectorPrecheckResult.checkedAt < VECTOR_CHECK_TTL_MS;
     if (!fresh) {
-      // Reset the gate so ensureMitreVectorIndexes re-runs the precheck.
+      if (!this.precheckRun) {
+        this.precheckRun = this.runPrecheck().finally(() => {
+          this.precheckRun = null;
+        });
+      }
+      await this.precheckRun;
       this.vectorIndexesEnsured = false;
-      await this.ensureMitreVectorIndexes();
+      this.ensureMitreVectorIndexes().catch((error) =>
+        this.logger.warn('MITRE vector index upkeep failed', { error: safeErrorMessage(error) }),
+      );
     }
 
     const cached = this.vectorPrecheckResult;
     if (cached === null || cached.reason !== null) {
-      return {
-        vectorAvailable: false,
-        vectorDisabledReason: cached?.reason ?? 'NO_VECTORS',
-      };
+      return { vectorAvailable: false, vectorDisabledReason: cached?.reason ?? 'NO_VECTORS' };
     }
     // The tier is up, but this kind's own corpus failed its precheck.
     const kindReason = this.kindReasons.get(kind);
@@ -719,29 +616,30 @@ export class MatchMitreTechniquesResolverService {
 
   // --- Vector tier ---
 
-  private renderVectorCypher(
-    kind: MitreKind,
-    indexName: string,
-    searchLimit: number,
-    topN: number,
-  ): string {
-    // The `WITH node, similarity` separator between YIELD and WHERE is
-    // required by the Memgraph parser. The explicit ORDER BY before `collect()`
-    // makes tactic selection deterministic when a technique has multiple
-    // tactics; TACTIC_HOP_BY_KIND says how each kind orders them.
+  /**
+   * Exact vector search over one MITRE kind, around `score` (the dialect's cosine of the node's
+   * vector and $query_vector). The order of operations is fixed: score, threshold, the top $k by
+   * score (ties by key), then the tactic hop for those k only, then the final order. The explicit
+   * ORDER BY before collect() makes the tactic deterministic for a multi-tactic technique;
+   * TACTIC_HOP_BY_KIND says how each kind orders its tactics.
+   */
+  renderVectorCypher(kind: MitreKind, score: string): string {
+    const label = MITRE_LABEL_BY_KIND[kind];
     const key = MITRE_KEY_PROPERTY_BY_KIND[kind];
     const hop = TACTIC_HOP_BY_KIND[kind];
-    const search = `
-        CALL vector_search.search('${indexName}', ${searchLimit}, $query_vector)
-        YIELD node, similarity
-        WITH id(node) AS hit, similarity
-        WHERE similarity >= $threshold
-        // A node deleted since it was indexed can stay in the index until the database's garbage
-        // collection runs, and reading it fails; matching each hit by its internal id skips it.
-        MATCH (node) WHERE id(node) = hit
-        WITH node, similarity`;
+    const ranked = `
+        MATCH (node:${label})
+        WHERE node.${key} IS NOT NULL
+          AND node.embedding IS NOT NULL
+          AND node.embeddingModel = $profileId
+          AND size(node.embedding) = $dims
+        WITH node, ${score} AS similarity
+        WHERE $threshold IS NULL OR similarity >= $threshold
+        WITH node, similarity
+        ORDER BY similarity DESC, node.${key} ASC
+        LIMIT $k`;
     if (hop) {
-      return `${search}
+      return `${ranked}
         OPTIONAL MATCH (node)${hop.pattern}
         WITH node, similarity, tac
         ORDER BY ${hop.orderBy}
@@ -752,19 +650,17 @@ export class MatchMitreTechniquesResolverService {
                CASE WHEN size(tacs) = 0 THEN null ELSE tacs[0].name END AS tactic,
                CASE WHEN size(tacs) = 0 THEN null ELSE tacs[0].matrix_order END AS tacticOrder,
                similarity
-        ORDER BY similarity DESC
-        LIMIT ${topN}
+        ORDER BY similarity DESC, mitreId ASC
       `;
     }
-    return `${search}
+    return `${ranked}
         RETURN node.${key} AS mitreId,
                node.name AS name,
                node.description AS description,
                null AS tactic,
                null AS tacticOrder,
                similarity
-        ORDER BY similarity DESC
-        LIMIT ${topN}
+        ORDER BY similarity DESC, mitreId ASC
       `;
   }
 
@@ -784,7 +680,7 @@ export class MatchMitreTechniquesResolverService {
     const embedStart = Date.now();
     let vectors: number[][] | null;
     try {
-      vectors = await this.embeddingService.embedBatch([query]);
+      vectors = await this.embeddingService.embedBatch([query], 'query');
     } catch (err) {
       // Don't log the raw query — picker fires per keystroke, so an
       // embedding-service hiccup would mass-log attacker-influenced text
@@ -805,44 +701,27 @@ export class MatchMitreTechniquesResolverService {
     if (!vectors || vectors.length === 0) {
       return { hits: [], embeddingMs, vectorSearchMs: 0 };
     }
-    const queryVector = vectors[0];
 
-    const indexName = MITRE_INDEX_NAME_BY_KIND[kind];
-    // Oversample for the threshold filter: if the top-`topN*3` HNSW hits
-    // include candidates below threshold, survivors can drop below `topN`
-    // even when valid hits exist deeper in the result set. Use 10x with a
-    // 50-row floor — marginal cost on a 1k-node HNSW is ~0.5ms.
-    const searchLimit = Math.max(Math.floor(Number(topN) * 10), 50);
-    const threshold = this.embeddingService.getThreshold();
-    const cypher = this.renderVectorCypher(
-      kind,
-      indexName,
-      searchLimit,
-      Math.floor(Number(topN)),
-    );
-
-    const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name'),
-    });
+    const cypher = this.renderVectorCypher(kind, await this.vectorSearch.cosine('node.embedding', '$query_vector'));
     const searchStart = Date.now();
-    try {
-      const r = await session.executeRead(async (tx: any) =>
-        tx.run(cypher, { query_vector: queryVector, threshold }),
-      );
-      const hits = r.records.map((rec: any) => ({
-        record: {
-          mitreId: rec.get('mitreId'),
-          name: rec.get('name'),
-          description: rec.get('description') ?? null,
-          tactic: rec.get('tactic') ?? null,
-          tacticOrder: toNullableNumber(rec.get('tacticOrder')),
-        },
-        similarity: Number(rec.get('similarity')),
-      }));
-      return { hits, embeddingMs, vectorSearchMs: Date.now() - searchStart };
-    } finally {
-      await session.close();
-    }
+    const records = await this.vectorSearch.read(cypher, {
+      query_vector: vectors[0],
+      profileId: this.embeddingService.getModel(),
+      dims: neo4j.int(vectors[0].length),
+      threshold: this.embeddingService.getThreshold('mitre'),
+      k: neo4j.int(clamp(Math.floor(Number(topN)), 1, MAX_TOP_N)),
+    });
+    const hits = records.map((rec: any) => ({
+      record: {
+        mitreId: rec.get('mitreId'),
+        name: rec.get('name'),
+        description: rec.get('description') ?? null,
+        tactic: rec.get('tactic') ?? null,
+        tacticOrder: toNullableNumber(rec.get('tacticOrder')),
+      },
+      similarity: Number(rec.get('similarity')),
+    }));
+    return { hits, embeddingMs, vectorSearchMs: Date.now() - searchStart };
   }
 
   // --- Candidate builder ---

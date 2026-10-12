@@ -335,6 +335,32 @@ A data item may carry multiple flags; its sensitivity is the **maximum** of the 
 
 **Quality gate:** Every flow carrying sensitive data that crosses a trust boundary must have at least one classified data item; every crown jewel data store must have classified data items; and every data origin (the external entity or process where sensitive data enters the system) must reference its data item.
 
+#### Canonical data-origin and credential vocabulary
+
+This subsection is the **single source of truth** for the meaning of the data-item `origin` values and the credential flag. Its code mirror is `ORIGIN_LEVELS` / `UNTRUSTED_ORIGINS` in dt-core (`packages/dt-core/src/schemas/asset-context-map.ts`), which also fixes the order; the platform enum is `DataOrigin` (see [SCHEMA.md](../backend/LLD/SCHEMA.md#dataorigin)). **Keep the two in sync.**
+
+**Origin** — who can write the data item's content. This is not the lifecycle "origin" element above (where the data enters the system); it is the trust level of the content itself. Values, most to least trusted:
+
+| Local token (`data-items.json`) | Platform token (`DataOrigin`) | Meaning | Untrusted |
+|---|---|---|---|
+| `authenticated_first_party` | `AUTHENTICATED_FIRST_PARTY` | Written only by the operator's own authenticated users or systems | |
+| `curated_internal` | `CURATED_INTERNAL` | Internal content that passed a review or curation step | |
+| `agent_relayed` | `AGENT_RELAYED` | Produced or forwarded by another agent; at most this trusted | |
+| `model_generated` | `MODEL_GENERATED` | Written by a model and later read as input; at most this trusted | |
+| `third_party` | `THIRD_PARTY` | Written by a known external party under an agreement | yes |
+| `arbitrary_public` | `ARBITRARY_PUBLIC` | Anyone can write it (web pages, inbound email, public issues, public forms) | yes |
+| `not_assessed` | `NOT_ASSESSED` | Answered as not established; treated as untrusted | yes |
+
+- **Least-trusted wins.** An item's origin is the least-trusted origin of what it holds: one public source makes the item `arbitrary_public`.
+- **Unset is not `not_assessed`.** An absent `origin` means nobody has answered; `not_assessed` is an answer ("we could not establish it") and counts as untrusted.
+- **Token mapping.** The platform token is the local token uppercased. An unknown local value is dropped with a warning on push.
+
+**Credential flag** — `is_credential` (platform `isCredential`) records that the item is a credential: a password, token, key, secret, or certificate. It has three states: `true`, `false`, or absent (unknown). An answered `false` is kept and never re-proposed.
+
+**Credential hint.** `validate_model_json(action: 'quality')` returns `credential_hints: [{ id, name, class, reason }]` for data items bound to a credential-like DATA class while `is_credential` is unanswered. A class qualifies when it is one of the general module's credential data classes (`User Credentials`, `Authentication Tokens`) or when its name contains a credential word (credential, token, secret, password, passphrase, private key, API key, certificate, kubeconfig). `reason` is `class-id` when the class matched by id and `class-name` when it matched by name. The list lives in `apps/dethereal/src/data/credential-classes.ts`. The hint never sets the field and does not affect the quality score; enrichment proposes `is_credential: true` from it for the user to confirm.
+
+**Neither field is set silently.** Enrichment asks for `origin` where the source of the content is known and proposes `is_credential` from the hint; the user confirms both, as with [sensitivity](#never-auto-classify-data-sensitivity).
+
 ---
 
 ## 2. Conversational Threat Modeling
@@ -505,7 +531,7 @@ Add `.dethereal/discovery.json` to the suggested `.gitignore` — provenance met
 Classification uses a two-pass approach (R6/F6):
 
 **Pass 1 — Deterministic (at Step 3, during discovery confirmation):**
-1. Group the unclassified elements by class label, then sub-group the `COMPONENT` set by component type. Call `match_classes` once per group with `{ elements: [{ name, type, description }], classLabel: 'COMPONENT', componentType: 'STORE', moduleIds: [activeModules], topN: 3 }`. The MCP tool performs batch fuzzy matching against the IaC mapping table and class definitions across all specified modules, returning ranked matches with confidence levels and match types (`exact_name`, `fuzzy`, `type_only`) (D51).
+1. Group the unclassified elements by class label, then sub-group the `COMPONENT` set by component type. Call `match_classes` once per group with `{ elements: [{ name, type, description }], classLabel: 'COMPONENT', componentType: 'STORE', moduleIds: [activeModules], topN: 3 }`. The MCP tool performs batch fuzzy matching against the IaC mapping table and class definitions across all specified modules, returning ranked matches with confidence levels and match types (`exact_name`, `fuzzy_name`, `vector_similarity`, `type_match`) (D51).
 2. High-confidence matches (exact IaC mapping or unambiguous type match) are pre-filled in the discovery confirmation table, so users see *"Redis Cache (STORE / Key-Value Store)"* rather than *"Redis Cache (STORE / unclassified)"* when confirming discovered components.
 
 > **`componentType` is required for `COMPONENT`, and it is why the batch is sub-grouped.** It is a single top-level filter, not per-element, so a mixed batch cannot be type-constrained — hence one call per `PROCESS` / `STORE` / `EXTERNAL_ENTITY` group. It is also the only *hard* type constraint available: the per-element `type` field feeds the ranking's lowest-priority tier and does not stop a STORE being offered a PROCESS class. A cross-type binding is a real defect rather than a cosmetic one, because the class's Rego policy is written for the type the class declares and would then evaluate against a thing it does not describe. `validate_model_json(action: 'validate')` warns on the mismatch after the fact, comparing the component's type against the `componentType` persisted in `.dethereal/class-cache/` — a warning, not an error, since the cache can be stale and only the platform is authoritative about the binding.

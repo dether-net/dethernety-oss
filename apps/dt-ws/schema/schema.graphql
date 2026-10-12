@@ -156,7 +156,7 @@ enum DispositionErrorCode {
   DATABASE_ERROR
 }
 
-"""MITRE corpus selector for matchMitreTechniques. Determines which HNSW index is consulted."""
+"""MITRE corpus selector for matchMitreTechniques. Determines which corpus the match searches."""
 enum MitreKind {
   "MITRE ATT&CK adversary technique (T-codes; e.g. T1003, T1003.001)"
   ATTACK_TECHNIQUE
@@ -180,19 +180,17 @@ enum MitreMatchType {
   NAME_MATCH
   "Query substring matched the candidate's description"
   DESCRIPTION_MATCH
-  "Server-computed embedding cosine-similarity match against the HNSW index"
+  "Server-computed cosine similarity between the query's embedding and the candidate's"
   VECTOR_SIMILARITY
 }
 
 """Why the vector tier of matchMitreTechniques is disabled. Drives the picker caption and lets it differentiate deployment-lacks-vector from module-misalignment."""
 enum VectorDisabledReason {
-  "EMBEDDING_ENABLED is false in the deployment's environment"
+  "The embedder is disabled or not ready (EMBEDDING_ENABLED is false, or its model is still loading or failed), or the database cannot run vector search"
   EMBEDDING_DISABLED
-  "Graph backend lacks the vector_search procedure (Neo4j, or older Memgraph)"
-  NO_INDEX_MODULE
-  "MITRE module shipped no embeddings, or per-label coverage is incomplete (partial install)"
+  "No vectors of the active embedding model, or incomplete coverage of the corpus (partial install)"
   NO_VECTORS
-  "Module's embeddingModel disagrees with the platform's runtime EMBEDDING_MODEL"
+  "The corpus carries vectors of another embedding model only"
   MODEL_MISMATCH
 }
 
@@ -228,6 +226,27 @@ enum SensitivityLevel {
   CONFIDENTIAL
   "Restricted — strict need-to-know"
   RESTRICTED
+}
+
+"""
+Author-asserted origin of a data item's content: who can write it. Members are declared from most to least trusted;
+THIRD_PARTY, ARBITRARY_PUBLIC and NOT_ASSESSED are untrusted.
+"""
+enum DataOrigin {
+  "Written only by the operator's own authenticated users or systems"
+  AUTHENTICATED_FIRST_PARTY
+  "Internal content that passed a review or curation step"
+  CURATED_INTERNAL
+  "Produced or forwarded by another agent; at most this trusted"
+  AGENT_RELAYED
+  "Written by a model and later read as input; at most this trusted"
+  MODEL_GENERATED
+  "Written by a known external party under an agreement"
+  THIRD_PARTY
+  "Anyone can write it"
+  ARBITRARY_PUBLIC
+  "Answered as not established; treated as untrusted"
+  NOT_ASSESSED
 }
 
 """Base interface implemented by all graph-stored entities."""
@@ -519,6 +538,10 @@ type Data implements Element  @authentication @node {
   sensitivity: SensitivityLevel
   "Regulatory scopes this data falls under (free-text, e.g. \"PCI cardholder\", \"PHI\"). Null ⇒ []."
   regulatoryFlags: [String!]
+  "Author-asserted origin of this data's content: who can write it. Null ⇒ unclassified."
+  origin: DataOrigin
+  "Author-asserted: this data is a credential (password, token, key, secret, certificate). Null ⇒ unknown."
+  isCredential: Boolean
 }
 
 """A security control applied to one or more elements (e.g., encryption, authentication, firewall rule)."""
@@ -1789,7 +1812,7 @@ type Mutation {
     @authentication
 
   "Re-embed all class nodes when the embedding model changes"
-  reindexClassEmbeddings(moduleIds: [ID!], capacity: Int): ReindexResult!
+  reindexClassEmbeddings(moduleIds: [ID!]): ReindexResult!
     @authentication
 
   # ── Class-identity admin mutations ─────────────────────────────────────
@@ -2012,7 +2035,7 @@ type ClassCandidate {
   matchType: MatchType!
   "Confidence level of the match"
   confidence: ConfidenceLevel!
-  "Similarity score (0.0–1.0, present for vector matches)"
+  "Cosine similarity (-1.0–1.0, present for vector matches)"
   similarityScore: Float
 }
 
@@ -2028,9 +2051,9 @@ type ElementMatch {
 type MatchClassesResult {
   "Match results per element, in input order"
   matches: [ElementMatch!]!
-  "Element names that matched at no priority level"
+  "Element names that nothing matched"
   unmatched: [String!]!
-  "Whether the deployment supports semantic search (Memgraph 3.0+ with vector module). False on Neo4j or older Memgraph. Does not guarantee that any specific class label has an embedded index."
+  "Whether the vector tier could serve this request: the embedder is ready, the database runs vector search, and at least one class in scope has a vector of the active embedding model."
   vectorAvailable: Boolean!
 }
 
@@ -2312,14 +2335,14 @@ type Query {
   getModuleFrontendBundle(moduleName: String!): String!
     @authentication
 
-  "Match elements against class catalog nodes using a multi-priority pipeline"
+  "Match elements against class catalog nodes: exact-name hits first, merged with vector-similarity hits; name containment, then a type heuristic, only when neither answers"
   matchClasses(input: MatchClassesInput!): MatchClassesResult!
     @authentication
 
   """
   Match MITRE techniques / mitigations against user queries using the full
   priority cascade (EXACT_ID → PREFIX_ID → NAME_MATCH → DESCRIPTION_MATCH →
-  VECTOR_SIMILARITY). Mirrors matchClasses; consumed by the TechniquePicker.
+  VECTOR_SIMILARITY). Consumed by the TechniquePicker.
   The server returns at most
   one tier of results per query; the picker is responsible for displaying
   the server's tier-5 results below client-computed tiers 1–4.
@@ -2643,7 +2666,7 @@ topN to [1, 50].
 input MatchMitreTechniquesInput {
   "One or more query strings. Each becomes an entry in matches[] in result."
   queries: [TechniqueQueryInput!]!
-  "Corpus to match against — determines which HNSW index the server consults."
+  "Corpus to match against."
   kind: MitreKind!
   "Per-query result cap. Clamped to [1, 50] server-side. Defaults to 3."
   topN: Int
@@ -2665,7 +2688,7 @@ the right caption.
 type MatchMitreTechniquesResult {
   matches: [TechniqueQueryMatch!]!
   unmatched: [String!]!
-  "False when the deployment has no HNSW indexes, the vector_search module is absent, embedding is disabled, or the module-shipped vectors mismatch the platform's runtime model."
+  "False when the embedder is disabled or not ready, the database cannot run vector search, or the corpus lacks vectors of the active embedding model."
   vectorAvailable: Boolean!
   "When vectorAvailable is false, names the specific reason — drives the picker caption. Null when vectorAvailable is true."
   vectorDisabledReason: VectorDisabledReason

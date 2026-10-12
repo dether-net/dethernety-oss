@@ -320,6 +320,45 @@ export class EnvironmentVariables {
   @IsOptional()
   @IsString()
   EMBEDDING_SIMILARITY_THRESHOLD?: string;
+
+  // Where an in-process embedding profile's weights live (<dir>/<repo>/<revision>/<file>).
+  @IsOptional()
+  @IsString()
+  EMBEDDING_MODEL_DIR?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(64)
+  @Transform(({ value }) => (value === undefined || value === '' ? undefined : Number(value)))
+  EMBEDDING_THREADS?: number;
+
+  // Per-corpus similarity floors (cosine). They override the embedding profile's values.
+  @IsOptional()
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(-1)
+  @Max(1)
+  @Transform(({ value }) => (value === undefined || value === '' ? undefined : Number(value)))
+  EMBEDDING_THRESHOLD_CLASSES?: number;
+
+  @IsOptional()
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(-1)
+  @Max(1)
+  @Transform(({ value }) => (value === undefined || value === '' ? undefined : Number(value)))
+  EMBEDDING_THRESHOLD_MITRE?: number;
+
+  @IsOptional()
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(-1)
+  @Max(1)
+  @Transform(({ value }) => (value === undefined || value === '' ? undefined : Number(value)))
+  EMBEDDING_THRESHOLD_COMPONENTS?: number;
+
+  // Token for a gated weight source; sent only to the profile's hub. Never logged.
+  @IsOptional()
+  @IsString()
+  HF_TOKEN?: string;
 }
 
 export function validateEnvironment(config: Record<string, unknown>): EnvironmentVariables {

@@ -820,7 +820,7 @@ Match elements against the class catalog and return ranked candidates.
 | **Output** | `{ matches: Array<{ elementName: string, candidates: Array<{ classId, className, classDescription?, classCategory?, classType?, moduleName, matchType, confidence, similarityScore? }> }>, unmatched: string[], total_elements: number, matched_count: number, unmatched_count: number, vector_search_available: boolean, clarification?: string }` |
 | **dt-core class** | `DtClass` |
 
-Runs a multi-priority pipeline — exact name, fuzzy name, vector similarity, type-filtered heuristic — and returns ranked candidates per element. Use this instead of repeated `get_classes` calls when classifying model elements: one call covers up to 100 elements. `componentType` only applies when `classLabel` is `COMPONENT`.
+Runs exact name and vector similarity together (exact-name hits first, then new vector hits), falls back to fuzzy name and then a type-filtered heuristic only when both are empty, and returns ranked candidates per element. Use this instead of repeated `get_classes` calls when classifying model elements: one call covers up to 100 elements. `componentType` only applies when `classLabel` is `COMPONENT`.
 
 `vector_search_available` reports whether semantic (vector) search exists on the deployment. When it is `false`, matching is name- and type-based only and a human-readable `clarification` is included for the agent to relay.
 
