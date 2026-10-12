@@ -287,6 +287,27 @@ describe('ElementBindingService — class-scope guards', () => {
     expect(executeWrite).toHaveBeenCalledTimes(1);
   });
 
+  it('counts each derived finding once when the driver re-runs the write after a transient conflict', async () => {
+    const { service, executeWrite } = makeFixture({
+      elementLabels: ['Component'],
+      currentClassIds: ['cls-old'],
+      classStatus: { 'cls-new': { exists: true, moduleName: 'mod-1', labels: ['ComponentClass'] } },
+      singleRewireBound: 1,
+    });
+    (service as any).setInstantiation.upsertExposuresInTx.mockResolvedValue({ instantiated: ['A', 'B'], unresolved: [] });
+    const once = executeWrite.getMockImplementation()!;
+    // The first try runs to the end and is rolled back by a conflict; the driver runs the function again.
+    executeWrite.mockImplementation(async (cb: any) => {
+      await once(cb);
+      return once(cb);
+    });
+
+    const result = await service.changeElementBinding({ elementId: 'comp-1', target: { kind: 'CLASS', classIds: ['cls-new'] } }, CTX);
+
+    expect(result.success).toBe(true);
+    expect(result.deltas.instantiatedDerivedExposures).toBe(2);
+  });
+
   it('zero-row rewire guard: bound=0 rolls back as DATABASE_ERROR, never silent success', async () => {
     const { service } = makeFixture({
       elementLabels: ['Component'],

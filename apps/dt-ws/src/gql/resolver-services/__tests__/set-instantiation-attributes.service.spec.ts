@@ -242,9 +242,8 @@ describe('SetInstantiationAttributesService — MITRE-link anchor scoping', () =
 
     const link = calls.find((c) => c.query.includes('EXPLOITED_BY'));
     expect(link).toBeDefined();
-    expect(link!.query).toContain(
-      "-[:IS_EXPOSURE_OF|IS_COUNTERMEASURE_OF]->(klass {id: $classId})",
-    );
+    expect(link!.query).toContain('-[:IS_EXPOSURE_OF|IS_COUNTERMEASURE_OF]->(klass)');
+    expect(link!.query).toContain('klass.id = $classId');
     expect(link!.query).toContain(
       "e.createdBy = 'SYSTEM' OR e.createdBy IS NULL",
     );

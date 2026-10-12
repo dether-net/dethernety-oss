@@ -53,6 +53,13 @@ function sourceOf(profile: EmbeddingProfile) {
   return profile.source;
 }
 
+/** `s` without its trailing slashes, trimmed by character rather than by a `/\/+$/` pattern static analysis flags. */
+function withoutTrailingSlashes(s: string): string {
+  let end = s.length;
+  while (end > 0 && s.charCodeAt(end - 1) === 47 /* '/' */) end--;
+  return s.slice(0, end);
+}
+
 /** The directory holding one profile's files: `<modelDir>/<repo>/<revision>`. */
 export function profileRoot(profile: EmbeddingProfile, modelDir: string): string {
   const source = sourceOf(profile);
@@ -137,7 +144,7 @@ async function download(
   const source = sourceOf(profile);
   const fetchFn: FetchLike = options.fetch ?? (globalThis.fetch as unknown as FetchLike);
   const hubOrigin = new URL(source.hub).origin;
-  let url = `${source.hub.replace(/\/+$/, '')}/${source.repo}/resolve/${source.revision}/${file.path}`;
+  let url = `${withoutTrailingSlashes(source.hub)}/${source.repo}/resolve/${source.revision}/${file.path}`;
 
   let response: Awaited<ReturnType<FetchLike>> | undefined;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {

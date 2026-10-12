@@ -497,6 +497,12 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
 
       try {
         await session.executeWrite(async (tx: DatabaseTransaction) => {
+          // The driver re-runs this function when a transient conflict rolls a try back, so every attempt
+          // starts its counts and state afresh.
+          Object.assign(deltas, zeroDeltas());
+          oldBinding = null;
+          identityShortCircuit = false;
+
           // 5a — authoritative current-binding read.
           const current = await this.readCurrentBindingInTx(tx, elementId);
           oldBinding = this.describeBindingForLog(current);
@@ -883,7 +889,9 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
   ): Promise<string[]> {
     const result = await tx.run(
       `
-      MATCH (c {id: $elementId})-[:HAS_EXPOSURE]->(e:Exposure)-[:IS_EXPOSURE_OF]->(klass)
+      MATCH (c {id: $elementId})
+      WITH c
+      MATCH (c)-[:HAS_EXPOSURE]->(e:Exposure)-[:IS_EXPOSURE_OF]->(klass)
       WHERE any(l IN labels(klass) WHERE l ENDS WITH 'Class')
         AND (
           $targetClassId IS NULL
@@ -913,7 +921,9 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
   ): Promise<string[]> {
     const result = await tx.run(
       `
-      MATCH (c {id: $elementId})-[:HAS_COUNTERMEASURE]->(cm:Countermeasure)-[:IS_COUNTERMEASURE_OF]->(klass:ControlClass)
+      MATCH (c {id: $elementId})
+      WITH c
+      MATCH (c)-[:HAS_COUNTERMEASURE]->(cm:Countermeasure)-[:IS_COUNTERMEASURE_OF]->(klass:ControlClass)
       WHERE (
           klass.id IN $removedClassIds
           OR NOT (c)-[:IS_INSTANCE_OF]->(klass)

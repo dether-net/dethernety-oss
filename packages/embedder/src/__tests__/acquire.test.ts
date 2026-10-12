@@ -106,6 +106,14 @@ describe('ensureWeights', () => {
     await expect(verifyWeights(profile(), dir)).resolves.toBeUndefined();
   });
 
+  it('builds the same file URLs when the hub address ends in slashes', async () => {
+    const hub = fakeHub();
+    const p = profile(['config.json']);
+    p.source!.hub = 'https://hub.example///';
+    await ensureWeights(p, dir, { fetch: hub.fetch });
+    expect(hub.calls.map((c) => c.url)).toEqual([`https://hub.example/org/tiny/resolve/${REVISION}/config.json`]);
+  });
+
   it('fetches nothing when every file is present and verified (offline placement)', async () => {
     await ensureWeights(profile(), dir, { fetch: fakeHub().fetch });
     const hub = fakeHub({ fail: true });
