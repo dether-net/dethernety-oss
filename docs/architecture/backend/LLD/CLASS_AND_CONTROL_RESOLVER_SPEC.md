@@ -226,7 +226,7 @@ LIMIT $k
 
 `<cosine(...)>` is `vector_search.cosine_similarity(a, b)` on Memgraph and `(2 * vector.similarity.cosine(a, b) - 1)` on Neo4j, which returns `(1 + cos) / 2` and is mapped back. The score (`similarityScore`) and the threshold are therefore cosines (-1..1) on both engines. Ties order by class id; `$k` is `topN`, clamped to 1..50 and passed as a Bolt integer. The query is built by `buildRankQuery` in `@dethernety/dt-module/embedding` and run by `VectorSearchService.rank()` in a read transaction.
 
-See Section 7 for the embedding pipeline. The threshold is configurable with `EMBEDDING_SIMILARITY_THRESHOLD` (default: 0.40, tuned for the default embedding model).
+See Section 7 for the embedding pipeline. The threshold is the class corpus's: `EMBEDDING_THRESHOLD_CLASSES` when set, else `EMBEDDING_SIMILARITY_THRESHOLD` under the HTTP embedder, else the active embedding profile's calibrated value.
 
 **Detecting availability:** `VectorSearchService.healthy()` runs a memoized self-test on the configured engine: the cosine of two orthogonal vectors must be 0 and of two opposite vectors -1. A failure keeps the vector tier off and is retried after 60 seconds. The resolver then checks that the scope holds at least one vector of the active model; if not, it logs a warning and skips the vector tier.
 

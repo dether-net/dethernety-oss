@@ -1995,7 +1995,7 @@ input MatchElementInput {
   name: String!
   "Element type (for context; the componentType filter on MatchClassesInput controls catalog filtering)"
   type: ComponentType
-  "Optional free-text description (used by vector matching in a future phase)"
+  "Optional free-text description. Embedded with the element's name and type as the query of the vector-similarity tier; an element without one skips the vector tier"
   description: String
 }
 
