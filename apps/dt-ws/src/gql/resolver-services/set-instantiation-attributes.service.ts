@@ -1368,10 +1368,10 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       errors.push('classId is required and must be a string');
     }
 
-    if (!request.attributes || typeof request.attributes !== 'object') {
+    // An empty object is a valid request: it writes nothing and evaluates the element against the answers already
+    // on its binding, so an element bound to a class with no answers still gets that class's exposures.
+    if (!request.attributes || typeof request.attributes !== 'object' || Array.isArray(request.attributes)) {
       errors.push('attributes is required and must be an object');
-    } else if (Object.keys(request.attributes).length === 0) {
-      errors.push('attributes cannot be empty');
     } else {
       // Pre-validate value shapes. Memgraph property values are primitives
       // or homogeneous lists of primitives — nested objects and mixed-type

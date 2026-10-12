@@ -5,13 +5,16 @@ import { MonitoringService } from '../services/monitoring.service';
 import { EmbeddingService } from '../services/embedding.service';
 import { classLabelToNodeLabel } from './shared/class-label-map';
 import { safeErrorMessage } from '../../common/utils/safe-error-message';
-import { isMiskeyed, readVectorIndexKeys, rebuildVectorIndex } from '../services/vector-index-keys';
+import { VectorSearchService } from '../services/vector-search.service';
+import { CLASS_LABELS, vectorDefect, type ClassLabel } from '@dethernety/dt-module/embedding';
 
 // --- Constants ---
 
 const MAX_ELEMENTS = 100;
 const DEFAULT_TOP_N = 3;
 const MIN_SUBSTRING_LENGTH = 3;
+// How long a "does any class in scope have a vector of the active profile" answer is reused.
+const VECTOR_CHECK_TTL_MS = 10 * 60 * 1000;
 
 /** A name's words: lower-cased, split on anything that is not a letter or digit. */
 function nameWords(name: string): string[] {
@@ -25,38 +28,6 @@ function containsWords(hay: string[], needle: string[]): boolean {
     if (needle.every((w, k) => hay[i + k] === w)) return true;
   }
   return false;
-}
-
-/**
- * Maps graph node labels to Memgraph HNSW vector index names.
- * Used for Priority 3 (vector similarity) search.
- */
-const CLASS_LABEL_TO_INDEX_NAME: Record<string, string> = {
-  ComponentClass: 'component_class_embeddings',
-  ControlClass: 'control_class_embeddings',
-  DataFlowClass: 'dataflow_class_embeddings',
-  SecurityBoundaryClass: 'boundary_class_embeddings',
-  DataClass: 'data_class_embeddings',
-};
-
-/** Pre-allocation hint for a class vector index; Memgraph resizes past it. */
-const CLASS_INDEX_CAPACITY = 500;
-
-/** How many nearest neighbours a class's own-vector search inspects when the self-heal checks an index. */
-const HEAL_SELF_SEARCH_LIMIT = 3;
-
-/** One class vector index after the self-heal looked at it. */
-export interface ClassVectorIndexHealth {
-  indexName: string;
-  /** Embedded active classes of the index's label. */
-  embedded: number;
-  /** How many of them the index holds. */
-  held: number;
-  /** Held before a rebuild; present only when the index was rebuilt. */
-  heldBefore?: number;
-  /** Why it was rebuilt: it was keyed on another label or property, or it lacked embedded classes. */
-  reason?: 'miskeyed' | 'missing classes';
-  rebuilt: boolean;
 }
 
 // --- Internal types ---
@@ -115,16 +86,10 @@ interface MatchClassesResult {
 @Injectable()
 export class MatchClassesResolverService {
   private readonly logger = new Logger(MatchClassesResolverService.name);
-
-  private vectorSearchAvailable: boolean | null = null;
-  private vectorSearchAvailableCheckedAt = 0;
-  // 10-minute TTL — the vector module's availability rarely toggles, but
-  // dt-ws restarts shouldn't be required to pick up a Memgraph upgrade
-  // (or rollback) that flips the answer. Process-lifetime caching is too
-  // sticky; per-request probing wastes a round-trip.
-  private static readonly VECTOR_CHECK_TTL_MS = 10 * 60 * 1000;
-  private vectorIndexesEnsured = false;
-  private classIndexCheck: Promise<void> | null = null;
+  // Class-vector presence per (label, module scope, profile): the answer and when it was read, or the read in flight.
+  private readonly vectorPresence = new Map<string, { present: boolean; checkedAt: number } | Promise<boolean>>();
+  // Keys whose "no vector" or "check failed" warning has been logged.
+  private readonly vectorPresenceWarned = new Set<string>();
 
   constructor(
     @Inject('NEO4J_DRIVER') private readonly neo4jDriver: any,
@@ -132,6 +97,7 @@ export class MatchClassesResolverService {
     private readonly authorizationService: AuthorizationService,
     private readonly monitoringService: MonitoringService,
     private readonly embeddingService: EmbeddingService,
+    private readonly vectorSearch: VectorSearchService,
   ) {
     this.logger.log('MatchClassesResolverService initialized');
   }
@@ -211,7 +177,7 @@ export class MatchClassesResolverService {
   // --- Matching pipeline ---
 
   /**
-   * Priority 1: Exact name match (case-insensitive).
+   * Exact name match (case-insensitive). Its hits are merged ahead of the vector hits.
    * Optionally filtered by componentType when classLabel = COMPONENT.
    */
   private exactNameMatch(
@@ -228,20 +194,21 @@ export class MatchClassesResolverService {
   }
 
   /**
-   * Priority 2: Name containment by whole words (case-insensitive).
+   * Fallback: name containment by whole words (case-insensitive), used when neither the exact
+   * name nor the vector tier answers.
    * A hit is the class name as a contiguous word sequence inside the element
    * name, or the element name inside the class name; words split on anything
    * that is not a letter or digit. A word inside a longer word is not a hit:
    * "Go microservice" does not contain the class name "Service".
    * Skips very short element names (< 3 chars) to avoid false positives.
-   * Filtered by componentType when classLabel = COMPONENT, like the other three
+   * Filtered by componentType when classLabel = COMPONENT, like the other
    * tiers. This tier used to widen the net deliberately, on the reasoning that a
    * broader candidate set helps when the type is uncertain — but a
    * ComponentClass carries exactly one ComponentType, and changeElementBinding
    * now refuses a cross-type bind outright. Offering a candidate the user cannot
-   * accept is a dead end, not a wider net; the tier's `continue` in the pipeline
-   * also means an unfiltered substring hit SUPPRESSES the type-filtered Priority
-   * 4 fallback that would have answered correctly.
+   * accept is a dead end, not a wider net; a hit here also ends the cascade, so an
+   * unfiltered substring hit would SUPPRESS the type-filtered fallback that would
+   * have answered correctly.
    * Returns matches sorted by overlap ratio descending.
    */
   private substringMatch(
@@ -271,7 +238,7 @@ export class MatchClassesResolverService {
   }
 
   /**
-   * Priority 4: Type-filtered heuristic (fallback).
+   * Last fallback: the type-filtered heuristic.
    * When classLabel = COMPONENT and componentType is provided, returns only that type.
    * For other class labels, returns all classes.
    */
@@ -285,310 +252,64 @@ export class MatchClassesResolverService {
     return classes;
   }
 
-  // --- Vector search infrastructure ---
+  // --- Vector search ---
 
   /**
-   * Detect whether the database supports vector search (Memgraph 3.0+).
-   * Caches the result for VECTOR_CHECK_TTL_MS. Each probe also checks the class vector index keys, so
-   * an index that a database-only restart re-keyed is rebuilt within one TTL while the platform keeps
-   * running.
+   * Whether the vector tier can serve this request: the embedder is ready, exact search works on
+   * this engine, and at least one active class in scope has a vector of the active embedding
+   * profile. Without the last check a corpus embedded by another model would answer nothing while
+   * reporting the tier as available.
+   *
+   * The last check is a database read, so its answer is kept per (label, module scope, profile) for
+   * VECTOR_CHECK_TTL_MS, concurrent requests share one read, and its warning is logged once per key.
+   * A fresh install can therefore read as "no vectors" for up to the TTL. A failed read is not kept.
    */
-  private async checkVectorSearchAvailability(): Promise<boolean> {
-    const now = Date.now();
-    if (
-      this.vectorSearchAvailable !== null &&
-      now - this.vectorSearchAvailableCheckedAt < MatchClassesResolverService.VECTOR_CHECK_TTL_MS
-    ) {
-      return this.vectorSearchAvailable;
-    }
+  private async vectorTierAvailable(nodeLabel: string, moduleIds?: string[]): Promise<boolean> {
+    if (!this.embeddingService.isEnabled()) return false;
+    if (!(await this.vectorSearch.healthy())) return false;
+    const profileId = this.embeddingService.getModel();
+    const scope = moduleIds && moduleIds.length > 0 ? [...moduleIds].sort() : [];
+    const key = `${nodeLabel}|${scope.join(',')}|${profileId}`;
+    const cached = this.vectorPresence.get(key);
+    if (cached instanceof Promise) return cached;
+    if (cached && Date.now() - cached.checkedAt < VECTOR_CHECK_TTL_MS) return cached.present;
 
-    const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name'),
-    });
+    const read = this.readVectorPresence(nodeLabel, scope, profileId, key);
+    this.vectorPresence.set(key, read);
+    return read;
+  }
+
+  /** The presence read behind vectorTierAvailable; it settles the cache entry for `key`. */
+  private async readVectorPresence(nodeLabel: string, scope: string[], profileId: string, key: string): Promise<boolean> {
     try {
-      await session.executeRead(async (tx: any) => {
-        return await tx.run('CALL vector_search.show_index_info() YIELD *');
-      });
-      this.vectorSearchAvailable = true;
-      this.logger.log('Vector search is available (Memgraph detected)');
-    } catch {
-      this.vectorSearchAvailable = false;
-      this.logger.log('Vector search not available (Neo4j or older Memgraph)');
-    } finally {
-      await session.close();
-    }
-    this.vectorSearchAvailableCheckedAt = now;
-    if (this.vectorSearchAvailable && this.vectorIndexesEnsured && this.embeddingService.isEnabled()) {
-      await this.checkClassVectorIndexKeys();
-    }
-    return this.vectorSearchAvailable;
-  }
-
-  /**
-   * The cheap check behind each availability probe: an index keyed on another label or property, or
-   * holding fewer entries than its label has embedded active classes, triggers the full self-heal.
-   * Concurrent probes share one check; a failure is logged and leaves search as it was.
-   */
-  private async checkClassVectorIndexKeys(): Promise<void> {
-    if (this.classIndexCheck) return this.classIndexCheck;
-    this.classIndexCheck = (async () => {
-      const session = this.neo4jDriver.session({
-        database: this.configService.get('database.name'),
-      });
-      let needsHeal = false;
-      try {
-        const keys = await readVectorIndexKeys(session);
-        for (const [nodeLabel, indexName] of Object.entries(CLASS_LABEL_TO_INDEX_NAME)) {
-          const key = keys?.get(indexName);
-          if (key === undefined) continue;
-          if (isMiskeyed(key, { label: nodeLabel, property: 'embedding' })) {
-            needsHeal = true;
-            break;
-          }
-          if (key.size < (await this.countEmbeddedClasses(session, nodeLabel))) {
-            needsHeal = true;
-            break;
-          }
-        }
-      } catch (error) {
-        this.logger.warn('Class vector index key check failed', { error: safeErrorMessage(error) });
-      } finally {
-        await session.close();
-      }
-      if (needsHeal) await this.healClassVectorIndexes();
-    })().finally(() => {
-      this.classIndexCheck = null;
-    });
-    return this.classIndexCheck;
-  }
-
-  /**
-   * Create one class vector index. DDL must run as an auto-committing (implicit) transaction —
-   * Memgraph rejects CREATE VECTOR INDEX inside explicit/multi-command transactions.
-   */
-  private async createClassVectorIndex(
-    session: any,
-    nodeLabel: string,
-    indexName: string,
-    dimensions: number,
-  ): Promise<void> {
-    await session.run(
-      `CREATE VECTOR INDEX ${indexName} ON :${nodeLabel}(embedding) ` +
-        `WITH CONFIG {"dimension": ${dimensions}, "capacity": ${CLASS_INDEX_CAPACITY}, "metric": "cos"}`,
-    );
-  }
-
-  /**
-   * Ensure HNSW vector indexes exist for all 5 class labels and verify that
-   * their dimension matches EMBEDDING_DIMENSIONS.
-   *
-   * Public so ModuleManagementService can await this from resolveVectors()
-   * before the first module install — on a fresh DB no matchClasses query
-   * has fired yet, so the bootstrap wouldn't otherwise run in time.
-   *
-   * Idempotency: vectorIndexesEnsured is set only after a full successful
-   * pass (index existence + dimension cross-check). If this method throws
-   * (DB unreachable, etc.) the flag stays false and the next call retries.
-   *
-   * Dimension mismatch handling: rather than fail-open into writing vectors
-   * against a wrong-dim index, we call embeddingService.disableForSession().
-   * Older Memgraph versions that do not project `dimension` fall through
-   * with a single warn — the check was attempted but not authoritative.
-   */
-  async ensureVectorIndexes(): Promise<void> {
-    if (this.vectorIndexesEnsured) return;
-
-    const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name'),
-    });
-    try {
-      // Read existing index names + dimensions in a single pass. On older
-      // Memgraph that does not project `dimension`, the query throws and we
-      // fall back to a name-only read plus a non-authoritative warn.
-      let existingIndexes: Set<string>;
-      let existingDimensions: Map<string, number> | null;
-      try {
-        const result = await session.executeRead(async (tx: any) => {
-          return await tx.run(
-            'CALL vector_search.show_index_info() YIELD index_name, dimension RETURN index_name, dimension',
-          );
-        });
-        existingIndexes = new Set<string>();
-        existingDimensions = new Map<string, number>();
-        for (const rec of result.records as any[]) {
-          const name = rec.get('index_name');
-          existingIndexes.add(name);
-          const dimRaw = rec.get('dimension');
-          // Memgraph returns integer types; neo4j-driver wraps them. Coerce to number.
-          const dim = typeof dimRaw === 'number' ? dimRaw : Number(dimRaw?.toNumber?.() ?? dimRaw);
-          if (Number.isFinite(dim)) existingDimensions.set(name, dim);
-        }
-      } catch (err) {
-        this.logger.warn(
-          'Memgraph vector index dimension projection not available — skipping cross-check',
-          { error: safeErrorMessage(err) },
-        );
-        const result = await session.executeRead(async (tx: any) => {
-          return await tx.run(
-            'CALL vector_search.show_index_info() YIELD index_name RETURN index_name',
-          );
-        });
-        existingIndexes = new Set<string>(
-          result.records.map((r: any) => r.get('index_name')),
-        );
-        existingDimensions = null;
-      }
-
-      const dimensions = this.embeddingService.getDimensions();
-
-      for (const [nodeLabel, indexName] of Object.entries(
-        CLASS_LABEL_TO_INDEX_NAME,
-      )) {
-        if (!existingIndexes.has(indexName)) {
-          this.logger.log(
-            `Creating vector index: ${indexName} on :${nodeLabel}(embedding)`,
-          );
-          await this.createClassVectorIndex(session, nodeLabel, indexName, dimensions);
-        } else if (existingDimensions) {
-          const existing = existingDimensions.get(indexName);
-          if (existing !== undefined && existing !== dimensions) {
-            this.embeddingService.disableForSession(
-              `Vector index ${indexName} has dimension ${existing} but EMBEDDING_DIMENSIONS=${dimensions}. ` +
-                `Pre-existing vectors would be scored against mismatched new vectors. ` +
-                `Recommended: drop the index and restart, or set EMBEDDING_DIMENSIONS to ${existing}.`,
-            );
-            return; // Do NOT set vectorIndexesEnsured — retry will no-op via isEnabled() upstream.
-          }
-        }
-      }
-
-      this.vectorIndexesEnsured = true;
-    } finally {
-      await session.close();
+      const records = await this.vectorSearch.read(
+        `MATCH (m:Module)-[:HAS_CLASS]->(c:${nodeLabel})
+         WHERE c.embeddingModel = $profileId AND c.embedding IS NOT NULL
+           ${scope.length ? 'AND m.id IN $moduleIds' : ''}
+         RETURN count(c) > 0 AS present`,
+        { profileId, ...(scope.length ? { moduleIds: scope } : {}) },
+      );
+      const present = records[0]?.get('present') === true;
+      this.vectorPresence.set(key, { present, checkedAt: Date.now() });
+      if (!present) this.warnOnce(key, 'No class in scope has a vector of the active embedding profile; the vector tier is off', { nodeLabel, profile: profileId });
+      return present;
+    } catch (error) {
+      this.vectorPresence.delete(key);
+      this.warnOnce(key, 'Class vector availability check failed', { error: safeErrorMessage(error) });
+      return false;
     }
   }
 
-  /**
-   * Verify each class vector index and rebuild one that is keyed on another label or property, or that
-   * does not hold every embedded active class of its label.
-   *
-   * The key comes from the index metadata (see vector-index-keys.ts for the Memgraph recovery defect
-   * that re-keys an index). A class is held when a search with its own vector returns it among the
-   * nearest few (classes with identical text share a vector, so its own entry can tie with another).
-   * Creating an index indexes the nodes that already carry the property, so a rebuild restores it.
-   * Runs after module installs; a failure is logged and leaves vector search as it was.
-   */
-  async healClassVectorIndexes(): Promise<ClassVectorIndexHealth[]> {
-    if (!this.embeddingService.isEnabled()) return [];
-    if (!(await this.checkVectorSearchAvailability())) return [];
-    await this.ensureVectorIndexes();
-    // The dimension cross-check may have disabled embedding for the session.
-    if (!this.embeddingService.isEnabled()) return [];
-
-    const report: ClassVectorIndexHealth[] = [];
-    const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name'),
-    });
-    try {
-      const keys = await readVectorIndexKeys(session);
-      for (const [nodeLabel, indexName] of Object.entries(CLASS_LABEL_TO_INDEX_NAME)) {
-        try {
-          const spec = {
-            indexName,
-            label: nodeLabel,
-            property: 'embedding',
-            dimensions: this.embeddingService.getDimensions(),
-            capacity: CLASS_INDEX_CAPACITY,
-          };
-          const key = keys?.get(indexName);
-          const before = await this.countHeldClasses(session, nodeLabel, indexName);
-          const reason = isMiskeyed(key, spec)
-            ? ('miskeyed' as const)
-            : before.held < before.embedded
-              ? ('missing classes' as const)
-              : null;
-          if (!reason) {
-            report.push({ indexName, embedded: before.embedded, held: before.held, rebuilt: false });
-            continue;
-          }
-          this.logger.warn(
-            reason === 'miskeyed'
-              ? `Vector index ${indexName} is keyed on :${key!.label}(${key!.property}) instead of :${nodeLabel}(embedding) — rebuilding it`
-              : `Vector index ${indexName} holds ${before.held} of ${before.embedded} embedded ${nodeLabel} classes — rebuilding it`,
-          );
-          await rebuildVectorIndex(session, spec);
-          const after = await this.countHeldClasses(session, nodeLabel, indexName);
-          const log = after.held === after.embedded ? 'log' : 'warn';
-          this.logger[log](
-            `Vector index ${indexName} rebuilt: holds ${after.held} of ${after.embedded} embedded ${nodeLabel} classes`,
-          );
-          report.push({ indexName, embedded: after.embedded, held: after.held, heldBefore: before.held, reason, rebuilt: true });
-        } catch (error) {
-          this.logger.warn(`Vector index ${indexName} could not be verified or rebuilt`, {
-            error: safeErrorMessage(error),
-          });
-        }
-      }
-    } finally {
-      await session.close();
-    }
-    return report;
-  }
-
-  /** How many embedded active classes of a label there are, and how many of them its vector index holds. */
-  private async countHeldClasses(
-    session: any,
-    nodeLabel: string,
-    indexName: string,
-  ): Promise<{ embedded: number; held: number }> {
-    const toNumber = (v: any) => Math.floor(typeof v === 'number' ? v : Number(v?.toNumber?.() ?? 0));
-    const embedded = toNumber(
-      (
-        await session.executeRead((tx: any) =>
-          tx.run(
-            `MATCH (c:${nodeLabel})<-[:HAS_CLASS]-(:Module)
-             WHERE c.embedding IS NOT NULL
-             RETURN count(DISTINCT c) AS n`,
-          ),
-        )
-      ).records[0]?.get('n'),
-    );
-    if (embedded === 0) return { embedded, held: 0 };
-    // A class whose search returns no rows drops out of this count, so it is counted as not held.
-    const held = toNumber(
-      (
-        await session.executeRead((tx: any) =>
-          tx.run(
-            `MATCH (c:${nodeLabel})<-[:HAS_CLASS]-(:Module)
-             WHERE c.embedding IS NOT NULL
-             WITH DISTINCT c
-             CALL vector_search.search('${indexName}', ${HEAL_SELF_SEARCH_LIMIT}, c.embedding) YIELD node
-             WITH c, collect(id(node)) AS nearest
-             RETURN count(CASE WHEN id(c) IN nearest THEN 1 END) AS n`,
-          ),
-        )
-      ).records[0]?.get('n'),
-    );
-    return { embedded, held };
-  }
-
-  /** Active classes of a label that carry an embedding: the upper bound of a module-scoped vector search. */
-  private async countEmbeddedClasses(session: any, nodeLabel: string): Promise<number> {
-    const result = await session.executeRead(async (tx: any) =>
-      tx.run(
-        `MATCH (c:${nodeLabel})<-[:HAS_CLASS]-(:Module)
-         WHERE c.embedding IS NOT NULL
-         RETURN count(c) AS c`,
-      ),
-    );
-    const value = result.records[0]?.get('c');
-    return Math.floor(typeof value === 'number' ? value : Number(value?.toNumber?.() ?? 0));
+  private warnOnce(key: string, message: string, detail: Record<string, unknown>): void {
+    if (this.vectorPresenceWarned.has(key)) return;
+    this.vectorPresenceWarned.add(key);
+    this.logger.warn(message, detail);
   }
 
   /**
-   * Priority 3: Vector similarity search via Memgraph HNSW index.
-   * Embeds the element on the fly, queries the appropriate index, post-filters.
-   * Returns empty array on any failure (graceful degradation).
+   * Exact vector similarity in the database. Embeds the element as a query and ranks the
+   * active classes of the label that carry a vector of the active profile.
+   * Returns an empty array on any failure (graceful degradation).
    */
   private async vectorSimilarityMatch(
     element: MatchElementInput,
@@ -598,106 +319,43 @@ export class MatchClassesResolverService {
     moduleIds?: string[],
   ): Promise<{ record: ClassRecord; similarity: number }[]> {
     if (!element.description) return [];
+    if (!(CLASS_LABELS as readonly string[]).includes(nodeLabel)) return [];
 
-    const indexName = CLASS_LABEL_TO_INDEX_NAME[nodeLabel];
-    if (!indexName) return [];
-
-    // Compose and embed the element text
     const text = this.embeddingService.composeElementText(element);
     let vectors: number[][] | null;
     try {
-      vectors = await this.embeddingService.embedBatch([text]);
+      vectors = await this.embeddingService.embedBatch([text], 'query');
     } catch (error) {
-      this.logger.warn('Embedding failed for vector search, skipping Priority 3', {
+      this.logger.warn('Embedding failed for vector search, skipping the vector tier', {
         elementName: element.name,
         error: error instanceof Error ? error.message : 'unknown',
       });
       return [];
     }
-
     if (!vectors || vectors.length === 0) return [];
-    const queryVector = vectors[0];
 
-    const threshold = this.embeddingService.getThreshold();
-
-    const session = this.neo4jDriver.session({
-      database: this.configService.get('database.name'),
+    const rows = await this.vectorSearch.rank({
+      corpus: 'classes',
+      label: nodeLabel as ClassLabel,
+      vector: vectors[0],
+      profileId: this.embeddingService.getModel(),
+      k: topN,
+      threshold: this.embeddingService.getThreshold('classes'),
+      componentType: componentType || null,
+      moduleIds: moduleIds ?? null,
     });
-    try {
-      // Unscoped: request 3x topN to allow for the threshold and type post-filters.
-      // Scoped to modules: the module filter runs after the nearest-neighbour search, so a fixed
-      // multiple of topN returns nothing once other modules' classes fill it. Search every
-      // embedded class of the label instead, then filter.
-      // Ensure integer type — Neo4j driver may wrap numbers as Integer objects
-      // which Memgraph's vector_search.search rejects.
-      const searchLimit =
-        moduleIds && moduleIds.length > 0
-          ? Math.max(
-              Math.floor(Number(topN) * 3),
-              await this.countEmbeddedClasses(session, nodeLabel),
-            )
-          : Math.floor(Number(topN) * 3);
-      // indexName and searchLimit are from hardcoded constants, safe to interpolate.
-      // Use WITH after YIELD — Memgraph does not allow WHERE directly after YIELD.
-      const query = `
-        CALL vector_search.search('${indexName}', ${searchLimit}, $query_vector)
-        YIELD node, similarity
-        WITH id(node) AS hit, similarity
-        WHERE similarity >= $threshold
-        // A node deleted since it was indexed can stay in the index until the database's garbage
-        // collection runs, and reading it fails; matching each hit by its internal id skips it.
-        MATCH (node) WHERE id(node) = hit
-        WITH node, similarity
-        WHERE $component_type IS NULL OR node.type = $component_type
-        // Orphan-aware: :HAS_CLASS implicitly excludes orphans —
-        // vector search results should be active classes only; operators
-        // don't want retired classes surfacing in user-facing semantic
-        // search.
-        MATCH (node)<-[:HAS_CLASS]-(m:Module)
-        WHERE $module_ids IS NULL OR m.id IN $module_ids
-        RETURN node.id AS classId, node.name AS className,
-               node.description AS description, node.category AS category,
-               node.type AS type, m.id AS moduleId, m.name AS moduleName,
-               node.embeddingModel AS embeddingModel, similarity
-        ORDER BY similarity DESC
-        LIMIT ${Math.floor(Number(topN))}
-      `;
-
-      const result = await session.executeRead(async (tx: any) => {
-        return await tx.run(query, {
-          query_vector: queryVector,
-          threshold,
-          component_type: componentType || null,
-          module_ids: moduleIds && moduleIds.length > 0 ? moduleIds : null,
-        });
-      });
-
-      // Check for embedding model version mismatch
-      if (result.records.length > 0) {
-        const storedModel = result.records[0].get('embeddingModel');
-        if (storedModel && storedModel !== this.embeddingService.getModel()) {
-          this.logger.warn(
-            `Embedding model mismatch: configured="${this.embeddingService.getModel()}" ` +
-              `vs stored="${storedModel}". Run reindexClassEmbeddings to re-embed.`,
-          );
-        }
-      }
-
-      return result.records.map((record: any) => ({
-        record: {
-          classId: record.get('classId'),
-          className: record.get('className'),
-          description: record.get('description') ?? null,
-          category: record.get('category') ?? null,
-          type: record.get('type') ?? null,
-          moduleId: record.get('moduleId'),
-          moduleName: record.get('moduleName'),
-        },
-        similarity: record.get('similarity'),
-      }));
-    } finally {
-      await session.close();
-    }
+    return rows.map((row) => ({
+      record: {
+        classId: row.id,
+        className: row.name as string,
+        description: (row.description as string | null) ?? null,
+        category: (row.category as string | null) ?? null,
+        type: (row.type as string | null) ?? null,
+        moduleId: row.moduleId as string,
+        moduleName: row.moduleName as string,
+      },
+      similarity: row.score,
+    }));
   }
 
   // --- Candidate builder ---
@@ -734,14 +392,9 @@ export class MatchClassesResolverService {
     const topN = input.topN ?? DEFAULT_TOP_N;
     const fields = new Set(input.fields ?? []);
 
-    // Eagerly resolve vector availability for the response field. The Priority-3
-    // branch below evaluates the same flags lazily, but we always populate
-    // vectorAvailable so callers (UI, MCP tool) can surface the signal even
-    // when the cascade short-circuits at Priority 1 or 2. The DB probe is
-    // memoised on this.vectorSearchAvailable after the first call.
-    const vectorAvailable =
-      this.embeddingService.isEnabled() &&
-      (await this.checkVectorSearchAvailability());
+    // Resolved once per request, so callers (UI, MCP tool) see the signal even when an element has
+    // no description and only the name tiers answer.
+    const vectorAvailable = await this.vectorTierAvailable(nodeLabel, input.moduleIds);
 
     // Single DB fetch — all classes of this label, optionally scoped to modules
     const allClasses = await this.fetchClasses(nodeLabel, input.moduleIds);
@@ -752,23 +405,47 @@ export class MatchClassesResolverService {
     for (const element of input.elements) {
       const candidates: ClassCandidate[] = [];
 
-      // Priority 1: Exact name match
+      // Exact name and vector similarity run together. Exact-name hits come first, so a class whose
+      // name the element carries never disappears behind classes that clear the threshold; the
+      // vector hits follow. Containment no longer short-circuits the vector tier.
       const exactHits = this.exactNameMatch(
         element.name,
         allClasses,
         input.componentType,
       );
-      if (exactHits.length > 0) {
-        for (const hit of exactHits.slice(0, topN)) {
-          candidates.push(
-            this.toCandidate(hit, 'exact_name', 'high', 1.0, fields),
+      let vectorHits: { record: ClassRecord; similarity: number }[] = [];
+      if (vectorAvailable && element.description) {
+        try {
+          vectorHits = await this.vectorSimilarityMatch(
+            element,
+            nodeLabel,
+            topN,
+            input.componentType,
+            input.moduleIds,
           );
+        } catch (error) {
+          this.logger.warn('Vector search failed, falling back to the name tiers', {
+            elementName: element.name,
+            error: error instanceof Error ? error.message : 'unknown',
+          });
         }
-        matches.push({ elementName: element.name, candidates });
+      }
+      if (exactHits.length > 0 || vectorHits.length > 0) {
+        const seen = new Set<string>();
+        for (const hit of exactHits) {
+          seen.add(hit.classId);
+          candidates.push(this.toCandidate(hit, 'exact_name', 'high', 1.0, fields));
+        }
+        for (const { record, similarity } of vectorHits) {
+          if (seen.has(record.classId)) continue;
+          seen.add(record.classId);
+          candidates.push(this.toCandidate(record, 'vector_similarity', 'medium', similarity, fields));
+        }
+        matches.push({ elementName: element.name, candidates: candidates.slice(0, topN) });
         continue;
       }
 
-      // Priority 2: Substring match
+      // Fallback when neither answers: name containment, then the type-filtered heuristic.
       const substringHits = this.substringMatch(
         element.name,
         allClasses,
@@ -784,45 +461,6 @@ export class MatchClassesResolverService {
         continue;
       }
 
-      // Priority 3: Vector similarity (if enabled and available)
-      if (
-        this.embeddingService.isEnabled() &&
-        (await this.checkVectorSearchAvailability()) &&
-        element.description
-      ) {
-        try {
-          await this.ensureVectorIndexes();
-          const vectorHits = await this.vectorSimilarityMatch(
-            element,
-            nodeLabel,
-            topN,
-            input.componentType,
-            input.moduleIds,
-          );
-          if (vectorHits.length > 0) {
-            for (const { record, similarity } of vectorHits) {
-              candidates.push(
-                this.toCandidate(
-                  record,
-                  'vector_similarity',
-                  'medium',
-                  similarity,
-                  fields,
-                ),
-              );
-            }
-            matches.push({ elementName: element.name, candidates });
-            continue;
-          }
-        } catch (error) {
-          this.logger.warn('Vector search failed, falling through to Priority 4', {
-            elementName: element.name,
-            error: error instanceof Error ? error.message : 'unknown',
-          });
-        }
-      }
-
-      // Priority 4: Type-filtered heuristic (fallback)
       const heuristicHits = this.typeFilteredMatch(
         allClasses,
         input.componentType,
@@ -865,9 +503,7 @@ export class MatchClassesResolverService {
       let reindexedCount = 0;
       const moduleNameSet = new Set<string>();
 
-      for (const [nodeLabel, indexName] of Object.entries(
-        CLASS_LABEL_TO_INDEX_NAME,
-      )) {
+      for (const nodeLabel of CLASS_LABELS) {
         // Fetch all classes of this label (optionally filtered by moduleIds).
         // Orphan-aware: both branches use :HAS_CLASS — embedding reindex
         // only touches active classes; orphaned classes keep their last
@@ -904,14 +540,26 @@ export class MatchClassesResolverService {
         const texts = classes.map((cls: any) =>
           this.embeddingService.composeClassText(cls),
         );
-        const vectors = await this.embeddingService.embedBatch(texts);
+        const vectors = await this.embeddingService.embedBatch(
+          texts,
+          'document',
+          classes.map((cls: any) => cls.name),
+        );
 
         if (!vectors) continue;
 
         // Write vectors back
         const embeddingModel = this.embeddingService.getModel();
+        const dimensions = this.embeddingService.getDimensions();
+        let written = 0;
         await session.executeWrite(async (tx: any) => {
+          written = 0;
           for (let i = 0; i < classes.length; i++) {
+            const defect = vectorDefect(vectors[i], dimensions);
+            if (defect) {
+              this.logger.warn('Skipping a class vector that cannot be stored', { classId: classes[i].classId, defect });
+              continue;
+            }
             await tx.run(
               `MATCH (c:${nodeLabel} {id: $classId})
                SET c.embedding = $embedding, c.embeddingModel = $embeddingModel`,
@@ -921,10 +569,11 @@ export class MatchClassesResolverService {
                 embeddingModel,
               },
             );
+            written++;
           }
         });
 
-        reindexedCount += classes.length;
+        reindexedCount += written;
         for (const cls of classes) {
           moduleNameSet.add(cls.moduleName);
         }
@@ -1021,7 +670,7 @@ export class MatchClassesResolverService {
       Mutation: {
         reindexClassEmbeddings: async (
           _parent: any,
-          args: { moduleIds?: string[]; capacity?: number },
+          args: { moduleIds?: string[] },
           context: any,
         ) => {
           const startTime = Date.now();

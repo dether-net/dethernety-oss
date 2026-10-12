@@ -72,9 +72,7 @@
     const reason = store.vectorDisabledReason as VectorDisabledReason | null
     switch (reason) {
       case 'EMBEDDING_DISABLED':
-        return 'Semantic search is disabled on this deployment — showing name-based matches.'
-      case 'NO_INDEX_MODULE':
-        return 'Semantic search is unavailable on this deployment — showing name-based matches.'
+        return 'Semantic search is unavailable on this deployment right now — showing name-based matches.'
       case 'NO_VECTORS':
         return 'Semantic search unavailable — MITRE vectors not yet installed. Update the mitre-frameworks module to enable.'
       case 'MODEL_MISMATCH':

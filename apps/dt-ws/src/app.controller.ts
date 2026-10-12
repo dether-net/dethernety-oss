@@ -1,8 +1,9 @@
-import { Controller, Get, HttpStatus, Inject, Res, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Inject, Optional, Res, ServiceUnavailableException } from '@nestjs/common';
 import { Response } from 'express';
 import { DatabaseService } from './database/database.service';
 import { GqlHealthService } from './gql/health/gql-health.service';
 import { ModuleRegistryService } from './gql/module-management-services/module-registry.service';
+import { EmbeddingService, type EmbedderState } from './gql/services/embedding.service';
 
 interface HealthCheckResult {
   status: 'healthy' | 'unhealthy' | 'degraded';
@@ -26,6 +27,12 @@ interface HealthCheckResult {
       healthy: number;
       error?: string;
     };
+    embedder?: {
+      state: EmbedderState;
+      runtime: 'onnx' | 'http';
+      profile: string;
+      error?: string;
+    };
   };
   system?: {
     memory: {
@@ -46,6 +53,7 @@ export class AppController {
     @Inject('NEO4J_SERVICE') private readonly databaseService: DatabaseService,
     private readonly gqlHealthService: GqlHealthService,
     private readonly moduleRegistryService: ModuleRegistryService,
+    @Optional() private readonly embeddingService?: EmbeddingService,
   ) {}
 
   @Get('config')
@@ -176,6 +184,13 @@ export class AppController {
       if (overallStatus === 'healthy') overallStatus = 'degraded';
     }
 
+    // Embedder: an enabled embedder that is still fetching or loading its model, or that failed,
+    // leaves the vector tier off. The service still serves (name tiers), so it is `degraded`, not down.
+    const embedder = this.embeddingService?.getStatus();
+    if (embedder?.enabled && embedder.state !== 'ready' && overallStatus === 'healthy') {
+      overallStatus = 'degraded';
+    }
+
     // Honest status code: an unhealthy service must not answer 200 or
     // orchestrators/load balancers keep routing to it. `degraded` stays
     // 200 — the pod still serves (e.g. the base-schema fallback).
@@ -218,6 +233,9 @@ export class AppController {
           healthy: healthyModules,
           error: moduleError,
         },
+        ...(embedder?.enabled
+          ? { embedder: { state: embedder.state, runtime: embedder.runtime, profile: embedder.profileId, error: embedder.error } }
+          : {}),
       },
       system: {
         memory: {

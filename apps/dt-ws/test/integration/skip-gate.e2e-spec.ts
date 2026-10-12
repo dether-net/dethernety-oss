@@ -18,12 +18,12 @@ const configStub: any = {
 // Embedding disabled → resolveVectors returns null early (no HTTP, no getEmbedding).
 const embeddingStub: any = {
   isEnabled: () => false,
+  isPending: () => false,
   getModel: () => '',
   getDimensions: () => 0,
   composeClassText: () => '',
   embedBatch: async () => null,
 };
-const matchStub: any = { ensureVectorIndexes: async () => undefined, healClassVectorIndexes: async () => [] };
 
 async function withRead(driver: any, fn: (tx: any) => Promise<any>): Promise<any> {
   const session = driver.session({ database: 'memgraph' });
@@ -85,7 +85,6 @@ describe('content-hash skip gate — updateAllModules end-to-end', () => {
       mg.driver,
       configStub,
       embeddingStub,
-      matchStub,
       reconciler,
       log,
     );

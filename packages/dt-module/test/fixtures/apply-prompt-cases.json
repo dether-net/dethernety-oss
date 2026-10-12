@@ -1,0 +1,116 @@
+{
+  "description": "applyPrompt cases shared by the TypeScript and Python implementations; each language must produce `expected` byte for byte.",
+  "cases": [
+    {
+      "name": "plain query",
+      "profile": "embeddinggemma-300m-retrieval-v1",
+      "kind": "query",
+      "text": "credential dumping",
+      "expected": "task: search result | query: credential dumping"
+    },
+    {
+      "name": "replacement pattern $& in text",
+      "profile": "embeddinggemma-300m-retrieval-v1",
+      "kind": "query",
+      "text": "a $& b",
+      "expected": "task: search result | query: a $& b"
+    },
+    {
+      "name": "replacement patterns $' $` $1 $$ in text",
+      "profile": "embeddinggemma-300m-retrieval-v1",
+      "kind": "query",
+      "text": "x $' y $` z $1 $$",
+      "expected": "task: search result | query: x $' y $` z $1 $$"
+    },
+    {
+      "name": "placeholder {text} inside text",
+      "profile": "embeddinggemma-300m-retrieval-v1",
+      "kind": "query",
+      "text": "{text}",
+      "expected": "task: search result | query: {text}"
+    },
+    {
+      "name": "placeholder {title} inside query text",
+      "profile": "embeddinggemma-300m-retrieval-v1",
+      "kind": "query",
+      "text": "see {title}",
+      "expected": "task: search result | query: see {title}"
+    },
+    {
+      "name": "placeholder {text} inside title",
+      "profile": "embeddinggemma-300m-retrieval-v1",
+      "kind": "document",
+      "text": "body",
+      "title": "{text}",
+      "expected": "title: {text} | text: body"
+    },
+    {
+      "name": "replacement patterns in title and text",
+      "profile": "embeddinggemma-300m-retrieval-v1",
+      "kind": "document",
+      "text": "$'",
+      "title": "$&",
+      "expected": "title: $& | text: $'"
+    },
+    {
+      "name": "empty title under rule name",
+      "profile": "embeddinggemma-300m-retrieval-v1",
+      "kind": "document",
+      "text": "t",
+      "title": "",
+      "expected": "title: none | text: t"
+    },
+    {
+      "name": "missing title under rule name",
+      "profile": "embeddinggemma-300m-retrieval-v1",
+      "kind": "document",
+      "text": "t",
+      "expected": "title: none | text: t"
+    },
+    {
+      "name": "title ignored under rule none",
+      "profile": "embeddinggemma-2-text-retrieval-v1",
+      "kind": "document",
+      "text": "cache",
+      "title": "Redis",
+      "expected": "title: none | text: cache"
+    },
+    {
+      "name": "unbalanced braces",
+      "profile": "embeddinggemma-300m-retrieval-v1",
+      "kind": "document",
+      "text": "{text",
+      "title": "title}",
+      "expected": "title: title} | text: {text"
+    },
+    {
+      "name": "unicode",
+      "profile": "embeddinggemma-300m-retrieval-v1",
+      "kind": "query",
+      "text": "Árvíztűrő tükörfúrógép ✓",
+      "expected": "task: search result | query: Árvíztűrő tükörfúrógép ✓"
+    },
+    {
+      "name": "multi-line text",
+      "profile": "embeddinggemma-2-text-retrieval-v1",
+      "kind": "query",
+      "text": "line1\nline2",
+      "expected": "task: search result | query: line1\nline2"
+    },
+    {
+      "name": "legacy profile leaves a query unchanged",
+      "profile": "embeddinggemma",
+      "kind": "query",
+      "text": "anything {text} $&",
+      "expected": "anything {text} $&"
+    },
+    {
+      "name": "legacy profile leaves a document unchanged",
+      "profile": "embeddinggemma",
+      "kind": "document",
+      "text": "x",
+      "title": "y",
+      "expected": "x"
+    }
+  ]
+}

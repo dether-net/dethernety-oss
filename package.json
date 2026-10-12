@@ -30,6 +30,7 @@
   },
   "packageManager": "pnpm@9.13.2",
   "pnpm": {
+    "neverBuiltDependencies": ["onnxruntime-node"],
     "overrides": {
       "hono": "^4.13.5",
       "@hono/node-server": "^2.0.5",

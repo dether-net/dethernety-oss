@@ -144,6 +144,7 @@ If the user skips, proceed with a warning but do not block.
 - To **remove** a wrong or out-of-scope classification from an already-pushed element, set `classData: null` (do not just delete the key — an absent key leaves the platform binding untouched). The next `update_model` push unassigns the class and the platform deletes its auto-generated exposures, keeping user-authored ones.
 - Call `mcp__plugin_dethereal_dethereal__generate_attribute_stubs(directory_path: '<model-path>')` to deterministically write class template attribute stubs for all newly classified elements. The tool auto-scans `structure.json`, `dataflows.json`, and `data-items.json`, deduplicates classes, fetches templates via GraphQL, and merges template fields into existing attribute files (existing values preserved). This replaces manual template fetching — one tool call instead of per-element schema extraction.
 - Write `crownJewel: true` onto the confirmed crown jewel components in `structure.json` (first-class field, not an attribute bag)
+- Binding a data item to a credential-like DATA class (e.g. User Credentials, Authentication Tokens) makes it a credential candidate: `validate_model_json(action: 'quality')` lists it in `credential_hints` until `is_credential` is answered. Ask the user to confirm `is_credential` — never set it from the class alone
 
 ### 9. State — No Transition
 

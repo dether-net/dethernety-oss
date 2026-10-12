@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "embeddinggemma",
+  "label": "Legacy: EmbeddingGemma over an HTTP embed endpoint, no prompts",
+  "runtime": {
+    "engine": "http",
+    "dimensions": 768
+  },
+  "thresholds": {
+    "classes": 0.4,
+    "mitre": 0.4,
+    "components": null
+  }
+}

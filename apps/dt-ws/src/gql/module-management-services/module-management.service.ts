@@ -1,11 +1,10 @@
-import { Injectable, Inject, Logger, forwardRef } from '@nestjs/common';
+import { Injectable, Inject, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DTModule, DTMetadata, ClassKind, IdRebindPolicy } from '@dethernety/dt-module';
 import { ClassReconciler } from './class-reconciler.service';
 import { ClassIdentityEventLog } from './class-identity-event-log.service';
 import { slugifyModelName } from '@dethernety/dt-module/embedding';
 import { EmbeddingService } from '../services/embedding.service';
-import { MatchClassesResolverService } from '../resolver-services/match-classes-resolver.service';
 import { GqlConfig } from '../gql.config';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -24,9 +23,18 @@ import {
   MODULE_CLASS_CONFIGS,
 } from '../interfaces/module-management.interface';
 
+/**
+ * The class vectors resolved for one module install: per class name; null when embedding is disabled (the
+ * install writes none and removes stale ones); 'pending' when the embedder is enabled but not ready (the install
+ * keeps the vectors already stored and is marked partial, so a later install embeds).
+ */
+export type ResolvedVectors = Map<string, number[]> | null | 'pending';
+
 @Injectable()
 export class ModuleManagementService {
   private readonly logger = new Logger(ModuleManagementService.name);
+  // The "embedder not ready" warning is logged once per boot, not once per module.
+  private loggedEmbedderNotReady = false;
   private readonly config: GqlConfig;
   private statistics: ModuleStatistics = {
     totalModules: 0,
@@ -39,8 +47,6 @@ export class ModuleManagementService {
     @Inject('NEO4J_DRIVER') private readonly neo4jDriver: any,
     private readonly configService: ConfigService,
     private readonly embeddingService: EmbeddingService,
-    @Inject(forwardRef(() => MatchClassesResolverService))
-    private readonly matchClassesResolver: MatchClassesResolverService,
     private readonly classReconciler: ClassReconciler,
     private readonly events: ClassIdentityEventLog,
   ) {
@@ -425,6 +431,8 @@ export class ModuleManagementService {
     // rename-vs-double-declaration discriminator for case (d). Callers that
     // omit it (tests, legacy paths) get the conservative collision-skip.
     declaredNames?: Set<string>,
+    // With no vector given, keep the one the node has instead of removing it (the embedder is not ready).
+    keepEmbedding = false,
   ): Promise<'applied' | 'skipped'> {
     const startTime = Date.now();
 
@@ -522,7 +530,7 @@ export class ModuleManagementService {
                 timestamp: new Date().toISOString(),
               });
             }
-            await this.applySetProperties(tx, classLabel, cls.id, nodeProperties, hasEmbedding);
+            await this.applySetProperties(tx, classLabel, cls.id, nodeProperties, hasEmbedding, keepEmbedding);
             this.events.emit({
               kind: 'rename',
               moduleName,
@@ -554,11 +562,11 @@ export class ModuleManagementService {
       if (existing && existing.dbId === cls.id) {
         if (existing.edgeType === 'HAS_CLASS') {
           // Case (a): clean idempotent update.
-          await this.applySetProperties(tx, classLabel, cls.id, nodeProperties, hasEmbedding);
+          await this.applySetProperties(tx, classLabel, cls.id, nodeProperties, hasEmbedding, keepEmbedding);
         } else {
           // Case (b): revive the orphan, then update properties.
           await this.classReconciler.reviveClass(tx, moduleName, classLabel, cls.id);
-          await this.applySetProperties(tx, classLabel, cls.id, nodeProperties, hasEmbedding);
+          await this.applySetProperties(tx, classLabel, cls.id, nodeProperties, hasEmbedding, keepEmbedding);
           this.events.emit({
             kind: 'revive',
             moduleName,
@@ -624,7 +632,7 @@ export class ModuleManagementService {
                c.idAliases = coalesce(c.idAliases, []) + [$oldId]`,
           { moduleName, oldId: existing.dbId, newId: cls.id },
         );
-        await this.applySetProperties(tx, classLabel, cls.id, nodeProperties, hasEmbedding);
+        await this.applySetProperties(tx, classLabel, cls.id, nodeProperties, hasEmbedding, keepEmbedding);
         if (policy === 'audit') {
           this.events.emit({
             kind: 'rebind',
@@ -700,7 +708,8 @@ export class ModuleManagementService {
    * Without the conditional REMOVE, a class that had a pre-computed vector
    * last time and doesn't this time (model change, file deleted, per-class
    * dim mismatch) would silently be scored against a wrong-model vector in
-   * match_classes.
+   * match_classes. `keepEmbedding` skips the REMOVE when no vector was made
+   * because the embedder is not ready: the stored one stays for when it is.
    */
   private async applySetProperties(
     tx: DatabaseTransaction,
@@ -708,8 +717,9 @@ export class ModuleManagementService {
     classId: string,
     nodeProperties: Record<string, any>,
     hasEmbedding: boolean,
+    keepEmbedding = false,
   ): Promise<void> {
-    const cypher = hasEmbedding
+    const cypher = hasEmbedding || keepEmbedding
       ? `MATCH (c:${classLabel} {id: $id}) SET c += $nodeProperties RETURN c`
       : `MATCH (c:${classLabel} {id: $id}) SET c += $nodeProperties REMOVE c.embedding, c.embeddingModel RETURN c`;
     await tx.run(cypher, { id: classId, nodeProperties });
@@ -726,6 +736,10 @@ export class ModuleManagementService {
    * a session-level disableForSession flip). When null is returned, Phase 3
    * writes no embedding properties and REMOVES any stale ones.
    *
+   * Returns 'pending' when embedding is enabled but the embedder is not ready
+   * (downloading, loading or failed): Phase 3 keeps the stored vectors and the
+   * install is marked partial, so the next one embeds.
+   *
    * For each class:
    *   1. Ask the module via moduleInstance.getEmbedding?.(className, slug).
    *   2. If that returns a vector of the expected dimension, use it.
@@ -737,21 +751,20 @@ export class ModuleManagementService {
   async resolveVectors(
     metadata: DTMetadata,
     moduleInstance?: DTModule,
-  ): Promise<Map<string, number[]> | null> {
+  ): Promise<ResolvedVectors> {
     // Snapshot isEnabled() once so a mid-call flip of the session-disabled
     // flag does not produce a half-resolved map.
-    if (!this.embeddingService.isEnabled()) return null;
-
-    // Ensure the vector index exists and its dimension matches the config
-    // before we commit any vector writes. On a fresh DB the matchClasses
-    // query path hasn't run yet, so without this the bootstrap would never
-    // fire in time to gate the very first install. ensureVectorIndexes is
-    // idempotent (guarded by an internal boolean flag).
-    await this.matchClassesResolver.ensureVectorIndexes();
-
-    // The dim cross-check may have disabled embedding for the session.
-    // Re-snapshot.
-    if (!this.embeddingService.isEnabled()) return null;
+    if (!this.embeddingService.isEnabled()) {
+      if (!this.embeddingService.isPending()) return null;
+      if (!this.loggedEmbedderNotReady) {
+        this.loggedEmbedderNotReady = true;
+        this.logger.warn(
+          'Embedder not ready; installs keep the stored class vectors and are marked partial, so a later install embeds',
+          { state: this.embeddingService.getState() },
+        );
+      }
+      return 'pending';
+    }
 
     const rawModel = this.embeddingService.getModel();
     if (!rawModel) {
@@ -824,6 +837,8 @@ export class ModuleManagementService {
     if (missing.length > 0) {
       const fresh = await this.embeddingService.embedBatch(
         missing.map((m) => m.text),
+        'document',
+        missing.map((m) => m.className),
       );
       // embedBatch returns null only when embedding became disabled between
       // the snapshot and the call (e.g. dim-mismatch during bootstrap).
@@ -862,6 +877,7 @@ export class ModuleManagementService {
    * @param options Operation options
    * @param vectors  Pre-resolved embeddings keyed by className (from
    *                 resolveVectors). null → embedding disabled (write none);
+   *                 'pending' → embedder not ready (keep the stored vectors, install partial);
    *                 undefined → caller didn't resolve (tests/migrations);
    *                 Map → per-class lookup.
    * @returns UpsertResult with operation details
@@ -870,7 +886,7 @@ export class ModuleManagementService {
     tx: DatabaseTransaction,
     metadata: DTMetadata,
     options: ModuleOperationOptions = {},
-    vectors?: Map<string, number[]> | null,
+    vectors?: ResolvedVectors,
   ): Promise<UpsertResult> {
     const startTime = Date.now();
     let classesProcessed = 0;
@@ -976,8 +992,10 @@ export class ModuleManagementService {
       //   - null      → embedding disabled for the whole module, write no embedding property
       //   - undefined → caller did not resolve vectors (legacy path, tests) — equivalent to null
       //   - Map       → per-class lookup; classes not in the map get no embedding
+      //   - 'pending' → embedder not ready: no class gets one, existing ones are kept
+      const keepEmbeddings = vectors === 'pending';
       const vectorForClass = (name: string): number[] | undefined =>
-        vectors?.get(name);
+        vectors instanceof Map ? vectors.get(name) : undefined;
 
       // Names declared on disk per label — upsertClass's case-(d)
       // rename-vs-double-declaration discriminator (a same-module id match
@@ -1009,6 +1027,7 @@ export class ModuleManagementService {
             embedding,
             metadata.idRebindPolicy,
             declaredNamesByLabel.get(label),
+            keepEmbeddings,
           );
           if (outcome === 'applied') classesProcessed++;
         } catch (error) {
@@ -1100,8 +1119,10 @@ export class ModuleManagementService {
       // a compensating status write. See process-architect review for the
       // remediation sketch (out-of-tx markStatus call from the catch
       // handler + a parallel from module-registry.loadModuleInternal).
+      // An install that kept stored vectors because the embedder was not ready is partial: the content-hash
+      // skip then lets the next install embed.
       const status =
-        classesProcessed === allClasses.length && reconciliationFailures === 0
+        classesProcessed === allClasses.length && reconciliationFailures === 0 && !keepEmbeddings
           ? 'authoritative'
           : 'partial';
 
@@ -1252,7 +1273,6 @@ export class ModuleManagementService {
       // an operator "reset a broken module" must re-run the hook too, else the
       // reset re-installs classes but never re-does the hook's graph work.
       await this.runAfterInstall(session, moduleInstalled, moduleInstance);
-      await this.healClassVectorIndexes();
 
       const duration = Date.now() - startTime;
       this.recordOperation('resetSingleModule', duration, {
@@ -1360,7 +1380,7 @@ export class ModuleManagementService {
       // a failing module is logged and dropped; others still install.
       const resolved = new Map<
         string,
-        { metadata: DTMetadata; vectors: Map<string, number[]> | null }
+        { metadata: DTMetadata; vectors: ResolvedVectors }
       >();
 
       // Content-hash skip gate — read each :Module node's stored contentHash +
@@ -1493,10 +1513,6 @@ export class ModuleManagementService {
         await this.runAfterInstall(session, name, modules.get(name));
       }
 
-      // Every pass, including one where every module was skipped by its content hash: a class
-      // vector index that lost entries is rebuilt here, so a deployment repairs on its next boot.
-      await this.healClassVectorIndexes();
-
       const duration = Date.now() - startTime;
       this.recordOperation('updateAllModules', duration, {
         totalModules: modules.size,
@@ -1530,15 +1546,6 @@ export class ModuleManagementService {
       throw new Error(`Bulk module update failed: ${error.message}`, { cause: error });
     } finally {
       await session.close();
-    }
-  }
-
-  /** The class vector index self-heal; it logs its own findings and never fails the install that ran it. */
-  private async healClassVectorIndexes(): Promise<void> {
-    try {
-      await this.matchClassesResolver.healClassVectorIndexes();
-    } catch (error) {
-      this.logger.warn('Class vector index self-heal failed', { error: error.message });
     }
   }
 

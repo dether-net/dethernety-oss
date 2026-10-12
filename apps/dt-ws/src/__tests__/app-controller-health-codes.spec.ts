@@ -119,3 +119,30 @@ describe('GET /health — status codes', () => {
     expect(body).toMatchObject({ status: 'healthy' });
   });
 });
+
+describe('GET /health — the embedder', () => {
+  function withEmbedder(status: { enabled: boolean; state: string; runtime?: string; profileId?: string; error?: string }) {
+    const c = makeController({}) as any;
+    c.embeddingService = { getStatus: () => ({ runtime: 'onnx', profileId: 'embeddinggemma-300m-retrieval-v1', ...status }) };
+    return c as AppController;
+  }
+
+  it('is degraded, still 200, while an enabled embedder is not ready', async () => {
+    const res = makeRes();
+    const body = await withEmbedder({ enabled: true, state: 'downloading' }).getHealth(res);
+    expect(res.status).not.toHaveBeenCalled();
+    expect(body.status).toBe('degraded');
+    expect(body.services?.embedder).toMatchObject({ state: 'downloading', profile: 'embeddinggemma-300m-retrieval-v1' });
+  });
+
+  it('is healthy once the embedder is ready', async () => {
+    const body = await withEmbedder({ enabled: true, state: 'ready' }).getHealth(makeRes());
+    expect(body.status).toBe('healthy');
+  });
+
+  it('ignores a disabled embedder', async () => {
+    const body = await withEmbedder({ enabled: false, state: 'disabled' }).getHealth(makeRes());
+    expect(body.status).toBe('healthy');
+    expect(body.services?.embedder).toBeUndefined();
+  });
+});

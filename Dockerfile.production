@@ -1,17 +1,23 @@
-# Production Dockerfile - Uses pre-built artifacts from build-production.sh
-# This assumes you've already run: ./scripts/build-production.sh
+# Production Dockerfile - uses pre-built artifacts. Build them first, from this directory:
+#   pnpm install --frozen-lockfile
+#   pnpm turbo build --filter='!mitre-frameworks'
+#   mkdir -p apps/dt-ws/public && cp -r apps/dt-ui/dist/* apps/dt-ws/public/
 
-FROM node:26-alpine AS runtime
+# A glibc (Debian) base rather than Alpine (musl): native Node addons such as onnxruntime-node
+# publish glibc builds only.
+FROM node:26-trixie-slim AS runtime
 
 # Install specific pnpm version, curl for healthcheck
 RUN npm install -g pnpm@9.13.2 && \
-    apk add --no-cache curl bash && \
-    rm -rf /var/cache/apk/* && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && \
     rm -rf ~/.npm
 
-# Create app user for security
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S nestjs -u 1001
+# Create app user for security. The uid and gid stay 1001: deployments set directory ownership
+# by them.
+RUN groupadd -g 1001 nodejs && \
+    useradd -u 1001 -g nodejs -M -s /usr/sbin/nologin nestjs
 
 WORKDIR /app
 
@@ -20,11 +26,13 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/dt-ws/package.json ./apps/dt-ws/package.json
 COPY packages/dt-core/package.json ./packages/dt-core/package.json
 COPY packages/dt-module/package.json ./packages/dt-module/package.json
+COPY packages/embedder/package.json ./packages/embedder/package.json
 COPY packages/regorus-wasm/package.json ./packages/regorus-wasm/package.json
 
 # Copy built workspace packages
 COPY packages/dt-core/dist ./packages/dt-core/dist
 COPY packages/dt-module/dist ./packages/dt-module/dist
+COPY packages/embedder/dist ./packages/embedder/dist
 
 # Copy the vendored Regorus WASM artifact. This package has no build step — its
 # committed files ARE the deliverable, so they live at the package root rather
@@ -40,15 +48,24 @@ COPY packages/regorus-wasm/regorusjs.js \
      packages/regorus-wasm/THIRD_PARTY_LICENSES.txt \
      ./packages/regorus-wasm/
 
-# Install dependencies with workspace context (respects overrides)
+# Install dependencies with workspace context (respects overrides).
+# onnxruntime-node ships CPU binaries for every platform; keep only this image's (linux/<arch>).
+# The prune and the store removal must run in the install's own RUN: files deleted in a later
+# layer still occupy this one, and the pnpm store holds a second copy of every package.
 RUN pnpm install --prod --frozen-lockfile --no-optional && \
-    rm -rf /var/cache/apk/*
+    arch="$(node -p 'process.arch')" && \
+    find /app/node_modules -type d -path '*/onnxruntime-node/bin/napi-v*' -prune | while read -r d; do \
+      find "$d" -mindepth 1 -maxdepth 1 ! -name linux -exec rm -rf {} + && \
+      find "$d/linux" -mindepth 1 -maxdepth 1 ! -name "$arch" -exec rm -rf {} + ; \
+    done && \
+    rm -rf "$(pnpm store path)"
 
 # Create symlinks for workspace packages (pnpm doesn't auto-link them in prod mode)
 # This allows dynamically loaded modules to resolve @dethernety/dt-module
 RUN mkdir -p /app/node_modules/@dethernety && \
     ln -s /app/packages/dt-module /app/node_modules/@dethernety/dt-module && \
     ln -s /app/packages/dt-core /app/node_modules/@dethernety/dt-core && \
+    ln -s /app/packages/embedder /app/node_modules/@dethernety/embedder && \
     ln -s /app/packages/regorus-wasm /app/node_modules/@dethernety/regorus-wasm
 
 # Copy pre-built backend to the workspace app directory
@@ -67,6 +84,10 @@ USER nestjs
 # apps/dt-ws/src/config/environment.validation.ts) — so a deployment that wants the auth-less
 # evaluation mode overrides this at runtime rather than using a different image.
 ENV NODE_ENV=production
+
+# onnxruntime uploads usage telemetry by default. Nothing may leave the operator's machine, so the
+# opt-out is set for every process in the image (the embedder also sets it before onnxruntime loads).
+ENV ORT_DISABLE_TELEMETRY=1
 
 # 3003 is the server's default port (environment.validation.ts) and the port every compose file,
 # quadlet and docs example uses. EXPOSE and the health check must agree with it: a probe on the

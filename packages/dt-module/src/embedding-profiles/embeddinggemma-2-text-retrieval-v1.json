@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "id": "embeddinggemma-2-text-retrieval-v1",
+  "label": "EmbeddingGemma 2 (text, 270M), retrieval prompts",
+  "source": {
+    "hub": "https://huggingface.co",
+    "repo": "onnx-community/embeddinggemma-2-ONNX",
+    "revision": "daa72c51243991dfcaf9f9137d2c573d8f7790c0",
+    "gated": false,
+    "files": [
+      {
+        "path": "config.json",
+        "bytes": 5031,
+        "sha256": "8d011bfe08b5e345bbe0b81e5c6fd02c381920b345b986047bc2a33ce7b90d1d"
+      },
+      {
+        "path": "onnx/model.onnx",
+        "bytes": 421421,
+        "sha256": "bc47de15f81208a5c99e5ab10f746d5e33b51ea228b7dc0bef9c133a94f1c1c3"
+      },
+      {
+        "path": "onnx/model.onnx_data",
+        "bytes": 1084170240,
+        "sha256": "9fd452bfc6916e5a92f080f8dada35598ca4512b21c65897d4c5974d5f9630a2"
+      },
+      {
+        "path": "tokenizer.json",
+        "bytes": 32170510,
+        "sha256": "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4"
+      },
+      {
+        "path": "tokenizer_config.json",
+        "bytes": 1599,
+        "sha256": "17bd5d6e9364ca49a534e1502076593317c298d4a663623091ed45388f004874"
+      }
+    ]
+  },
+  "licence": {
+    "name": "Apache-2.0",
+    "hubCardLicence": "apache-2.0"
+  },
+  "runtime": {
+    "engine": "onnx",
+    "dtype": "fp32",
+    "output": "last_hidden_state",
+    "pooling": "mean",
+    "poolingIncludesPrompt": true,
+    "normalize": "l2",
+    "dimensions": 768,
+    "maxTokens": 8192,
+    "emptyInputs": {
+      "names": [
+        "image_features",
+        "video_features",
+        "audio_features"
+      ],
+      "shape": [
+        0,
+        512
+      ],
+      "type": "float32"
+    }
+  },
+  "prompts": {
+    "query": "task: search result | query: {text}",
+    "document": "title: {title} | text: {text}",
+    "title": "none"
+  },
+  "thresholds": {
+    "classes": 0.651,
+    "mitre": 0.658,
+    "components": null
+  },
+  "calibration": {
+    "set": "360 class and ATT&CK technique retrieval queries",
+    "date": "2026-10-10",
+    "rule": "the highest cosine threshold at which at least 99% of the queries that find an expected match in their top 3 results with no threshold still find one"
+  }
+}

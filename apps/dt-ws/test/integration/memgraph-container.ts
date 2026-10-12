@@ -5,8 +5,10 @@
 // returns when TCP accepts connections, which is a few hundred ms before
 // Bolt finishes its handshake.
 
-import { GenericContainer, StartedTestContainer, Wait } from 'testcontainers';
+import { StartedTestContainer, Wait } from 'testcontainers';
 import neo4j, { Driver } from 'neo4j-driver';
+
+import { LOOPBACK_HOST, LoopbackContainer } from './loopback-container';
 
 export interface MemgraphHandle {
   container: StartedTestContainer;
@@ -27,8 +29,35 @@ export interface StartMemgraphOptions {
 }
 const BOLT_PORT = 7687;
 
+// MEMGRAPH_TEST_URI points the suites at an existing, throwaway Memgraph instead of starting a container:
+// for a machine where containers cannot run locally. Every suite wipes the graph between tests, so the
+// target must hold nothing worth keeping. Only a plain bolt:// URI is accepted, and the target is printed.
+// A suite that needs container operations (its own image or flags, a restart, archive copies) cannot run
+// this way and is refused.
+const EXTERNAL_URI = process.env.MEMGRAPH_TEST_URI;
+const BOLT_URI = /^bolt:\/\/[A-Za-z0-9.-]+:\d{1,5}$/;
+
+async function connectExternal(uri: string, options: StartMemgraphOptions): Promise<MemgraphHandle> {
+  if (!BOLT_URI.test(uri)) {
+    throw new Error(`MEMGRAPH_TEST_URI must be a bolt://host:port URI, got "${uri}"`);
+  }
+  if (options.image !== undefined || options.command !== undefined) {
+    throw new Error('MEMGRAPH_TEST_URI cannot serve a suite that needs its own image or flags');
+  }
+  console.log(`[memgraph-container] using the external Memgraph at ${uri} (MEMGRAPH_TEST_URI)`);
+  const driver = neo4j.driver(uri, neo4j.auth.basic('', ''));
+  await waitForBolt(driver);
+  const container = new Proxy({} as StartedTestContainer, {
+    get: (_target, property) => {
+      throw new Error(`container.${String(property)} is not available with MEMGRAPH_TEST_URI`);
+    },
+  });
+  return { container, driver, uri, stop: async () => driver.close() };
+}
+
 export async function startMemgraph(options: StartMemgraphOptions = {}): Promise<MemgraphHandle> {
-  const container = await new GenericContainer(options.image ?? IMAGE)
+  if (EXTERNAL_URI) return connectExternal(EXTERNAL_URI, options);
+  const container = await new LoopbackContainer(options.image ?? IMAGE)
     .withCommand(options.command ?? [])
     .withExposedPorts(BOLT_PORT)
     .withWaitStrategy(Wait.forListeningPorts())
@@ -41,9 +70,8 @@ export async function startMemgraph(options: StartMemgraphOptions = {}): Promise
     .withStartupTimeout(180_000)
     .start();
 
-  const host = container.getHost();
   const port = container.getMappedPort(BOLT_PORT);
-  const uri = `bolt://${host}:${port}`;
+  const uri = `bolt://${LOOPBACK_HOST}:${port}`;
 
   const driver = neo4j.driver(uri, neo4j.auth.basic('', ''));
   await waitForBolt(driver);

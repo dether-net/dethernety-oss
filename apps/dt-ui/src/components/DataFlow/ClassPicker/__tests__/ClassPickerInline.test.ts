@@ -364,6 +364,21 @@ describe('ClassPickerInline — keyboard navigation', () => {
     expect(events![0]).toEqual([{ classId: 'c' }])
   })
 
+  it('an exact_name top hit followed by vector hits → focusedIndex starts at 0, Enter commits it', async () => {
+    storeState.matchResults.set('COMPONENT:PROCESS', [
+      candidate({ classId: 'x', className: 'X', matchType: 'exact_name' }),
+      candidate({ classId: 'v-a', className: 'V-A', matchType: 'vector_similarity', similarityScore: 0.85 }),
+    ])
+    const wrapper = mountPicker()
+    const input = wrapper.find('.v-text-field')
+    await input.trigger('focus')
+    await nextTick()
+    await input.trigger('keydown', { key: 'Enter' })
+    const events = wrapper.emitted('commit-request')
+    expect(events).toBeTruthy()
+    expect(events![0]).toEqual([{ classId: 'x' }])
+  })
+
   it('vector_similarity tier → focusedIndex stays null, Enter does not commit', async () => {
     storeState.matchResults.set('COMPONENT:PROCESS', [
       candidate({ classId: 'v-a', className: 'V-A', matchType: 'vector_similarity', similarityScore: 0.85 }),

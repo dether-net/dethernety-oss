@@ -54,4 +54,21 @@ describe('DtUpdate — asset-context threading (update)', () => {
     expect(spy).toHaveBeenCalledTimes(1);
     expect(spy.mock.calls[0][0].updatedNode.data.crownJewel).toBe(true);
   });
+
+  it('updateDataItems forwards origin + is_credential, and clears both when the file omits them', async () => {
+    const dtUpdate = new DtUpdate({} as any) as any;
+    const spy = vi.fn().mockResolvedValue({ dataItem: { id: 'd1' }, bindingResult: null, residualOk: true });
+    dtUpdate.dtDataitem.updateDataItem = spy;
+    dtUpdate.existingDataitemIds = new Set(['d1', 'd2']);
+
+    await dtUpdate.updateDataItems([
+      { id: 'd1', name: 'Token file', origin: 'authenticated_first_party', is_credential: true },
+      { id: 'd2', name: 'Notes' },
+    ]);
+
+    expect(spy.mock.calls[0][0]).toMatchObject({ origin: 'authenticated_first_party', isCredential: true });
+    // The push is a full sync: a field the file omits is cleared, and the clear is stated.
+    expect(spy.mock.calls[1][0]).toMatchObject({ origin: null, isCredential: null });
+  });
 });
+

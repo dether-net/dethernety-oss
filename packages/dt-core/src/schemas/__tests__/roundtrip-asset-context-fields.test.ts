@@ -23,6 +23,8 @@ const model = (): MonolithicModel => ({
   dataFlows: [{ id: 'f1', name: 'flow', source: { id: 'c1' }, target: { id: 'c2' } }],
   dataItems: [
     { id: 'd1', name: 'PII', sensitivity: 'restricted', regulatory_flags: ['PCI cardholder', 'PHI'] },
+    { id: 'd2', name: 'Token file', origin: 'authenticated_first_party', is_credential: true },
+    { id: 'd3', name: 'Ticket', origin: 'arbitrary_public', is_credential: false },
   ],
 });
 
@@ -38,6 +40,12 @@ describe('mono→split→mono round-trip — asset-context fields', () => {
     const mono = splitToMonolithic(monolithicToSplit(model()));
     expect(mono.dataItems![0].sensitivity).toBe('restricted');
     expect(mono.dataItems![0].regulatory_flags).toEqual(['PCI cardholder', 'PHI']);
+  });
+
+  it('preserves data-item origin and is_credential, false included', () => {
+    const mono = splitToMonolithic(monolithicToSplit(model()));
+    expect(mono.dataItems![1]).toMatchObject({ origin: 'authenticated_first_party', is_credential: true });
+    expect(mono.dataItems![2]).toMatchObject({ origin: 'arbitrary_public', is_credential: false });
   });
 
   it('forward conversion lands crownJewel on the structure component', () => {

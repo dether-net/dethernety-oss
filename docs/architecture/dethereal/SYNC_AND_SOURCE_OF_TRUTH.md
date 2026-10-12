@@ -691,6 +691,11 @@ type Model {
 
 The companion per-element asset-context fields landed alongside scope: `Component.crownJewel: Boolean`, `Data.sensitivity: SensitivityLevel`, and `Data.regulatoryFlags: [String!]` (see [DT_MODULE_INTERFACE.md → Asset-context fields exposed to modules](../modules/DT_MODULE_INTERFACE.md#asset-context-fields-exposed-to-modules)). Crown jewels are tracked **per component** — there is no crown-jewels list on the `Model` node; the skill's local `crown_jewels` name list stays a local-only key inside `scope.json`. On disk these per-element fields are first-class: `crownJewel` on the component in `structure.json`, and `sensitivity` / `regulatory_flags` on each data item in `data-items.json` (not in the attribute bags).
 
+Two more per-data fields joined them later: `Data.origin: DataOrigin` (who can write the content) and `Data.isCredential: Boolean` (the data is a credential). On disk they are `origin` (lowercase token, e.g. `arbitrary_public` ↔ `ARBITRARY_PUBLIC`) and `is_credential` on each data item in `data-items.json`, beside `sensitivity` and `regulatory_flags`; their meanings are in the [canonical data-origin and credential vocabulary](THREAT_MODELING_WORKFLOW.md#canonical-data-origin-and-credential-vocabulary). They sync like `sensitivity`:
+
+- **On push** (full sync, REPLACE): a field the file omits is cleared on the platform; `is_credential: false` is an answer and is published as `false`. An unknown `origin` token is never sent as an invalid enum: it is dropped with a warning, which on an existing item clears the field.
+- **On pull**: `origin` is written as the lowercase token, `is_credential` is written including `false`, and an unset (`null`) value is omitted from the file.
+
 **On push**: write the scope fields from `scope.json` to the Model node, with REPLACE semantics — a value cleared locally is cleared on the platform, but a push that carries no scope at all leaves the platform untouched.
 
 **On pull**: read the scope fields from the Model node and write them to `.dethereal/scope.json`, merge-preserving any skill-owned local-only keys.

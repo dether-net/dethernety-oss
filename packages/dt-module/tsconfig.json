@@ -7,6 +7,7 @@
     "declaration": true,      // This enables the generation of .d.ts files
     "strict": true,
     "esModuleInterop": true,
+    "resolveJsonModule": true, // the built-in embedding profiles are JSON, emitted into dist
     "skipLibCheck": true
   },
   "include": ["src"]

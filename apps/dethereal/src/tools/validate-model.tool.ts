@@ -18,6 +18,7 @@ import {
   computeZoningFindings,
   isStructuralContainer,
   computeContainerSummary,
+  ORIGIN_LEVELS,
 } from '@dethernety/dt-core'
 import type { Zone, ZoneTierResult, EffectiveZone, ZoningFinding, ContainerSummary } from '@dethernety/dt-core'
 import type { ConsolidatedAttributesFile, ElementAttributes, StructureBoundary } from '@dethernety/dt-core'
@@ -36,6 +37,7 @@ import {
   validatePathConfinement,
 } from '../utils/directory-utils.js'
 import { pathExists } from '../utils/file-utils.js'
+import { credentialClassHint, type CredentialHintReason } from '../data/credential-classes.js'
 
 // Define validation schemas for individual files
 const ManifestSchema = z.object({
@@ -111,7 +113,11 @@ const DataItemSchema = z.object({
   }).nullable().optional(),
   // Asset-context fields (snake_case local). Flag *values* are free-text — not enumed.
   sensitivity: z.enum(['restricted', 'confidential', 'internal', 'public']).optional(),
-  regulatory_flags: z.array(z.string()).optional()
+  regulatory_flags: z.array(z.string()).optional(),
+  // Who can write the content: one of dt-core's ORIGIN_LEVELS (snake_case local tokens, most to least trusted).
+  origin: z.enum(ORIGIN_LEVELS).optional(),
+  // Author-asserted: the item is a credential. Absent means unknown.
+  is_credential: z.boolean().optional()
 })
 
 const AttributesSchema = z.object({
@@ -204,6 +210,11 @@ interface QualityOutput {
   }
   model_name: string
   warnings?: string[]
+  /**
+   * Data items bound to a class that suggests a credential while `is_credential` is unanswered. A hint for the
+   * enrichment workflow to propose; it never sets the field and does not change the score.
+   */
+  credential_hints?: Array<{ id: string; name: string; class: string; reason: CredentialHintReason }>
 }
 
 interface CategoryCoverage {
@@ -773,6 +784,14 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     const credentialCoverageRate = crossBoundaryFlows > 0
       ? crossBoundaryWithCreds / crossBoundaryFlows : 0
 
+    // Credential hints: items whose class suggests a credential while is_credential is unanswered. A hint only;
+    // an answered false is respected, and the score does not depend on it.
+    const credentialHints = dataItems.flatMap(di => {
+      if (di.is_credential !== undefined) return []
+      const reason = credentialClassHint(di.classData)
+      return reason ? [{ id: di.id, name: di.name, class: di.classData?.name ?? di.classData?.id ?? '', reason }] : []
+    })
+
     // Scan for expired compensating controls
     const warnings: string[] = []
 
@@ -852,7 +871,8 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
         },
         attribute_residual: attributeResidual,
         model_name: manifest.model.name,
-        ...(warnings.length > 0 ? { warnings } : {})
+        ...(warnings.length > 0 ? { warnings } : {}),
+        ...(credentialHints.length > 0 ? { credential_hints: credentialHints } : {})
       }
     }
   }

@@ -672,7 +672,7 @@ export interface LgModuleOptions {
 
 ## Asset-context fields exposed to modules
 
-Analysis modules read the model graph through the per-request `GraphQLContext` (the `driver` + `sessionConfig` available in `getResolvers`/analysis). Alongside structure, classes, controls, and exposures, the graph carries **author-asserted asset context** — what the modeller declared about scope, value, and data sensitivity. These are *inputs* to analysis, not computed verdicts: treat the model-level fields as **seeds for the analysis-phase scope, not direct risk-math inputs**, and the per-element fields as evidence to weigh.
+Analysis modules read the model graph through the per-request `GraphQLContext` (the `driver` + `sessionConfig` available in `getResolvers`/analysis). Alongside structure, classes, controls, and exposures, the graph carries **author-asserted asset context** — what the modeller declared about scope, value, data sensitivity, and the trust of data content. These are *inputs* to analysis, not computed verdicts: treat the model-level fields as **seeds for the analysis-phase scope, not direct risk-math inputs**, and the per-element fields as evidence to weigh.
 
 No module-API change is required — these are ordinary node properties on `Model`, `Component`, and `Data`, selectable in any module query.
 
@@ -691,6 +691,8 @@ No module-API change is required — these are ordinary node properties on `Mode
 - **`Component.crownJewel: Boolean`** — the modeller marked this component a high-value asset. Crown-jewel marks exist on **components only**.
 - **`Data.sensitivity: SensitivityLevel`** (`PUBLIC` < `INTERNAL` < `CONFIDENTIAL` < `RESTRICTED`) — author-asserted classification. Rank an element by the **maximum sensitivity of the data it handles** (but see the coalescing contract below: `null`-sensitivity data is excluded from that max and surfaced separately, never treated as `PUBLIC`).
 - **`Data.regulatoryFlags: [String!]`** — free-text compliance labels; see the [canonical vocabulary](../dethereal/THREAT_MODELING_WORKFLOW.md#canonical-sensitivity-and-regulatory-flag-vocabulary) for the recommended set and casing.
+- **`Data.origin: DataOrigin`** (`AUTHENTICATED_FIRST_PARTY`, `CURATED_INTERNAL`, `AGENT_RELAYED`, `MODEL_GENERATED`, `THIRD_PARTY`, `ARBITRARY_PUBLIC`, `NOT_ASSESSED`, declared most to least trusted) — author-asserted: who can write the data's content. `THIRD_PARTY`, `ARBITRARY_PUBLIC`, and `NOT_ASSESSED` are untrusted. GraphQL attaches no order to enum values; the order and the untrusted set are dt-core's `ORIGIN_LEVELS` / `UNTRUSTED_ORIGINS` (local lowercase tokens — uppercase them to compare). Meanings are in the [canonical data-origin and credential vocabulary](../dethereal/THREAT_MODELING_WORKFLOW.md#canonical-data-origin-and-credential-vocabulary).
+- **`Data.isCredential: Boolean`** — author-asserted: the data is a credential (password, token, key, secret, certificate). `false` is an answer, distinct from `null`.
 
 ### Coalescing contract (legacy + un-set nodes)
 
@@ -701,8 +703,10 @@ All asset-context fields are **nullable** — legacy nodes and un-classified ele
 | `crownJewel` | not a crown jewel (treat as `false`) |
 | `regulatoryFlags` | none declared (treat as `[]`) |
 | `sensitivity` | **unclassified — not `public`** |
+| `origin` | **unclassified — not `NOT_ASSESSED`** (nobody has answered) |
+| `isCredential` | **unknown — not `false`** |
 
-Treat `sensitivity: null` as **unknown, surfaced separately** — never as a `public` floor. An element handling only `null`-sensitivity data is *unrated*, not *low-risk*; folding it into a max-sensitivity aggregation as `public` would silently under-rate genuinely-sensitive-but-unclassified data. Report the unclassified gap rather than scoring through it.
+Treat `sensitivity: null` as **unknown, surfaced separately** — never as a `public` floor. An element handling only `null`-sensitivity data is *unrated*, not *low-risk*; folding it into a max-sensitivity aggregation as `public` would silently under-rate genuinely-sensitive-but-unclassified data. Report the unclassified gap rather than scoring through it. The same holds for `origin: null` and `isCredential: null`: an unanswered origin is not a trust level, and an unanswered credential flag is not a "no". `NOT_ASSESSED`, by contrast, is an answer and counts as untrusted.
 
 ### `dataInRegulatoryScope(flag: String!): [Data!]!`
 
@@ -716,7 +720,7 @@ Returns every `Data` node whose `regulatoryFlags` contains `flag`. For module au
 
 - No `crownJewel` on `Data`, `SecurityBoundary`, or `DataFlow` — crown-jewel marks on those live only in local plugin files and are not synced to the platform.
 - No persisted **adversary classes** / threat-actor model on the graph.
-- **Monitoring-coverage** and **credential-handling** asset context are not yet first-class graph fields — they remain local enrichment pending separate node authoring.
+- **Monitoring-coverage** and **credential-handling** asset context (which credentials a flow requires or a store yields) are not yet first-class graph fields — they remain local enrichment pending separate node authoring. Only the per-data `isCredential` flag above is first-class.
 
 ---
 

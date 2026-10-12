@@ -714,4 +714,27 @@ describe('Control Coverage', () => {
     expect(data.factors.control_coverage_rate.value).toBeGreaterThan(0)
     expect(data.factors.control_coverage_rate.note).toContain('Inferred from attributes')
   })
+
+  it('reports credential hints for unanswered items on credential-like classes, and leaves the score alone', async () => {
+    const manifest = { schemaVersion: '2.0.0', format: 'split', model: { id: null, name: 'Test', defaultBoundaryId: 'b-1' } }
+    const structure = { defaultBoundary: { id: 'b-1', name: 'System', components: [{ id: 'c-1', name: 'App' }] } }
+    const items = [
+      { id: 'd-1', name: 'Login', classData: { id: 'a6406f69-a0ec-48c9-a9dd-27b3c03bbda8', name: 'User Credentials' } },
+      { id: 'd-2', name: 'Cloud key', classData: { id: 'x-1', name: 'Agent Credential' } },
+      { id: 'd-3', name: 'Answered', classData: { id: 'x-2', name: 'API Keys' }, is_credential: false },
+      { id: 'd-4', name: 'Orders', classData: { id: 'x-3', name: 'Customer & Personal Data' } },
+      { id: 'd-5', name: 'Unclassed' },
+    ]
+    await writeModel(manifest, structure, [], items)
+    const withHints = (await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)).data as any
+    expect(withHints.credential_hints).toEqual([
+      { id: 'd-1', name: 'Login', class: 'User Credentials', reason: 'class-id' },
+      { id: 'd-2', name: 'Cloud key', class: 'Agent Credential', reason: 'class-name' },
+    ])
+
+    await writeModel(manifest, structure, [], items.map(i => ({ ...i, is_credential: true })))
+    const answered = (await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)).data as any
+    expect(answered.credential_hints).toBeUndefined()
+    expect(answered.quality_score).toBe(withHints.quality_score)
+  })
 })

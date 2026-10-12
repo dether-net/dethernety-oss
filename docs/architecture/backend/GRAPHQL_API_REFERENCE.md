@@ -166,7 +166,7 @@ Error taxonomy for disposeExposure / clearDisposition mutations.
 
 ### MitreKind
 
-MITRE corpus selector for matchMitreTechniques. Determines which HNSW index is consulted.
+MITRE corpus selector for matchMitreTechniques. Determines which corpus the match searches.
 
 | Value | Description |
 |-------|-------------|
@@ -186,7 +186,7 @@ How a MITRE candidate matched the user's query. Distinct vocabulary from MatchTy
 | `PREFIX_ID` | Query is a prefix of the MITRE id (e.g. 'T100' → T1003) |
 | `NAME_MATCH` | Query substring matched the candidate's name |
 | `DESCRIPTION_MATCH` | Query substring matched the candidate's description |
-| `VECTOR_SIMILARITY` | Server-computed embedding cosine-similarity match against the HNSW index |
+| `VECTOR_SIMILARITY` | Server-computed cosine similarity between the query's embedding and the candidate's |
 
 ### VectorDisabledReason
 
@@ -194,10 +194,9 @@ Why the vector tier of matchMitreTechniques is disabled. Drives the picker capti
 
 | Value | Description |
 |-------|-------------|
-| `EMBEDDING_DISABLED` | EMBEDDING_ENABLED is false in the deployment's environment |
-| `NO_INDEX_MODULE` | Graph backend lacks the vector_search procedure (Neo4j, or older Memgraph) |
-| `NO_VECTORS` | MITRE module shipped no embeddings, or per-label coverage is incomplete (partial install) |
-| `MODEL_MISMATCH` | Module's embeddingModel disagrees with the platform's runtime EMBEDDING_MODEL |
+| `EMBEDDING_DISABLED` | The embedder is disabled or not ready (EMBEDDING_ENABLED is false, or its model is still loading or failed), or the database cannot run vector search |
+| `NO_VECTORS` | No vectors of the active embedding model, or incomplete coverage of the corpus (partial install) |
+| `MODEL_MISMATCH` | The corpus carries vectors of another embedding model only |
 
 ### ModelingDepth
 
@@ -230,6 +229,21 @@ Author-asserted data sensitivity classification.
 | `INTERNAL` | Internal — restricted to the organization |
 | `CONFIDENTIAL` | Confidential — limited distribution |
 | `RESTRICTED` | Restricted — strict need-to-know |
+
+### DataOrigin
+
+Author-asserted origin of a data item's content: who can write it. Members are declared from most to least trusted;
+THIRD_PARTY, ARBITRARY_PUBLIC and NOT_ASSESSED are untrusted.
+
+| Value | Description |
+|-------|-------------|
+| `AUTHENTICATED_FIRST_PARTY` | Written only by the operator's own authenticated users or systems |
+| `CURATED_INTERNAL` | Internal content that passed a review or curation step |
+| `AGENT_RELAYED` | Produced or forwarded by another agent; at most this trusted |
+| `MODEL_GENERATED` | Written by a model and later read as input; at most this trusted |
+| `THIRD_PARTY` | Written by a known external party under an agreement |
+| `ARBITRARY_PUBLIC` | Anyone can write it |
+| `NOT_ASSESSED` | Answered as not established; treated as untrusted |
 
 ### ElementBindingKind
 
@@ -445,6 +459,8 @@ Implements: `Element`
 | `issues` | `[Issue!]!` | Issues associated with this data (→ `HAS_ISSUE`) |
 | `sensitivity` | `SensitivityLevel` | Author-asserted sensitivity classification of this data. Null ⇒ unclassified. |
 | `regulatoryFlags` | `[String!]` | Regulatory scopes this data falls under (free-text, e.g. "PCI cardholder", "PHI"). Null ⇒ []. |
+| `origin` | `DataOrigin` | Author-asserted origin of this data's content: who can write it. Null ⇒ unclassified. |
+| `isCredential` | `Boolean` | Author-asserted: this data is a credential (password, token, key, secret, certificate). Null ⇒ unknown. |
 
 ### Control
 
@@ -754,7 +770,7 @@ A single candidate class match.
 | `moduleName` | `String!` | Name of the module providing this class |
 | `matchType` | `MatchType!` | How this match was determined |
 | `confidence` | `ConfidenceLevel!` | Confidence level of the match |
-| `similarityScore` | `Float` | Similarity score (0.0–1.0, present for vector matches) |
+| `similarityScore` | `Float` | Cosine similarity (-1.0–1.0, present for vector matches) |
 
 ### ElementMatch
 
@@ -772,8 +788,8 @@ Top-level result for the matchClasses query.
 | Field | Type | Description |
 |-------|------|-------------|
 | `matches` | `[ElementMatch!]!` | Match results per element, in input order |
-| `unmatched` | `[String!]!` | Element names that matched at no priority level |
-| `vectorAvailable` | `Boolean!` | Whether the deployment supports semantic search (Memgraph 3.0+ with vector module). False on Neo4j or older Memgraph. Does not guarantee that any specific class label has an embedded index. |
+| `unmatched` | `[String!]!` | Element names that nothing matched |
+| `vectorAvailable` | `Boolean!` | Whether the vector tier could serve this request: the embedder is ready, the database runs vector search, and at least one class in scope has a vector of the active embedding model. |
 
 ### ClassFacetEntry
 
@@ -1063,7 +1079,7 @@ the right caption.
 |-------|------|-------------|
 | `matches` | `[TechniqueQueryMatch!]!` |  |
 | `unmatched` | `[String!]!` |  |
-| `vectorAvailable` | `Boolean!` | False when the deployment has no HNSW indexes, the vector_search module is absent, embedding is disabled, or the module-shipped vectors mismatch the platform's runtime model. |
+| `vectorAvailable` | `Boolean!` | False when the embedder is disabled or not ready, the database cannot run vector search, or the corpus lacks vectors of the active embedding model. |
 | `vectorDisabledReason` | `VectorDisabledReason` | When vectorAvailable is false, names the specific reason — drives the picker caption. Null when vectorAvailable is true. |
 
 ### TechniqueQueryMatch
@@ -1609,7 +1625,7 @@ topN to [1, 50].
 | Field | Type | Description |
 |-------|------|-------------|
 | `queries` | `[TechniqueQueryInput!]!` | One or more query strings. Each becomes an entry in matches[] in result. |
-| `kind` | `MitreKind!` | Corpus to match against — determines which HNSW index the server consults. |
+| `kind` | `MitreKind!` | Corpus to match against. |
 | `topN` | `Int` | Per-query result cap. Clamped to [1, 50] server-side. Defaults to 3. |
 
 ### TechniqueQueryInput
@@ -1722,7 +1738,7 @@ Get the compiled frontend bundle for a module
 
 ### matchClasses
 
-Match elements against class catalog nodes using a multi-priority pipeline
+Match elements against class catalog nodes: exact-name hits first, merged with vector-similarity hits; name containment, then a type heuristic, only when neither answers
 
 **Returns:** `MatchClassesResult!`
 
@@ -1736,7 +1752,7 @@ Match elements against class catalog nodes using a multi-priority pipeline
 
 Match MITRE techniques / mitigations against user queries using the full
 priority cascade (EXACT_ID → PREFIX_ID → NAME_MATCH → DESCRIPTION_MATCH →
-VECTOR_SIMILARITY). Mirrors matchClasses; consumed by the TechniquePicker.
+VECTOR_SIMILARITY). Consumed by the TechniquePicker.
 The server returns at most
 one tier of results per query; the picker is responsible for displaying
 the server's tier-5 results below client-computed tiers 1–4.
@@ -2106,7 +2122,6 @@ Re-embed all class nodes when the embedding model changes
 | Argument | Type |
 |----------|------|
 | `moduleIds` | `[ID!]` |
-| `capacity` | `Int` |
 
 ### migrateClassId
 

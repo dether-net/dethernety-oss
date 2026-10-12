@@ -406,8 +406,40 @@ interface DataItem extends Element {
   elements?: { id: string }[] | null               // Associated elements
   sensitivity?: string                              // SensitivityLevel value; absent ⇒ unclassified
   regulatoryFlags?: string[]                        // Free-text compliance labels (see canonical vocabulary)
+  origin?: string | null                            // DataOrigin token (SCREAMING_SNAKE); null ⇒ unclassified
+  isCredential?: boolean | null                     // null ⇒ unknown; false is an answer
 }
 ```
+
+**Asset-context fields.** `sensitivity`, `regulatoryFlags`, `origin`, and `isCredential` are author-asserted — the platform records them, it does not derive them. `origin` is who can write the item's content; `isCredential` marks the item as a credential (password, token, key, secret, certificate). Both are nullable on the platform and absent until someone answers them. Their meaning is defined once, in the [canonical data-origin and credential vocabulary](../dethereal/THREAT_MODELING_WORKFLOW.md#canonical-data-origin-and-credential-vocabulary).
+
+**Origin vocabulary in code.** [`asset-context-map.ts`](../../../packages/dt-core/src/schemas/asset-context-map.ts) holds the local (lowercase) tokens, and the package root exports both constants:
+
+```typescript
+// Most to least trusted. GraphQL attaches no order to enum values, so the order lives here.
+export const ORIGIN_LEVELS = [
+  'authenticated_first_party',
+  'curated_internal',
+  'agent_relayed',
+  'model_generated',
+  'third_party',
+  'arbitrary_public',
+  'not_assessed',
+] as const
+
+// `not_assessed` is an answer, and it counts as untrusted.
+export const UNTRUSTED_ORIGINS = ['third_party', 'arbitrary_public', 'not_assessed'] as const
+```
+
+**Local and platform shapes.** The split-format `data-items.json` carries the fields as `origin` (an `ORIGIN_LEVELS` token) and `is_credential` (boolean), beside `sensitivity` and `regulatory_flags`. The platform token is the local token uppercased (`arbitrary_public` ↔ `ARBITRARY_PUBLIC`). On the way to the platform an unknown local value is dropped with a warning rather than sent as an invalid enum. Across the file round trip:
+
+| Path | `origin` | `is_credential` |
+|------|----------|-----------------|
+| Import (create) | Set when present | Set when present, including `false` |
+| Model push onto an existing item (full sync) | Cleared when the file omits it | Cleared when the file omits it |
+| Split export | Lowercased token; omitted when null | Written including `false`; omitted when null |
+
+The partial-update contract behind these rows (absent leaves a field alone, `null` clears, `false` is an answer) is described under [`DtDataItem`](./GRAPHQL_OPERATIONS.md#dtdataitem).
 
 ### DirectDescendant
 
@@ -562,13 +594,12 @@ type MitreMatchType =
   | 'PREFIX_ID'
   | 'NAME_MATCH'
   | 'DESCRIPTION_MATCH'
-  | 'VECTOR_SIMILARITY'   // semantic tier (Memgraph HNSW + embedding model)
+  | 'VECTOR_SIMILARITY'   // semantic tier (exact cosine search in the database + embedding model)
 
 type VectorDisabledReason =
-  | 'EMBEDDING_DISABLED'  // semantic search turned off on this deployment
-  | 'NO_INDEX_MODULE'     // no module provides a vector index
-  | 'NO_VECTORS'          // MITRE vectors not yet installed
-  | 'MODEL_MISMATCH'      // module ships vectors for a different embedding model
+  | 'EMBEDDING_DISABLED'  // embedder disabled or not ready, or the database cannot run vector search
+  | 'NO_VECTORS'          // MITRE vectors of the active model missing or incomplete
+  | 'MODEL_MISMATCH'      // corpus carries vectors of another embedding model only
 
 interface TechniqueQueryInput {
   query: string
@@ -588,7 +619,7 @@ interface MitreCandidate {
   tacticOrder?: number | null  // 0-based matrix position of `tactic` (ATT&CK, ATLAS); null for D3FEND and mitigations
   kind: MitreKind
   matchType: MitreMatchType
-  similarityScore?: number | null  // populated for VECTOR_SIMILARITY; null for deterministic tiers
+  similarityScore?: number | null  // cosine (-1..1), populated for VECTOR_SIMILARITY; null for deterministic tiers
 }
 
 interface TechniqueQueryMatch {
@@ -604,7 +635,7 @@ interface MatchMitreTechniquesResult {
 }
 ```
 
-> **Graceful vector degradation.** When the HNSW index is absent or built against a different embedding model, the server sets `vectorAvailable: false` and a specific `vectorDisabledReason` rather than failing the query. The deterministic tiers (`EXACT_ID` through `DESCRIPTION_MATCH`) still return results; the picker shows a caption explaining that semantic search is unavailable. A kind whose framework is not loaded reports `NO_VECTORS` on its own; the other kinds keep the vector tier.
+> **Graceful vector degradation.** When the embedder or the database's vector search is unavailable, or the corpus lacks vectors of the active embedding model, the server sets `vectorAvailable: false` and a specific `vectorDisabledReason` rather than failing the query. The deterministic tiers (`EXACT_ID` through `DESCRIPTION_MATCH`) still return results; the picker shows a caption explaining that semantic search is unavailable. A kind whose framework is not loaded reports `NO_VECTORS` on its own; the other kinds keep the vector tier.
 
 ### Exposure
 

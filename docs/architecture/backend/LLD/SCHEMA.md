@@ -120,6 +120,22 @@ enum SensitivityLevel {
 }
 ```
 
+### DataOrigin
+
+Author-asserted origin of a `Data` item's content — who can write it. Members are declared from most to least trusted; `THIRD_PARTY`, `ARBITRARY_PUBLIC` and `NOT_ASSESSED` are untrusted. GraphQL attaches no order to enum values, so the order lives in dt-core's `ORIGIN_LEVELS` (see [Domain Model](../../dt-core/DOMAIN_MODEL.md)); the meaning of each member is in the [canonical vocabulary](../../dethereal/THREAT_MODELING_WORKFLOW.md#canonical-data-origin-and-credential-vocabulary).
+
+```graphql
+enum DataOrigin {
+  AUTHENTICATED_FIRST_PARTY
+  CURATED_INTERNAL
+  AGENT_RELAYED
+  MODEL_GENERATED
+  THIRD_PARTY
+  ARBITRARY_PUBLIC
+  NOT_ASSESSED
+}
+```
+
 ### DispositionKind
 
 The structured decision a user records on a SYSTEM-generated finding (`Exposure` or `Countermeasure`) instead of deleting it. See [Disposition fields on Exposure and Countermeasure](#disposition-fields-on-exposure-and-countermeasure).
@@ -302,6 +318,10 @@ Represents data elements within the system.
 - `description` (String) — Data description
 - `sensitivity` (SensitivityLevel) — Author-asserted sensitivity classification (null ⇒ unclassified)
 - `regulatoryFlags` ([String!]) — Regulatory-scope tags (e.g. `PCI cardholder`, `GDPR personal`); null ⇒ none
+- `origin` (DataOrigin) — Author-asserted origin of the content: who can write it (null ⇒ unclassified)
+- `isCredential` (Boolean) — Author-asserted: the data is a credential (password, token, key, secret, certificate); null ⇒ unknown, `false` is an answer
+
+`origin` and `isCredential` are nullable properties with no default: `Data` nodes written before they existed read `null`, and no migration is needed. `@neo4j/graphql` generates their filters, e.g. `data(where: { origin: { in: [THIRD_PARTY, ARBITRARY_PUBLIC, NOT_ASSESSED] } })` for untrusted content and `data(where: { isCredential: { eq: true } })` for credentials.
 
 **Relationships:**
 - `(Data)<-[:CONTAINS]-(Model)` — Parent model
@@ -655,7 +675,7 @@ The [`matchMitreTechniques`](#queries) query resolves user-typed text to candida
 ```graphql
 enum MitreKind { ATTACK_TECHNIQUE, DEFEND_TECHNIQUE, ATTACK_MITIGATION, ATLAS_TECHNIQUE, ATLAS_MITIGATION }
 enum MitreMatchType { EXACT_ID, PREFIX_ID, NAME_MATCH, DESCRIPTION_MATCH, VECTOR_SIMILARITY }
-enum VectorDisabledReason { EMBEDDING_DISABLED, NO_INDEX_MODULE, NO_VECTORS, MODEL_MISMATCH }
+enum VectorDisabledReason { EMBEDDING_DISABLED, NO_VECTORS, MODEL_MISMATCH }
 ```
 
 `MitreMatchType` is a distinct vocabulary from the `MatchType` enum used by `matchClasses`.
@@ -665,7 +685,7 @@ enum VectorDisabledReason { EMBEDDING_DISABLED, NO_INDEX_MODULE, NO_VECTORS, MOD
 | Field | Type | Description |
 |-------|------|-------------|
 | `queries` | `[TechniqueQueryInput!]!` | Batch of `{ query: String! }`. The picker sends single-element arrays. Clamped to 25 server-side; each query capped at 500 chars. |
-| `kind` | `MitreKind!` | Corpus to match against — determines which HNSW index is consulted. |
+| `kind` | `MitreKind!` | Corpus to match against. |
 | `topN` | `Int` | Per-query result cap. Clamped to `[1, 50]`; defaults to 3. |
 
 **Result** — `MatchMitreTechniquesResult`:
@@ -674,10 +694,10 @@ enum VectorDisabledReason { EMBEDDING_DISABLED, NO_INDEX_MODULE, NO_VECTORS, MOD
 |-------|------|-------------|
 | `matches` | `[TechniqueQueryMatch!]!` | Parallel to `queries` (same order, same length). Each carries the echoed `query` and a `[MitreCandidate!]!` list. |
 | `unmatched` | `[String!]!` | Queries that produced no candidates. |
-| `vectorAvailable` | `Boolean!` | False when the deployment has no HNSW indexes, the `vector_search` module is absent, embedding is disabled, or shipped vectors mismatch the runtime model. Also false (`NO_VECTORS`) for a kind whose framework is not loaded, while the other kinds keep the vector tier. |
+| `vectorAvailable` | `Boolean!` | False when the embedder is disabled or not ready, the database cannot run vector search, or the corpus lacks vectors of the active embedding model. Also false (`NO_VECTORS`) for a kind whose framework is not loaded, while the other kinds keep the vector tier. |
 | `vectorDisabledReason` | `VectorDisabledReason` | Set when `vectorAvailable` is false; null otherwise. |
 
-`MitreCandidate` carries `mitreId`, `name`, `description`, `tactic`, `tacticOrder`, `kind`, `matchType`, and `similarityScore` (`Float`, populated only for `VECTOR_SIMILARITY` matches; null for the deterministic tiers). `mitreId` reads from `attack_id` (ATT&CK), `d3fendId` (D3FEND) or `atlas_id` (ATLAS). `tactic` is the tactic name in the candidate's own framework — for a multi-tactic technique, the earliest in matrix order — and null for mitigations. `tacticOrder` is that tactic's 0-based matrix position (ATT&CK and ATLAS); it is null for D3FEND tactics, for mitigations, and for a corpus ingested without matrix positions. Order tactic facets by `tacticOrder`, never by name.
+`MitreCandidate` carries `mitreId`, `name`, `description`, `tactic`, `tacticOrder`, `kind`, `matchType`, and `similarityScore` (`Float`, a cosine in -1..1, populated only for `VECTOR_SIMILARITY` matches; null for the deterministic tiers). `mitreId` reads from `attack_id` (ATT&CK), `d3fendId` (D3FEND) or `atlas_id` (ATLAS). `tactic` is the tactic name in the candidate's own framework — for a multi-tactic technique, the earliest in matrix order — and null for mitigations. `tacticOrder` is that tactic's 0-based matrix position (ATT&CK and ATLAS); it is null for D3FEND tactics, for mitigations, and for a corpus ingested without matrix positions. Order tactic facets by `tacticOrder`, never by name.
 
 ---
 

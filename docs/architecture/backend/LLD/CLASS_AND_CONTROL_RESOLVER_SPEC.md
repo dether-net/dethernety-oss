@@ -188,9 +188,9 @@ enum ConfidenceLevel {
 
 ### Match priority implementation
 
-The resolver executes priorities sequentially, short-circuiting per element when a high-confidence match is found.
+Per element, the exact-name tier and the vector tier run together. If either has hits, the candidates are the exact-name hits first (`exact_name`, `high`, score 1.0), then the vector hits not already listed (deduplicated by class id; `vector_similarity`, `medium`, `similarityScore` = cosine), cut to `topN`. A name hit does not keep the vector tier from running, and an exact-name candidate always stays first. Only when both are empty does the fallback run: name containment, then the type-filtered heuristic; the first with hits ends the cascade.
 
-#### Priority 1: Exact name match (deterministic)
+#### Exact-name tier (deterministic)
 
 **Note:** All Cypher queries in this section use `ComponentClass` as an example label. In the resolver, substitute the label dynamically via `classLabelToNodeLabel(classLabel)`. When `classLabel = COMPONENT` and `componentType` is provided, add `AND c.type = $componentType` to the WHERE clause.
 
@@ -203,71 +203,62 @@ RETURN c.id, c.name, c.description, c.category, m.name AS moduleName
 
 Case-insensitive exact match against class names.
 
-#### Priority 2: Fuzzy name match (deterministic)
+#### Vector tier (optional, requires embeddings)
 
-For elements not matched by exact name. Use substring containment with a minimum length guard:
+Only if `vectorAvailable` is true and the element has a description. `vectorAvailable` means: the embedder is ready, the database's vector self-test passed, and at least one active class of the label in scope has a vector of the active embedding model. Both Memgraph and Neo4j run this tier.
 
-```typescript
-// Server-side in the resolver, not in Cypher
-function fuzzyMatch(elementName: string, className: string): boolean {
-  const a = elementName.toLowerCase()
-  const b = className.toLowerCase()
-  // Skip very short inputs to avoid false positives ("DB" matching "DeBug")
-  if (a.length < 3 && b.length < 3) return false
-  // Substring: "Postgres" matches "PostgreSQL", "API" matches "API Gateway"
-  if (b.includes(a) || a.includes(b)) return true
-  return false
-}
-```
-
-No Levenshtein — character-level edit distance on short identifiers produces more false positives than value. Elements that don't substring-match fall through to vector similarity (Priority 3) or agent reasoning (Pass 2), which are better equipped for approximate matching.
-
-Fetch all classes of the target label (scoped to modules), run `fuzzyMatch` in-memory. The class count is bounded by module filtering (typically 30-300, not thousands).
-
-#### Priority 3: Vector similarity (optional, requires embedding index, Memgraph only)
-
-Only if the HNSW index exists and elements have descriptions. Memgraph-only — Neo4j deployments skip this priority (same as when embeddings are disabled).
+The search is **exact**, with no vector index: every candidate class is scored with the database's own cosine function, so the scope filters are ordinary `WHERE` clauses and run before ranking.
 
 ```cypher
-// vector_search.search() takes exactly 3 params: (index_name, limit, query_vector)
-// No filter parameter exists — post-filter with WHERE (Memgraph needs WITH between YIELD and WHERE)
-CALL vector_search.search('component_class_embeddings', <searchLimit>, $query_vector)
-YIELD node, similarity
-WITH id(node) AS hit, similarity
-WHERE similarity >= $threshold
-// Re-match each hit by its internal id: a deleted node can stay in the index until garbage collection
-MATCH (node) WHERE id(node) = hit
-WITH node, similarity
-WHERE $component_type IS NULL OR node.type = $component_type
-MATCH (node)<-[:HAS_CLASS]-(m:Module)
-WHERE $module_ids IS NULL OR m.id IN $module_ids
-RETURN node.id, node.name, node.description, node.category, m.name AS moduleName, similarity
-ORDER BY similarity DESC
-LIMIT $top_n
+MATCH (m:Module)-[:HAS_CLASS]->(n:ComponentClass)
+WHERE n.embedding IS NOT NULL
+  AND n.embeddingModel = $profileId          // only vectors of the active embedding model
+  AND size(n.embedding) = $dims
+  AND ($componentType IS NULL OR n.type = $componentType)
+  AND ($moduleIds IS NULL OR m.id IN $moduleIds)
+WITH n, m, <cosine(n.embedding, $vector)> AS score
+WHERE $threshold IS NULL OR score >= $threshold
+RETURN n.id AS id, n.name AS name, n.description AS description, n.category AS category, n.type AS type,
+       m.id AS moduleId, m.name AS moduleName, score
+ORDER BY score DESC, id ASC
+LIMIT $k
 ```
 
-**Deleted nodes.** On newer Memgraph releases (seen on 3.13.2), a node deleted after it was indexed is still returned by `vector_search.search()` until the database's garbage collection runs, and reading its properties fails. Memgraph 3.8.1 skips such a node. The query therefore keeps only each hit's internal id and re-matches it with `MATCH (node) WHERE id(node) = hit`, which drops deleted nodes before any property is read. The MITRE vector query and the index self-check ([Section 7](#index-health-and-self-heal)) do the same.
-
-**Search limit.** Every filter runs after the nearest-neighbour search, so the limit decides which classes the filters ever see:
-
-- **Unscoped** (`moduleIds` not set): `searchLimit = 3 × topN`, which leaves room for the threshold and type filters.
-- **Module-scoped** (`moduleIds` set): `searchLimit = max(3 × topN, number of embedded active classes of the label)`, so the search covers **every** class of the label before the module filter runs. A fixed multiple of `topN` would return nothing for a module whenever other modules' classes were nearer to the query.
+`<cosine(...)>` is `vector_search.cosine_similarity(a, b)` on Memgraph and `(2 * vector.similarity.cosine(a, b) - 1)` on Neo4j, which returns `(1 + cos) / 2` and is mapped back. The score (`similarityScore`) and the threshold are therefore cosines (-1..1) on both engines. Ties order by class id; `$k` is `topN`, clamped to 1..50 and passed as a Bolt integer. The query is built by `buildRankQuery` in `@dethernety/dt-module/embedding` and run by `VectorSearchService.rank()` in a read transaction.
 
 See Section 7 for the embedding pipeline. The threshold is configurable with `EMBEDDING_SIMILARITY_THRESHOLD` (default: 0.40, tuned for the default embedding model).
 
-**Detecting index availability:** Before executing vector search, check if the index exists:
-```cypher
-// Option 1: DDL query
-SHOW VECTOR INDEX INFO
+**Detecting availability:** `VectorSearchService.healthy()` runs a memoized self-test on the configured engine: the cosine of two orthogonal vectors must be 0 and of two opposite vectors -1. A failure keeps the vector tier off and is retried after 60 seconds. The resolver then checks that the scope holds at least one vector of the active model; if not, it logs a warning and skips the vector tier.
 
-// Option 2: Procedure (filter for a specific index)
-CALL vector_search.show_index_info() YIELD index_name
-WHERE index_name = 'component_class_embeddings'
-RETURN index_name
+#### Fallback 1: Name containment (deterministic)
+
+Runs only when neither the exact-name nor the vector tier has hits (`fuzzy_name`, `high`). Use whole-word name containment with a minimum length guard:
+
+```typescript
+// Server-side in the resolver, not in Cypher
+const words = (s: string) => s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean)
+// True when `needle` occurs in `hay` as a contiguous word sequence
+const containsWords = (hay: string[], needle: string[]) =>
+  needle.length > 0 && needle.length <= hay.length &&
+  hay.some((_, i) => needle.every((w, k) => hay[i + k] === w))
+
+function fuzzyMatch(elementName: string, className: string): boolean {
+  // Skip very short element names (< 3 chars) to avoid false positives
+  if (elementName.length < 3) return false
+  const a = words(elementName)
+  const b = words(className)
+  // Whole words, either direction: "orders-db (PostgreSQL 15)" contains "PostgreSQL",
+  // "API" is contained in "API Gateway". A word inside a longer word is not a hit:
+  // "Go microservice" does NOT contain "Service".
+  return containsWords(a, b) || containsWords(b, a)
+}
 ```
-If this fails (syntax error on Neo4j, procedure not found on Memgraph < 3.0) or returns no results, skip Priority 3.
 
-#### Priority 4: Type-filtered heuristic (fallback)
+No Levenshtein — character-level edit distance on short identifiers produces more false positives than value. Approximate matching is left to the vector tier, which has already run, and to agent reasoning (Pass 2).
+
+Fetch all classes of the target label (scoped to modules), run `fuzzyMatch` in-memory. The class count is bounded by module filtering (typically 30-300, not thousands).
+
+#### Fallback 2: Type-filtered heuristic
 
 Return classes scoped to modules. Confidence: `low`. The type filter only applies when `classLabel = COMPONENT` and `componentType` is provided — for other class labels, return all classes of that label (no type filter).
 
@@ -306,7 +297,7 @@ The resolver needs:
 - `AuthorizationService` — injected, for auth context extraction and authorization checks
 - `MonitoringService` — injected, for operation metrics
 - Access to the Bolt driver (for Cypher queries) — inject via `GqlService` or directly
-- Access to the embedding service (for Priority 3) — inject as optional dependency
+- Access to the embedding service (for the vector tier) — inject as optional dependency
 
 ### Label mapping
 
@@ -328,8 +319,6 @@ function classLabelToNodeLabel(classLabel: ClassLabelEnum): string {
 ```
 
 When `classLabel = COMPONENT` and `componentType` is provided, add a `WHERE c.type = $componentType` filter to the Cypher queries.
-
-The HNSW index name follows the label: `component_class_embeddings`, `control_class_embeddings`, etc.
 
 ---
 
@@ -794,7 +783,7 @@ for (const [controlId, assignments] of Object.entries(grouped)) {
 
 ### Overview
 
-Optional enhancement for `match_classes` Priority 3 (vector similarity). Memgraph-only — Neo4j deployments skip vector search entirely (same as when embeddings are disabled). When enabled, class nodes are embedded during module ingestion and indexed via Memgraph HNSW. When disabled, `match_classes` falls back to priorities 1-2-4 (deterministic + fuzzy matching).
+Optional enhancement for the `match_classes` vector tier. Runs on Memgraph and Neo4j. When enabled, class nodes are embedded during module ingestion and searched with an exact cosine search in the database (no vector index). When disabled, `match_classes` runs only the deterministic tiers: exact name, then the name-containment and type-filtered fallbacks.
 
 ### Configuration
 
@@ -819,45 +808,9 @@ EMBEDDING_SIMILARITY_THRESHOLD=0.40 // per model: tuned for embeddinggemma; retu
 | OpenAI (cloud) | `https://api.openai.com/v1/embeddings` | `sk-...` | Uses `text-embedding-3-small` or similar |
 | AWS Bedrock (cloud) | Bedrock endpoint | AWS credentials | Via OpenAI-compatible proxy or direct SDK |
 
-### Index creation (platform setup)
+### No vector index for classes
 
-Create one HNSW index per class label. Run at platform startup or on first module install. **Not idempotent** — duplicate creation raises an error; check existence via `vector_search.show_index_info()` first or wrap in error handling.
-
-```cypher
-CREATE VECTOR INDEX component_class_embeddings ON :ComponentClass(embedding)
-  WITH CONFIG {"dimension": 768, "capacity": 500, "metric": "cos"};
-CREATE VECTOR INDEX control_class_embeddings ON :ControlClass(embedding)
-  WITH CONFIG {"dimension": 768, "capacity": 500, "metric": "cos"};
-CREATE VECTOR INDEX dataflow_class_embeddings ON :DataFlowClass(embedding)
-  WITH CONFIG {"dimension": 768, "capacity": 500, "metric": "cos"};
-CREATE VECTOR INDEX boundary_class_embeddings ON :SecurityBoundaryClass(embedding)
-  WITH CONFIG {"dimension": 768, "capacity": 500, "metric": "cos"};
-CREATE VECTOR INDEX data_class_embeddings ON :DataClass(embedding)
-  WITH CONFIG {"dimension": 768, "capacity": 500, "metric": "cos"};
-```
-
-Vector search is built into Memgraph core since version 3.0 (not a MAGE add-on). Neo4j support is not in scope for this phase — Neo4j deployments skip Priority 3. The `capacity` parameter sets initial HNSW index size (Memgraph rounds up internally, e.g. 500 → 512). Start small and resize via `reindexClassEmbeddings` as the module ecosystem grows. The metric name is `"cos"` (not `"cosine"`).
-
-### Index health and self-heal
-
-An index can lose entries even though no write fails. Memgraph 3.8.x can recover a label+property vector index from a snapshot under a different label or property than it was created on. Writes to the intended label and property then miss the index, so classes installed after such a recovery cannot be found by vector similarity. The index created first keeps its key, and later ones can be re-keyed. Later Memgraph releases recover the key correctly, but a snapshot written while an index was mis-keyed keeps the wrong key. A database upgrade alone does not repair it.
-
-The platform therefore verifies the five class indexes and rebuilds any index that is wrong. The helpers live in `src/gql/services/vector-index-keys.ts`, and the checks live in `MatchClassesResolverService`.
-
-| Check | When | Rebuild trigger |
-|---|---|---|
-| Full self-heal: `healClassVectorIndexes()` | At the end of every module update pass, so on every platform start, even when every module was skipped. Also after a single-module reset (see [ModuleManagementService → Class vector index self-heal](./MODULE_MANAGEMENT_SERVICE.md#class-vector-index-self-heal)). | The index is keyed on another label or property. Or it holds fewer embedded active classes than its label has; this is counted by searching with each class's own vector and checking, by internal id, that the class is among the nearest three. |
-| Cheap key check | On the vector-availability probe, which is cached for 10 minutes. The first class match after the cache expires re-probes, so a database-only restart is repaired while the platform keeps running. | The index is keyed on another label or property, or the size it reports is below the number of embedded active classes of its label. Either case runs the full self-heal. |
-
-The key and size come from `vector_search.show_index_info()` (`index_name`, `label`, `property`, `size`). A rebuild is a `DROP VECTOR INDEX` followed by `CREATE VECTOR INDEX` on the intended label and property. Creating a vector index indexes every node that already carries the property, so the rebuild restores the missing entries. Each rebuild is logged:
-
-```
-Vector index <name> is keyed on :<Label>(<property>) instead of :<Label>(embedding) — rebuilding it
-Vector index <name> holds <held> of <embedded> embedded <Label> classes — rebuilding it
-Vector index <name> rebuilt: holds <n> of <n> embedded <Label> classes
-```
-
-A failure is logged (`… could not be verified or rebuilt`) and leaves vector search as it was. The MITRE corpus indexes get the same key check; see [Custom resolver services → Vector tier](./CUSTOM_RESOLVER_SERVICES_DOCUMENTATION.md#vector-tier).
+Class vectors need no index: the vector tier scores every candidate class directly (see [Vector tier](#vector-tier-optional-requires-embeddings)). Module install therefore creates, probes, resizes and repairs no class vector index, and a stored vector is searchable as soon as its write commits. The only engine requirement is a cosine function that passes the vector self-test: Memgraph 3.6+ (`vector_search.cosine_similarity`, tested on 3.13.2) or Neo4j 5.26 Community (`vector.similarity.cosine`).
 
 ### Embedding service
 
@@ -993,7 +946,7 @@ await tx.run(
 )
 ```
 
-The Memgraph HNSW index normally includes any node with an `embedding` property that matches the index definition, so no separate indexing step is needed. The exception is an index that a snapshot recovery re-keyed; the platform detects and rebuilds it (see [Index health and self-heal](#index-health-and-self-heal)).
+No separate indexing step is needed: the exact search reads the `embedding` property directly, so a class is searchable as soon as the write commits.
 
 ### Failure behavior
 
@@ -1046,7 +999,8 @@ type ReindexResult {
 
 **Behavior:**
 - When `moduleIds` is provided, re-embeds classes from those modules only. When absent, re-embeds all classes across all modules.
-- Reads all class nodes (all 5 labels), composes embedding text, calls the embedding endpoint in batches, writes vectors back with the current `embeddingModel` identifier.
+- Reads the active class nodes (all 5 labels), composes embedding text, calls the embedding endpoint in batches, writes vectors back with the current `embeddingModel` identifier.
+- Skips, with a warning, any returned vector that is not of the configured length, finite and non-zero.
 - This is a **blocking operation** — the mutation does not return until all vectors are updated. Stale vectors during a partial reindex would produce incorrect similarity rankings.
 - Authorization required: same `AuthorizationService` pattern as other custom resolvers.
 
@@ -1062,7 +1016,7 @@ The mutation lives in the same resolver as `match_classes` (`match-classes-resol
 ## 8. Implementation Sequence
 
 ```
-Phase A1: match_classes (deterministic only — priorities 1, 2, 4)
+Phase A1: match_classes (deterministic only — exact name, containment, type heuristic)
   Files:
     - dt-ws/schema/schema.graphql (add new types, inputs, enums)
     - dt-ws/src/gql/resolver-services/match-classes-resolver.service.ts (new)
@@ -1071,14 +1025,14 @@ Phase A1: match_classes (deterministic only — priorities 1, 2, 4)
     - dt-core/src/dt-class/dt-class-gql.ts (new query)
   No embedding infrastructure. Works immediately.
 
-Phase A2: match_classes (add vector — priority 3, Memgraph only)
+Phase A2: match_classes (add the vector tier)
   Files:
     - dt-ws/schema/schema.graphql (add ReindexResult type, reindexClassEmbeddings mutation)
     - dt-ws/src/gql/services/embedding.service.ts (new)
     - dt-ws/src/gql/module-management-services/module-management.service.ts (integrate embedding into upsertModule/upsertClass)
     - dt-ws/src/gql/custom-resolver.module.ts (register EmbeddingService)
     - Match classes resolver (add vector search branch + reindexClassEmbeddings mutation)
-  Requires: Memgraph with vector_search MAGE module. Neo4j deployments skip Priority 3.
+  Requires: a database cosine function that passes the vector self-test (Memgraph 3.6+ or Neo4j 5.26).
 
 Phase B: findControls + assignControlToElements (parallel with A)
   Files:

@@ -10,11 +10,15 @@ Domain terminology used throughout the Dethernety platform and documentation.
 
 **Component** -- A system element in a threat model: server, service, database, user, external system, etc. Components are nodes in the graph. Each component has a class that determines its attributes and behavior.
 
+**Credential Flag** -- A data item's author-asserted answer to whether it is a credential (password, token, key, secret, certificate). Three states: yes, no, or unknown (unset). Set with the **Credential** select on the General tab of the Data dialog, or confirmed during AI enrichment, which proposes yes for items bound to a credential-like data class but never sets it on its own. An answered no is kept. Distinct from the credential attributes on data flows and stores, which describe which credentials a flow requires or a store yields.
+
 **Crown Jewel** -- A component flagged as a high-value asset — the data or capability an attacker would most want to reach. Set via the crown toggle on the General tab of a component's settings dialog, or during the AI classify workflow; both write the same per-component flag. Analysis prioritizes crown jewels (e.g., a crown jewel without controls is a highest-priority gap).
 
 **Data Flow** -- A directed connection between two components representing data movement. Data flows are edges in the graph. They carry data items and can have security attributes (encryption, authentication).
 
 **Data Item** -- A piece of data carried by a data flow. Used to classify what information moves between components (e.g., credentials, PII, session tokens).
+
+**Data Origin** -- A data item's author-asserted answer to who can write its content, on a seven-level scale from most to least trusted: Authenticated first party, Curated internal, Agent relayed, Model generated, Third party, Arbitrary public, Not assessed. The last three are untrusted. An item's origin is the least-trusted origin of what it holds — one public source makes the whole item Arbitrary public. Set with the **Origin** select on the General tab of the Data dialog or during AI enrichment. Left unset, the origin is unclassified, which is not the same as Not assessed. Not to be confused with the element where data enters the system. See the [canonical vocabulary](architecture/dethereal/THREAT_MODELING_WORKFLOW.md#canonical-data-origin-and-credential-vocabulary).
 
 **Folder** -- An organizational container for models. Folders can be nested.
 

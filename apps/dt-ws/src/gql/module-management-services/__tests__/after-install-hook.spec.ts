@@ -2,7 +2,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { ModuleManagementService } from '../module-management.service';
 import { EmbeddingService } from '../../services/embedding.service';
-import { MatchClassesResolverService } from '../../resolver-services/match-classes-resolver.service';
 import { ClassReconciler } from '../class-reconciler.service';
 import { ClassIdentityEventLog } from '../class-identity-event-log.service';
 
@@ -51,10 +50,6 @@ async function buildService(driver: any, gqlConfig?: { moduleLoadTimeout?: numbe
     getDimensions: jest.fn(() => 3),
     getModel: jest.fn(() => 'nomic-embed-text'),
   };
-  const matchClasses: Partial<MatchClassesResolverService> = {
-    ensureVectorIndexes: jest.fn(async () => {}),
-    healClassVectorIndexes: jest.fn(async () => []),
-  };
   const eventLog = new ClassIdentityEventLog();
   const reconciler = {
     hasIncidentInstances: async () => false,
@@ -69,7 +64,6 @@ async function buildService(driver: any, gqlConfig?: { moduleLoadTimeout?: numbe
       ModuleManagementService,
       { provide: ConfigService, useValue: { get: configGet } },
       { provide: EmbeddingService, useValue: embedding },
-      { provide: MatchClassesResolverService, useValue: matchClasses },
       { provide: 'NEO4J_DRIVER', useValue: driver },
       { provide: ClassReconciler, useValue: reconciler },
       { provide: ClassIdentityEventLog, useValue: eventLog },

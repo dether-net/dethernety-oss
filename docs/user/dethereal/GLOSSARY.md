@@ -41,6 +41,10 @@ Plugin-specific terminology. For platform-wide terms, see the [Dethernety Glossa
 
 **Regulatory Flags** — Free-text compliance labels on a data item (e.g. `PCI cardholder`, `PHI`, `GDPR personal`), kept separate from sensitivity. Matched exactly and case-sensitively by the platform's `dataInRegulatoryScope` query; see the [canonical vocabulary](../../architecture/dethereal/THREAT_MODELING_WORKFLOW.md#canonical-sensitivity-and-regulatory-flag-vocabulary) for the recommended set and casing.
 
+**Origin** — A data item's author-asserted answer to who can write its content (`origin` in `data-items.json`), most to least trusted: `authenticated_first_party`, `curated_internal`, `agent_relayed`, `model_generated`, `third_party`, `arbitrary_public`, `not_assessed`. The last three are untrusted, and the least-trusted source wins. Absent ⇒ unclassified (which is *not* the same as `not_assessed`). See the [canonical vocabulary](../../architecture/dethereal/THREAT_MODELING_WORKFLOW.md#canonical-data-origin-and-credential-vocabulary).
+
+**Credential Flag** — A data item's author-asserted answer to whether it is a credential (`is_credential` in `data-items.json`): `true`, `false`, or absent (unknown). Enrichment proposes `true` for items bound to a credential-like data class and never sets it on its own; an answered `false` is kept. Distinct from [Credential Topology](#security-concepts). See the [canonical vocabulary](../../architecture/dethereal/THREAT_MODELING_WORKFLOW.md#canonical-data-origin-and-credential-vocabulary).
+
 **Class** — A predefined type from the platform's module system (e.g., "Database", "Web Application", "Load Balancer"). Classification assigns a class to an element, enabling attribute schemas and analysis.
 
 **Attribute** — A security property of an element, stored in `attributes/<type>/<id>.json`. The 6 key component attributes are: authentication, encryption in transit, encryption at rest, logging, access control, and log telemetry.

@@ -21,12 +21,12 @@ const configStub: any = {
 };
 const embeddingStub: any = {
   isEnabled: () => false,
+  isPending: () => false,
   getModel: () => '',
   getDimensions: () => 0,
   composeClassText: () => '',
   embedBatch: async () => null,
 };
-const matchStub: any = { ensureVectorIndexes: async () => undefined, healClassVectorIndexes: async () => [] };
 
 function num(v: any): number {
   return typeof v?.toNumber === 'function' ? v.toNumber() : Number(v);
@@ -122,7 +122,6 @@ describe('afterInstall post-commit hook — updateAllModules end-to-end', () => 
       mg.driver,
       configStub,
       embeddingStub,
-      matchStub,
       reconciler,
       log,
     );

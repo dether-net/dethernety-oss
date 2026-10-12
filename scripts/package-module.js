@@ -350,8 +350,9 @@ const archivePath = path.join(distDir, archiveName);
 
 // execFileSync, not execSync: these paths are built from manifest-supplied values, and
 // a shell would give a name containing a quote or a backtick command execution during
-// an ordinary build.
-execFileSync('tar', ['-czf', archivePath, '-C', packageDir, '.']);
+// an ordinary build. COPYFILE_DISABLE stops macOS tar from adding AppleDouble `._*` files, which the
+// platform would try to load as module code.
+execFileSync('tar', ['-czf', archivePath, '-C', packageDir, '.'], { env: { ...process.env, COPYFILE_DISABLE: '1' } });
 
 const size = (fs.statSync(archivePath).size / 1024).toFixed(1);
 console.log('');

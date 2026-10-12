@@ -188,6 +188,10 @@ export interface DataItem extends Element {
   elements?: { id: string }[] | null
   sensitivity?: string
   regulatoryFlags?: string[]
+  /** Platform `DataOrigin` token (SCREAMING_SNAKE). Null ⇒ unclassified. */
+  origin?: string | null
+  /** Null ⇒ unknown. */
+  isCredential?: boolean | null
 }
 
 export interface ComponentData extends Element {
@@ -746,7 +750,6 @@ export type MitreMatchType =
 
 export type VectorDisabledReason =
   | 'EMBEDDING_DISABLED'
-  | 'NO_INDEX_MODULE'
   | 'NO_VECTORS'
   | 'MODEL_MISMATCH'
 

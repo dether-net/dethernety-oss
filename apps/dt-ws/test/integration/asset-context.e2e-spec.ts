@@ -80,6 +80,12 @@ describe('asset-context schema additions are additive', () => {
     expect(print(field(data, 'regulatoryFlags').type)).toBe('[String!]');
   });
 
+  it('Data gains nullable origin (DataOrigin) and isCredential', () => {
+    const data = obj('Data');
+    expect(print(field(data, 'origin').type)).toBe('DataOrigin');
+    expect(print(field(data, 'isCredential').type)).toBe('Boolean');
+  });
+
   it('Query exposes dataInRegulatoryScope(flag: String!): [Data!]!', () => {
     const f = field(obj('Query'), 'dataInRegulatoryScope');
     expect(f).toBeDefined();
@@ -117,6 +123,7 @@ describe('asset-context schema additions are additive', () => {
 // for this behavioural test.
 const typeDefs = `
   enum SensitivityLevel { PUBLIC INTERNAL CONFIDENTIAL RESTRICTED }
+  enum DataOrigin { AUTHENTICATED_FIRST_PARTY CURATED_INTERNAL AGENT_RELAYED MODEL_GENERATED THIRD_PARTY ARBITRARY_PUBLIC NOT_ASSESSED }
   enum ModelingDepth { ARCHITECTURE DESIGN IMPLEMENTATION }
   enum ModelingIntent { INITIAL SECURITY_REVIEW COMPLIANCE INCIDENT_RESPONSE }
 
@@ -135,6 +142,8 @@ const typeDefs = `
     name: String!
     sensitivity: SensitivityLevel
     regulatoryFlags: [String!]
+    origin: DataOrigin
+    isCredential: Boolean
   }
 
   type Component @node {
@@ -336,5 +345,93 @@ describe('dataInRegulatoryScope @cypher + nullable contract (Memgraph)', () => {
         regulatoryFlags: [], // { set: [] } accepted; round-trips as []
       });
     });
+  });
+});
+
+// ── Data origin and credential flag (Memgraph) ──────────────────────────────
+describe('Data.origin + Data.isCredential on Memgraph', () => {
+  let mg: MemgraphHandle;
+  let schema: GraphQLSchema;
+
+  // A fresh context per call: the library keeps the driver it ran with on the context object, and the
+  // shared `ctx` still holds the earlier suite's closed driver.
+  const run = (source: string) =>
+    graphql({
+      schema,
+      source,
+      contextValue: { cypherQueryOptions: { addVersionPrefix: false }, sessionConfig: { database: 'memgraph' } },
+    });
+
+  beforeAll(async () => {
+    mg = await startMemgraph();
+    schema = await new Neo4jGraphQL({ typeDefs, driver: mg.driver }).getSchema();
+  }, 120_000);
+
+  afterAll(async () => {
+    if (mg) await mg.stop();
+  });
+
+  beforeEach(async () => {
+    await clearGraph(mg.driver);
+  });
+
+  it('un-set Data reads origin and isCredential as null', async () => {
+    const created = await run(`mutation { createData(input: [{ id: "d1", name: "x" }]) { data { id origin isCredential } } }`);
+    expect(created.errors).toBeUndefined();
+    expect((created.data as any).createData.data[0]).toEqual({ id: 'd1', origin: null, isCredential: null });
+  });
+
+  it('creates with both, sets them, and clears them to null; false stays an answer', async () => {
+    const created = await run(`mutation { createData(input: [{ id: "d1", name: "x", origin: ARBITRARY_PUBLIC, isCredential: false }]) { data { origin isCredential } } }`);
+    expect(created.errors).toBeUndefined();
+    expect((created.data as any).createData.data[0]).toEqual({ origin: 'ARBITRARY_PUBLIC', isCredential: false });
+
+    const set = await run(`
+      mutation {
+        updateData(where: { id: { eq: "d1" } }, update: { origin: { set: AUTHENTICATED_FIRST_PARTY }, isCredential: { set: true } }) {
+          data { origin isCredential }
+        }
+      }
+    `);
+    expect(set.errors).toBeUndefined();
+    expect((set.data as any).updateData.data[0]).toEqual({ origin: 'AUTHENTICATED_FIRST_PARTY', isCredential: true });
+
+    const cleared = await run(`
+      mutation {
+        updateData(where: { id: { eq: "d1" } }, update: { origin: { set: null }, isCredential: { set: null } }) {
+          data { origin isCredential }
+        }
+      }
+    `);
+    expect(cleared.errors).toBeUndefined();
+    expect((cleared.data as any).updateData.data[0]).toEqual({ origin: null, isCredential: null });
+  });
+
+  it('filters on the untrusted origins and on the credential flag', async () => {
+    const seed = await run(`
+      mutation {
+        createData(input: [
+          { id: "d-public", name: "Ticket", origin: ARBITRARY_PUBLIC }
+          { id: "d-vendor", name: "Feed", origin: THIRD_PARTY }
+          { id: "d-own", name: "Notes", origin: AUTHENTICATED_FIRST_PARTY }
+          { id: "d-token", name: "Token", isCredential: true }
+          { id: "d-unset", name: "Unset" }
+        ]) { data { id } }
+      }
+    `);
+    expect(seed.errors).toBeUndefined();
+
+    const untrusted = await run(`query { data(where: { origin: { in: [THIRD_PARTY, ARBITRARY_PUBLIC, NOT_ASSESSED] } }) { id } }`);
+    expect(untrusted.errors).toBeUndefined();
+    expect((untrusted.data as any).data.map((d: { id: string }) => d.id).sort()).toEqual(['d-public', 'd-vendor']);
+
+    const credentials = await run(`query { data(where: { isCredential: { eq: true } }) { id } }`);
+    expect(credentials.errors).toBeUndefined();
+    expect((credentials.data as any).data).toEqual([{ id: 'd-token' }]);
+  });
+
+  it('refuses a value outside the DataOrigin enum', async () => {
+    const r = await run(`mutation { createData(input: [{ id: "d1", name: "x", origin: PUBLIC }]) { data { id } } }`);
+    expect(r.errors?.length).toBeGreaterThan(0);
   });
 });

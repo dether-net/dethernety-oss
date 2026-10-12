@@ -267,7 +267,7 @@ Emit flags **exactly as written** — the platform's `dataInRegulatoryScope` que
 
 For each boundary-crossing flow without classified data items:
 1. Prompt: "What data types flow across this boundary? (PII, credentials, financial data, health data, etc.)"
-2. Create data items in `data-items.json` with sensitivity classification
+2. Create data items in `data-items.json` with sensitivity classification, and `origin` where the source of the content is known (see [Origin and Credential Flag](#origin-and-credential-flag))
 3. Classify each data item against platform DATA classes: call `mcp__plugin_dethereal_dethereal__match_classes(elements: [{name, description}, ...], classLabel: 'DATA', moduleIds: [...], topN: 3)`, confirm matches (auto-accept `exact_name`), and write confirmed `classData` onto the items in `data-items.json`. If no suitable DATA class exists, leave the item unclassified and note the gap
 4. Call `mcp__plugin_dethereal_dethereal__generate_attribute_stubs(directory_path)` to write `attributes/dataItems/<id>.json` template stubs for the newly classified items — fill them in the same session via the template-driven enrichment loop (class guide, discover, ask, no `null` left), exactly like component stubs; do not leave fresh stubs unfilled
 5. Link to flows and components via `dataItemIds`
@@ -277,6 +277,26 @@ For each boundary-crossing flow without classified data items:
 Four-level scale: `public` | `internal` | `confidential` | `restricted`
 
 Regulatory labels (e.g. `PII`, `PHI`, `PCI cardholder`) are captured as separate `regulatory_flags` on data items, NOT as sensitivity levels. Apply the regulatory-to-sensitivity mapping table above.
+
+### Origin and Credential Flag
+
+Two more author-asserted fields sit beside `sensitivity` on a data item. Both are optional; absent means unanswered. Never set either silently — propose, and write only what the user confirms.
+
+**`origin`** — who can write the item's content (not the element where it enters the system). Ask for it where the source of the content is known; leave it absent otherwise. Tokens, most to least trusted:
+
+| Token | Meaning |
+|-------|---------|
+| `authenticated_first_party` | Written only by the operator's own authenticated users or systems |
+| `curated_internal` | Internal content that passed a review or curation step |
+| `agent_relayed` | Produced or forwarded by another agent (at most this trusted) |
+| `model_generated` | Written by a model and later read as input (at most this trusted) |
+| `third_party` | Written by a known external party under an agreement — **untrusted** |
+| `arbitrary_public` | Anyone can write it (web pages, inbound email, public issues, public forms) — **untrusted** |
+| `not_assessed` | Answered as not established — **untrusted** |
+
+Origin is the least-trusted origin of what the item holds: one public source makes it `arbitrary_public`.
+
+**`is_credential`** — the item is a credential (password, token, key, secret, certificate). `validate_model_json(action: 'quality')` returns `credential_hints: [{ id, name, class, reason }]` for items bound to a credential-like DATA class whose `is_credential` is unanswered. Propose `is_credential: true` for each hint in the batch table; write it only on confirmation. An answered `false` is respected and never re-proposed. The hint does not affect the quality score.
 
 ### Quality Gate
 

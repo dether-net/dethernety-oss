@@ -115,6 +115,8 @@ export interface MonolithicDataItem {
   attributes?: Attributes;
   sensitivity?: string;
   regulatory_flags?: string[];
+  origin?: string;
+  is_credential?: boolean;
 }
 
 /**
@@ -223,6 +225,8 @@ export function monolithicToSplit(model: MonolithicModel): SplitModel {
     // (`...item`), so omitting them here silently dropped both on round-trip.
     sensitivity: item.sensitivity,
     regulatory_flags: item.regulatory_flags,
+    origin: item.origin,
+    is_credential: item.is_credential,
   }));
 
   // Extract attributes into consolidated format

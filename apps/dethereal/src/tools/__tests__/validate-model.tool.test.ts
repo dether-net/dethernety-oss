@@ -99,6 +99,29 @@ describe('ValidateModelTool', () => {
       expect((result.data as any)?.errors).toHaveLength(0)
     })
 
+    it('accepts data-item origin tokens and is_credential, and rejects the hyphenated spelling', async () => {
+      const ok = await validateModelTool.run(
+        {
+          data: JSON.stringify([
+            { id: 'di-1', name: 'Ticket', origin: 'arbitrary_public', is_credential: false },
+            { id: 'di-2', name: 'Token file', origin: 'authenticated_first_party', is_credential: true },
+            { id: 'di-3', name: 'Unassessed feed', origin: 'not_assessed' },
+          ]),
+          file_type: 'data-items',
+        },
+        context,
+      )
+      expect((ok.data as any)?.valid).toBe(true)
+
+      const bad = await validateModelTool.run(
+        { data: JSON.stringify([{ id: 'di-1', name: 'Ticket', origin: 'arbitrary-public', is_credential: 'yes' }]), file_type: 'data-items' },
+        context,
+      )
+      expect((bad.data as any)?.valid).toBe(false)
+      expect(JSON.stringify((bad.data as any)?.errors)).toMatch(/origin/)
+      expect(JSON.stringify((bad.data as any)?.errors)).toMatch(/is_credential/)
+    })
+
     it('should validate zoning on the default and a nested boundary', async () => {
       const result = await validateModelTool.run(
         {

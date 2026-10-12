@@ -13,6 +13,9 @@ import { DtModule } from '../dt-module/dt-module.js'
 import { DtControl } from '../dt-control/dt-control.js'
 import { validateMonolithicModel } from '../schemas/model.schema.js'
 
+// Attribute writes run this many at a time once every element exists (see attributeWrites).
+const ATTRIBUTE_WRITE_CONCURRENCY = 4
+
 export interface ImportProgress {
   currentStep: number
   totalSteps: number
@@ -77,6 +80,10 @@ export class DtImport {
   private cachedControls: any[] | null = null
   private errors: ImportError[] = []
   private warnings: string[] = []
+  // Attribute writes queued while the elements are created. Each write also evaluates the element's class, and the
+  // platform holds every write for a short debounce, so they run a few at a time once all elements exist rather than
+  // one by one as each element is created.
+  private attributeWrites: Array<() => Promise<void>> = []
   private currentModelId: string = ''
   private defaultBoundaryId: string = ''
   private pendingControlAssociations: Array<{elementId: string, controls: any[], elementType: 'component' | 'boundary' | 'dataflow'}> = [] // kept for backwards compat; no longer used
@@ -121,6 +128,7 @@ export class DtImport {
         this.cachedControls = null
         this.errors = []
         this.warnings = []
+        this.attributeWrites = []
         this.currentModelId = ''
         this.defaultBoundaryId = ''
         this.progress = {
@@ -215,6 +223,10 @@ export class DtImport {
         if (jsonData.dataFlows && Array.isArray(jsonData.dataFlows)) {
           await this.createDataFlows(jsonData.dataFlows)
         }
+
+        // The attribute writes queued while creating data items, boundaries, components and data flows
+        await DtUtils.runWithConcurrency(this.attributeWrites, ATTRIBUTE_WRITE_CONCURRENCY)
+        this.attributeWrites = []
 
         this.updateProgress(7, 'Associating data items with elements')
 
@@ -607,17 +619,20 @@ export class DtImport {
       // Authoritative parent = the boundary this node was actually created under.
       this.elementParent.set(componentData.id, parentBoundaryId)
 
-      // Set attributes after creation (class was already assigned during creation)
-      if (classId && componentData.attributes) {
-        try {
-          await this.dtClass.setInstantiationAttributes({
-            componentId: newComponent.id,
-            classId,
-            attributes: componentData.attributes
-          })
-        } catch (error) {
-          this.warnings.push(`Could not set attributes for component ${componentData.name}: ${error}`)
-        }
+      // Queue the attribute write (the class was assigned at creation). Sent even with no answers: the write also
+      // evaluates the class, which is what gives the element its exposures
+      if (classId) {
+        this.attributeWrites.push(async () => {
+          try {
+            await this.dtClass.setInstantiationAttributes({
+              componentId: newComponent.id,
+              classId,
+              attributes: componentData.attributes ?? {}
+            })
+          } catch (error) {
+            this.warnings.push(`Could not set attributes for component ${componentData.name}: ${error}`)
+          }
+        })
       }
 
       // Set controls directly (same pattern as boundaries and dataflows)
@@ -733,17 +748,20 @@ export class DtImport {
         })
       }
 
-      // Set attributes after creation (class was already assigned during creation)
-      if (classId && boundaryData.attributes) {
-        try {
-          await this.dtClass.setInstantiationAttributes({
-            componentId: newBoundary.id,
-            classId,
-            attributes: boundaryData.attributes
-          })
-        } catch (error) {
-          this.warnings.push(`Could not set attributes for boundary ${boundaryData.name}: ${error}`)
-        }
+      // Queue the attribute write (the class was assigned at creation). Sent even with no answers: the write also
+      // evaluates the class, which is what gives the element its exposures
+      if (classId) {
+        this.attributeWrites.push(async () => {
+          try {
+            await this.dtClass.setInstantiationAttributes({
+              componentId: newBoundary.id,
+              classId,
+              attributes: boundaryData.attributes ?? {}
+            })
+          } catch (error) {
+            this.warnings.push(`Could not set attributes for boundary ${boundaryData.name}: ${error}`)
+          }
+        })
       }
 
       // Set controls
@@ -837,17 +855,20 @@ export class DtImport {
 
         this.idMapping.set(dataFlowData.id, newDataFlow.id)
 
-        // Set attributes after creation (class was already assigned during creation)
-        if (classId && dataFlowData.attributes) {
-          try {
-            await this.dtClass.setInstantiationAttributes({
-              componentId: newDataFlow.id,
-              classId,
-              attributes: dataFlowData.attributes
-            })
-          } catch (error) {
-            this.warnings.push(`Could not set attributes for data flow ${dataFlowData.name}: ${error}`)
-          }
+        // Queue the attribute write (the class was assigned at creation). Sent even with no answers: the write also
+        // evaluates the class, which is what gives the element its exposures
+        if (classId) {
+          this.attributeWrites.push(async () => {
+            try {
+              await this.dtClass.setInstantiationAttributes({
+                componentId: newDataFlow.id,
+                classId,
+                attributes: dataFlowData.attributes ?? {}
+              })
+            } catch (error) {
+              this.warnings.push(`Could not set attributes for data flow ${dataFlowData.name}: ${error}`)
+            }
+          })
         }
 
         // Set controls
@@ -884,7 +905,9 @@ export class DtImport {
           modelId: modelId,
           // Asset-context (set present fields on create). Local snake `regulatory_flags`.
           sensitivity: dataItemData.sensitivity,
-          regulatoryFlags: dataItemData.regulatory_flags
+          regulatoryFlags: dataItemData.regulatory_flags,
+          origin: dataItemData.origin,
+          isCredential: dataItemData.is_credential
         })
 
         if (!newDataItem) {
@@ -898,17 +921,19 @@ export class DtImport {
 
         this.idMapping.set(dataItemData.id, newDataItem.id)
 
-        // Set attributes if available
-        if (dataItemData.attributes && classId) {
-          try {
-            await this.dtClass.setInstantiationAttributes({
-              componentId: newDataItem.id,
-              classId,
-              attributes: dataItemData.attributes
-            })
-          } catch (error) {
-            this.warnings.push(`Could not set attributes for data item ${dataItemData.name}: ${error}`)
-          }
+        // Queue the attribute write, even with no answers: the write also evaluates the class
+        if (classId) {
+          this.attributeWrites.push(async () => {
+            try {
+              await this.dtClass.setInstantiationAttributes({
+                componentId: newDataItem.id,
+                classId,
+                attributes: dataItemData.attributes ?? {}
+              })
+            } catch (error) {
+              this.warnings.push(`Could not set attributes for data item ${dataItemData.name}: ${error}`)
+            }
+          })
         }
 
       } catch (error) {

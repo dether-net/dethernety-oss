@@ -1,12 +1,17 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   composeClassText,
   composeElementText,
   composeTechniqueText,
   composeMitigationText,
+  getProfile,
+  listProfiles,
   parseEmbeddingResponse,
+  type EmbeddingProfile,
+  type ProfileKind,
 } from '@dethernety/dt-module/embedding';
+import type { Embedder } from '@dethernety/embedder';
 
 /**
  * L2-normalize a single embedding vector to unit length. Used so runtime
@@ -28,8 +33,35 @@ function l2NormalizeBatch(vectors: number[][]): number[][] {
   });
 }
 
+export type EmbeddingCorpus = 'classes' | 'mitre' | 'components';
+
+/** Where the embedder is. Only `ready` serves vectors. */
+export type EmbedderState = 'disabled' | 'downloading' | 'loading' | 'ready' | 'failed';
+
+export interface EmbedderStatus {
+  enabled: boolean;
+  runtime: 'onnx' | 'http';
+  profileId: string;
+  state: EmbedderState;
+  error?: string;
+}
+
+const LEGACY_PROFILE_ID = 'embeddinggemma';
+const CORPORA: EmbeddingCorpus[] = ['classes', 'mitre', 'components'];
+
+/**
+ * The platform's embedder. `EMBEDDING_MODEL` names an embedding profile:
+ *
+ * - A built-in ONNX profile runs in process. Its weights are fetched into EMBEDDING_MODEL_DIR (or
+ *   found there already) and verified by sha256 in the background after start; until the session
+ *   is loaded the embedder is not enabled, so callers fall back to their name tiers.
+ * - Any other value selects the HTTP embedder (EMBEDDING_URL, an Ollama-compatible /api/embed) with
+ *   that model name, under the `embeddinggemma` profile's thresholds.
+ *
+ * The profile decides the prompts, the dimensions and the per-corpus similarity thresholds.
+ */
 @Injectable()
-export class EmbeddingService {
+export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(EmbeddingService.name);
   /**
    * Session-level enabled flag. Starts from EMBEDDING_ENABLED and can be
@@ -44,41 +76,159 @@ export class EmbeddingService {
   private readonly apiKey: string;
   private readonly model: string;
   private readonly dimensions: number;
-  private readonly threshold: number;
+  private readonly profile: EmbeddingProfile;
+  private readonly runtime: 'onnx' | 'http';
+  private readonly thresholds: Record<EmbeddingCorpus, number | null>;
+  private readonly modelDir: string;
+  private readonly threads: number;
+  private state: EmbedderState;
+  private stateError: string | undefined;
+  private embedder: Embedder | null = null;
+  private started: Promise<void> | null = null;
 
   constructor(private readonly configService: ConfigService) {
     this.enabled = this.configService.get('EMBEDDING_ENABLED') === 'true';
     this.url = this.configService.get('EMBEDDING_URL') || 'http://localhost:11434/api/embed';
     this.apiKey = this.configService.get('EMBEDDING_API_KEY') || '';
-    this.model = this.configService.get('EMBEDDING_MODEL') || 'embeddinggemma';
-    this.dimensions = parseInt(this.configService.get('EMBEDDING_DIMENSIONS') || '768', 10);
-    // The cut-off depends on the model, not the caller: 0.40 is tuned for the default model
-    // (embeddinggemma), whose best matches score well below 0.75. Retune it with EMBEDDING_MODEL.
-    this.threshold = parseFloat(this.configService.get('EMBEDDING_SIMILARITY_THRESHOLD') || '0.40');
+    this.model = this.configService.get('EMBEDDING_MODEL') || LEGACY_PROFILE_ID;
+    this.modelDir = this.configService.get('EMBEDDING_MODEL_DIR') || 'models';
+    this.threads = Number(this.configService.get('EMBEDDING_THREADS') || 4);
+
+    const builtIn = listProfiles().find((p) => p.id === this.model);
+    this.profile = builtIn ?? getProfile(LEGACY_PROFILE_ID);
+    this.runtime = this.profile.runtime.engine === 'onnx' ? 'onnx' : 'http';
+    if (this.enabled && !builtIn) {
+      this.logger.warn(
+        `EMBEDDING_MODEL "${this.model}" is not a built-in embedding profile; using the HTTP embedder at EMBEDDING_URL ` +
+          `with the "${LEGACY_PROFILE_ID}" profile's thresholds. Built-in profiles: ${listProfiles().map((p) => p.id).join(', ')}`,
+      );
+    }
+
+    const configuredDims = this.configService.get('EMBEDDING_DIMENSIONS');
+    if (this.runtime === 'onnx') {
+      this.dimensions = this.profile.runtime.dimensions;
+      if (configuredDims && Number(configuredDims) !== this.dimensions) {
+        this.logger.warn(`EMBEDDING_DIMENSIONS=${configuredDims} is ignored: profile "${this.profile.id}" has ${this.dimensions} dimensions`);
+      }
+    } else {
+      this.dimensions = parseInt(configuredDims || String(this.profile.runtime.dimensions), 10);
+    }
+
+    this.thresholds = this.resolveThresholds();
+    this.state = !this.enabled ? 'disabled' : this.runtime === 'onnx' ? 'downloading' : 'ready';
 
     this.logger.log('EmbeddingService initialized', {
       enabled: this.enabled,
-      model: this.model,
+      runtime: this.runtime,
+      profile: this.profile.id,
+      model: this.getModel(),
       dimensions: this.dimensions,
-      threshold: this.threshold,
-      url: this.enabled ? this.url : '(disabled)',
+      thresholds: this.thresholds,
+      url: this.enabled && this.runtime === 'http' ? this.url : undefined,
     });
   }
 
-  isEnabled(): boolean {
-    return this.enabled;
+  /**
+   * Per-corpus thresholds: EMBEDDING_THRESHOLD_<CORPUS> first, then (HTTP embedder only)
+   * EMBEDDING_SIMILARITY_THRESHOLD, then the profile's value. A cosine floor; null means none.
+   */
+  private resolveThresholds(): Record<EmbeddingCorpus, number | null> {
+    const legacyValue = this.configService.get('EMBEDDING_SIMILARITY_THRESHOLD');
+    if (legacyValue !== undefined && legacyValue !== '' && this.runtime === 'onnx') {
+      this.logger.warn(
+        `EMBEDDING_SIMILARITY_THRESHOLD is ignored under profile "${this.profile.id}"; ` +
+          'set EMBEDDING_THRESHOLD_CLASSES, EMBEDDING_THRESHOLD_MITRE or EMBEDDING_THRESHOLD_COMPONENTS instead',
+      );
+    }
+    const out = {} as Record<EmbeddingCorpus, number | null>;
+    for (const corpus of CORPORA) {
+      const override = this.configService.get(`EMBEDDING_THRESHOLD_${corpus.toUpperCase()}`);
+      if (override !== undefined && override !== '') out[corpus] = Number(override);
+      else if (this.runtime === 'http' && legacyValue !== undefined && legacyValue !== '' && corpus !== 'components') out[corpus] = Number(legacyValue);
+      else out[corpus] = this.profile.thresholds[corpus];
+    }
+    return out;
   }
 
+  onModuleInit(): void {
+    if (this.enabled && this.runtime === 'onnx') this.started = this.startOnnx();
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await this.started?.catch(() => undefined);
+    await this.embedder?.release().catch(() => undefined);
+  }
+
+  /** Fetch and verify the weights, open the session and warm it up. Never throws: failures set the state. */
+  private async startOnnx(): Promise<void> {
+    try {
+      // Loaded only here, so a deployment on the HTTP embedder never loads the native runtime.
+      const { ensureWeightsWithRetry, createOnnxEmbedder } = await import('@dethernety/embedder');
+      this.state = 'downloading';
+      await ensureWeightsWithRetry(this.profile, this.modelDir, {
+        token: this.configService.get('HF_TOKEN') || undefined,
+        log: (message, detail) => this.logger.log(message, detail),
+      });
+      this.state = 'loading';
+      const embedder = await createOnnxEmbedder(this.profile, this.modelDir, { threads: this.threads });
+      await embedder.embed('query', [{ text: 'warm-up' }]);
+      this.embedder = embedder;
+      this.state = 'ready';
+      this.logger.log('Embedder ready', { profile: this.profile.id });
+    } catch (error) {
+      this.state = 'failed';
+      this.stateError = error instanceof Error ? error.message : String(error);
+      this.logger.error('Embedder unavailable; the vector tier stays off', { profile: this.profile.id, error: this.stateError });
+    }
+  }
+
+  /** Resolves once the background start has finished, ready or failed. For tests and tooling. */
+  whenSettled(): Promise<void> {
+    return this.started ?? Promise.resolve();
+  }
+
+  isEnabled(): boolean {
+    return this.enabled && !this.sessionDisabled && this.state === 'ready';
+  }
+
+  /**
+   * Enabled by configuration and not switched off for the session, but not able to embed: the model is still
+   * downloading or loading, or it failed to. Vectors already stored stay valid for when it is ready, so a caller
+   * keeps them rather than treating this as "disabled".
+   */
+  isPending(): boolean {
+    return this.enabled && !this.sessionDisabled && this.state !== 'ready';
+  }
+
+  /** The embedder's state: disabled, downloading, loading, ready or failed. */
+  getState(): EmbedderState {
+    return this.sessionDisabled ? 'disabled' : this.state;
+  }
+
+  /** The value stored as `embeddingModel` next to every vector this service makes. */
   getModel(): string {
-    return this.model;
+    return this.runtime === 'onnx' ? this.profile.id : this.model;
   }
 
   getDimensions(): number {
     return this.dimensions;
   }
 
-  getThreshold(): number {
-    return this.threshold;
+  /** The similarity floor (cosine) for a corpus; null for no floor. */
+  getThreshold(corpus: 'classes' | 'mitre'): number;
+  getThreshold(corpus: EmbeddingCorpus): number | null;
+  getThreshold(corpus: EmbeddingCorpus): number | null {
+    return this.thresholds[corpus];
+  }
+
+  getStatus(): EmbedderStatus {
+    return {
+      enabled: this.enabled,
+      runtime: this.runtime,
+      profileId: this.profile.id,
+      state: this.sessionDisabled ? 'disabled' : this.state,
+      ...(this.stateError ? { error: this.stateError } : {}),
+    };
   }
 
   /**
@@ -97,14 +247,22 @@ export class EmbeddingService {
   }
 
   /**
-   * Embed a batch of texts via the configured HTTP endpoint.
-   * Returns null if embeddings are disabled.
-   * Retries up to 3 times with exponential backoff (1s, 3s, 9s) on failure.
-   * Throws after all retries are exhausted.
+   * Embed a batch of texts as queries or as documents. A document's title (its name) feeds the
+   * profile's title rule. Returns null if the embedder is not enabled. The HTTP embedder applies no
+   * prompt and retries up to 3 times with exponential backoff (1s, 3s, 9s); both throw on failure.
    */
-  async embedBatch(texts: string[]): Promise<number[][] | null> {
-    if (!this.enabled) return null;
+  async embedBatch(texts: string[], kind: ProfileKind, titles?: string[]): Promise<number[][] | null> {
+    if (!this.isEnabled()) return null;
+    if (this.runtime === 'onnx') {
+      return this.embedder!.embed(
+        kind,
+        texts.map((text, i) => ({ text, title: titles?.[i] })),
+      );
+    }
+    return this.embedOverHttp(texts);
+  }
 
+  private async embedOverHttp(texts: string[]): Promise<number[][] | null> {
     const maxRetries = 3;
     const backoffBase = 1000; // 1s, 3s, 9s
 

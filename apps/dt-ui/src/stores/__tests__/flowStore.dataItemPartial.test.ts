@@ -117,3 +117,30 @@ describe('flowStore — validation follows the partial contract', () => {
     expect(store.errors.createDataItem).toBeDefined()
   })
 })
+
+describe('flowStore — data-item origin and isCredential', () => {
+  it('passes origin and isCredential through on update, keeping null and false as answers', async () => {
+    const store = useFlowStore()
+    await store.updateDataItem({ dataItemId: 'd1', origin: 'ARBITRARY_PUBLIC', isCredential: false })
+    expect(argsOf()).toEqual({ dataItemId: 'd1', origin: 'ARBITRARY_PUBLIC', isCredential: false })
+
+    updateDataItemMock.mockClear()
+    await store.updateDataItem({ dataItemId: 'd1', origin: null, isCredential: null })
+    expect(argsOf()).toEqual({ dataItemId: 'd1', origin: null, isCredential: null })
+  })
+
+  it('does not pass either key when it was not supplied', async () => {
+    const store = useFlowStore()
+    await store.updateDataItem({ dataItemId: 'd1', name: 'renamed' })
+    expect(argsOf()).not.toHaveProperty('origin')
+    expect(argsOf()).not.toHaveProperty('isCredential')
+  })
+
+  it('forwards both on create', async () => {
+    const store = useFlowStore()
+    store.modelId = 'm1'
+    await store.createDataItem({ name: 'Token file', description: '', elementId: 'b0', classId: null, origin: 'AUTHENTICATED_FIRST_PARTY', isCredential: true })
+    expect(createDataItemMock.mock.calls[0][0]).toMatchObject({ origin: 'AUTHENTICATED_FIRST_PARTY', isCredential: true })
+  })
+})
+

@@ -87,10 +87,11 @@ jobs:
 
       # The suites import these packages' BUILD OUTPUT, not their sources: dt-ws reaches dt-core, and
       # it reaches dt-module through `module-registry.service.ts` as well as through several specs.
+      # dt-ws also imports the in-process embedder package (@dethernety/embedder) for its embedding service.
       # dt-module's `dist` is gitignored, and its `exports` map has no source fallback, so a checkout
       # that does not build it fails to RESOLVE the package — which is a red suite, not a skipped one.
       - name: Build the packages the suites import
-        run: pnpm turbo build --filter='@dethernety/dt-core' --filter='@dethernety/dt-module'
+        run: pnpm turbo build --filter='@dethernety/dt-core' --filter='@dethernety/dt-module' --filter='@dethernety/embedder'
 
       - name: dt-core
         run: pnpm --filter @dethernety/dt-core test

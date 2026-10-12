@@ -91,6 +91,10 @@ Gate 3 (Analysis):    FAIL — 2 components unclassified, attribute completion a
 
 **Red-flag surfacing (always shown with Gate 3, regardless of score):** list any flow with `auth_failure_mode: fail_open` or `fallback`, and any Tier-1 (crown jewel) component with zero controls. Also list any control whose class binding carries empty `attributes` AND empty `platformAttributes` (the module emits no countermeasures for an empty binding — it looks assigned but contributes nothing), and any control with zero countermeasures after analysis. The quality score measures completeness, not posture — a 95/100 model can carry all of these; the gate must at least NAME them.
 
+**Data-item assertions (`[Info]`, advisory — never affects a gate or the score):**
+- Each entry in the quality result's `credential_hints` (present only when non-empty): "Data item '<name>' is bound to '<class>' but `is_credential` is unanswered — confirm it with `/dethereal:enrich`." An answered `false` never appears here.
+- Data items without `origin` that are carried on a flow into an `EXTERNAL_ENTITY`, or into a component that runs a model or an agent (by its class or name): "Origin unknown for '<name>' — who can write it decides whether this input is trusted." Cap at 3 names, then `+N more`.
+
 ### 5. Common Gaps Checklist
 
 Check the model for frequently missing elements:

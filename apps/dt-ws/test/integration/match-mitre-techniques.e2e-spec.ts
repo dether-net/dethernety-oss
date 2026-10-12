@@ -15,6 +15,7 @@
 import { ConfigService } from '@nestjs/config';
 import { startMemgraph, clearGraph, MemgraphHandle } from './memgraph-container';
 import { MatchMitreTechniquesResolverService } from '../../src/gql/resolver-services/match-mitre-techniques-resolver.service';
+import { VectorSearchService } from '../../src/gql/services/vector-search.service';
 
 jest.setTimeout(120_000);
 
@@ -40,6 +41,12 @@ function makeStubConfigService(): ConfigService {
       return undefined;
     },
   } as unknown as ConfigService;
+}
+
+function makeVectorSearch(driver: any): VectorSearchService {
+  return new VectorSearchService(driver, makeStubConfigService(), {
+    getEngineInfo: async () => ({ engine: 'memgraph', edition: null, version: null }),
+  } as any);
 }
 
 function makeStubAuthService(): any {
@@ -427,7 +434,14 @@ describe('MatchMitreTechniquesResolverService (e2e)', () => {
       makeStubAuthService(),
       makeStubMonitoringService(),
       stubEmbedding as any,
+      makeVectorSearch(mg.driver),
     );
+  });
+
+  // Index upkeep runs in the background after a precheck; let it finish so it never lands in the
+  // next test's graph.
+  afterEach(async () => {
+    await svc.ensureMitreVectorIndexes().catch(() => undefined);
   });
 
   async function runQuery(input: {
@@ -572,14 +586,14 @@ describe('MatchMitreTechniquesResolverService (e2e)', () => {
     await seedBaseFixture(mg.driver, { withEmbeddings: true });
     stubEmbedding.setFixedVector(V_MATCH);
 
-    // Reaching the vector tier runs ensureMitreVectorIndexes → CREATE VECTOR
-    // INDEX. A vectorAvailable:true result already proves the DDL succeeded;
-    // this additionally pins the index's stored config.
+    // The search itself is exact; the HNSW indexes are kept for consumers that still search the
+    // corpus by index name. A precheck starts their upkeep in the background.
     const out = await runQuery({
       queries: [{ query: 'completely unrelated semantic query xyzzy' }],
       kind: 'ATTACK_TECHNIQUE',
     });
     expect(out.vectorAvailable).toBe(true);
+    await svc.ensureMitreVectorIndexes();
 
     // Memgraph 3.8 silently ignores non-schema HNSW keys (m / ef_construction),
     // so the DDL deliberately sends only dimension/capacity/metric — assert the
@@ -599,6 +613,14 @@ describe('MatchMitreTechniquesResolverService (e2e)', () => {
       DIMENSIONS,
     );
     expect(row.get('metric')).toBe('cos');
+
+    // An index-based consumer still finds the technique through the index.
+    const hit = await runWrite(
+      mg.driver,
+      `CALL vector_search.search('mitre_attack_technique_embeddings', 1, $v) YIELD node RETURN node.attack_id AS id`,
+      { v: V_MATCH },
+    );
+    expect(hit.records[0].get('id')).toBe('T2000');
   });
 
   it('MI-4: EMBEDDING_DISABLED — vectorAvailable: false, vector tier skipped', async () => {
@@ -702,6 +724,7 @@ describe('MatchMitreTechniquesResolverService (e2e)', () => {
         makeStubAuthService(),
         makeStubMonitoringService(),
         new StubEmbeddingService() as any,
+        makeVectorSearch(mg.driver),
       );
       const r = await fresh.getResolvers().Query.matchMitreTechniques(
         null,
@@ -861,6 +884,7 @@ describe('MatchMitreTechniquesResolverService (e2e)', () => {
     expect(atlas.vectorDisabledReason).toBe('NO_VECTORS');
     expect(atlas.unmatched).toEqual(['completely unrelated semantic query xyzzy']);
 
+    await svc.ensureMitreVectorIndexes();
     const info = await runWrite(mg.driver, 'CALL vector_search.show_index_info() YIELD index_name RETURN index_name');
     const names = (info.records as any[]).map((r) => r.get('index_name'));
     expect(names).toContain('mitre_attack_technique_embeddings');
@@ -895,6 +919,7 @@ describe('MatchMitreTechniquesResolverService (e2e)', () => {
       expect(atlas.vectorDisabledReason).toBe(reason);
       expect(atlas.unmatched).toEqual(['completely unrelated semantic query xyzzy']);
 
+      await svc.ensureMitreVectorIndexes();
       const info = await runWrite(mg.driver, 'CALL vector_search.show_index_info() YIELD index_name RETURN index_name');
       const names = (info.records as any[]).map((r) => r.get('index_name'));
       expect(names).toContain('mitre_attack_technique_embeddings');
@@ -902,7 +927,7 @@ describe('MatchMitreTechniquesResolverService (e2e)', () => {
     },
   );
 
-  it('ATLAS_TECHNIQUE: the vector tier searches its own index', async () => {
+  it('ATLAS_TECHNIQUE: the vector tier answers, and the kind keeps its own index', async () => {
     await seedBaseFixture(mg.driver, { withEmbeddings: true });
     await seedAtlasFixture(mg.driver, { withEmbeddings: true });
     stubEmbedding.setFixedVector(V_MATCH);
@@ -911,6 +936,7 @@ describe('MatchMitreTechniquesResolverService (e2e)', () => {
     expect(out.vectorAvailable).toBe(true);
     expect(out.matches[0].candidates[0]).toMatchObject({ mitreId: 'AML.T0054', matchType: 'VECTOR_SIMILARITY' });
 
+    await svc.ensureMitreVectorIndexes();
     const info = await runWrite(mg.driver, 'CALL vector_search.show_index_info() YIELD index_name RETURN index_name');
     const names = (info.records as any[]).map((r) => r.get('index_name'));
     expect(names).toEqual(expect.arrayContaining(['mitre_atlas_technique_embeddings', 'mitre_atlas_mitigation_embeddings']));

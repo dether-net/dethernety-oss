@@ -156,3 +156,26 @@ describe('DtExportSplit — asset-context export (pull)', () => {
     expect(split.attributes.components!['c1']).toBeUndefined();
   });
 });
+
+describe('DtExportSplit — data-item origin / isCredential', () => {
+  const withItems = (dataItems: ExportedModel['dataItems']): ExportedModel => ({
+    id: 'm1', name: 'M', description: '',
+    defaultBoundary: { id: 'b0', name: 'root', description: '', components: [] },
+    dataItems,
+  });
+
+  it('lowers the origin token and writes is_credential, false included', () => {
+    const split = convert(withItems([
+      { id: 'd1', name: 'Ticket', description: '', origin: 'ARBITRARY_PUBLIC', isCredential: false },
+      { id: 'd2', name: 'Token file', description: '', origin: 'AUTHENTICATED_FIRST_PARTY', isCredential: true },
+    ] as any));
+    expect(split.dataItems[0]).toMatchObject({ origin: 'arbitrary_public', is_credential: false });
+    expect(split.dataItems[1]).toMatchObject({ origin: 'authenticated_first_party', is_credential: true });
+  });
+
+  it('omits both keys when the platform holds null', () => {
+    const split = convert(withItems([{ id: 'd1', name: 'D', description: '', origin: null, isCredential: null }] as any));
+    expect(split.dataItems[0]).not.toHaveProperty('origin');
+    expect(split.dataItems[0]).not.toHaveProperty('is_credential');
+  });
+});

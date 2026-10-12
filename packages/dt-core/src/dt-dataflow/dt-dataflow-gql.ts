@@ -100,6 +100,8 @@ export const UPDATE_DATA_FLOW = gql`
           }
           sensitivity
           regulatoryFlags
+          origin
+          isCredential
           # elements {
           #   id
           # }

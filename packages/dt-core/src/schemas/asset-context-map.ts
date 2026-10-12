@@ -17,6 +17,24 @@ export const MODELING_INTENTS = ['initial', 'security_review', 'compliance', 'in
 export const SENSITIVITY_LEVELS = ['public', 'internal', 'confidential', 'restricted'] as const;
 
 /**
+ * Data-item origin — who can write the content — ordered from most to least trusted. The platform's `DataOrigin`
+ * enum declares the same members in the same order as SCREAMING_SNAKE tokens; GraphQL attaches no order to enum
+ * values, so this constant is where the order lives.
+ */
+export const ORIGIN_LEVELS = [
+  'authenticated_first_party',
+  'curated_internal',
+  'agent_relayed',
+  'model_generated',
+  'third_party',
+  'arbitrary_public',
+  'not_assessed',
+] as const;
+
+/** The origins whose content counts as untrusted. `not_assessed` is an answer, and it counts as untrusted. */
+export const UNTRUSTED_ORIGINS = ['third_party', 'arbitrary_public', 'not_assessed'] as const;
+
+/**
  * Recommended (NOT exhaustive) regulatory-flag vocabulary, mirroring the single
  * source of truth in `docs/architecture/dethereal/THREAT_MODELING_WORKFLOW.md`
  * (§ "Canonical sensitivity and regulatory-flag vocabulary"). Regulatory flags

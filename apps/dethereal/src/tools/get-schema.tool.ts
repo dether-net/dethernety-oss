@@ -6,6 +6,7 @@
  */
 
 import { z } from 'zod'
+import { ORIGIN_LEVELS } from '@dethernety/dt-core'
 // zod v4 has built-in JSON Schema support via z.toJSONSchema()
 import { ClientFreeTool, ToolContext, ToolResult } from './base-tool.js'
 
@@ -129,7 +130,11 @@ const DataItemSchema = z.object({
   id: z.string().describe('Data item ID'),
   name: z.string().describe('Data item name'),
   description: z.string().optional(),
-  classData: ClassReferenceSchema.nullable().optional().describe('Reference to data classification class. Explicit null unassigns the class on update; absent leaves the binding untouched')
+  classData: ClassReferenceSchema.nullable().optional().describe('Reference to data classification class. Explicit null unassigns the class on update; absent leaves the binding untouched'),
+  sensitivity: z.enum(['public', 'internal', 'confidential', 'restricted']).optional().describe('Author-asserted sensitivity. Absent means unclassified'),
+  regulatory_flags: z.array(z.string()).optional().describe('Regulatory scopes this data falls under (free text, e.g. "PCI cardholder", "PHI")'),
+  origin: z.enum(ORIGIN_LEVELS).optional().describe('Who can write the content, most to least trusted: authenticated_first_party, curated_internal, agent_relayed, model_generated, third_party, arbitrary_public, not_assessed. The last three are untrusted. Absent means unclassified'),
+  is_credential: z.boolean().optional().describe('Author-asserted: the item is a credential (password, token, key, secret, certificate). Absent means unknown')
 }).describe('Data item representing a type of data in the system')
 
 const DataItemsFileSchema = z.array(DataItemSchema).describe('Array of all data items in the model')

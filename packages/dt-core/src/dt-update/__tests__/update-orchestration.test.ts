@@ -244,7 +244,7 @@ describe('DtUpdate — hard failures route to errors (success reflects them)', (
     seed(dtUpdate);
     dtUpdate.dtClass.setInstantiationAttributes = vi.fn().mockResolvedValue(false);
 
-    await dtUpdate.setElementAttributes('el1', 'cls1', { risk: 'high' }, 'Elem');
+    await dtUpdate.writeElementAttributes('el1', 'cls1', { risk: 'high' }, 'Elem');
 
     expect(dtUpdate.errors.some((e: any) => e.step === 'set_element_attributes')).toBe(true);
   });
@@ -337,5 +337,97 @@ describe('DtUpdate — nested creates are parented to their ACTUAL parent, not t
     await dtUpdate.createComponent({ name: 'C', type: 'PROCESS' }, '');
 
     expect(spy.mock.calls[0][0].defaultBoundaryId).toBe('root-b0');
+  });
+});
+
+describe('DtUpdate — an element bound to a class is evaluated even with no answers', () => {
+  // The attribute write is what evaluates a class. Re-binding an element to the class it already has changes
+  // nothing, so without the write an element with no answers would never get its exposures.
+  const setup = () => {
+    const dtUpdate = new DtUpdate({} as any) as any;
+    seed(dtUpdate);
+    dtUpdate.defaultBoundaryId = 'root-b0';
+    const write = vi.fn().mockResolvedValue(true);
+    dtUpdate.dtClass.setInstantiationAttributes = write;
+    dtUpdate.dtClass.changeElementBinding = vi.fn().mockResolvedValue({});
+    const flush = () => Promise.all(dtUpdate.attributeWrites.map((w: () => Promise<void>) => w()));
+    return { dtUpdate, write, flush };
+  };
+
+  it('new component: writes {} for a classed component without attributes', async () => {
+    const { dtUpdate, write, flush } = setup();
+    dtUpdate.dtComponent.createComponentNode = vi.fn().mockResolvedValue({ id: 'c-new' });
+
+    await dtUpdate.createComponent({ name: 'C', type: 'PROCESS', classData: { id: 'cls-c' } }, '');
+    await flush();
+
+    expect(write).toHaveBeenCalledWith({ componentId: 'c-new', classId: 'cls-c', attributes: {} });
+  });
+
+  it('existing component re-bound to its class: writes {}', async () => {
+    const { dtUpdate, write, flush } = setup();
+    dtUpdate.dtComponent.updateComponent = vi.fn().mockResolvedValue({ id: 'c1' });
+
+    await dtUpdate.updateComponent({ id: 'c1', name: 'C', type: 'PROCESS', classData: { id: 'cls-c' } }, 'root-b0');
+    await flush();
+
+    expect(write).toHaveBeenCalledWith({ componentId: 'c1', classId: 'cls-c', attributes: {} });
+  });
+
+  it('new component without a class: no write', async () => {
+    const { dtUpdate, write, flush } = setup();
+    dtUpdate.dtComponent.createComponentNode = vi.fn().mockResolvedValue({ id: 'c-new' });
+
+    await dtUpdate.createComponent({ name: 'C', type: 'PROCESS' }, '');
+    await flush();
+
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('new data item: writes {} for a classed item without attributes', async () => {
+    const { dtUpdate, write, flush } = setup();
+    dtUpdate.existingDataitemIds = new Set();
+    dtUpdate.processedDataitemIds = new Set();
+    dtUpdate.dtDataitem.createDataItem = vi.fn().mockResolvedValue({ id: 'd-new' });
+
+    await dtUpdate.updateDataItems([{ id: 'd1', name: 'D', classData: { id: 'cls-d' } }]);
+    await flush();
+
+    expect(write).toHaveBeenCalledWith({ componentId: 'd-new', classId: 'cls-d', attributes: {} });
+    expect(dtUpdate.stats.created).toBe(1);
+  });
+});
+
+describe('DtUpdate — updateModel runs the queued attribute writes, four at a time, once every element is written', () => {
+  it('runs them all after the data flows and before orphans are deleted, never more than four in flight', async () => {
+    const dtUpdate = new DtUpdate({} as any) as any;
+    const order: string[] = [];
+    let inFlight = 0;
+    let peak = 0;
+    dtUpdate.fetchExistingModelStructure = vi.fn().mockResolvedValue({ name: 'M' });
+    for (const m of ['updateModelProperties', 'updateDataItems', 'updateDefaultBoundary', 'updateBoundariesRecursive', 'updateComponents', 'associateConduitsWithBoundaries']) {
+      dtUpdate[m] = vi.fn().mockResolvedValue(undefined);
+    }
+    dtUpdate.updateDataFlows = vi.fn(async () => {
+      for (let i = 0; i < 10; i++) {
+        await dtUpdate.setElementAttributes(`el${i}`, 'cls', {}, `E${i}`);
+      }
+    });
+    dtUpdate.writeElementAttributes = vi.fn(async (id: string) => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight--;
+      order.push(`write ${id}`);
+    });
+    dtUpdate.deleteOrphanedElements = vi.fn(async () => { order.push('delete orphans'); });
+    dtUpdate.dtModel.getModel = vi.fn().mockResolvedValue({ id: 'm1' });
+
+    const result = await dtUpdate.updateModel('m1', { name: 'M', defaultBoundary: { id: 'b0' }, dataFlows: [] });
+
+    expect(result.success).toBe(true);
+    expect(order.filter((o) => o.startsWith('write'))).toHaveLength(10);
+    expect(order[order.length - 1]).toBe('delete orphans');
+    expect(peak).toBe(4);
   });
 });
