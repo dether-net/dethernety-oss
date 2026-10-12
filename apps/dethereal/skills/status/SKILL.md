@@ -55,7 +55,7 @@ Control library (Production Stack):
   Lifecycle:      greenfield: 0 | partially-pushed: 0 | brownfield: 12 | tombstoned: 1
 
   Pending edits:  2 controls queued for push
-    - Azure Firewall (MCE/MCETest Hub) [Firewall Policy]: 5 keys edited by agent at 2026-04-18T10:30Z
+    - Azure Firewall (Hub) [Firewall Policy]: 5 keys edited by agent at 2026-04-18T10:30Z
     - NSG Least-Privilege Ingress [Network Access Control]: 2 keys edited by operator at 2026-04-18T11:05Z
 
   Drift warnings: 1 control has asymmetric state (external edit suspected)

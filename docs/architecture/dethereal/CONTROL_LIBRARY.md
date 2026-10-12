@@ -37,7 +37,7 @@ The first attempt to close this gap added `classId` and `attributes` fields to e
 
 Three concrete problems with embedding control attributes inside the model's structural files:
 
-1. **Controls are reusable, model-independent entities.** A single Control on the platform (e.g. "Azure Firewall (MCE/MCETest Hub)") is typically assigned via SUPPORTS edges to elements across multiple models. Its instantiation attributes (on the IS_INSTANCE_OF edge to its ControlClass) are global properties of that Control, not per-model. Storing them inside any one model's `structure.json` makes that model the apparent owner of state that is in fact shared.
+1. **Controls are reusable, model-independent entities.** A single Control on the platform (e.g. "Azure Firewall (Hub)") is typically assigned via SUPPORTS edges to elements across multiple models. Its instantiation attributes (on the IS_INSTANCE_OF edge to its ControlClass) are global properties of that Control, not per-model. Storing them inside any one model's `structure.json` makes that model the apparent owner of state that is in fact shared.
 
 2. **File-size explosion.** A single ControlClass template can carry 30+ attribute fields. A typical infrastructure boundary may reference 4–8 controls, each potentially bound to multiple ControlClasses. Inlining attributes across the boundary/component/dataflow tree pushes `structure.json` well past the size threshold that motivated the split-file schema in the first place ([SYNC_AND_SOURCE_OF_TRUTH.md](SYNC_AND_SOURCE_OF_TRUTH.md)).
 
@@ -84,7 +84,7 @@ This matches the export contract exactly.
 ```json
 {
   "id": "bcdd0034-a355-4ffc-aac3-98083c5416f8",
-  "name": "Azure Firewall (MCE/MCETest Hub)",
+  "name": "Azure Firewall (Hub)",
   "source": "declared",
   "lifecycle": "brownfield",
   "classes": [
@@ -286,7 +286,7 @@ The default (option 1) is non-destructive. There is no automatic "push without a
 The prompt must give the operator enough to make an informed choice. "N other models" alone hides blast radius. Required content:
 
 ```
-Shared Control: Azure Firewall (MCE/MCETest Hub)
+Shared Control: Azure Firewall (Hub)
 This Control is also assigned to 2 other models (3 total):
   - Production Stack
   - Staging Environment
@@ -340,7 +340,7 @@ When more than one Control is pending the safety check at push time (typical for
 Shared-Control review (3 of 8 controls require approval):
 
   Prompted (require your decision):
-    #1  Azure Firewall (MCE/MCETest Hub)    [shared: 3 models]   [conflict: 1 key, intent: 2 keys]
+    #1  Azure Firewall (Hub)    [shared: 3 models]   [conflict: 1 key, intent: 2 keys]
     #2  NSG Least-Privilege Ingress         [shared: 2 models]   [intent: 4 keys]
     #3  Entra ID RBAC (Nexus Groups)        [query failed: bolt timeout after 10s]
 
@@ -430,7 +430,7 @@ The flag applies **only** to controls whose ownership query failed — never to 
 Inside `/dethereal:enrich --focus controls`, the security-enricher agent runs with a 40-turn budget and can't pause mid-turn for a synchronous human decision. The handoff mechanism is **deferred-queue**:
 
 - During the control pass, when the agent edits a brownfield class entry's `attributes`, it bumps `localEditedAt` and writes a `pendingEdit` block in the same `controls/<id>.json` file (see [§4 schema](#4-per-control-file-schema)). The block records who edited (`agent` vs `operator`), when, and **the pre-edit values for exactly the keys the operator/agent intended to change** — this key set is what the push later sends as a partial payload (see [§7 brownfield Step C](#push--brownfield-controls) and [DEC-CL-11](#11-decisions)). In-file placement is deliberate: it makes pending state visible in `git diff` and in PR review, which is the governance story.
-- The agent emits a passive annotation in its final batched output (the message the operator reads at the end of the agent's turn), e.g.: `⚠ Pending shared-edits: 2 controls will trigger a shared-ownership prompt at /dethereal:sync push: Azure Firewall (MCE/MCETest Hub) [class: Firewall Policy], NSG Least-Privilege Ingress [class: Network Access Control].` — not a blocking question. The same count is also surfaced in `/dethereal:status` so a future session that picks up after a branch switch sees the queue.
+- The agent emits a passive annotation in its final batched output (the message the operator reads at the end of the agent's turn), e.g.: `⚠ Pending shared-edits: 2 controls will trigger a shared-ownership prompt at /dethereal:sync push: Azure Firewall (Hub) [class: Firewall Policy], NSG Least-Privilege Ingress [class: Network Access Control].` — not a blocking question. The same count is also surfaced in `/dethereal:status` so a future session that picks up after a branch switch sees the queue.
 - When the operator runs `/dethereal:sync push`, the push phase runs the live shared-ownership query for every Control with a `pendingEdit` block, surfaces the batched review screen above, and clears each `pendingEdit` block on operator decision (cancel: leave `attributes` and `pendingEdit` as-is so the queue stays visible; push-anyway / push-unverified: clear after successful mutation; clone: clear on the new file, delete the old file via WAL).
 
 #### Commit hygiene for `pendingEdit`
@@ -530,7 +530,7 @@ jq -c 'select(.operator == "$(git config user.email)" and .timestamp > "2026-04-
   .dethereal/control-audit.log
 
 # Every cross-model write to "Azure Firewall" in the last quarter:
-jq -c 'select(.controlName == "Azure Firewall (MCE/MCETest Hub)" and .kind == "force-shared")' \
+jq -c 'select(.controlName == "Azure Firewall (Hub)" and .kind == "force-shared")' \
   .dethereal/control-audit.log
 
 # All considered-but-discarded edits (governance signal of "we thought about this"):

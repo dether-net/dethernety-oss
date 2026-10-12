@@ -435,7 +435,7 @@ Control library attribute coverage:
 
   Control                              Class (N entries)                     Status
   ───────────────────────────────────  ────────────────────────────────────  ──────────────
-  Azure Firewall (MCE/MCETest Hub)     Firewall Policy (1)                   5 sparse keys
+  Azure Firewall (Hub)     Firewall Policy (1)                   5 sparse keys
   NSG Least-Privilege Ingress          Network Access Control (2)            0 sparse keys  (skip)
   TLS 1.3 (API Gateway)                TLS Config (1)                        3 sparse keys
 
@@ -471,7 +471,7 @@ After all edits are written, read every `controls/<id>.json` that now has a `pen
 
 ```
 [!] Pending shared-edits: 2 controls will trigger a shared-ownership prompt at
-    /dethereal:sync push: Azure Firewall (MCE/MCETest Hub) [Firewall Policy],
+    /dethereal:sync push: Azure Firewall (Hub) [Firewall Policy],
     NSG Least-Privilege Ingress [Network Access Control].
 ```
 
@@ -485,7 +485,7 @@ Emit the same hint the status skill renders, parallel wording:
 
 ```
 [!] Drift detected on 1 control after enrichment:
-    Azure Firewall (MCE/MCETest Hub) [Firewall Policy] — local attributes diverge
+    Azure Firewall (Hub) [Firewall Policy] — local attributes diverge
     from platformAttributes with no pendingEdit baseline.
     Recover with: /dethereal:sync promote-external-edit <controlId> <classId>
 ```
