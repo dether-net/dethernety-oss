@@ -389,7 +389,7 @@ describe('download timeouts', () => {
 
   it('bounds every redirect hop, not only the first', async () => {
     const hub = fakeHub({ cdn: 'https://cdn.example' });
-    const fetch: FetchLike = (url, init) => (url.startsWith('https://cdn.example') ? never() : hub.fetch(url, init));
+    const fetch: FetchLike = (url, init) => (new URL(url).host === 'cdn.example' ? never() : hub.fetch(url, init));
     await expect(ensureWeights(profile(['config.json']), dir, { fetch, connectTimeoutMs: 30 })).rejects.toThrow(/no response within/);
   });
 
