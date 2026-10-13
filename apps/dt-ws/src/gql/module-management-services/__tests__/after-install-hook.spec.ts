@@ -47,6 +47,7 @@ function partialDowngradeCalls(writeTx: { run: jest.Mock }) {
 async function buildService(driver: any, gqlConfig?: { moduleLoadTimeout?: number }) {
   const embedding: Partial<EmbeddingService> = {
     isEnabled: jest.fn(() => true),
+    whenStartupChecked: jest.fn(async () => undefined),
     getDimensions: jest.fn(() => 3),
     getModel: jest.fn(() => 'nomic-embed-text'),
   };

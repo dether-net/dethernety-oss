@@ -12,6 +12,7 @@ import {
   type ProfileKind,
 } from '@dethernety/dt-module/embedding';
 import type { Embedder } from '@dethernety/embedder';
+import { optionalNumber } from '../../config/optional-number';
 
 /**
  * L2-normalize a single embedding vector to unit length. Used so runtime
@@ -33,6 +34,37 @@ function l2NormalizeBatch(vectors: number[][]): number[][] {
   });
 }
 
+/**
+ * Whether an embedding request failed without a response: Node's fetch rejects with a TypeError when the endpoint
+ * cannot be reached, and an aborted or timed-out request with an AbortError or a TimeoutError.
+ */
+export function isTransportFailure(error: unknown): boolean {
+  return error instanceof TypeError || (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError'));
+}
+
+/**
+ * An error as /health and the log show it. Node's fetch rejects with a bare "fetch failed" and keeps the reason
+ * (a refused connection, a DNS failure) in `cause`, so the cause's message, or its code, goes with it.
+ */
+export function describeError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const cause = (error as Error & { cause?: unknown }).cause as { message?: unknown; code?: unknown } | undefined;
+  const detail = cause && (typeof cause.message === 'string' && cause.message ? cause.message : typeof cause.code === 'string' ? cause.code : '');
+  return detail && detail !== error.message ? `${error.message} (${detail})` : error.message;
+}
+
+/**
+ * A configured similarity floor as a number. A cosine floor outside -1..1, or one that is not a number, would
+ * filter out everything or nothing without a word, so it stops the start instead.
+ */
+function cosineFloor(name: string, value: unknown): number {
+  const n = typeof value === 'number' ? value : Number(String(value).trim());
+  if (!Number.isFinite(n) || n < -1 || n > 1) {
+    throw new Error(`${name} must be a number from -1 to 1 (a cosine similarity floor); got "${String(value)}"`);
+  }
+  return n;
+}
+
 export type EmbeddingCorpus = 'classes' | 'mitre' | 'components';
 
 /** Where the embedder is. Only `ready` serves vectors. */
@@ -47,6 +79,13 @@ export interface EmbedderStatus {
 }
 
 const LEGACY_PROFILE_ID = 'embeddinggemma';
+/**
+ * The HTTP embedder's start-up check: three attempts of at most 10 s, 1 s and 3 s apart, so at most 34 s, well
+ * inside the platform healthcheck's start period. After a failure it checks again every minute.
+ */
+const HTTP_CHECK_TIMEOUT_MS = 10_000;
+const HTTP_CHECK_BACKOFF_MS = [1_000, 3_000];
+const HTTP_RECHECK_MS = 60_000;
 const CORPORA: EmbeddingCorpus[] = ['classes', 'mitre', 'components'];
 
 /**
@@ -63,15 +102,8 @@ const CORPORA: EmbeddingCorpus[] = ['classes', 'mitre', 'components'];
 @Injectable()
 export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(EmbeddingService.name);
-  /**
-   * Session-level enabled flag. Starts from EMBEDDING_ENABLED and can be
-   * flipped to false by disableForSession() — for example when
-   * MatchClassesResolverService detects an index-dimension mismatch. Callers
-   * read isEnabled() before every resolve pass; the flag is never flipped
-   * back on within a process lifetime.
-   */
-  private enabled: boolean;
-  private sessionDisabled = false;
+  /** EMBEDDING_ENABLED. Callers read isEnabled() before every resolve pass. */
+  private readonly enabled: boolean;
   private readonly url: string;
   private readonly apiKey: string;
   private readonly model: string;
@@ -85,6 +117,14 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
   private stateError: string | undefined;
   private embedder: Embedder | null = null;
   private started: Promise<void> | null = null;
+  private recheckTimer: ReturnType<typeof setInterval> | null = null;
+  private rechecking = false;
+  /** Set first on shutdown: no further check attempt, pause or recheck starts after it. */
+  private destroyed = false;
+  /** Cancels the check request in flight, so shutdown does not wait for its timeout. */
+  private probeAbort: AbortController | null = null;
+  /** Ends the start-up check's back-off pause early, on shutdown. */
+  private wake: (() => void) | null = null;
 
   constructor(private readonly configService: ConfigService) {
     this.enabled = this.configService.get('EMBEDDING_ENABLED') === 'true';
@@ -92,7 +132,7 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
     this.apiKey = this.configService.get('EMBEDDING_API_KEY') || '';
     this.model = this.configService.get('EMBEDDING_MODEL') || LEGACY_PROFILE_ID;
     this.modelDir = this.configService.get('EMBEDDING_MODEL_DIR') || 'models';
-    this.threads = Number(this.configService.get('EMBEDDING_THREADS') || 4);
+    this.threads = optionalNumber(this.configService.get('EMBEDDING_THREADS')) ?? 4;
 
     const builtIn = listProfiles().find((p) => p.id === this.model);
     this.profile = builtIn ?? getProfile(LEGACY_PROFILE_ID);
@@ -115,7 +155,8 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
     }
 
     this.thresholds = this.resolveThresholds();
-    this.state = !this.enabled ? 'disabled' : this.runtime === 'onnx' ? 'downloading' : 'ready';
+    // The HTTP embedder is ready only once its endpoint has answered (see checkHttp).
+    this.state = !this.enabled ? 'disabled' : this.runtime === 'onnx' ? 'downloading' : 'loading';
 
     this.logger.log('EmbeddingService initialized', {
       enabled: this.enabled,
@@ -133,8 +174,10 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
    * EMBEDDING_SIMILARITY_THRESHOLD, then the profile's value. A cosine floor; null means none.
    */
   private resolveThresholds(): Record<EmbeddingCorpus, number | null> {
-    const legacyValue = this.configService.get('EMBEDDING_SIMILARITY_THRESHOLD');
-    if (legacyValue !== undefined && legacyValue !== '' && this.runtime === 'onnx') {
+    // Blank reads as unset, as the environment validation reads it; a set value keeps its raw text for the error.
+    const legacyRaw = this.configService.get('EMBEDDING_SIMILARITY_THRESHOLD');
+    const legacyValue = optionalNumber(legacyRaw) === undefined ? undefined : legacyRaw;
+    if (legacyValue !== undefined && this.runtime === 'onnx') {
       this.logger.warn(
         `EMBEDDING_SIMILARITY_THRESHOLD is ignored under profile "${this.profile.id}"; ` +
           'set EMBEDDING_THRESHOLD_CLASSES, EMBEDDING_THRESHOLD_MITRE or EMBEDDING_THRESHOLD_COMPONENTS instead',
@@ -142,21 +185,118 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
     }
     const out = {} as Record<EmbeddingCorpus, number | null>;
     for (const corpus of CORPORA) {
-      const override = this.configService.get(`EMBEDDING_THRESHOLD_${corpus.toUpperCase()}`);
-      if (override !== undefined && override !== '') out[corpus] = Number(override);
-      else if (this.runtime === 'http' && legacyValue !== undefined && legacyValue !== '' && corpus !== 'components') out[corpus] = Number(legacyValue);
-      else out[corpus] = this.profile.thresholds[corpus];
+      const name = `EMBEDDING_THRESHOLD_${corpus.toUpperCase()}`;
+      const override = this.configService.get(name);
+      if (optionalNumber(override) !== undefined) out[corpus] = cosineFloor(name, override);
+      else if (this.runtime === 'http' && legacyValue !== undefined && corpus !== 'components') {
+        out[corpus] = cosineFloor('EMBEDDING_SIMILARITY_THRESHOLD', legacyValue);
+      } else out[corpus] = this.profile.thresholds[corpus];
     }
     return out;
   }
 
   onModuleInit(): void {
     if (this.enabled && this.runtime === 'onnx') this.started = this.startOnnx();
+    if (this.enabled && this.runtime === 'http') this.started = this.checkHttp();
   }
 
   async onModuleDestroy(): Promise<void> {
+    this.destroyed = true;
+    this.probeAbort?.abort();
+    this.wake?.();
+    if (this.recheckTimer) clearInterval(this.recheckTimer);
+    this.recheckTimer = null;
     await this.started?.catch(() => undefined);
     await this.embedder?.release().catch(() => undefined);
+  }
+
+  /**
+   * The HTTP embedder's start-up check: embed one short text, retried on a back-off, and expect a vector of the
+   * configured dimensions. It also loads the model on the server, so the first real query does not pay for it.
+   * Bounded by HTTP_CHECK_TIMEOUT_MS per attempt, so the worst case stays well inside the platform's healthcheck
+   * start period. A failure leaves the embedder `failed` and checks again every HTTP_RECHECK_MS until the endpoint
+   * answers. Never throws.
+   */
+  private async checkHttp(): Promise<void> {
+    const started = Date.now();
+    let lastError = '';
+    for (let attempt = 1; attempt <= HTTP_CHECK_BACKOFF_MS.length + 1; attempt++) {
+      if (this.destroyed) return;
+      lastError = await this.probeHttp();
+      if (this.destroyed) return;
+      if (!lastError) {
+        this.state = 'ready';
+        this.stateError = undefined;
+        this.logger.log('Embedder ready', { runtime: 'http', model: this.model, url: this.url, ms: Date.now() - started });
+        return;
+      }
+      if (attempt <= HTTP_CHECK_BACKOFF_MS.length) await this.pause(HTTP_CHECK_BACKOFF_MS[attempt - 1]);
+    }
+    if (this.destroyed) return;
+    this.state = 'failed';
+    this.stateError = lastError;
+    this.logger.error('Embedder unavailable; the vector tier stays off and the endpoint is checked again every minute', {
+      runtime: 'http',
+      model: this.model,
+      url: this.url,
+      error: lastError,
+    });
+    this.recheckTimer = setInterval(() => void this.recheckHttp(), HTTP_RECHECK_MS);
+    this.recheckTimer.unref?.();
+  }
+
+  /** A back-off pause that shutdown ends at once. */
+  private pause(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.wake = null;
+        resolve();
+      }, ms);
+      this.wake = () => {
+        clearTimeout(timer);
+        this.wake = null;
+        resolve();
+      };
+    });
+  }
+
+  private async recheckHttp(): Promise<void> {
+    if (this.destroyed || this.state !== 'failed' || this.rechecking) return;
+    this.rechecking = true;
+    try {
+      const error = await this.probeHttp();
+      if (this.destroyed) return;
+      if (error) {
+        this.stateError = error;
+        return;
+      }
+      this.state = 'ready';
+      this.stateError = undefined;
+      if (this.recheckTimer) clearInterval(this.recheckTimer);
+      this.recheckTimer = null;
+      this.logger.log('Embedder ready', { runtime: 'http', model: this.model, url: this.url, recovered: true });
+    } finally {
+      this.rechecking = false;
+    }
+  }
+
+  /** One check request. Returns '' when the endpoint answered with a vector of the configured dimensions, else why not. */
+  private async probeHttp(): Promise<string> {
+    const abort = new AbortController();
+    this.probeAbort = abort;
+    try {
+      const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(HTTP_CHECK_TIMEOUT_MS)]);
+      const [vector] = (await this.postEmbed(['warm-up'], signal)) ?? [];
+      if (!vector) return 'the endpoint returned no embedding';
+      if (vector.length !== this.dimensions) {
+        return `the endpoint returned ${vector.length} dimensions; EMBEDDING_DIMENSIONS is ${this.dimensions}`;
+      }
+      return '';
+    } catch (error) {
+      return describeError(error);
+    } finally {
+      if (this.probeAbort === abort) this.probeAbort = null;
+    }
   }
 
   /** Fetch and verify the weights, open the session and warm it up. Never throws: failures set the state. */
@@ -177,7 +317,7 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
       this.logger.log('Embedder ready', { profile: this.profile.id });
     } catch (error) {
       this.state = 'failed';
-      this.stateError = error instanceof Error ? error.message : String(error);
+      this.stateError = describeError(error);
       this.logger.error('Embedder unavailable; the vector tier stays off', { profile: this.profile.id, error: this.stateError });
     }
   }
@@ -187,22 +327,31 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
     return this.started ?? Promise.resolve();
   }
 
+  /**
+   * Resolves once the HTTP embedder's start-up check has finished, ready or failed; at once for the in-process
+   * embedder, whose download can take minutes. The start-up module install waits on it, so a reachable endpoint
+   * is ready before the install embeds the classes.
+   */
+  whenStartupChecked(): Promise<void> {
+    return this.runtime === 'http' && this.started ? this.started : Promise.resolve();
+  }
+
   isEnabled(): boolean {
-    return this.enabled && !this.sessionDisabled && this.state === 'ready';
+    return this.enabled && this.state === 'ready';
   }
 
   /**
-   * Enabled by configuration and not switched off for the session, but not able to embed: the model is still
+   * Enabled by configuration, but not able to embed: the model is still
    * downloading or loading, or it failed to. Vectors already stored stay valid for when it is ready, so a caller
    * keeps them rather than treating this as "disabled".
    */
   isPending(): boolean {
-    return this.enabled && !this.sessionDisabled && this.state !== 'ready';
+    return this.enabled && this.state !== 'ready';
   }
 
   /** The embedder's state: disabled, downloading, loading, ready or failed. */
   getState(): EmbedderState {
-    return this.sessionDisabled ? 'disabled' : this.state;
+    return this.state;
   }
 
   /** The value stored as `embeddingModel` next to every vector this service makes. */
@@ -226,24 +375,9 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
       enabled: this.enabled,
       runtime: this.runtime,
       profileId: this.profile.id,
-      state: this.sessionDisabled ? 'disabled' : this.state,
+      state: this.state,
       ...(this.stateError ? { error: this.stateError } : {}),
     };
-  }
-
-  /**
-   * Disable embedding for the remainder of this process. Called when the
-   * runtime detects an unrecoverable invariant break (most notably, a
-   * vector-index dimension that disagrees with EMBEDDING_DIMENSIONS).
-   *
-   * After this is called, isEnabled() returns false and embedBatch()
-   * returns null. Logs exactly once.
-   */
-  disableForSession(reason: string): void {
-    if (this.sessionDisabled) return;
-    this.sessionDisabled = true;
-    this.enabled = false;
-    this.logger.error('Embedding disabled for this session', { reason });
   }
 
   /**
@@ -262,29 +396,56 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
     return this.embedOverHttp(texts);
   }
 
+  /**
+   * Embeds the texts of one request in one batch and returns one vector per text, in order. When the batch fails with
+   * a response (an error status, a malformed body), returns another number of vectors, or the in-process embedder
+   * throws, each text is embedded on its own, once and without the HTTP retries the batch already used, so a text
+   * that cannot be embedded costs only its own vector (null, with its error in `failures`). A batch of one is not
+   * tried again, and an HTTP request that got no response (the endpoint unreachable, a timeout) fails every text at
+   * once: it is not about any text. Every vector is null when the embedder is not enabled.
+   */
+  async embedEach(
+    texts: string[],
+    kind: ProfileKind,
+  ): Promise<{ vectors: Array<number[] | null>; failures: Array<{ index: number; error: unknown }> }> {
+    if (texts.length === 0) return { vectors: [], failures: [] };
+    const allFail = (error: unknown) => ({ vectors: texts.map(() => null), failures: texts.map((_t, index) => ({ index, error })) });
+    try {
+      const batch = await this.embedBatch(texts, kind);
+      if (!batch) return { vectors: texts.map(() => null), failures: [] };
+      if (batch.length === texts.length) return { vectors: batch, failures: [] };
+      if (texts.length === 1) return allFail(new Error(`the embedder returned ${batch.length} vectors for 1 text`));
+    } catch (error) {
+      if (texts.length === 1 || (this.runtime === 'http' && isTransportFailure(error))) return allFail(error);
+      // Falls through to one text at a time, so one bad text does not take the others' vectors with it.
+    }
+    const vectors: Array<number[] | null> = [];
+    const failures: Array<{ index: number; error: unknown }> = [];
+    for (let index = 0; index < texts.length; index++) {
+      try {
+        vectors.push(await this.embedOnce(texts[index], kind));
+      } catch (error) {
+        vectors.push(null);
+        failures.push({ index, error });
+      }
+    }
+    return { vectors, failures };
+  }
+
+  /** One text in one attempt: the per-text fallback, after the batch has used the HTTP retries. */
+  private async embedOnce(text: string, kind: ProfileKind): Promise<number[] | null> {
+    if (!this.isEnabled()) return null;
+    const vectors = this.runtime === 'onnx' ? await this.embedder!.embed(kind, [{ text }]) : await this.postEmbed([text]);
+    return vectors?.[0] ?? null;
+  }
+
   private async embedOverHttp(texts: string[]): Promise<number[][] | null> {
     const maxRetries = 3;
     const backoffBase = 1000; // 1s, 3s, 9s
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        const response = await fetch(this.url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
-          },
-          body: JSON.stringify({ model: this.model, input: texts }),
-        });
-        if (!response.ok) {
-          throw new Error(`Embedding API returned ${response.status}: ${response.statusText}`);
-        }
-        const data = await response.json();
-        const parsed = parseEmbeddingResponse(data, texts.length);
-        // L2-normalize to match the build-side unit-vector contract
-        // (mitre-frameworks/scripts/embedding_provider.py). Idempotent on
-        // already-unit vectors.
-        return parsed ? l2NormalizeBatch(parsed) : parsed;
+        return await this.postEmbed(texts);
       } catch (error) {
         if (attempt === maxRetries) throw error;
         const delay = backoffBase * Math.pow(3, attempt - 1);
@@ -298,6 +459,28 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
 
     // Unreachable — loop either returns or throws on final attempt
     return null;
+  }
+
+  /** One request to the HTTP endpoint. Throws on a failed request; null when the response carries no vectors. */
+  private async postEmbed(texts: string[], signal?: AbortSignal): Promise<number[][] | null> {
+    const response = await fetch(this.url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
+      },
+      body: JSON.stringify({ model: this.model, input: texts }),
+      signal,
+    });
+    if (!response.ok) {
+      throw new Error(`Embedding API returned ${response.status}: ${response.statusText}`);
+    }
+    const data = await response.json();
+    const parsed = parseEmbeddingResponse(data, texts.length);
+    // L2-normalize to match the build-side unit-vector contract
+    // (mitre-frameworks/scripts/embedding_provider.py). Idempotent on
+    // already-unit vectors.
+    return parsed ? l2NormalizeBatch(parsed) : parsed;
   }
 
   /**

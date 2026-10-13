@@ -502,7 +502,7 @@ describe('ManageControlsTool.execute — push file-not-found diagnosis', () => {
 
     expect(result.success).toBe(false)
     expect(result.error).toContain('uuid-abc')
-    expect(result.error.toLowerCase()).toContain('partially-pushed')
+    expect(result.error!.toLowerCase()).toContain('partially-pushed')
     // brownfield controls are not resume candidates
     expect(result.error).not.toContain('uuid-done')
   })

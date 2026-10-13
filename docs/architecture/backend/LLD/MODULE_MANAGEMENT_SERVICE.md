@@ -177,18 +177,24 @@ try {
 
 ### Fallback Behavior
 ```typescript
-// Continue processing other modules even if one fails
-for (const [moduleName, moduleInstance] of modules) {
+// Continue processing other modules even if one fails. Each module installs
+// in its OWN write transaction, so a failed write rolls back only that module.
+for (const [moduleName, { metadata, vectors }] of resolved) {
   try {
-    await this.upsertModule(tx, metadata, options);
+    const result = await session.executeWrite((tx: DatabaseTransaction) =>
+      this.upsertModule(tx, metadata, options, vectors),
+    );
+    modulesInstalled.push(result.moduleName);
     processedCount++;
   } catch (error) {
     errorCount++;
-    this.logger.error('Failed to process module', { moduleName, error: error.message });
+    this.logger.error('Failed to upsert module during bulk update', { moduleName, error: error.message });
     // Continue with other modules instead of failing completely
   }
 }
 ```
+
+See [Install phases](#install-phases) for why the transaction is per module.
 
 ### Validation with Detailed Errors
 ```typescript
@@ -315,23 +321,69 @@ interface ModuleOperationOptions {
 
 ## Bulk Operations
 ```typescript
-async updateAllModules(modules: Map<string, DTModule>): Promise<void> {
-  // Process multiple modules efficiently
-  // Track success/failure rates
-  // Continue on individual failures
-  // Logging and metrics
+async updateAllModules(
+  modules: Map<string, DTModule>,
+  options: ModuleOperationOptions = {},
+): Promise<void> {
+  // Phase A: skip-gate read + resolve vectors per module, outside any transaction
+  // Phase B: one write transaction per module
+  // Obsolescence sweep (deleteOldModules) in its own final write transaction
+  // afterInstall hooks, post-commit
+  // Track success/failure rates; logging and metrics
 }
 ```
 
+### Install phases
+
+`updateAllModules` never holds a write transaction open while class vectors are being made, and never lets one module's failed write take the others down with it:
+
+1. **Wait for the embedder's start-up check.** It awaits `EmbeddingService.whenStartupChecked()`, so a reachable HTTP embedding endpoint embeds this install instead of every module being installed `partial`.
+2. **Phase A — resolve vectors, outside any transaction.** One read of every `:Module` node's stored state feeds the [content-hash skip gate](#content-hash-skip-gate). For each module the gate does not skip, `resolveVectors` makes the class vectors. A module whose metadata or vectors fail is logged and left out of this round; the rest carry on.
+3. **Phase B — one write transaction per module.** Each resolved module's `upsertModule` runs in its **own** `session.executeWrite`, with the vectors from Phase A (no embedding requests inside the transaction). A module whose write fails rolls back only its own transaction; every other module still commits.
+4. **Obsolescence sweep — its own final transaction.** After every module upsert has committed, `deleteOldModules` runs in one more write transaction. It protects every module **present on disk this round**, not only the ones that installed, so a module that failed this time is never taken for a removed one and deleted with its classes. A failed sweep is logged and does not stop start-up; an obsolete module then lingers until the next sweep.
+5. **Post-commit hooks.** Each installed or skipped module's `afterInstall` hook runs (see [below](#afterinstall-post-commit-hook-invocation)).
+
+**Why per module.** In one shared transaction, a database-level error in any module (for example, a class id collision) aborts the whole transaction: every later statement, the sweep included, fails and the entire batch rolls back. A per-module `try`/`catch` inside that transaction cannot contain the failure; a transaction per module does.
+
+### Content-hash skip gate
+
+Before it resolves any class vectors, `updateAllModules` reads every `:Module` node's stored `contentHash` and `lastInstallStatus` in one read. A module is **skipped** — no vector resolution, no graph write — when both of these hold:
+
+- its `contentHash` equals the one stored on its `:Module` node, and
+- its last install was `authoritative`.
+
+A skipped module still counts as installed: `deleteOldModules` keeps it, and its `afterInstall` hook still runs (see [below](#afterinstall-post-commit-hook-invocation)). Every other case is a full install: no stored node, a different hash, a `partial` last install, or a forced run (`MODULE_LOAD_FORCE=1`, which `ModuleRegistryService` passes as `options.force`).
+
+**Where the hash comes from.**
+
+| Module | `contentHash` the gate compares |
+|---|---|
+| Ships one in its metadata (a file module: `module.json`, written by `scripts/hash-module.mjs`) | The shipped hash, as is |
+| Ships none and does not implement `getEmbedding()` (a module written in code) | A **computed hash** (below) |
+| Ships none and implements `getEmbedding()` | None — installed on every start |
+
+**The computed hash.** `computedContentHash` (`module-content-hash.ts`) returns `sha256:<hex>` over the canonical JSON (object keys sorted at every depth) of:
+
+- the module's `getMetadata()` result, without any `contentHash` field,
+- the active embedder: `<model>/<dimensions>` while embedding is enabled or pending, otherwise `off`, and
+- the platform version: the `version` in dt-ws's `package.json` (`platform-version.ts`).
+
+The install stores the computed hash on the `:Module` node exactly like a shipped one, so the next start skips the module while nothing changed. A change to the metadata — any class, any class field, the module `version`, the `idRebindPolicy` — to the embedder (model, dimensions, on/off) or to the platform version yields a different hash and a full reinstall. A platform upgrade therefore reinstalls each such module once, then the gate skips it again.
+
+**Why these inputs are complete.** An install writes the `:Module` node and its classes from `getMetadata()` alone, plus one vector per class that the active embedder makes from that metadata. The platform's own install code does the writing, and an upgrade may write the same metadata differently, so the platform version is an input too. A file module is unaffected: the gate compares its shipped hash as is. Templates, guides, exposures, countermeasures and Rego policies are not install inputs: the platform asks the module for them when they are used, so a skipped install cannot leave a stale one behind. `update-all-modules.skip-gate.spec.ts` pins this — the install reads nothing from a module except `getMetadata`, `getEmbedding` and `afterInstall`. If the install ever reads another input, that input belongs in the computed hash.
+
+**The `getEmbedding()` exception.** A module that implements `getEmbedding()` hands the install pre-computed vectors from a source its metadata does not show, so a hash over the metadata cannot vouch for them. Such a module gets no computed hash and is installed on every start unless it ships its own `contentHash`. `DtFileOpaModule` implements `getEmbedding()`, so a file module whose `module.json` carries no `contentHash` is likewise installed on every start.
+
 ### afterInstall post-commit hook invocation
 
-`updateAllModules` upserts every module's `:Module` node and element classes inside **one write transaction**. Only *after* that transaction commits is a module's own `:Module` node visible to a fresh session — so the platform runs each module's optional [`afterInstall`](../../modules/DT_MODULE_INTERFACE.md#afterinstallctx) hook **post-commit**, once the write transaction has returned.
+`updateAllModules` upserts each module's `:Module` node and element classes inside **that module's own write transaction** (see [Install phases](#install-phases)). Only *after* that transaction commits is a module's own `:Module` node visible to a fresh session — so the platform runs each module's optional [`afterInstall`](../../modules/DT_MODULE_INTERFACE.md#afterinstallctx) hook **post-commit**: once every per-module write transaction and the obsolescence sweep have returned.
 
 The private helper `runAfterInstall(session, moduleName, instance)` performs one invocation:
 
 ```typescript
-// After the upsert write transaction commits, iterate the installed set
-// (installed OR content-hash-skipped) and fire each module's hook.
+// After every per-module write transaction and the obsolescence sweep have
+// returned, iterate the installed set (installed OR content-hash-skipped) and
+// fire each module's hook. A module whose write failed is not in the set.
 for (const name of modulesInstalled) {
   await this.runAfterInstall(session, name, modules.get(name));
 }

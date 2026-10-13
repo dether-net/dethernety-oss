@@ -164,6 +164,16 @@ class MyModule implements DTModule {
 export default MyModule;
 ```
 
+### Content Hash: Skipping Unchanged Installs
+
+At startup the platform skips installing a module whose content hash matches the one stored from its last complete install. What you need to do depends on the pattern:
+
+- **File-based module.** Ship the hash in `module.json` as `contentHash`. `scripts/hash-module.mjs` computes it from `data/<name>/` and writes it (`node ../../scripts/hash-module.mjs .`; add `--check` to verify a committed hash in CI). Re-run it whenever the module's data changes. Without it the module is installed on every start.
+- **Module written in code (Pattern 2).** Nothing — leave `contentHash` out of `getMetadata()`. The platform computes a hash from your `getMetadata()` result, the active embedding model and the platform version, and reinstalls the module when any of them changes: any class, any class field, the module `version`, or the embedder. A platform upgrade also reinstalls it once, since the hash covers the platform version too. Templates, exposures, countermeasures, guides and policies are not part of the install — the platform asks your module for them when they are used — so changing only those needs no reinstall.
+- **Module written in code that implements `getEmbedding()`.** Pre-computed vectors come from somewhere the metadata does not show, so the platform computes no hash for such a module and installs it on every start. Ship your own `contentHash` in `getMetadata()` if you want it skipped, and change that hash whenever the vectors or the metadata change.
+
+`MODULE_LOAD_FORCE=1` reinstalls every module regardless of its hash. For the mechanism, see [ModuleManagementService → Content-hash skip gate](../backend/LLD/MODULE_MANAGEMENT_SERVICE.md#content-hash-skip-gate).
+
 ### Constructor Signature
 
 The `ModuleRegistryService` instantiates modules with two arguments:

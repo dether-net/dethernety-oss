@@ -59,10 +59,22 @@ describe('DtUpdateSplit.updateAttributesOnly — model-scoped writes', () => {
       },
       dataItems: [{ id: 'd1' }],
     })
-    const setSpy = vi.fn().mockResolvedValue(true)
-    dt.dtClass.setInstantiationAttributes = setSpy
+    const setSpy = vi.fn().mockResolvedValue({ success: true, staleFlippedCount: 0, errorMessage: null })
+    dt.dtClass.setInstantiationAttributesWithStaleCount = setSpy
     return { dt, setSpy }
   }
+
+  it('names the element, the class and the platform\'s reason when a write is refused', async () => {
+    const { dt, setSpy } = seeded()
+    setSpy.mockResolvedValue({ success: false, staleFlippedCount: null, errorMessage: 'class "k1" not found' })
+    const result = await dt.updateAttributesOnly('M1', {
+      components: { c1: { elementId: 'c1', elementName: 'API', elementType: 'component', classData: { id: 'k1', name: 'K' }, attributes: { a: 1 } } },
+    })
+    expect(result.success).toBe(false)
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({ elementId: 'c1', error: 'Failed to set the answers of "API" for class k1: class "k1" not found' }),
+    )
+  })
 
   it('writes a legitimate same-model entry', async () => {
     const { dt, setSpy } = seeded()
@@ -124,7 +136,7 @@ describe('DtUpdateSplit.updateAttributesOnly — model-scoped writes', () => {
     const dt = new DtUpdateSplit({} as any) as any
     dt.dtModel.getModelData = vi.fn().mockRejectedValue(new Error('network down'))
     const setSpy = vi.fn()
-    dt.dtClass.setInstantiationAttributes = setSpy
+    dt.dtClass.setInstantiationAttributesWithStaleCount = setSpy
 
     const result = await dt.updateAttributesOnly('M1', {
       components: { c1: { elementId: 'c1', elementType: 'component', classData: { id: 'k1', name: 'K' }, attributes: { a: 1 } } },

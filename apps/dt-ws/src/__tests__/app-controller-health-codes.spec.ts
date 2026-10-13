@@ -1,5 +1,6 @@
 import { HttpStatus } from '@nestjs/common';
 import { AppController } from '../app.controller';
+import { readPlatformVersion } from '../common/utils/platform-version';
 
 /**
  * Pins for the honest health status codes: orchestrator probes (k8s, ELB,
@@ -144,5 +145,24 @@ describe('GET /health — the embedder', () => {
     const body = await withEmbedder({ enabled: false, state: 'disabled' }).getHealth(makeRes());
     expect(body.status).toBe('healthy');
     expect(body.services?.embedder).toBeUndefined();
+  });
+});
+
+describe('GET /health — the version', () => {
+  it("reports dt-ws's package.json version, which a plain `node dist/main.js` start can read", async () => {
+    const { version } = jest.requireActual<{ version: string }>('../../package.json');
+    const saved = process.env.npm_package_version;
+    delete process.env.npm_package_version;
+    try {
+      const body = await makeController({}).getHealth(makeRes());
+      expect(body.version).toBe(version);
+      expect(version).toMatch(/^\d+\.\d+\.\d+/);
+    } finally {
+      if (saved !== undefined) process.env.npm_package_version = saved;
+    }
+  });
+
+  it('says unknown when the package file cannot be read', () => {
+    expect(readPlatformVersion('/nonexistent/package.json')).toBe('unknown');
   });
 });

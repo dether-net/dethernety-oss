@@ -333,7 +333,8 @@ export class DtUpdateSplit {
       // Flatten attributes before setting them
       const flatAttributes = DtUtils.flattenProperties(elementAttrs.attributes)
 
-      const success = await this.dtClass.setInstantiationAttributes({
+      // The variant that carries the platform's diagnosis (which class, which element, why) on failure
+      const { success, errorMessage } = await this.dtClass.setInstantiationAttributesWithStaleCount({
         componentId: elementId,
         classId: elementAttrs.classData.id,
         attributes: flatAttributes,
@@ -344,7 +345,7 @@ export class DtUpdateSplit {
           step: `update_${elementType}_attributes`,
           elementName: elementAttrs.elementName,
           elementId,
-          error: 'Failed to set attributes',
+          error: `Failed to set the answers of "${elementAttrs.elementName || elementId}" for class ${elementAttrs.classData.id}${errorMessage ? `: ${errorMessage}` : ''}`,
         })
         return false
       }

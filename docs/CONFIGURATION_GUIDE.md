@@ -173,7 +173,7 @@ Each stored vector records the profile id (or, for a model that is not a built-i
 | `EMBEDDING_URL` | String | `http://localhost:11434/api/embed` | HTTP | Embedding endpoint. |
 | `EMBEDDING_API_KEY` | String | — | HTTP | Sent as a `Bearer` token when set. Leave empty for a local endpoint. |
 | `EMBEDDING_DIMENSIONS` | Number | the profile's dimensions (`768` for `embeddinggemma`) | HTTP | Vector length the model returns. Under an ONNX profile it is ignored, with a warning, and the profile's dimensions apply. |
-| `EMBEDDING_SIMILARITY_THRESHOLD` | Number | — | HTTP | Older single floor for class matching and MITRE technique search. Ignored, with a warning, under an ONNX profile. Prefer the per-corpus variables. |
+| `EMBEDDING_SIMILARITY_THRESHOLD` | Number | — | HTTP | Older single floor (cosine) for class matching and MITRE technique search. -1 to 1. Ignored, with a warning, under an ONNX profile. Prefer the per-corpus variables. |
 | `EMBEDDING_MODEL_DIR` | String | `models` | ONNX | Directory for the model weights, laid out as `<dir>/<repo>/<revision>/<file>`. A relative path resolves against the dt-ws working directory. |
 | `EMBEDDING_THREADS` | Number | `4` | ONNX | Threads the model uses per inference (1–64). |
 | `HF_TOKEN` | String | — | ONNX | Access token for a gated weight source. Needed only when a profile's weights are gated; none of the built-in profiles are. When set, it is sent only to the profile's hub, never to a download host the hub redirects to, and never logged. |
@@ -184,11 +184,15 @@ Each stored vector records the profile id (or, for a model that is not a built-i
 2. `EMBEDDING_SIMILARITY_THRESHOLD`, under the HTTP embedder only and for classes and MITRE only. Under an ONNX profile it is ignored with a warning.
 3. The profile's calibrated value.
 
-Thresholds are cosine similarities, so the same value means the same on Neo4j and Memgraph. A floor only fits the model it was set for: change it together with `EMBEDDING_MODEL`. A per-corpus value outside -1..1, or one that is not a number, stops dt-ws from starting. See [Similarity threshold](architecture/backend/LLD/CLASS_AND_CONTROL_RESOLVER_ARCHITECTURE.md#similarity-threshold) for how the profile values are calibrated.
+An empty or blank value, such as a line `EMBEDDING_THRESHOLD_CLASSES=` in `.env`, counts as unset, the same as leaving the line out.
+
+Thresholds are cosine similarities, so the same value means the same on Neo4j and Memgraph. A floor only fits the model it was set for: change it together with `EMBEDDING_MODEL`. A per-corpus value or an `EMBEDDING_SIMILARITY_THRESHOLD` outside -1..1, or one that is not a number, stops dt-ws from starting. See [Similarity threshold](architecture/backend/LLD/CLASS_AND_CONTROL_RESOLVER_ARCHITECTURE.md#similarity-threshold) for how the profile values are calibrated.
 
 **Model weights (ONNX).** Only the files the profile lists are downloaded, each to a temporary name and moved into place after its size and sha256 match. Files already present and verified are not downloaded again, so an offline host works by copying the files into `EMBEDDING_MODEL_DIR` in the same layout. A failed download is retried after 30 seconds, 2 minutes, 10 minutes and 30 minutes; after that the embedder stays off until dt-ws restarts. dt-ws sets `ORT_DISABLE_TELEMETRY=1` itself before the ONNX runtime loads, overriding any value in the environment, so the in-process embedder sends no usage telemetry.
 
-**HTTP embedder behaviour.** dt-ws does not contact the endpoint at startup; it reports the HTTP embedder as ready straight away. A request that fails is tried up to three times in total before dt-ws gives up on it.
+**HTTP embedder behaviour.** At startup dt-ws checks the endpoint by embedding one short text. The check makes up to three attempts, each limited to 10 seconds, 1 and 3 seconds apart, so it takes at most 34 seconds. The answer must be a vector of the configured dimensions (`EMBEDDING_DIMENSIONS`, or the profile's). While the check runs the embedder is `loading`; when it succeeds the embedder is `ready` and dt-ws logs `Embedder ready`. When it fails the embedder is `failed`, the detailed `/health` response gives the reason in the embedder's `error`, and dt-ws logs `Embedder unavailable…` once. It then checks the endpoint again every minute and becomes `ready` once the endpoint answers, without a restart, logging `Embedder ready` once more. The check also loads the model on the embedding server, so the first search does not wait for that. Other requests are tried up to three times in total before dt-ws gives up on them.
+
+**Module install at startup.** The start-up module install waits for the HTTP embedder's check, so with a reachable endpoint the classes are embedded on the first start. If the check failed, the install keeps the class vectors already stored and marks the modules partial; a later start with a reachable endpoint embeds them. The embedder recovering while dt-ws runs does not re-run the install. The install does not wait for the in-process ONNX embedder.
 
 The [BYODt bundle](user/byodt/CONFIGURATION.md#embedding) runs an Ollama embedding server and sets `EMBEDDING_MODEL=embeddinggemma`, so it uses the HTTP embedder.
 
@@ -361,12 +365,14 @@ The backend exposes health check endpoints:
 | `GET /health/simple` | Quick liveness check (database only). Returns 200 or 503. |
 | `GET /ready` | Readiness check (database + GraphQL). Returns `{ ready: true/false }`. |
 
-When embedding is enabled, `GET /health` includes an `embedder` block with its `state` (`downloading`, `loading`, `ready` or `failed`), `runtime` (`onnx` or `http`), `profile` and, after a failure, `error`. An embedder that is not `ready` makes the overall status `degraded`, which still answers 200: the platform keeps serving name-based matches. The production response carries only the overall status. The embedder does not affect `/health/simple` or `/ready`.
+The `version` field of the detailed `GET /health` response is the platform release version, such as `0.11.0`. When the backend cannot determine it, the field reads `unknown`.
+
+When embedding is enabled, `GET /health` includes an `embedder` block with its `state` (`downloading`, `loading`, `ready` or `failed`; the HTTP embedder is `loading` while its startup check runs), `runtime` (`onnx` or `http`), `profile` and, after a failure, `error`. An embedder that is not `ready` makes the overall status `degraded`, which still answers 200: the platform keeps serving name-based matches. The production response carries only the overall status. The embedder does not affect `/health/simple` or `/ready`.
 
 ---
 
 ## Configuration Validation
 
-All environment variables are validated at startup using [class-validator](https://github.com/typestack/class-validator). Invalid configuration causes the application to fail fast with descriptive error messages. This includes the embedding settings: an `EMBEDDING_THRESHOLD_<CORPUS>` outside -1..1 or an `EMBEDDING_THREADS` outside 1–64 stops the backend from starting (see [Embedding](#embedding-search-by-meaning)).
+All environment variables are validated at startup using [class-validator](https://github.com/typestack/class-validator). Invalid configuration causes the application to fail fast with descriptive error messages. This includes the embedding settings: an `EMBEDDING_THRESHOLD_<CORPUS>` or `EMBEDDING_SIMILARITY_THRESHOLD` that is not a number or lies outside -1..1, or an `EMBEDDING_THREADS` outside 1–64, stops the backend from starting, with a message that names the variable (see [Embedding](#embedding-search-by-meaning)).
 
 The validation schema is defined in [environment.validation.ts](../apps/dt-ws/src/config/environment.validation.ts). Database-specific validation is in [database.config.ts](../apps/dt-ws/src/database/database.config.ts).

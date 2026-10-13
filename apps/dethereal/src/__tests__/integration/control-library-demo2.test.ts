@@ -145,7 +145,7 @@ describe.skipIf(!shouldRun)('control-library demo2 round-trip', () => {
     const before = await readControlFile(DEMO2_PATH!, ALONE_ID!)
     const classIdx = before!.classes.findIndex(c => c.classId === CLASS_ID)
     const testKey = '__s3_test_key__'
-    const originalValue = before!.classes[classIdx].attributes[testKey] ?? 'origin'
+    const originalValue = before!.classes[classIdx]!.attributes[testKey] ?? 'origin'
 
     // First edit — pendingEdit.previousAttributes[testKey] captures origin.
     const firstEdit = await manageControlsTool.execute(
@@ -161,11 +161,11 @@ describe.skipIf(!shouldRun)('control-library demo2 round-trip', () => {
     )
     expect(firstEdit.success).toBe(true)
     const afterFirst = await readControlFile(DEMO2_PATH!, ALONE_ID!)
-    expect(afterFirst!.classes[classIdx].pendingEdit).toBeDefined()
+    expect(afterFirst!.classes[classIdx]!.pendingEdit).toBeDefined()
     expect(
-      afterFirst!.classes[classIdx].pendingEdit!.previousAttributes[testKey],
+      afterFirst!.classes[classIdx]!.pendingEdit!.previousAttributes[testKey],
     ).toEqual(originalValue)
-    expect(afterFirst!.classes[classIdx].attributes[testKey]).toBe('first')
+    expect(afterFirst!.classes[classIdx]!.attributes[testKey]).toBe('first')
 
     // Second edit on the same key — two-write rule: previousAttributes[testKey]
     // MUST still hold the FIRST pre-edit value, not the intermediate one.
@@ -182,9 +182,9 @@ describe.skipIf(!shouldRun)('control-library demo2 round-trip', () => {
     )
     const afterSecond = await readControlFile(DEMO2_PATH!, ALONE_ID!)
     expect(
-      afterSecond!.classes[classIdx].pendingEdit!.previousAttributes[testKey],
+      afterSecond!.classes[classIdx]!.pendingEdit!.previousAttributes[testKey],
     ).toEqual(originalValue)
-    expect(afterSecond!.classes[classIdx].attributes[testKey]).toBe('second')
+    expect(afterSecond!.classes[classIdx]!.attributes[testKey]).toBe('second')
   }, 20_000)
 
   // ────────────────────────────────────────────────────────────────────
@@ -193,7 +193,7 @@ describe.skipIf(!shouldRun)('control-library demo2 round-trip', () => {
   it('push-brownfield on an alone control writes attributes + clears pendingEdit', async () => {
     const before = await readControlFile(DEMO2_PATH!, ALONE_ID!)
     const classIdx = before!.classes.findIndex(c => c.classId === CLASS_ID)
-    const freshPlatformAttrs = { [CLASS_ID!]: before!.classes[classIdx].platformAttributes ?? {} }
+    const freshPlatformAttrs = { [CLASS_ID!]: before!.classes[classIdx]!.platformAttributes ?? {} }
 
     const result = await manageControlsTool.execute(
       {
@@ -212,9 +212,9 @@ describe.skipIf(!shouldRun)('control-library demo2 round-trip', () => {
     expect(data.mutated).toBe(true)
 
     const after = await readControlFile(DEMO2_PATH!, ALONE_ID!)
-    expect(after!.classes[classIdx].pendingEdit).toBeUndefined()
-    expect(after!.classes[classIdx].pushedAt).toBeTruthy()
-    expect(after!.classes[classIdx].platformAttributes?.['__s3_test_key__']).toBe('second')
+    expect(after!.classes[classIdx]!.pendingEdit).toBeUndefined()
+    expect(after!.classes[classIdx]!.pushedAt).toBeTruthy()
+    expect(after!.classes[classIdx]!.platformAttributes?.['__s3_test_key__']).toBe('second')
   }, 30_000)
 
   // ────────────────────────────────────────────────────────────────────
@@ -240,11 +240,11 @@ describe.skipIf(!shouldRun)('control-library demo2 round-trip', () => {
     )
 
     const seeded = await readControlFile(DEMO2_PATH!, SHARED_ID!)
-    const seededClassId = seeded!.classes[sharedClassIdx].classId
+    const seededClassId = seeded!.classes[sharedClassIdx]!.classId
     const snapshot = JSON.stringify(seeded!.classes[sharedClassIdx])
 
     const freshPlatformAttrs = {
-      [seededClassId]: seeded!.classes[sharedClassIdx].platformAttributes ?? {},
+      [seededClassId]: seeded!.classes[sharedClassIdx]!.platformAttributes ?? {},
     }
 
     const result = await manageControlsTool.execute(
@@ -287,7 +287,7 @@ describe.skipIf(!shouldRun)('control-library demo2 round-trip', () => {
 
     const baseline = await readControlFile(DEMO2_PATH!, ALONE_ID!)
     const classIdx = baseline!.classes.findIndex(c => c.classId === CLASS_ID)
-    const baselinePlatformAttrs = { ...baseline!.classes[classIdx].platformAttributes! }
+    const baselinePlatformAttrs = { ...baseline!.classes[classIdx]!.platformAttributes! }
 
     // Plant two "other" keys on the platform so we have something to
     // observe the partial-payload guarantee against.
@@ -306,7 +306,7 @@ describe.skipIf(!shouldRun)('control-library demo2 round-trip', () => {
       ctx,
     )
     const planted = await readControlFile(DEMO2_PATH!, ALONE_ID!)
-    const plantedFresh = { [CLASS_ID!]: planted!.classes[classIdx].platformAttributes! }
+    const plantedFresh = { [CLASS_ID!]: planted!.classes[classIdx]!.platformAttributes! }
     await manageControlsTool.execute(
       {
         action: 'push-brownfield',
@@ -333,7 +333,7 @@ describe.skipIf(!shouldRun)('control-library demo2 round-trip', () => {
       ctx,
     )
     const withA = await readControlFile(DEMO2_PATH!, ALONE_ID!)
-    const withAFresh = { [CLASS_ID!]: withA!.classes[classIdx].platformAttributes! }
+    const withAFresh = { [CLASS_ID!]: withA!.classes[classIdx]!.platformAttributes! }
     await manageControlsTool.execute(
       {
         action: 'push-brownfield',
@@ -357,7 +357,7 @@ describe.skipIf(!shouldRun)('control-library demo2 round-trip', () => {
       ctx,
     )
     const final = await readControlFile(DEMO2_PATH!, ALONE_ID!)
-    const finalPlatform = final!.classes[classIdx].platformAttributes ?? {}
+    const finalPlatform = final!.classes[classIdx]!.platformAttributes ?? {}
 
     expect(finalPlatform['__dec_cl_11_A__']).toBe('edited_A')
     expect(finalPlatform['__dec_cl_11_B__']).toBe('untouched_B')

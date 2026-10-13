@@ -4,6 +4,8 @@ import { ModuleManagementService } from '../module-management.service';
 import { EmbeddingService } from '../../services/embedding.service';
 import { ClassReconciler } from '../class-reconciler.service';
 import { ClassIdentityEventLog } from '../class-identity-event-log.service';
+import { computedContentHash } from '../module-content-hash';
+import { PLATFORM_VERSION } from '../../../common/utils/platform-version';
 
 // Record-like stub mirroring neo4j driver records (.get(field)).
 const rec = (
@@ -33,6 +35,7 @@ function makeDriver(installRows: ReturnType<typeof rec>[]) {
 async function buildService(driver: any) {
   const embedding: Partial<EmbeddingService> = {
     isEnabled: jest.fn(() => true),
+    whenStartupChecked: jest.fn(async () => undefined),
     getDimensions: jest.fn(() => 3),
     getModel: jest.fn(() => 'nomic-embed-text'),
   };
@@ -146,5 +149,92 @@ describe('ModuleManagementService.updateAllModules — content-hash skip gate', 
     expect(upsertModule.mock.calls[0][1]).toMatchObject({ name: 'm1' });
     expect(deleteOldModules).toHaveBeenCalledTimes(1);
     expect(deleteOldModules.mock.calls[0][1]).toEqual(expect.arrayContaining(['lg', 'm1']));
+  });
+});
+
+describe('ModuleManagementService.updateAllModules — a module that ships no content hash', () => {
+  const codeModule = (description = 'One report') =>
+    ({
+      getMetadata: async () => ({
+        name: 'm1',
+        version: '1.0.0',
+        analysisClasses: [{ id: 'a1', name: 'Report', type: 'model_analysis', description }],
+      }),
+    }) as any;
+
+  /** First start: nothing stored yet. Returns the hash the install stored on the Module node. */
+  async function firstInstall(module: any) {
+    const { svc, upsertModule } = await buildService(makeDriver([rec('m1', null, null)]));
+    await svc.updateAllModules(new Map([['m1', module]]));
+    expect(upsertModule).toHaveBeenCalledTimes(1);
+    return (upsertModule.mock.calls[0] as any[])[1].contentHash as string;
+  }
+
+  it('is installed with a computed hash, and skipped on the next start while nothing changed', async () => {
+    const stored = await firstInstall(codeModule());
+    expect(stored).toMatch(/^sha256:[0-9a-f]{64}$/);
+
+    const { svc, resolveVectors, upsertModule } = await buildService(makeDriver([rec('m1', stored, 'authoritative')]));
+    await svc.updateAllModules(new Map([['m1', codeModule()]]));
+    expect(resolveVectors).not.toHaveBeenCalled();
+    expect(upsertModule).not.toHaveBeenCalled();
+  });
+
+  it('stores the hash of its metadata, the embedder and the platform version, so an upgrade reinstalls it once', async () => {
+    const stored = await firstInstall(codeModule());
+    const meta = await codeModule().getMetadata();
+    expect(stored).toBe(computedContentHash(meta, {}, 'nomic-embed-text/3', PLATFORM_VERSION));
+    expect(stored).not.toBe(computedContentHash(meta, {}, 'nomic-embed-text/3', `${PLATFORM_VERSION}-next`));
+  });
+
+  it('is reinstalled when its metadata changed', async () => {
+    const stored = await firstInstall(codeModule());
+    const { svc, upsertModule } = await buildService(makeDriver([rec('m1', stored, 'authoritative')]));
+    await svc.updateAllModules(new Map([['m1', codeModule('Another report')]]));
+    expect(upsertModule).toHaveBeenCalledTimes(1);
+  });
+
+  it('is reinstalled when the embedder that makes its class vectors changed', async () => {
+    const stored = await firstInstall(codeModule());
+    const { svc, upsertModule } = await buildService(makeDriver([rec('m1', stored, 'authoritative')]));
+    ((svc as any).embeddingService.getModel as jest.Mock).mockReturnValue('embeddinggemma');
+    await svc.updateAllModules(new Map([['m1', codeModule()]]));
+    expect(upsertModule).toHaveBeenCalledTimes(1);
+  });
+
+  it('is installed on every start when it hands the install pre-computed vectors', async () => {
+    const withVectors = { ...codeModule(), getEmbedding: () => null };
+    const { svc, upsertModule } = await buildService(makeDriver([rec('m1', null, 'authoritative')]));
+    await svc.updateAllModules(new Map([['m1', withVectors]]));
+    expect((upsertModule.mock.calls[0] as any[])[1].contentHash).toBeUndefined();
+  });
+
+  it('keeps a shipped content hash as it is', async () => {
+    const { svc, upsertModule } = await buildService(makeDriver([rec('m1', null, null)]));
+    await svc.updateAllModules(new Map([['m1', fakeModule('m1', 'sha256:shipped')]]));
+    expect((upsertModule.mock.calls[0] as any[])[1].contentHash).toBe('sha256:shipped');
+  });
+
+  // The computed hash covers what the install reads from a module. If the install starts asking a module for
+  // anything else (a template, a guide, exposures, a policy), this fails: that input then belongs in the hash.
+  it('reads nothing from a module but its metadata, its pre-computed vectors and its after-install hook', async () => {
+    const touched = new Set<string>();
+    const target = { ...codeModule(), afterInstall: async () => undefined };
+    const recording = new Proxy(target, {
+      get(t, key, receiver) {
+        if (typeof key === 'string') touched.add(key);
+        return Reflect.get(t, key, receiver);
+      },
+    });
+    const { svc, resolveVectors } = await buildService(makeDriver([rec('m1', null, null)]));
+    resolveVectors.mockRestore();
+    Object.assign((svc as any).embeddingService, {
+      composeClassText: () => 'text',
+      embedBatch: jest.fn(async (texts: string[]) => texts.map(() => [1, 0, 0])),
+    });
+
+    await svc.updateAllModules(new Map([['m1', recording]]));
+
+    expect([...touched].sort()).toEqual(['afterInstall', 'getEmbedding', 'getMetadata']);
   });
 });

@@ -10,8 +10,8 @@ const setup = () => {
   const dtUpdate = new DtUpdate({} as any) as any;
   dtUpdate.existingDataitemIds = new Set(['d1']);
   dtUpdate.dtDataitem.updateDataItem = vi.fn().mockResolvedValue({ residualOk: true });
-  const write = vi.fn().mockResolvedValue(true);
-  dtUpdate.dtClass.setInstantiationAttributes = write;
+  const write = vi.fn().mockResolvedValue({ success: true, staleFlippedCount: 0, errorMessage: null });
+  dtUpdate.dtClass.setInstantiationAttributesWithStaleCount = write;
   return { dtUpdate, write };
 };
 

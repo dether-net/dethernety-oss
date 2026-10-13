@@ -4,6 +4,7 @@ import { DatabaseService } from './database/database.service';
 import { GqlHealthService } from './gql/health/gql-health.service';
 import { ModuleRegistryService } from './gql/module-management-services/module-registry.service';
 import { EmbeddingService, type EmbedderState } from './gql/services/embedding.service';
+import { PLATFORM_VERSION } from './common/utils/platform-version';
 
 interface HealthCheckResult {
   status: 'healthy' | 'unhealthy' | 'degraded';
@@ -46,6 +47,7 @@ interface HealthCheckResult {
     };
   };
 }
+
 
 @Controller()
 export class AppController {
@@ -215,7 +217,7 @@ export class AppController {
       status: overallStatus,
       timestamp: new Date().toISOString(),
       uptime: Math.floor(process.uptime()),
-      version: process.env.npm_package_version || '0.0.1',
+      version: PLATFORM_VERSION,
       environment: process.env.NODE_ENV || 'development',
       services: {
         database: {

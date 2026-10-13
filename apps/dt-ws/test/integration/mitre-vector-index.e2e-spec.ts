@@ -10,6 +10,7 @@
 // The resolver runs against a real container with stub config, auth, monitoring and embedding
 // services.
 
+import { EmbeddingService } from '../../src/gql/services/embedding.service';
 import neo4j, { Driver } from 'neo4j-driver';
 import { startMemgraph, clearGraph, MemgraphHandle } from './memgraph-container';
 import { LOOPBACK_HOST } from './loopback-container';
@@ -98,7 +99,13 @@ describe(`MITRE vector indexes on ${REKEYING_IMAGE}, which re-keys a vector inde
     getDimensions: () => DIMENSIONS,
     getThreshold: () => 0.5,
     embedBatch: async (texts: string[]) => texts.map(() => QUERY),
-    disableForSession: () => {},
+    /** The service's per-text fallback: one text, through embedBatch. */
+    async embedOnce(text: string) {
+      return (await this.embedBatch([text]))?.[0] ?? null;
+    },
+    embedEach(texts: string[], kind: 'query') {
+      return EmbeddingService.prototype.embedEach.call(this, texts, kind);
+    },
   };
 
   function mitre(driver: Driver): { resolver: MatchMitreTechniquesResolverService; vectorSearch: VectorSearchService } {

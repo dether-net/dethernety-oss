@@ -307,6 +307,100 @@ describe('UpdateModelTool — the re-export path fixes up what it invalidates', 
     expect(res.data!.warnings.join(' ')).toContain('attributes/components/c-db.json')
   })
 
+  it('names the element of every error a failed update reports', async () => {
+    const local = makeStructure([{ id: 'c-db', name: 'DB' }])
+    await writeModelDir(tmpDir, local, [], [])
+    mockUpdateFromSplitModel.mockResolvedValue({
+      ...okResult,
+      success: false,
+      errors: [
+        { step: 'update_component', elementName: 'DB', elementId: 'c-db', error: 'write boom, retry later' },
+        { step: 'set_element_attributes', elementName: 'API', elementId: 'c-api', error: 'Failed to set the answers of "API" for class k1: class "k1" not found' },
+        { step: 'fetch_model', error: 'Model model-1 not found' },
+      ],
+    })
+
+    const res = await updateModelTool.run(
+      { model_id: 'model-1', directory_path: tmpDir, create_backup: false, disable_source_file_update: true }, contextWithClient)
+
+    expect(res.success).toBe(false)
+    expect(res.error).toBe(
+      'Update failed: DB: write boom, retry later; Failed to set the answers of "API" for class k1: class "k1" not found; Model model-1 not found',
+    )
+  })
+
+  it('keeps the local class and answers of an element whose class the platform does not have; rewrites the rest', async () => {
+    const pg = { id: 'cls-pg', name: 'PostgreSQL', module: { name: 'example-datastores' } }
+    const redis = { id: 'cls-redis', name: 'Redis', module: { name: 'example-datastores' } }
+    const local = {
+      defaultBoundary: {
+        id: 'b-1', name: 'System', boundaries: [],
+        components: [
+          { id: 'c-db', name: 'DB', classData: pg },
+          { id: 'c-web', name: 'Web', classData: { id: 'cls-web-local', name: 'Web Server' } },
+          { id: 'c-new', name: 'Cache', classData: redis },
+        ],
+      },
+    }
+    await writeModelDir(tmpDir, local, [], [])
+    const attrDir = path.join(tmpDir, 'attributes', 'components')
+    await fs.mkdir(attrDir, { recursive: true })
+    const dbAnswers = { elementId: 'c-db', elementType: 'component', elementName: 'DB', classData: pg, attributes: { encrypted_at_rest: true } }
+    await fs.writeFile(path.join(attrDir, 'c-db.json'), JSON.stringify(dbAnswers, null, 2))
+    await fs.writeFile(path.join(attrDir, 'c-web.json'), JSON.stringify(
+      { elementId: 'c-web', elementType: 'component', elementName: 'Web', classData: { id: 'cls-web-local', name: 'Web Server' }, attributes: { tls: false } }, null, 2))
+
+    mockUpdateFromSplitModel.mockResolvedValue({
+      ...okResult,
+      warnings: ['Component "DB": Could not resolve component class (…)', 'Component "Cache": Could not resolve component class (…)'],
+      unresolvedClasses: [
+        { elementId: 'c-db', elementName: 'DB', kind: 'COMPONENT', classData: pg },
+        { elementId: 'c-new', elementName: 'Cache', kind: 'COMPONENT', classData: redis },
+      ],
+      // c-new was created by this push and got a platform id.
+      idMapping: new Map([['c-new', 'p-new']]),
+    })
+    const platform = {
+      defaultBoundary: {
+        id: 'b-1', name: 'System', boundaries: [],
+        components: [
+          { id: 'c-db', name: 'DB', classData: { id: 'cls-generic', name: 'Generic Store' } },
+          { id: 'c-web', name: 'Web', classData: { id: 'cls-web', name: 'Web Server' } },
+          { id: 'p-new', name: 'Cache' },
+        ],
+      },
+    }
+    mockExportModelToSplit.mockResolvedValue({
+      ...makeExportedModel(platform, [], []),
+      attributes: {
+        boundaries: {},
+        components: {
+          'c-db': { elementId: 'c-db', elementType: 'component', elementName: 'DB', classData: { id: 'cls-generic', name: 'Generic Store' }, attributes: { managed: true } },
+          'c-web': { elementId: 'c-web', elementType: 'component', elementName: 'Web', classData: { id: 'cls-web', name: 'Web Server' }, attributes: { tls: true } },
+          'p-new': { elementId: 'p-new', elementType: 'component', elementName: 'Cache', classData: { id: 'cls-generic', name: 'Generic Store' }, attributes: {} },
+        },
+        dataFlows: {},
+        dataItems: {},
+      },
+    })
+
+    const res = await updateModelTool.run({ model_id: 'model-1', directory_path: tmpDir, create_backup: false }, contextWithClient)
+
+    expect(res.success).toBe(true)
+    const written = JSON.parse(await fs.readFile(path.join(tmpDir, 'structure.json'), 'utf-8'))
+    const byId = Object.fromEntries(written.defaultBoundary.components.map((c: any) => [c.id, c]))
+    // Unresolved: the class the user chose stays, with its answers.
+    expect(byId['c-db'].classData).toEqual(pg)
+    expect(JSON.parse(await fs.readFile(path.join(attrDir, 'c-db.json'), 'utf-8'))).toMatchObject({ classData: pg, attributes: { encrypted_at_rest: true } })
+    // Created by this push and unresolved: its local class under the platform id, and no answers it never had.
+    expect(byId['p-new'].classData).toEqual(redis)
+    await expect(fs.access(path.join(attrDir, 'p-new.json'))).rejects.toThrow()
+    // Resolved: rewritten from the platform, as before.
+    expect(byId['c-web'].classData).toEqual({ id: 'cls-web', name: 'Web Server' })
+    expect(JSON.parse(await fs.readFile(path.join(attrDir, 'c-web.json'), 'utf-8'))).toMatchObject({ attributes: { tls: true } })
+    expect(res.data!.warnings.join(' ')).toContain('Component "DB": Could not resolve')
+  })
+
   it('warns that an unreadable attribute file was not pushed', async () => {
     // Distinct from the merge-back warning: this one is about the PUSH. The file
     // is absent from the bag dt-core receives, so the element's attributes never

@@ -468,62 +468,48 @@ private resolveModuleIds = async (modules: any[]): Promise<string[]> => {
 
 ### Class Resolution (3-level priority)
 
-Implemented by `DtImport.resolveClass` in [`dt-import.ts`](../../../packages/dt-core/src/dt-import/dt-import.ts). The resolver walks three priorities in order, then surfaces an unresolved-class warning if all of them miss.
+Implemented by `ClassResolver` in [`class-resolver.ts`](../../../packages/dt-core/src/dt-class/class-resolver.ts), which import (`DtImport.resolveClass`) and update (`DtUpdate`) share. Each run creates one resolver; it fetches the module catalogue once, walks three priorities in order, and returns an unresolved-class warning instead of an id if all of them miss.
 
 ```typescript
-private resolveClass = async (
+resolve = async (
   classData: ExportedClassData,
-  entityType: 'COMPONENT' | 'BOUNDARY' | 'DATA_FLOW' | 'DATA'
-): Promise<string | null> => {
-  if (!classData) return null
+  kind: 'COMPONENT' | 'BOUNDARY' | 'DATA_FLOW' | 'DATA'
+): Promise<{ id: string } | { id: null; warning: string }> => {
+  const modules = await this.catalog()  // fetched once per resolver; [] if the fetch failed
+  const classesOf = CLASSES_OF[kind]    // componentClasses | securityBoundaryClasses | dataFlowClasses | dataClasses
 
   // Priority 1: Match by ID across all modules (id lookup is enough — class
   // ids are globally unique within a deployment).
-  if (classData.id) {
-    const modules = await this.dtModule.getModules()
-    for (const module of modules) {
-      const list = pickListForEntityType(module, entityType)
-      if (list?.some(c => c.id === classData.id)) return classData.id
-    }
+  if (classData.id && modules.some(m => classesOf(m)?.some(c => c.id === classData.id))) {
+    return { id: classData.id }
   }
 
   // Priority 2: Match by module ID + class name. Reaches the right module
   // even when ids have been re-keyed (e.g. by `migrateClassId` or a strict-
   // mode rebind resolved with `adopt-module-id`).
-  if (classData.module?.id && classData.name) {
-    const modules = await this.dtModule.getModules()
-    const owner = modules.find(m => m.id === classData.module!.id)
-    if (owner) {
-      const match = await this.findClassInModule(owner, classData.name, entityType)
-      if (match) return match.id
-    }
-  }
-
   // Priority 3: Match by module name + class name. The graceful fallback
   // when both id and module id have moved.
-  if (classData.module?.name && classData.name) {
-    const modules = await this.dtModule.getModules()
-    const owner = modules.find(m => m.name === classData.module!.name)
-    if (owner) {
-      const match = await this.findClassInModule(owner, classData.name, entityType)
-      if (match) return match.id
-    }
-  }
+  // (Each finds the module, then the class of that kind with that name.)
 
-  // No match — surface as a warning so the import dialog can show it.
-  // Silently dropping a class link was the failure mode that bit us after
-  // class ids became stable+migratable: an export's id may no longer exist
-  // locally (operator ran `migrateClassId`), and Priority 2/3 are unreachable
-  // when the export omitted `module`. Surface it instead.
-  this.warnings.push(
-    `Could not resolve ${entityType.toLowerCase()} class ` +
-    `(id=${classData.id ?? '<missing>'}, name=${classData.name ?? '<missing>'}, ` +
-    `module=${classData.module?.name ?? classData.module?.id ?? '<missing from export>'}); ` +
-    `instance will be created without an IS_INSTANCE_OF edge.`
-  )
-  return null
+  // No match: an export's id may no longer exist here (a migrated id), and
+  // Priority 2/3 are unreachable when the export omitted `module`.
+  return {
+    id: null,
+    warning:
+      `Could not resolve ${kind.toLowerCase()} class ` +
+      `(id=${classData.id ?? '<missing>'}, name=${classData.name ?? '<missing>'}, ` +
+      `module=${classData.module?.name ?? classData.module?.id ?? '<missing from export>'}); ` +
+      `instance will be created without an IS_INSTANCE_OF edge.`,
+  }
 }
 ```
+
+**What each caller does with a miss.** Silently dropping a class link is a real failure mode, so neither caller does:
+
+- **Import** — `DtImport.resolveClass` adds the warning to the import result and creates the element without an `IS_INSTANCE_OF` edge and without its answers. If the catalogue cannot be fetched, every class misses and warns.
+- **Update** — `DtUpdate` resolves every element's class on a copy of the update data after reading the existing model and before its first write. A class found by name replaces the id in the copy. A miss removes the element's `classData`, which leaves its current binding and answers untouched, and adds the warning prefixed with the element (`Component "Orders DB": …`) and ending `it keeps its current class binding and answers.` (for an element the update creates: `it is created without a class, and its answers are not written.`) If the catalogue cannot be fetched, update skips resolution and uses the ids as written.
+
+For how the push paths surface these warnings and the errors that remain, see [Sync Architecture → Class Resolution on Push](../dethereal/SYNC_AND_SOURCE_OF_TRUTH.md#class-resolution-on-push).
 
 **`ExportedClassData` shape** — the disambiguator that makes Priority 2/3 reachable:
 

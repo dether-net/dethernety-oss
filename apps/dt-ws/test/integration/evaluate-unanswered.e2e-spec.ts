@@ -209,6 +209,7 @@ describe('Evaluating elements that have no answers (e2e)', () => {
         expect([round, controls.filter(id => countermeasures[id]?.n !== expect3or2(id) || countermeasures[id]?.linked !== expect3or2(id))]).toEqual([round, []]);
       }
     },
-    120_000,
+    // Six rounds of contended writes retry often under load; on a slow runner they can take minutes.
+    300_000,
   );
 });

@@ -32,6 +32,7 @@ function makeDriver(installRows: ReturnType<typeof rec>[] = []) {
 async function buildService(driver: any): Promise<ModuleManagementService> {
   const embedding: Partial<EmbeddingService> = {
     isEnabled: jest.fn(() => true),
+    whenStartupChecked: jest.fn(async () => undefined),
     getDimensions: jest.fn(() => 3),
     getModel: jest.fn(() => 'nomic-embed-text'),
   };

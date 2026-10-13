@@ -3,6 +3,7 @@ import {
   decideKindPrecheck,
   MatchMitreTechniquesResolverService,
 } from '../match-mitre-techniques-resolver.service';
+import { EmbeddingService } from '../../services/embedding.service';
 
 /**
  * The MITRE vector tier: availability is strict on the active embedding profile, and the exact
@@ -48,5 +49,72 @@ describe('renderVectorCypher', () => {
     expect(cypher).toContain('MATCH (node:MitreAttackMitigation)');
     expect(cypher).not.toContain('OPTIONAL MATCH');
     expect(cypher).toContain('null AS tactic');
+  });
+});
+
+describe('the vector tier embeds a request in one call', () => {
+  /** An embedder whose vector for a text is fixed by the text, so batched and one-at-a-time give the same vectors. */
+  function setup(failOn?: string) {
+    const embedCalls: string[][] = [];
+    const vectorOf = (t: string) => [t.length / 100, 1 - t.length / 100];
+    const embedding = {
+      getModel: () => 'embeddinggemma',
+      getThreshold: () => 0.3,
+      embedBatch: async (texts: string[]) => {
+        embedCalls.push(texts);
+        if (failOn && texts.some((t) => t.includes(failOn))) throw new Error('cannot embed');
+        return texts.map(vectorOf);
+      },
+      /** The service's per-text fallback: one text, through the same recorded call. */
+      async embedOnce(text: string) {
+        return (await this.embedBatch([text]))[0];
+      },
+      embedEach(texts: string[], kind: 'query') {
+        return EmbeddingService.prototype.embedEach.call(this, texts, kind);
+      },
+    };
+    const searched: number[][] = [];
+    const vectorSearch = {
+      cosine: async () => 'score',
+      read: async (_cypher: string, params: { query_vector: number[] }) => {
+        searched.push(params.query_vector);
+        return [{ get: (k: string) => ({ mitreId: 'T9999', name: 'Hit', description: null, tactic: null, tacticOrder: null, similarity: 0.5 } as any)[k] }];
+      },
+    };
+    const svc = new MatchMitreTechniquesResolverService({} as any, {} as any, {} as any, {} as any, embedding as any, vectorSearch as any) as any;
+    svc.computeVectorAvailability = async () => ({ vectorAvailable: true, vectorDisabledReason: null });
+    svc.fetchMitreRecords = async () => [{ mitreId: 'T1003', name: 'OS Credential Dumping', description: 'dump credentials', tactic: null, tacticOrder: null }];
+    const warn = jest.fn();
+    svc.logger.warn = warn;
+    const match = (queries: string[]) => svc.executeMatchMitreTechniques({ queries: queries.map((query) => ({ query })), kind: 'ATTACK_TECHNIQUE' });
+    return { embedCalls, vectorOf, searched, warn, match };
+  }
+
+  it('embeds only the queries the id, name and description tiers left, in one call, in order', async () => {
+    const s = setup();
+    const { result } = await s.match(['T1003', 'steal cached passwords', 'move to another host']);
+    expect(s.embedCalls).toEqual([['steal cached passwords', 'move to another host']]);
+    expect(s.searched).toEqual([s.vectorOf('steal cached passwords'), s.vectorOf('move to another host')]);
+    expect(result.matches.map((m: any) => [m.query, m.candidates[0].matchType])).toEqual([
+      ['T1003', 'EXACT_ID'],
+      ['steal cached passwords', 'VECTOR_SIMILARITY'],
+      ['move to another host', 'VECTOR_SIMILARITY'],
+    ]);
+  });
+
+  it('costs a query that cannot be embedded only its own vector tier, and logs its shape, not its text', async () => {
+    const s = setup('secret');
+    const { result } = await s.match(['steal cached passwords', 'paste my secret token']);
+    expect(s.embedCalls).toEqual([['steal cached passwords', 'paste my secret token'], ['steal cached passwords'], ['paste my secret token']]);
+    expect(s.searched).toEqual([s.vectorOf('steal cached passwords')]);
+    expect(result.unmatched).toEqual(['paste my secret token']);
+    expect(s.warn.mock.calls).toEqual([['Embedding failed for vector tier, skipping', { kind: 'ATTACK_TECHNIQUE', queryLength: 21, error: 'cannot embed' }]]);
+    expect(JSON.stringify(s.warn.mock.calls)).not.toContain('secret');
+  });
+
+  it('embeds nothing when the deterministic tiers answer every query', async () => {
+    const s = setup();
+    await s.match(['T1003', 'credential dumping']);
+    expect(s.embedCalls).toEqual([]);
   });
 });

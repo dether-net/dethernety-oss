@@ -105,6 +105,9 @@ services:
     image: ${OLLAMA_IMAGE}
     environment:
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-embeddinggemma}
+      # Keep the model loaded. Ollama's default unloads it after 5 minutes without a request, and the next
+      # search then waits for it to load again; the platform is this server's only client.
+      OLLAMA_KEEP_ALIVE: "-1"
     volumes:
       - ./data/ollama:/root/.ollama
     healthcheck:

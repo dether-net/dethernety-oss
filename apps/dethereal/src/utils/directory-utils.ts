@@ -134,7 +134,7 @@ export interface ElementInfo {
   id: string
   name: string
   elementType: AttributeElementType
-  classData?: ClassReference
+  classData?: ClassReference | null
 }
 
 /**

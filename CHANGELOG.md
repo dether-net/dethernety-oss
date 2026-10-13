@@ -7,6 +7,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The bundle's embedding server keeps its model loaded.** By default Ollama unloads a model after
+  5 minutes without a request, so the first search after a quiet period waited for the model to load
+  again. The bundle's `compose.yaml` now sets `OLLAMA_KEEP_ALIVE` to `-1` on the `ollama` service:
+  the model stays resident for as long as the server runs instead of unloading after 5 minutes idle,
+  and the backend's start-up check of the HTTP embedder loads it when the platform starts. The cost
+  is memory — the embedding model stays in the `ollama` container's memory the whole time. To
+  upgrade, take the new bundle's `compose.yaml`; no `.env` change is needed.
+- **Class matching and MITRE technique search embed a request's texts in one call.** Class
+  matching embedded each element's description with its own request to the embedding model, one
+  after another, and MITRE technique search did the same for each query that matching by ID, name
+  and description left unanswered, so a request with many elements or queries made as many
+  embedding calls in a row. Each request now embeds all of those texts in one call, then searches
+  per element or query; the results are the same. This cuts the round trips to the embedding server,
+  where every Ollama request carries a fixed cost, and lets the in-process embedder batch the texts.
+  If the embedding server answers the batch with an error, each text is embedded on its own, in one
+  attempt without further retries, so a text that cannot be embedded still skips only its own vector
+  search, with the same logged warning as before. If the server cannot be reached, the request's
+  texts skip their vector search at once, without a further attempt per text.
+
+### Fixed
+
+- **`/health` reports the platform release version.** The detailed response's `version` read
+  `0.0.1` on every deployment of the platform image. It now carries the release version, such as
+  `0.11.0`, or `unknown` when the backend cannot determine it. The production response still carries
+  only the overall status.
+- **`EMBEDDING_SIMILARITY_THRESHOLD` is checked at startup.** The backend accepted any value, so a
+  setting such as `high` or `NaN` silently disabled or broke the similarity floor for class matching
+  and MITRE technique search. It is now checked like the per-corpus `EMBEDDING_THRESHOLD_*`
+  settings: a value that is not a number, or one outside -1 to 1, stops the backend from starting
+  with a message that names the variable. The bundle's default of `0.40` is unaffected.
+- **An empty similarity floor now means unset.** A line such as `EMBEDDING_THRESHOLD_CLASSES=` in
+  `.env` was read as a floor of 0. An empty or blank `EMBEDDING_THRESHOLD_CLASSES`,
+  `EMBEDDING_THRESHOLD_MITRE`, `EMBEDDING_THRESHOLD_COMPONENTS` or `EMBEDDING_SIMILARITY_THRESHOLD`
+  now counts as unset, the same as leaving the line out, so the next setting in line or the
+  embedding profile's value applies. An empty or blank `EMBEDDING_THREADS` likewise means the
+  default of 4 threads; it used to stop the backend from starting.
+- **The HTTP embedder is ready only after its endpoint answers.** The backend reported the HTTP
+  embedder as ready at start without contacting `EMBEDDING_URL`, so a wrong URL, an unreachable
+  server or a model with the wrong dimensions showed as ready in `/health` and searches then failed
+  one by one. At start the backend now embeds one short text and expects a vector of the configured
+  dimensions. If that fails, the embedder is `failed`, the detailed `/health` response gives the
+  reason, and the backend checks the endpoint again every minute until it answers, then becomes
+  ready without a restart. The module install at start waits for the check, at most about half a
+  minute, so the class vectors are embedded on the first start; if the check failed, the modules are
+  marked partial and a later start embeds them.
+- **Modules written in code are no longer reinstalled on every start.** The backend skips installing
+  an unchanged module by comparing its content hash, but only file modules shipped one, so modules
+  written in code, such as the Threat Report (`dethernety-threat-report`) and
+  `dethernety-coverage-tools`, were fully reinstalled at every start. The backend now computes a
+  hash for a module that ships none, from its metadata, the active embedding model and the platform
+  version. Such a module is reinstalled when its metadata changes (a class, a class field, the
+  module version), when the embedding model or its dimensions change, or when the platform is
+  upgraded (once per upgrade), and skipped otherwise. A module that serves its own pre-computed
+  vectors and ships no hash is still installed on every start. `MODULE_LOAD_FORCE=1` still
+  reinstalls every module.
+- **A model update tolerates a class the platform does not have.** An update of an existing model,
+  such as Dethereal's `update_model`, used each element's class id exactly as the model files gave
+  it. A class the platform did not have, for example because its module is not installed there,
+  made the update report failure with a message that named neither the element nor the class, even
+  though the rest of the update had already been written. Update now finds classes as import does:
+  by id, then by module and class name, so a class with a different id on this platform is still
+  found. An element whose class the platform does not have keeps its current class and answers, the
+  update adds a warning that names the element, and the update carries on. The errors that remain,
+  such as a class binding or an answer write the platform refuses, now name the element and give
+  the platform's reason. After the push, Dethereal keeps that element's class and answers in the
+  local model files, so they still show the class you chose. Dethereal users get this fix with
+  Dethereal 0.4.13.
+
 ## [0.11.0] - 2026-10-12
 
 A data item can now record who can write its content and whether it is a credential. Both fields

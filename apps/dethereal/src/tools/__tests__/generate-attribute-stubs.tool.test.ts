@@ -485,7 +485,7 @@ describe('GenerateAttributeStubsTool', () => {
     expect(result.success).toBe(true)
     expect(result.data!.generated).toBe(0)
     expect(result.data!.failed).toHaveLength(1)
-    expect(result.data!.failed[0].element_id).toBe('c-1')
+    expect(result.data!.failed[0]!.element_id).toBe('c-1')
   })
 
   // -------------------------------------------------------------------------
@@ -603,7 +603,7 @@ describe('GenerateAttributeStubsTool', () => {
       expect(result.success).toBe(true)
       expect(result.data!.generated).toBe(0)
       expect(result.data!.failed).toHaveLength(1)
-      expect(result.data!.failed[0].reason).toContain('no cache available')
+      expect(result.data!.failed[0]!.reason).toContain('no cache available')
     })
 
     it('should produce staleness warning when cache is older than 7 days', async () => {
@@ -1069,8 +1069,8 @@ describe('GenerateAttributeStubsTool', () => {
       expect(result.success).toBe(true)
       expect(result.data!.generated).toBe(0)
       expect(result.data!.failed).toHaveLength(1)
-      expect(result.data!.failed[0].element_id).toBe('../../evil')
-      expect(result.data!.failed[0].reason).toContain('disallowed characters')
+      expect(result.data!.failed[0]!.element_id).toBe('../../evil')
+      expect(result.data!.failed[0]!.reason).toContain('disallowed characters')
 
       // attributes/components/../../evil.json would land at <tmpDir>/evil.json
       await expect(fs.access(path.join(tmpDir, 'evil.json'))).rejects.toThrow()
@@ -1088,8 +1088,8 @@ describe('GenerateAttributeStubsTool', () => {
       expect(result.success).toBe(true)
       expect(result.data!.generated).toBe(0)
       expect(result.data!.failed).toHaveLength(1)
-      expect(result.data!.failed[0].element_id).toBe('c-ok')
-      expect(result.data!.failed[0].reason).toContain('disallowed characters')
+      expect(result.data!.failed[0]!.element_id).toBe('c-ok')
+      expect(result.data!.failed[0]!.reason).toContain('disallowed characters')
       expect(mockGetClassById).not.toHaveBeenCalled()
     })
   })

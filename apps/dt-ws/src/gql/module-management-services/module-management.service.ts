@@ -1,6 +1,8 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DTModule, DTMetadata, ClassKind, IdRebindPolicy } from '@dethernety/dt-module';
+import { computedContentHash } from './module-content-hash';
+import { PLATFORM_VERSION } from '../../common/utils/platform-version';
 import { ClassReconciler } from './class-reconciler.service';
 import { ClassIdentityEventLog } from './class-identity-event-log.service';
 import { slugifyModelName } from '@dethernety/dt-module/embedding';
@@ -732,8 +734,8 @@ export class ModuleManagementService {
    * session.executeWrite. The returned Map is handed to upsertModule(...,
    * vectors?) which does no embedding HTTP.
    *
-   * Returns null when embedding is disabled (either via EMBEDDING_ENABLED or
-   * a session-level disableForSession flip). When null is returned, Phase 3
+   * Returns null when embedding is disabled (EMBEDDING_ENABLED is not true).
+   * When null is returned, Phase 3
    * writes no embedding properties and REMOVES any stale ones.
    *
    * Returns 'pending' when embedding is enabled but the embedder is not ready
@@ -752,8 +754,7 @@ export class ModuleManagementService {
     metadata: DTMetadata,
     moduleInstance?: DTModule,
   ): Promise<ResolvedVectors> {
-    // Snapshot isEnabled() once so a mid-call flip of the session-disabled
-    // flag does not produce a half-resolved map.
+    // Read isEnabled() once, so the whole call works from one answer.
     if (!this.embeddingService.isEnabled()) {
       if (!this.embeddingService.isPending()) return null;
       if (!this.loggedEmbedderNotReady) {
@@ -840,9 +841,9 @@ export class ModuleManagementService {
         'document',
         missing.map((m) => m.className),
       );
-      // embedBatch returns null only when embedding became disabled between
-      // the snapshot and the call (e.g. dim-mismatch during bootstrap).
-      // In that case, write no vectors at all.
+      // embedBatch returns null only when the embedder is not enabled, which the
+      // check above rules out and nothing reverses: a ready embedder stays ready.
+      // Kept as a guard, because writing no vectors is the safe answer if that changes.
       if (!fresh) return null;
       for (let i = 0; i < missing.length; i++) {
         resolved.set(missing[i].className, fresh[i]);
@@ -1356,10 +1357,19 @@ export class ModuleManagementService {
    * @param modules Map of module names to DTModule instances
    * @param options Operation options
    */
+  /** The embedder a computed content hash covers: the model and dimensions the class vectors are made with, or off. */
+  private embedderFingerprint(): string {
+    const on = this.embeddingService.isEnabled() || this.embeddingService.isPending?.();
+    return on ? `${this.embeddingService.getModel()}/${this.embeddingService.getDimensions()}` : 'off';
+  }
+
   async updateAllModules(
     modules: Map<string, DTModule>, 
     options: ModuleOperationOptions = {}
   ): Promise<void> {
+    // The HTTP embedder's start-up check is bounded; waiting for it lets a reachable endpoint embed this install
+    // rather than leaving every module partial.
+    await this.embeddingService.whenStartupChecked();
     const startTime = Date.now();
     const session = this.neo4jDriver.session({
       database: this.configService.get('database.name'),
@@ -1409,11 +1419,15 @@ export class ModuleManagementService {
       for (const [moduleName, moduleInstance] of modules) {
         try {
           this.logger.debug('Processing module for update', { moduleName });
-          const metadata = await Promise.resolve(moduleInstance.getMetadata());
-          if (!metadata) {
+          const shipped = await Promise.resolve(moduleInstance.getMetadata());
+          if (!shipped) {
             this.logger.warn('Module metadata not found, skipping', { moduleName });
             continue;
           }
+          // A module that ships no content hash gets one computed from what its install writes (see
+          // computedContentHash). It is stored on the Module node like a shipped one, so the next start can skip it.
+          const computed = shipped.contentHash ? null : computedContentHash(shipped, moduleInstance, this.embedderFingerprint(), PLATFORM_VERSION);
+          const metadata = computed ? { ...shipped, contentHash: computed } : shipped;
 
           // Skip unchanged, authoritatively-installed modules (unless forced).
           if (!options.force && metadata.contentHash) {

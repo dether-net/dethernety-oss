@@ -1,4 +1,5 @@
 import { MatchClassesResolverService } from '../match-classes-resolver.service';
+import { EmbeddingService } from '../../services/embedding.service';
 
 /**
  * Unit pins for the matchClasses componentType filter.
@@ -187,6 +188,9 @@ describe('matchClasses — the vector tier', () => {
     getThreshold: (corpus: string) => (corpus === 'classes' ? 0.35 : 0.3),
     composeElementText: (e: any) => `${e.name}. ${e.description}.`,
     embedBatch: async () => [[0.6, 0.8]],
+    embedEach(texts: string[], kind: 'query') {
+      return EmbeddingService.prototype.embedEach.call(this, texts, kind);
+    },
   };
 
   function vectorSearch(present: boolean, rows: any[] = []) {
@@ -247,6 +251,67 @@ describe('matchClasses — the vector tier', () => {
     const result = await run(svc, { elements: [{ name: 'Zz', description: 'x' }], classLabel: 'COMPONENT' });
     expect(result.vectorAvailable).toBe(false);
   });
+
+  /** An embedder whose vector for a text is fixed by the text, so batched and one-at-a-time give the same vectors. */
+  function perText(failOn?: string) {
+    const calls: string[][] = [];
+    const vectorOf = (t: string) => [t.length / 100, 1 - t.length / 100];
+    return {
+      calls,
+      embedding: {
+        ...embedding,
+        embedBatch: async (texts: string[]) => {
+          calls.push(texts);
+          if (failOn && texts.some((t) => t.includes(failOn))) throw new Error('cannot embed');
+          return texts.map(vectorOf);
+        },
+        /** The service's per-text fallback: one text, through the same recorded call. */
+        async embedOnce(text: string) {
+          return (await this.embedBatch([text]))[0];
+        },
+        embedEach(texts: string[], kind: 'query') {
+          return EmbeddingService.prototype.embedEach.call(this, texts, kind);
+        },
+      },
+      vectorOf,
+    };
+  }
+  const ELEMENTS = [
+    { name: 'A', description: 'serves pages' },
+    { name: 'B' },
+    { name: 'C', description: 'stores customer records' },
+  ];
+
+  it('embeds every element of a request in one call, in order, and leaves out those without a description', async () => {
+    const e = perText();
+    const vs = vectorSearch(true);
+    await run(makeService(CLASSES, { embedding: e.embedding, vectorSearch: vs.stub }), { elements: ELEMENTS, classLabel: 'COMPONENT' });
+    expect(e.calls).toEqual([['A. serves pages.', 'C. stores customer records.']]);
+    // Each element ranks with its own vector: the one a single-text call gives for its text.
+    expect(vs.calls.filter((c) => c.rank).map((c) => c.rank.vector)).toEqual([e.vectorOf('A. serves pages.'), e.vectorOf('C. stores customer records.')]);
+  });
+
+  it('costs a text that cannot be embedded only its own vector tier, and says so once', async () => {
+    const e = perText('customer');
+    const vs = vectorSearch(true);
+    const warn = jest.fn();
+    const svc = makeService(CLASSES, { embedding: e.embedding, vectorSearch: vs.stub });
+    (svc as any).logger.warn = warn;
+    const result = await run(svc, { elements: ELEMENTS, classLabel: 'COMPONENT' });
+    // The batch fails, then each text alone: A embeds, C does not.
+    expect(e.calls).toEqual([['A. serves pages.', 'C. stores customer records.'], ['A. serves pages.'], ['C. stores customer records.']]);
+    expect(vs.calls.filter((c) => c.rank).map((c) => c.rank.vector)).toEqual([e.vectorOf('A. serves pages.')]);
+    expect(warn.mock.calls.filter(([m]) => /Embedding failed/.test(m))).toEqual([
+      ['Embedding failed for vector search, skipping the vector tier', { elementName: 'C', error: 'cannot embed' }],
+    ]);
+    expect(result.matches.map((m: any) => m.elementName).concat(result.unmatched)).toEqual(expect.arrayContaining(['A', 'B', 'C']));
+  });
+
+  it('embeds nothing when no element has a description', async () => {
+    const e = perText();
+    await run(makeService(CLASSES, { embedding: e.embedding, vectorSearch: vectorSearch(true).stub }), { elements: [{ name: 'B' }], classLabel: 'COMPONENT' });
+    expect(e.calls).toEqual([]);
+  });
 });
 
 describe('matchClasses — the vector availability check is cached', () => {
@@ -258,6 +323,9 @@ describe('matchClasses — the vector availability check is cached', () => {
     getThreshold: () => 0.35,
     composeElementText: (e: any) => `${e.name}. ${e.description}.`,
     embedBatch: async () => [[0.6, 0.8]],
+    embedEach(texts: string[], kind: 'query') {
+      return EmbeddingService.prototype.embedEach.call(this, texts, kind);
+    },
   };
   const presence = (answers: Array<boolean | Error>) => {
     const reads: any[] = [];
@@ -355,6 +423,9 @@ describe('matchClasses — exact name merged with the vector tier', () => {
     getThreshold: () => 0.35,
     composeElementText: (e: any) => `${e.name}. ${e.description}.`,
     embedBatch: async () => [[0.6, 0.8]],
+    embedEach(texts: string[], kind: 'query') {
+      return EmbeddingService.prototype.embedEach.call(this, texts, kind);
+    },
   };
   const row = (id: string, name: string, score: number) => ({
     id, name, description: null, category: null, type: 'PROCESS', moduleId: 'm1', moduleName: 'mod', score,

@@ -1339,7 +1339,16 @@ Provides text embeddings and runtime embedding-model metadata for the vector-sim
 #### Key Methods
 
 ##### `isEnabled(): boolean`
-Whether embedding is enabled in the deployment's environment.
+Whether the service can embed right now. True only when both hold: embedding is enabled by configuration (`EMBEDDING_ENABLED`) and the embedder is `ready` — the HTTP embedder once its start-up check has passed, the in-process ONNX embedder once its weights are loaded. Callers read it before every resolve pass.
+
+##### `isPending(): boolean`
+Enabled by configuration, but not `ready` yet: the model is downloading or loading, or it failed to. Vectors already stored stay valid, so a caller keeps them rather than treating this as "disabled".
+
+##### `getState(): EmbedderState`
+The embedder's state: `disabled` (embedding is off by configuration), `downloading`, `loading`, `ready` or `failed`.
+
+##### `whenStartupChecked(): Promise<void>`
+Resolves once the HTTP embedder's start-up check has finished, passed or failed; at once for the ONNX embedder, whose download can take minutes. The start-up module install waits on it, so a reachable endpoint embeds that install's classes.
 
 ##### `getModel(): string`
 The runtime embedding model identifier (compared against each corpus node's `embeddingModel` in the model-coherence precheck).
@@ -1352,9 +1361,6 @@ Minimum cosine similarity for a vector hit to qualify.
 
 ##### `embedBatch(texts: string[]): Promise<number[][] | null>`
 Embeds a batch of strings into vectors.
-
-##### `disableForSession(reason: string): void`
-Disables embedding, and with it the vector tier, for the current process.
 
 ---
 
