@@ -37,6 +37,7 @@ import {
 } from '../utils/directory-utils.js'
 import type { AttributeReadIssue } from '../utils/directory-utils.js'
 import { pathExists } from '../utils/file-utils.js'
+import { keepUnresolvedClasses } from '../utils/unresolved-classes.js'
 import { getConfig, debugLog } from '../config.js'
 import { writeSyncJson, readSyncJson, computeContentHash, collectBaselineElementIds } from '../utils/sync-utils.js'
 
@@ -61,6 +62,11 @@ interface UpdateOutput {
   warnings: string[]
   backup_path?: string
   source_files_updated: boolean
+}
+
+/** An update error with the element it concerns, unless the message already names it. */
+function describeUpdateError(e: { error: string; elementName?: string }): string {
+  return e.elementName && !e.error.includes(`"${e.elementName}"`) ? `${e.elementName}: ${e.error}` : e.error
 }
 
 export class UpdateModelTool extends ClientDependentTool<UpdateInput, UpdateOutput> {
@@ -154,7 +160,7 @@ export class UpdateModelTool extends ClientDependentTool<UpdateInput, UpdateOutp
       if (!result.success) {
         return {
           success: false,
-          error: `Update failed: ${result.errors.map((e: { error: string }) => e.error).join(', ')}`
+          error: `Update failed: ${result.errors.map(describeUpdateError).join('; ')}`
         }
       }
 
@@ -197,6 +203,8 @@ export class UpdateModelTool extends ClientDependentTool<UpdateInput, UpdateOutp
             )
           }
           exportedModel.attributes = mergeAttributes(localAttributes, exportedModel.attributes)
+          // An element whose class the platform does not have keeps the class the user chose, and its answers.
+          keepUnresolvedClasses(exportedModel, localAttributes, result.unresolvedClasses, result.idMapping)
 
           // Re-materialise scope.json from the post-push platform state and strip it from
           // the manifest (scope.json is the single on-disk home — same as the pull path).

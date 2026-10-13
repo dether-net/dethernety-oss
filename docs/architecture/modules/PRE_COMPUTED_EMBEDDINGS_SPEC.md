@@ -325,16 +325,13 @@ text are byte-equal. The shared
 [`embedding-text.ts`](../../../packages/dt-module/src/embedding-text.ts)
 module owns both helpers; runtime and CLI import from the same file.
 
-### Session-level embedding disable
+### No vector index check at install
 
-`EmbeddingService.enabled` is mutable (not `readonly`).
-`embeddingService.disableForSession(reason)` flips the flag, logs once,
-and causes all subsequent `isEnabled()` reads to return false. The flag
-is process-scoped and not flipped back on — a misconfig requires a
-restart to recover, which is the intended safety behavior. Install does
-not check a vector index dimension: class vectors are searched without
-a vector index, so there is no index to create, check or repair before
-writing them.
+Embedding is on or off by configuration (`EMBEDDING_ENABLED`); nothing
+switches it off for the rest of a process. Install does not check a
+vector index dimension: class vectors are searched without a vector
+index, so there is no index to create, check or repair before writing
+them.
 
 ## CLI — `module-manager embed`
 

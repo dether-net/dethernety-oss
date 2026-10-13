@@ -242,11 +242,20 @@ describe('DtUpdate — hard failures route to errors (success reflects them)', (
   it('setElementAttributes failure → error', async () => {
     const dtUpdate = new DtUpdate({} as any) as any;
     seed(dtUpdate);
-    dtUpdate.dtClass.setInstantiationAttributes = vi.fn().mockResolvedValue(false);
+    dtUpdate.dtClass.setInstantiationAttributesWithStaleCount = vi
+      .fn()
+      .mockResolvedValue({ success: false, staleFlippedCount: null, errorMessage: 'class "cls1" not found' });
 
     await dtUpdate.writeElementAttributes('el1', 'cls1', { risk: 'high' }, 'Elem');
 
-    expect(dtUpdate.errors.some((e: any) => e.step === 'set_element_attributes')).toBe(true);
+    expect(dtUpdate.errors).toContainEqual(
+      expect.objectContaining({
+        step: 'set_element_attributes',
+        elementName: 'Elem',
+        elementId: 'el1',
+        error: 'Failed to set the answers of "Elem" for class cls1: class "cls1" not found',
+      }),
+    );
   });
 
   it('model-property write throw → error (not a swallowed warning)', async () => {
@@ -347,8 +356,8 @@ describe('DtUpdate — an element bound to a class is evaluated even with no ans
     const dtUpdate = new DtUpdate({} as any) as any;
     seed(dtUpdate);
     dtUpdate.defaultBoundaryId = 'root-b0';
-    const write = vi.fn().mockResolvedValue(true);
-    dtUpdate.dtClass.setInstantiationAttributes = write;
+    const write = vi.fn().mockResolvedValue({ success: true, staleFlippedCount: 0, errorMessage: null });
+    dtUpdate.dtClass.setInstantiationAttributesWithStaleCount = write;
     dtUpdate.dtClass.changeElementBinding = vi.fn().mockResolvedValue({});
     const flush = () => Promise.all(dtUpdate.attributeWrites.map((w: () => Promise<void>) => w()));
     return { dtUpdate, write, flush };

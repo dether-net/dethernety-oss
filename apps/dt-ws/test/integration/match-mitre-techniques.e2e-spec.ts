@@ -12,6 +12,7 @@
 // resolution, NO_VECTORS empty + partial, topN clamping, kind switching,
 // task-prefix presence, corpus cache hit, MAX_QUERIES + MAX_QUERY_LENGTH.
 
+import { EmbeddingService } from '../../src/gql/services/embedding.service';
 import { ConfigService } from '@nestjs/config';
 import { startMemgraph, clearGraph, MemgraphHandle } from './memgraph-container';
 import { MatchMitreTechniquesResolverService } from '../../src/gql/resolver-services/match-mitre-techniques-resolver.service';
@@ -96,9 +97,14 @@ class StubEmbeddingService {
   getThreshold(): number {
     return THRESHOLD;
   }
-  disableForSession(): void {
-    this.enabled = false;
+  /** The service's per-text fallback: one text, through embedBatch. */
+  async embedOnce(text: string): Promise<number[] | null> {
+    return (await this.embedBatch([text]))?.[0] ?? null;
   }
+  embedEach(texts: string[], kind: 'query') {
+    return EmbeddingService.prototype.embedEach.call(this, texts, kind);
+  }
+
   async embedBatch(texts: string[]): Promise<number[][] | null> {
     this.embedBatchCallCount += 1;
     this.lastEmbedInput = texts;

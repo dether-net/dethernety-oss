@@ -551,8 +551,9 @@ Manages entity classifications, templates, and atomic class / model binding.
 > from `SetInstantiationAttributesResult` so its callers keep binding a boolean.
 > `setInstantiationAttributesWithStaleCount` selects `{ success, staleFlippedCount, errorCode, errorMessage }`
 > and is what the frontend picker save path uses, because it needs `staleFlippedCount` and propagates
-> `errorMessage`. Neither selects the result's `unresolvedReferences`: the UI reads that marker on the
-> exposures and countermeasures themselves.
+> `errorMessage`. The model update (`DtUpdate`, `DtUpdateSplit`) uses it too, for `errorMessage` alone,
+> so a refused answer write names the platform's reason. Neither selects the result's
+> `unresolvedReferences`: the UI reads that marker on the exposures and countermeasures themselves.
 
 ### `changeElementBinding` — atomic class / model binding
 

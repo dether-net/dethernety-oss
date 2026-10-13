@@ -664,50 +664,41 @@ export class MatchMitreTechniquesResolverService {
       `;
   }
 
-  private async vectorSimilarityMatch(
-    query: string,
-    kind: MitreKind,
-    topN: number,
-  ): Promise<{
-    hits: Array<{ record: MitreRecord; similarity: number }>;
-    embeddingMs: number;
-    vectorSearchMs: number;
-  }> {
-    if (!query.trim()) {
-      return { hits: [], embeddingMs: 0, vectorSearchMs: 0 };
-    }
-
-    const embedStart = Date.now();
-    let vectors: number[][] | null;
-    try {
-      vectors = await this.embeddingService.embedBatch([query], 'query');
-    } catch (err) {
+  /**
+   * The query vectors of the queries the deterministic tiers left, in one embed call; null for a query whose text
+   * could not be embedded (logged by shape only; it stays unmatched by the vector tier).
+   */
+  private async queryVectors(queries: string[], kind: MitreKind): Promise<{ vectors: Array<number[] | null>; embeddingMs: number }> {
+    const start = Date.now();
+    const { vectors, failures } = await this.embeddingService.embedEach(queries, 'query');
+    for (const f of failures) {
       // Don't log the raw query — picker fires per keystroke, so an
       // embedding-service hiccup would mass-log attacker-influenced text
       // (potential PII like credentials pasted into the picker). Log
       // shape only.
       this.logger.warn('Embedding failed for vector tier, skipping', {
         kind,
-        queryLength: query.length,
-        error: safeErrorMessage(err),
+        queryLength: queries[f.index].length,
+        error: safeErrorMessage(f.error),
       });
-      return {
-        hits: [],
-        embeddingMs: Date.now() - embedStart,
-        vectorSearchMs: 0,
-      };
     }
-    const embeddingMs = Date.now() - embedStart;
-    if (!vectors || vectors.length === 0) {
-      return { hits: [], embeddingMs, vectorSearchMs: 0 };
-    }
+    return { vectors, embeddingMs: Date.now() - start };
+  }
 
+  private async vectorSimilarityMatch(
+    vector: number[],
+    kind: MitreKind,
+    topN: number,
+  ): Promise<{
+    hits: Array<{ record: MitreRecord; similarity: number }>;
+    vectorSearchMs: number;
+  }> {
     const cypher = this.renderVectorCypher(kind, await this.vectorSearch.cosine('node.embedding', '$query_vector'));
     const searchStart = Date.now();
     const records = await this.vectorSearch.read(cypher, {
-      query_vector: vectors[0],
+      query_vector: vector,
       profileId: this.embeddingService.getModel(),
-      dims: neo4j.int(vectors[0].length),
+      dims: neo4j.int(vector.length),
       threshold: this.embeddingService.getThreshold('mitre'),
       k: neo4j.int(clamp(Math.floor(Number(topN)), 1, MAX_TOP_N)),
     });
@@ -721,7 +712,7 @@ export class MatchMitreTechniquesResolverService {
       },
       similarity: Number(rec.get('similarity')),
     }));
-    return { hits, embeddingMs, vectorSearchMs: Date.now() - searchStart };
+    return { hits, vectorSearchMs: Date.now() - searchStart };
   }
 
   // --- Candidate builder ---
@@ -777,6 +768,8 @@ export class MatchMitreTechniquesResolverService {
     let embeddingMs = 0;
     let vectorSearchMs = 0;
 
+    // Tiers 1–4 for every query first; the vector tier then embeds what they left in one call.
+    const settled: Array<{ query: string; trimmed: string; candidates: MitreCandidate[]; matched: boolean }> = [];
     for (const q of input.queries) {
       const trimmed = q.query.trim();
       let candidates: MitreCandidate[] = [];
@@ -828,24 +821,33 @@ export class MatchMitreTechniquesResolverService {
         }
       }
       deterministicMs += Date.now() - detStart;
+      settled.push({ query: q.query, trimmed, candidates, matched });
+    }
 
-      // Tier 5: VECTOR_SIMILARITY
-      if (!matched && vectorAvailable && trimmed.length > 0) {
-        const vec = await this.vectorSimilarityMatch(trimmed, kind, topN);
-        embeddingMs += vec.embeddingMs;
+    // Tier 5: VECTOR_SIMILARITY, for the queries the deterministic tiers left, embedded in one call.
+    const left = settled.filter((r) => !r.matched && vectorAvailable && r.trimmed.length > 0);
+    if (left.length > 0) {
+      const { vectors, embeddingMs: ms } = await this.queryVectors(left.map((r) => r.trimmed), kind);
+      embeddingMs += ms;
+      for (const [k, r] of left.entries()) {
+        const vector = vectors[k];
+        if (!vector) continue;
+        const vec = await this.vectorSimilarityMatch(vector, kind, topN);
         vectorSearchMs += vec.vectorSearchMs;
         if (vec.hits.length > 0) {
-          candidates = vec.hits.map(({ record, similarity }) =>
+          r.candidates = vec.hits.map(({ record, similarity }) =>
             this.toCandidate(record, kind, 'VECTOR_SIMILARITY', similarity),
           );
-          matched = true;
+          r.matched = true;
         }
       }
+    }
 
-      if (matched) {
-        matches.push({ query: q.query, candidates });
+    for (const r of settled) {
+      if (r.matched) {
+        matches.push({ query: r.query, candidates: r.candidates });
       } else {
-        unmatched.push(q.query);
+        unmatched.push(r.query);
       }
     }
 

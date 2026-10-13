@@ -397,7 +397,7 @@ export class GenerateAttributeStubsTool extends ClientDependentTool<GenerateStub
     const idFilter = elementIds ? new Set(elementIds) : null
 
     const addElements = (
-      source: Array<{ id: string; name: string; classData?: ClassReference }>,
+      source: Array<{ id: string; name: string; classData?: ClassReference | null }>,
       elementType: ClassifiedElement['elementType'],
     ) => {
       for (const el of source) {

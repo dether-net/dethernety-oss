@@ -10,6 +10,7 @@ import { prepareConduitsForWrite } from '../dt-boundary/boundary-zoning-utils.js
 import { DtDataflow } from '../dt-dataflow/dt-dataflow.js'
 import { DtDataItem } from '../dt-dataitem/dt-dataitem.js'
 import { DtModule } from '../dt-module/dt-module.js'
+import { ClassResolver, ResolvableClassKind } from '../dt-class/class-resolver.js'
 import { DtControl } from '../dt-control/dt-control.js'
 import { validateMonolithicModel } from '../schemas/model.schema.js'
 
@@ -76,7 +77,7 @@ export class DtImport {
   // each element against a fresh fetch is the per-element DoS this replaces). `null` = not
   // yet loaded; an empty array is a valid "loaded but nothing/failed" state (a down catalog
   // is down for the whole import — retrying per element is the pathology, not the fix).
-  private cachedModules: Module[] | null = null
+  private classResolver = new ClassResolver(() => this.dtModule.getModules())
   private cachedControls: any[] | null = null
   private errors: ImportError[] = []
   private warnings: string[] = []
@@ -124,7 +125,7 @@ export class DtImport {
         // Reset state
         this.idMapping.clear()
         this.elementParent.clear()
-        this.cachedModules = null
+        this.classResolver = new ClassResolver(() => this.dtModule.getModules())
         this.cachedControls = null
         this.errors = []
         this.warnings = []
@@ -407,20 +408,9 @@ export class DtImport {
     }
   }
 
-  // Fetch the module catalog once per import and reuse it. getModules() is `network-only`
-  // and returns every class of every module; resolving each element against a fresh fetch
-  // (up to 3x per class-bearing element in resolveClass) is the perf-cliff / DoS this fixes.
-  private getCachedModules = async (): Promise<Module[]> => {
-    if (this.cachedModules === null) {
-      try {
-        this.cachedModules = await this.dtModule.getModules()
-      } catch {
-        // Catalog unavailable for this import — cache empty so we don't hammer it per element.
-        this.cachedModules = []
-      }
-    }
-    return this.cachedModules
-  }
+  // The module catalog, fetched once per import (see ClassResolver): getModules() is `network-only` and returns
+  // every class of every module, so a fetch per element is the perf-cliff this avoids.
+  private getCachedModules = (): Promise<Module[]> => this.classResolver.catalog()
 
   private resolveModuleIds = async (modules: any[]): Promise<string[]> => {
     const moduleIds: string[] = []
@@ -1188,128 +1178,12 @@ export class DtImport {
     return this.resolveClass(classData, 'DATA')
   }
 
-  private resolveClass = async (classData: any, entityType: string): Promise<string | null> => {
+  private resolveClass = async (classData: any, entityType: ResolvableClassKind): Promise<string | null> => {
     if (!classData) return null
-
-    try {
-
-      // Priority 1: Match by ID
-      if (classData.id) {
-        // Try to verify the class exists by checking all modules
-        try {
-          const modules = await this.getCachedModules()
-
-          
-          for (const module of modules) {
-            let classFound = null
-            
-            switch (entityType) {
-              case 'COMPONENT':
-                if (module.componentClasses) {
-                  classFound = module.componentClasses.find(c => c.id === classData.id)
-                }
-                break
-              case 'BOUNDARY':
-                if (module.securityBoundaryClasses) {
-                  classFound = module.securityBoundaryClasses.find(c => c.id === classData.id)
-                }
-                break
-              case 'DATA_FLOW':
-                if (module.dataFlowClasses) {
-                  classFound = module.dataFlowClasses.find(c => c.id === classData.id)
-                }
-                break
-              case 'DATA':
-                if (module.dataClasses) {
-                  classFound = module.dataClasses.find(c => c.id === classData.id)
-                }
-                break
-            }
-            
-            if (classFound) {
-              return classData.id
-            }
-          }
-        } catch (error) {
-          // Class doesn't exist, continue to name-based matching
-        }
-      }
-
-      // Priority 2: Match by module ID and class name
-      if (classData.module?.id && classData.name) {
-        const modules = await this.getCachedModules()
-        const matchingModule = modules.find(m => m.id === classData.module.id)
-        
-        if (matchingModule) {
-          const matchingClass = await this.findClassInModule(matchingModule, classData.name, entityType)
-          if (matchingClass) {
-            return matchingClass.id
-          }
-        }
-      }
-
-      // Priority 3: Match by module name and class name
-      if (classData.module?.name && classData.name) {
-        const modules = await this.getCachedModules()
-        const matchingModule = modules.find(m => m.name === classData.module.name)
-
-        if (matchingModule) {
-          const matchingClass = await this.findClassInModule(matchingModule, classData.name, entityType)
-          if (matchingClass) {
-            return matchingClass.id
-          }
-        }
-      }
-
-      // Silently dropping a class link is a real failure mode now that class
-      // ids are stable + migratable: an export's id may no longer exist locally
-      // (operator ran `migrateClassId`), and Priority 2/3 are unreachable if the
-      // export omitted `module`. Surface it so the import dialog can show it as
-      // a warning.
-      const idHint = classData.id ? `id=${classData.id}` : 'id=<missing>'
-      const nameHint = classData.name ? `name=${classData.name}` : 'name=<missing>'
-      const moduleHint = classData.module
-        ? `module=${classData.module.name || classData.module.id}`
-        : 'module=<missing from export>'
-      this.warnings.push(
-        `Could not resolve ${entityType.toLowerCase()} class (${idHint}, ${nameHint}, ${moduleHint}); instance will be created without an IS_INSTANCE_OF edge.`
-      )
-      return null
-
-    } catch (error) {
-      this.warnings.push(`Could not resolve ${entityType.toLowerCase()} class ${classData.name || classData.id}: ${error}`)
-      return null
-    }
-  }
-
-  private findClassInModule = async (module: Module, className: string, entityType: string): Promise<Class | null> => {
-    try {
-      switch (entityType) {
-        case 'COMPONENT':
-          if (module.componentClasses) {
-            return module.componentClasses.find(c => c.name === className) || null
-          }
-          break
-        case 'BOUNDARY':
-          if (module.securityBoundaryClasses) {
-            return module.securityBoundaryClasses.find(c => c.name === className) || null
-          }
-          break
-        case 'DATA_FLOW':
-          if (module.dataFlowClasses) {
-            return module.dataFlowClasses.find(c => c.name === className) || null
-          }
-          break
-        case 'DATA':
-          if (module.dataClasses) {
-            return module.dataClasses.find(c => c.name === className) || null
-          }
-          break
-      }
-      return null
-    } catch (error) {
-      return null
-    }
+    const resolved = await this.classResolver.resolve(classData, entityType)
+    // Silently dropping a class link is a real failure mode: surface it so the import dialog shows it as a warning.
+    if (resolved.warning) this.warnings.push(resolved.warning)
+    return resolved.id
   }
 
   private setElementControls = async (elementId: string, controls: any[]): Promise<void> => {

@@ -479,6 +479,7 @@ The service has two runtimes, chosen by the profile:
   │    getModel()                 → string            │
   │    getThreshold(corpus)       → number | null     │
   │    embedBatch(texts, kind)    → number[][] | null │
+  │    embedEach(texts, kind)     → vectors, failures │
   │    composeClassText(cls)      → string            │
   │    composeElementText(elem)   → string            │
   │                                                   │
@@ -551,13 +552,13 @@ The embedding pipeline integrates into the existing `ModuleManagementService.ups
 
 ### Query-time element embedding
 
-When `match_classes` runs the vector tier for an element with a description, the resolver embeds the query element on the fly:
+When `match_classes` runs the vector tier, the resolver embeds the request's elements on the fly, before the per-element tiers:
 
-1. Compose embedding text via `EmbeddingService.composeElementText(element)` -- produces `"{name}. {description}. Type: {type}."`
-2. Call `EmbeddingService.embedBatch([text], 'query')` to get the query vector
-3. Rank the label's classes against the query vector with the exact cosine search (see [Vector search](#vector-search)), keeping those at or above `getThreshold('classes')`
+1. Compose embedding text for every element with a description via `EmbeddingService.composeElementText(element)` -- produces `"{name}. {description}. Type: {type}."`
+2. Call `EmbeddingService.embedEach(texts, 'query')` to get every element's query vector in one embedding call
+3. For each element, rank the label's classes against its query vector with the exact cosine search (see [Vector search](#vector-search)), keeping those at or above `getThreshold('classes')`
 
-This is a per-element call at query time, not a batch. Every element with a description triggers an embedding call, including elements that also have an exact-name hit. If the embedding service is unavailable at query time, the vector tier is skipped (same as when embeddings are disabled): exact-name hits stand alone, and an element without one falls through to name containment and the type-filtered heuristic.
+This is one batch call per request, not one call per element. Every element with a description is embedded, including elements that also have an exact-name hit. If the batch fails with a response (an error status, a malformed body) or returns the wrong number of vectors, `embedEach` embeds each text on its own, in one attempt without the HTTP retries the batch already used, so an element whose text cannot be embedded loses only its own vector tier (logged warning). A batch of one is not tried again, and a failure with no response (the endpoint unreachable, a timeout) fails every element's vector tier at once, since the HTTP embedder has already retried it. If the embedding service is unavailable at query time, the vector tier is skipped (same as when embeddings are disabled): exact-name hits stand alone, and an element without one falls through to name containment and the type-filtered heuristic.
 
 ### Model version tracking and re-indexing
 

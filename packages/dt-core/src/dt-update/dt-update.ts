@@ -18,6 +18,7 @@ import { flattenConduits, prepareConduitsForWrite } from '../dt-boundary/boundar
 import { DtDataflow } from '../dt-dataflow/dt-dataflow.js'
 import { DtDataItem } from '../dt-dataitem/dt-dataitem.js'
 import { DtModule } from '../dt-module/dt-module.js'
+import { ClassResolver, ResolvableClassKind } from '../dt-class/class-resolver.js'
 import { DtControl } from '../dt-control/dt-control.js'
 
 export interface UpdateProgress {
@@ -41,6 +42,16 @@ export interface UpdateStats {
   deleted: number
 }
 
+/** An element whose class the platform does not have: the update left its binding and answers as they were. */
+export interface UnresolvedClass {
+  /** The element's id in the update data (a reference id for an element this update created). */
+  elementId: string | undefined
+  elementName?: string
+  kind: ResolvableClassKind
+  /** The class reference as the update data gave it. */
+  classData: unknown
+}
+
 export interface UpdateResult {
   success: boolean
   model?: Model | null
@@ -48,6 +59,8 @@ export interface UpdateResult {
   warnings: string[]
   progress?: UpdateProgress
   stats: UpdateStats
+  /** Elements whose class this platform does not have (see UnresolvedClass); a warning names each. */
+  unresolvedClasses?: UnresolvedClass[]
 }
 
 export interface UpdateOptions {
@@ -57,6 +70,12 @@ export interface UpdateOptions {
 
 // Attribute writes run this many at a time once every element is written (see attributeWrites).
 const ATTRIBUTE_WRITE_CONCURRENCY = 4
+
+/** An update error's element name: the element's name, or its id when it has none; none when it has neither. */
+const labelOf = (name: string | undefined | null, id: string | undefined | null): string | undefined => name || id || undefined
+/** How a message names an element: its name or id, quoted; with neither, plainly, since that is not a name. */
+const quotedLabel = (name: string | undefined | null, id: string | undefined | null): string =>
+  name || id ? `"${name || id}"` : 'an unnamed element'
 
 export class DtUpdate {
   private apolloClient: Apollo.ApolloClient
@@ -74,6 +93,7 @@ export class DtUpdate {
   private idMapping: Map<string, string> = new Map()
   private errors: UpdateError[] = []
   private warnings: string[] = []
+  private unresolvedClasses: UnresolvedClass[] = []
   // Attribute writes queued while the elements are written. Each write also evaluates the element's class, and the
   // platform holds every write for a short debounce, so they run a few at a time once all elements are written
   // rather than one by one.
@@ -132,6 +152,7 @@ export class DtUpdate {
     this.idMapping = new Map()
     this.errors = []
     this.warnings = []
+    this.unresolvedClasses = []
     this.attributeWrites = []
     this.currentModelId = ''
     this.defaultBoundaryId = ''
@@ -262,6 +283,11 @@ export class DtUpdate {
         }
       }
 
+      // Each element's class resolved as import does, before the first write; a class this platform does not have
+      // leaves an existing element's binding and answers as they are, with a warning, instead of failing an update
+      // that has already landed. It runs after the fetch, which tells existing elements from new ones.
+      jsonData = await this.resolveClasses(jsonData)
+
       this.updateProgress(3, 'Updating model properties')
 
       // Step 3: Update model properties (name/description/controls/modules/folder/scope)
@@ -342,6 +368,7 @@ export class DtUpdate {
         model: updatedModel,
         errors: this.errors,
         warnings: this.warnings,
+        unresolvedClasses: this.unresolvedClasses,
         progress: this.progress,
         stats: this.stats
       }
@@ -355,6 +382,7 @@ export class DtUpdate {
         success: false,
         errors: this.errors,
         warnings: this.warnings,
+        unresolvedClasses: this.unresolvedClasses,
         progress: this.progress,
         stats: this.stats
       }
@@ -681,12 +709,12 @@ export class DtUpdate {
       // NONE rebind (idempotent — the platform sweeps SYSTEM-derived exposures and
       // keeps user-authored ones). Absent classData leaves the binding untouched.
       if (boundaryData.classData?.id) {
-        await this.dtClass.changeElementBinding({
+        await this.changeBinding(boundaryData.name, {
           elementId: this.defaultBoundaryId,
           target: { kind: 'CLASS', classIds: [boundaryData.classData.id] }
         })
       } else if (boundaryData.classData === null) {
-        await this.dtClass.changeElementBinding({
+        await this.changeBinding(boundaryData.name, {
           elementId: this.defaultBoundaryId,
           target: { kind: 'NONE' }
         })
@@ -730,8 +758,9 @@ export class DtUpdate {
           this.idMapping.set(itemId, itemId)
           this.processedDataitemIds.add(itemId)
           // updateDataItem bound the class; queue its attributes, even none, as for every other element kind: the
-          // write is what persists edited answers and evaluates a class bound with no answers yet
-          if (itemData.classData?.id) {
+          // write is what persists edited answers and evaluates a class bound with no answers yet. A refused binding
+          // writes no answers against a class the item is not bound to.
+          if (itemData.classData?.id && result.residualOk) {
             await this.setElementAttributes(itemId, itemData.classData.id, itemData.attributes ?? {}, itemData.name)
           }
           // updateDataItem never throws — it encodes failure as residualOk:false.
@@ -742,11 +771,11 @@ export class DtUpdate {
           } else {
             this.errors.push({
               step: 'update_data_items',
-              elementName: itemData.name || 'unknown',
+              elementName: labelOf(itemData.name, itemId),
               elementId: itemId,
               error: result.bindingResult?.errorCode
-                ? `Data item update failed (binding: ${result.bindingResult.errorCode})`
-                : 'Data item update failed (residual mutation did not persist)'
+                ? `Data item ${quotedLabel(itemData.name, itemId)} update failed (binding: ${result.bindingResult.errorCode}${result.bindingResult.errorMessage ? `: ${result.bindingResult.errorMessage}` : ''})`
+                : `Data item ${quotedLabel(itemData.name, itemId)} update failed (residual mutation did not persist)`
             })
           }
         } else {
@@ -912,21 +941,21 @@ export class DtUpdate {
       // Update class if provided. Explicit null unassigns (NONE rebind, idempotent);
       // absent classData leaves the binding untouched.
       if (boundaryData.classData?.id) {
-        await this.dtClass.changeElementBinding({
+        const bound = await this.changeBinding(boundaryData.name, {
           elementId: boundaryId,
           target: { kind: 'CLASS', classIds: [boundaryData.classData.id] }
         })
 
         // Set instantiation attributes, even none: re-binding the same class changes nothing, so this write is
         // what evaluates an element that has no answers yet
-        await this.setElementAttributes(
+        if (bound) await this.setElementAttributes(
           boundaryId,
           boundaryData.classData.id,
           boundaryData.attributes ?? {},
           boundaryData.name
         )
       } else if (boundaryData.classData === null) {
-        await this.dtClass.changeElementBinding({
+        await this.changeBinding(boundaryData.name, {
           elementId: boundaryId,
           target: { kind: 'NONE' }
         })
@@ -1208,21 +1237,21 @@ export class DtUpdate {
       // Update class if provided. Explicit null unassigns (NONE rebind, idempotent);
       // absent classData leaves the binding untouched.
       if (componentData.classData?.id) {
-        await this.dtClass.changeElementBinding({
+        const bound = await this.changeBinding(componentData.name, {
           elementId: componentId,
           target: { kind: 'CLASS', classIds: [componentData.classData.id] }
         })
 
         // Set instantiation attributes, even none: re-binding the same class changes nothing, so this write is
         // what evaluates an element that has no answers yet
-        await this.setElementAttributes(
+        if (bound) await this.setElementAttributes(
           componentId,
           componentData.classData.id,
           componentData.attributes ?? {},
           componentData.name
         )
       } else if (componentData.classData === null) {
-        await this.dtClass.changeElementBinding({
+        await this.changeBinding(componentData.name, {
           elementId: componentId,
           target: { kind: 'NONE' }
         })
@@ -1413,21 +1442,21 @@ export class DtUpdate {
       // Update class if provided. Explicit null unassigns (NONE rebind, idempotent);
       // absent classData leaves the binding untouched.
       if (flowData.classData?.id) {
-        await this.dtClass.changeElementBinding({
+        const bound = await this.changeBinding(flowData.name, {
           elementId: flowId,
           target: { kind: 'CLASS', classIds: [flowData.classData.id] }
         })
 
         // Set instantiation attributes, even none: re-binding the same class changes nothing, so this write is
         // what evaluates an element that has no answers yet
-        await this.setElementAttributes(
+        if (bound) await this.setElementAttributes(
           flowId,
           flowData.classData.id,
           flowData.attributes ?? {},
           flowData.name
         )
       } else if (flowData.classData === null) {
-        await this.dtClass.changeElementBinding({
+        await this.changeBinding(flowData.name, {
           elementId: flowId,
           target: { kind: 'NONE' }
         })
@@ -1576,6 +1605,75 @@ export class DtUpdate {
     }
   }
 
+  /**
+   * A copy of the update data with every element's class id resolved on this platform: by id, then by module and
+   * class name, as import does. An element whose class cannot be resolved gets no classData, which leaves its
+   * binding and its answers as they are, and a warning that names it. When the module catalogue cannot be fetched
+   * the ids are used as given.
+   */
+  private resolveClasses = async (jsonData: any): Promise<any> => {
+    const resolver = new ClassResolver(() => this.dtModule.getModules())
+    if (!(await resolver.catalogAvailable())) return jsonData
+    const data = structuredClone(jsonData)
+    const existing: Record<ResolvableClassKind, Set<string>> = {
+      BOUNDARY: new Set([...this.existingBoundaryIds, this.defaultBoundaryId]),
+      COMPONENT: this.existingComponentIds,
+      DATA_FLOW: this.existingDataflowIds,
+      DATA: this.existingDataitemIds,
+    }
+    const resolve = async (element: any, kind: ResolvableClassKind, what: string): Promise<void> => {
+      if (!element?.classData?.id && !element?.classData?.name) return
+      const resolved = await resolver.resolve(element.classData, kind)
+      if (resolved.id) {
+        element.classData = { ...element.classData, id: resolved.id }
+        return
+      }
+      const outcome = element.id && existing[kind].has(element.id)
+        ? 'it keeps its current class binding and answers.'
+        : 'it is created without a class, and its answers are not written.'
+      this.warnings.push(`${what} ${quotedLabel(element.name, element.id)}: ${resolved.unresolved}; ${outcome}`)
+      this.unresolvedClasses.push({ elementId: element.id, elementName: element.name, kind, classData: element.classData })
+      delete element.classData
+    }
+    const walk = async (boundary: any): Promise<void> => {
+      for (const child of boundary?.boundaries ?? []) {
+        await resolve(child, 'BOUNDARY', 'Boundary')
+        await walk(child)
+      }
+      for (const component of boundary?.components ?? []) await resolve(component, 'COMPONENT', 'Component')
+    }
+    if (data.defaultBoundary) {
+      await resolve(data.defaultBoundary, 'BOUNDARY', 'Boundary')
+      await walk(data.defaultBoundary)
+    }
+    for (const flow of data.dataFlows ?? []) await resolve(flow, 'DATA_FLOW', 'Data flow')
+    for (const item of data.dataItems ?? []) await resolve(item, 'DATA', 'Data item')
+    return data
+  }
+
+  /**
+   * Changes an element's class binding. A refusal is an error that names the element and the platform's reason;
+   * it returns false so the caller does not also write answers against a class the element is not bound to.
+   */
+  private changeBinding = async (
+    elementName: string | undefined,
+    args: Parameters<DtClass['changeElementBinding']>[0]
+  ): Promise<boolean> => {
+    const result = await this.dtClass.changeElementBinding(args)
+    if (result && result.success === false) {
+      const target = args.target.kind === 'CLASS' ? `class ${args.target.classIds.join(', ')}` : 'no class'
+      const label = labelOf(elementName, args.elementId)
+      this.errors.push({
+        step: 'change_element_binding',
+        elementName: label,
+        elementId: args.elementId,
+        error: `Could not bind ${quotedLabel(elementName, args.elementId)} to ${target} (${result.errorCode ?? 'error'})${result.errorMessage ? `: ${result.errorMessage}` : ''}`
+      })
+      return false
+    }
+    return true
+  }
+
   /** Queues the attribute write for `elementId`; updateModel runs the queue once every element is written. */
   private setElementAttributes = async (
     elementId: string,
@@ -1600,8 +1698,8 @@ export class DtUpdate {
       // Flatten attributes before setting them
       const flatAttributes = DtUtils.flattenProperties(attributes)
 
-      // Use DtClass to set instantiation attributes
-      const success = await this.dtClass.setInstantiationAttributes({
+      // The variant that carries the platform's diagnosis (which class, which element, why) on failure
+      const { success, errorMessage } = await this.dtClass.setInstantiationAttributesWithStaleCount({
         componentId: elementId,
         classId,
         attributes: flatAttributes
@@ -1612,18 +1710,18 @@ export class DtUpdate {
         // `success` reflects it (the class-instantiation attributes did not persist).
         this.errors.push({
           step: 'set_element_attributes',
-          elementName,
+          elementName: labelOf(elementName, elementId),
           elementId,
-          error: 'Failed to set instantiation attributes'
+          error: `Failed to set the answers of ${quotedLabel(elementName, elementId)} for class ${classId}${errorMessage ? `: ${errorMessage}` : ''}`
         })
       }
 
     } catch (e) {
       this.errors.push({
         step: 'set_element_attributes',
-        elementName,
+        elementName: labelOf(elementName, elementId),
         elementId,
-        error: (e as Error).message
+        error: `Failed to set the answers of ${quotedLabel(elementName, elementId)} for class ${classId}: ${(e as Error).message}`
       })
     }
   }

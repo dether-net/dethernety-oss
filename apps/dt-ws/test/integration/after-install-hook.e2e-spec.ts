@@ -22,6 +22,7 @@ const configStub: any = {
 const embeddingStub: any = {
   isEnabled: () => false,
   isPending: () => false,
+  whenStartupChecked: async () => undefined,
   getModel: () => '',
   getDimensions: () => 0,
   composeClassText: () => '',

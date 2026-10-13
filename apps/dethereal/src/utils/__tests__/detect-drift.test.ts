@@ -58,7 +58,7 @@ function runScript(dir: string): Result {
     })
     return { status: 0, stdout, stderr: '' }
   } catch (err) {
-    const e = err as ExecFileException & { stdout?: string; stderr?: string }
+    const e = err as ExecFileException & { status?: number | null; stdout?: string; stderr?: string }
     return {
       status: e.status ?? 1,
       stdout: (e.stdout ?? '').toString(),

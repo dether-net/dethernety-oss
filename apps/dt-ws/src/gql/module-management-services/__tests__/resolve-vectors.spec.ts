@@ -162,7 +162,7 @@ describe('ModuleManagementService.resolveVectors', () => {
     expect(embedding.embedBatch).toHaveBeenCalled();
   });
 
-  it('returns null when embedBatch returns null (session disabled mid-call)', async () => {
+  it('writes no vectors (null) should embedBatch return null after the enabled check', async () => {
     const module = { getMetadata: () => ({}), getEmbedding: () => null };
     const { svc } = await buildService({
       embedding: { embedBatch: jest.fn(async () => null) },

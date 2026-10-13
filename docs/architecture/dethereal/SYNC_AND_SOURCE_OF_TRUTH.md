@@ -79,7 +79,7 @@ However, the architecture must prepare for both directions because:
 
 **Support level**: Same as Scenario 2 plus:
 - No git history on pulled model. Suggest first commit after pull.
-- Module/class mismatch possible across platform instances. The manifest stores module ID + name but not version.
+- Module/class mismatch possible across platform instances. The manifest stores module ID + name but not version. Push finds each class by id, then by module and class name, and leaves an element whose class the target platform lacks as it is, with a warning — see [Class Resolution on Push](#class-resolution-on-push).
 
 ---
 
@@ -583,6 +583,30 @@ For compliance (SOC2, PCI-DSS), auditors need both: git for "who approved the mo
 *Element IDs are re-keyed everywhere they appear on disk.* A push mints platform IDs for elements that only existed locally, and the re-export writes the model files with them. Two sidecars under `.dethereal/` are keyed by element ID and must follow, or they orphan silently: `template-fields/<element-id>.json` (reclassification cleanup looks the manifest up by the element's *current* ID, so an orphaned set always misses) and `state.json`'s `staleElements[]` (the re-enrichment queue, which otherwise holds pre-push IDs that resolve to nothing). This runs on the `update_model` path as well as first create/import — both are ID-remap sites. Unmapped IDs are left alone, every other key in `state.json` is preserved, and the whole re-key is best-effort: these are local optimisations, never model data, so a failure here warns but never reports a successful push as failed.
 
 *An attribute file that cannot be read is preserved, not destroyed.* The push path re-reads `attributes/` to merge local values the platform does not have. A file that fails to parse — or a flat-format file with no structure context to resolve it — is absent from that merge, and the write that follows would then treat it as stale and unlink it, destroying enrichment that was never pushed. Read failures are instead collected and surfaced as push warnings naming the file, the reason, and where to restore it from (the pre-push backup, or version control if none was taken). The same set marks the file protected: **no write path may write over it, rename over it, or unlink it.** Comparison is case-insensitive, because on APFS and NTFS a file protected under one spelling would otherwise be truncated through its case-folded name. The tradeoff is deliberate — over-protection keeps a stale file and says so; under-protection destroys a live one in silence.
+
+### Class Resolution on Push
+
+Both push paths resolve each element's `classData` on the target platform with one dt-core resolver, `ClassResolver` in [`class-resolver.ts`](../../../packages/dt-core/src/dt-class/class-resolver.ts): by id, then by module id + class name, then by module name + class name (see [Import/Export → Class Resolution](../dt-core/IMPORT_EXPORT.md#class-resolution-3-level-priority)). A class found by name is used under this platform's id, so a model exported from another instance binds even when the class ids differ. The paths differ only in what a miss means:
+
+| Path | Element whose class is not found | Warning |
+|------|----------------------------------|---------|
+| `import_model` (first push) | Created without a class; its answers are not written | `Could not resolve component class (id=…, name=…, module=…); instance will be created without an IS_INSTANCE_OF edge.` |
+| `update_model` (`DtUpdate`) | Its `classData` is dropped from the update data, so its current class binding and answers stay as they are; an element this update creates is created without a class | `Component "Orders DB": Could not resolve component class (…); it keeps its current class binding and answers.` For a new element: `…; it is created without a class, and its answers are not written.` |
+
+- **Resolution runs before the first write.** `DtUpdate.updateModel` resolves on a copy of the update data after it reads the existing model, which tells existing elements from new ones, and before its first write. Dropping `classData` reuses the existing rule that an absent `classData` leaves the binding untouched, so a missing class triggers neither a rebind nor an answer write.
+- **Why the element is left alone.** Updates are not atomic: failing over one class would report failure for a push whose other changes are already written. Unbinding the element instead (a `NONE` rebind) would sweep the findings derived from its current class. Keeping the current state and warning is the non-destructive choice.
+- **A catalogue outage is not a missing class.** The module catalogue is fetched once per run. If the fetch fails, update skips resolution and uses the ids as written, rather than treating every class as missing and dropping every binding. A wrong id then surfaces as a refused binding (below).
+- **The local files keep the chosen class.** `DtUpdate`'s result carries `unresolvedClasses`: for each element whose class was not found, its id in the update data, its name, its kind, and the class reference the data gave. After a successful `update_model` push, Step 5 re-exports the model and rewrites the model files from the platform, then `keepUnresolvedClasses` in [`unresolved-classes.ts`](../../../apps/dethereal/src/utils/unresolved-classes.ts) puts each listed element's local state back over the export: its `classData` in `structure.json`, `dataflows.json` or `data-items.json`, and its local attribute entry. An element with no local attribute entry gets none, so the platform's answers for another class are not written under the class the user chose. An element this push created is found through the id mapping (reference id to platform id). Every other element is rewritten from the platform as before. The files therefore keep the user's class until the platform has it, and every later push warns again. (`import_model` only writes the new ids back, so the local class reference stays there too.)
+
+**Errors that remain name the element and the platform's reason.**
+
+| Failure | Error message |
+|---------|---------------|
+| The platform refuses a class binding (`changeElementBinding` returns `success: false`) | `Could not bind "API" to class <id> (<errorCode>): <errorMessage>` (`to no class` for a `NONE` rebind). The element's answers are then not written against that class. |
+| The platform refuses an answer write | `Failed to set the answers of "API" for class <id>: <reason>` |
+| A data item's binding is refused | `Data item "Password" update failed (binding: <errorCode>: <errorMessage>)` |
+
+The attributes-only update path (`DtUpdateSplit` writing only the attribute files) does not resolve classes: it writes against the class id in each attribute file and still fails per element, with the same `Failed to set the answers of …` message. `update_model` reports a failed update as `Update failed: ` followed by the errors joined with `; `, and prefixes an error with `<element name>: ` when the message does not already quote the element's name.
 
 ### First Push After Pull (Special Case)
 

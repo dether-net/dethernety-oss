@@ -6,6 +6,7 @@
 // candidates at or above the threshold, ignore vectors of another embedding model, and pass the
 // dialect self-test.
 
+import { EmbeddingService } from '../../src/gql/services/embedding.service';
 import { startMemgraph, clearGraph } from './memgraph-container';
 import { startNeo4j } from './neo4j-container';
 import { MatchClassesResolverService } from '../../src/gql/resolver-services/match-classes-resolver.service';
@@ -38,7 +39,13 @@ const embedding: any = {
   getThreshold: (corpus: 'classes' | 'mitre') => THRESHOLD[corpus],
   composeElementText: (e: { name: string }) => e.name,
   embedBatch: async (texts: string[]) => texts.map(() => QUERY),
-  disableForSession: () => {},
+  /** The service's per-text fallback: one text, through embedBatch. */
+  async embedOnce(text: string) {
+    return (await this.embedBatch([text]))?.[0] ?? null;
+  },
+  embedEach(texts: string[], kind: 'query') {
+    return EmbeddingService.prototype.embedEach.call(this, texts, kind);
+  },
 };
 
 async function run(driver: any, cypher: string, params: Record<string, unknown> = {}) {

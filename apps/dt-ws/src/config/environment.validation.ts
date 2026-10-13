@@ -1,5 +1,6 @@
 import { plainToClass, Transform } from 'class-transformer';
 import { IsString, IsNumber, IsBoolean, IsOptional, IsIn, IsUrl, Min, Max, validateSync } from 'class-validator';
+import { optionalNumber } from './optional-number';
 
 // Case-insensitive boolean env parsing, matching database.config.ts's convention
 // (so OIDC_SHARED_POOL=TRUE / NEO4J_ENCRYPTED=TRUE are honoured, not silently
@@ -13,6 +14,11 @@ const boolEnv = (defaultOn: boolean) =>
     const v = String(obj[key]).toLowerCase();
     return defaultOn ? v !== 'false' : v === 'true';
   };
+
+// An optional number (a similarity floor, a thread count); unset, empty or blank leaves it unset, so the default
+// applies. Reads the RAW source like boolEnv: implicit conversion turns '' into 0, a floor of 0 or a refused thread
+// count. The service reading the setting uses the same optionalNumber.
+const optionalNumberEnv = ({ obj, key }: { obj: Record<string, unknown>; key: string }): number | undefined => optionalNumber(obj[key]);
 
 export class EnvironmentVariables {
   // Application Settings
@@ -317,9 +323,13 @@ export class EnvironmentVariables {
   @IsString()
   EMBEDDING_DIMENSIONS?: string;
 
+  // The HTTP embedder's single floor for classes and MITRE (cosine), checked like the per-corpus ones below.
   @IsOptional()
-  @IsString()
-  EMBEDDING_SIMILARITY_THRESHOLD?: string;
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(-1)
+  @Max(1)
+  @Transform(optionalNumberEnv)
+  EMBEDDING_SIMILARITY_THRESHOLD?: number;
 
   // Where an in-process embedding profile's weights live (<dir>/<repo>/<revision>/<file>).
   @IsOptional()
@@ -330,7 +340,7 @@ export class EnvironmentVariables {
   @IsNumber()
   @Min(1)
   @Max(64)
-  @Transform(({ value }) => (value === undefined || value === '' ? undefined : Number(value)))
+  @Transform(optionalNumberEnv)
   EMBEDDING_THREADS?: number;
 
   // Per-corpus similarity floors (cosine). They override the embedding profile's values.
@@ -338,21 +348,21 @@ export class EnvironmentVariables {
   @IsNumber({ allowNaN: false, allowInfinity: false })
   @Min(-1)
   @Max(1)
-  @Transform(({ value }) => (value === undefined || value === '' ? undefined : Number(value)))
+  @Transform(optionalNumberEnv)
   EMBEDDING_THRESHOLD_CLASSES?: number;
 
   @IsOptional()
   @IsNumber({ allowNaN: false, allowInfinity: false })
   @Min(-1)
   @Max(1)
-  @Transform(({ value }) => (value === undefined || value === '' ? undefined : Number(value)))
+  @Transform(optionalNumberEnv)
   EMBEDDING_THRESHOLD_MITRE?: number;
 
   @IsOptional()
   @IsNumber({ allowNaN: false, allowInfinity: false })
   @Min(-1)
   @Max(1)
-  @Transform(({ value }) => (value === undefined || value === '' ? undefined : Number(value)))
+  @Transform(optionalNumberEnv)
   EMBEDDING_THRESHOLD_COMPONENTS?: number;
 
   // Token for a gated weight source; sent only to the profile's hub. Never logged.

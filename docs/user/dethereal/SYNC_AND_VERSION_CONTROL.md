@@ -53,6 +53,25 @@ Commit these changes to preserve sync state.
 
 When updating an existing platform model, the plugin runs conflict detection first (see below), then pushes with `delete_orphaned: true` — elements you removed locally are also removed on the platform.
 
+### Classes the Platform Does Not Have
+
+Each element's class is looked up on the platform you push to: first by its ID, then by its module and class name. A class that has a different ID on that platform — for example, because the model came from another Dethernety instance — is still found.
+
+If a class in your model is not available on the platform you push to (for example, its module is not installed there), the push keeps going:
+
+- **First push:** the element is created without a class, and its answers are not written.
+- **Later pushes:** the element keeps its current class and answers on the platform.
+
+Either way, the push reports a warning that names the class. On later pushes the warning also names the element:
+
+```
+Component "Orders DB": Could not resolve component class (id=…, name=Database, module=example-module); it keeps its current class binding and answers.
+```
+
+Your files keep the class you chose for that element, and its answers. Each push reminds you with the warning above until the class is available on the platform (for example, once its module is installed there) or you choose another class for the element.
+
+**If the platform refuses a change.** When the platform refuses a change, such as binding an element to a class, the push fails with an error that names the element and gives the platform's reason — for example, `Could not bind "API" to class <id> (<code>): <reason>`. The rest of the push is still written. Fix the cause and push again.
+
 ### Gate 2 Pre-Flight
 
 Before any push, the plugin validates Gate 2 (sync-blocking) criteria:

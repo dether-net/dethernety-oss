@@ -130,6 +130,8 @@ The **password is not here.** It is generated into `.env.secrets` on the first s
 
 Changing the model triggers a fresh download inside the `ollama` container on the next start, exactly like the first run.
 
+The embedding server keeps the model loaded for as long as it runs. Ollama's own default unloads a model after 5 minutes without a request, and the next search then waits for it to load again; the bundle's `compose.yaml` sets `OLLAMA_KEEP_ALIVE` to `-1` on the `ollama` service, so the model stays resident instead of unloading after 5 minutes idle. The platform loads it on start, when it checks that the embedding server answers. The cost is memory: the embedding model stays in the `ollama` container's memory the whole time. This is not a `.env` setting.
+
 ### Snapshots
 
 | Setting | What it does | Default | Change it when |

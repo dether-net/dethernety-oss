@@ -307,37 +307,42 @@ export class MatchClassesResolverService {
   }
 
   /**
-   * Exact vector similarity in the database. Embeds the element as a query and ranks the
-   * active classes of the label that carry a vector of the active profile.
-   * Returns an empty array on any failure (graceful degradation).
+   * The query vectors of a request's elements, in one embed call: one per element with a description, null for the
+   * others and for an element whose text could not be embedded (logged; that element keeps the name tiers).
+   */
+  private async elementVectors(elements: MatchElementInput[], nodeLabel: string): Promise<Array<number[] | null>> {
+    const out: Array<number[] | null> = elements.map(() => null);
+    if (!(CLASS_LABELS as readonly string[]).includes(nodeLabel)) return out;
+    const wanted = elements.flatMap((e, i) => (e.description ? [i] : []));
+    const { vectors, failures } = await this.embeddingService.embedEach(
+      wanted.map((i) => this.embeddingService.composeElementText(elements[i])),
+      'query',
+    );
+    wanted.forEach((i, k) => (out[i] = vectors[k] ?? null));
+    for (const f of failures) {
+      this.logger.warn('Embedding failed for vector search, skipping the vector tier', {
+        elementName: elements[wanted[f.index]].name,
+        error: f.error instanceof Error ? f.error.message : 'unknown',
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Exact vector similarity in the database: ranks the active classes of the label that carry a
+   * vector of the active profile against the element's query vector.
    */
   private async vectorSimilarityMatch(
-    element: MatchElementInput,
+    vector: number[],
     nodeLabel: string,
     topN: number,
     componentType?: string,
     moduleIds?: string[],
   ): Promise<{ record: ClassRecord; similarity: number }[]> {
-    if (!element.description) return [];
-    if (!(CLASS_LABELS as readonly string[]).includes(nodeLabel)) return [];
-
-    const text = this.embeddingService.composeElementText(element);
-    let vectors: number[][] | null;
-    try {
-      vectors = await this.embeddingService.embedBatch([text], 'query');
-    } catch (error) {
-      this.logger.warn('Embedding failed for vector search, skipping the vector tier', {
-        elementName: element.name,
-        error: error instanceof Error ? error.message : 'unknown',
-      });
-      return [];
-    }
-    if (!vectors || vectors.length === 0) return [];
-
     const rows = await this.vectorSearch.rank({
       corpus: 'classes',
       label: nodeLabel as ClassLabel,
-      vector: vectors[0],
+      vector,
       profileId: this.embeddingService.getModel(),
       k: topN,
       threshold: this.embeddingService.getThreshold('classes'),
@@ -399,10 +404,13 @@ export class MatchClassesResolverService {
     // Single DB fetch — all classes of this label, optionally scoped to modules
     const allClasses = await this.fetchClasses(nodeLabel, input.moduleIds);
 
+    // Every element's query vector in one embed call, before the per-element tiers.
+    const vectors = vectorAvailable ? await this.elementVectors(input.elements, nodeLabel) : input.elements.map(() => null);
+
     const matches: ElementMatch[] = [];
     const unmatched: string[] = [];
 
-    for (const element of input.elements) {
+    for (const [index, element] of input.elements.entries()) {
       const candidates: ClassCandidate[] = [];
 
       // Exact name and vector similarity run together. Exact-name hits come first, so a class whose
@@ -414,10 +422,11 @@ export class MatchClassesResolverService {
         input.componentType,
       );
       let vectorHits: { record: ClassRecord; similarity: number }[] = [];
-      if (vectorAvailable && element.description) {
+      const vector = vectors[index];
+      if (vector) {
         try {
           vectorHits = await this.vectorSimilarityMatch(
-            element,
+            vector,
             nodeLabel,
             topN,
             input.componentType,

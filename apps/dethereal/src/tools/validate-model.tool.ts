@@ -251,6 +251,8 @@ interface SourceBreakdown {
 
 interface CoverageOutput {
   mode: 'online' | 'offline'
+  /** Offline only: coverage counts control assignment, not mitigation. The online path sets none. */
+  coverage_kind?: 'assignment-heuristic'
   coverage_summary: {
     total_exposures: number
     mitigated: number

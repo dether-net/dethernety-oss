@@ -185,6 +185,12 @@ jobs:
       - name: Build the bundled data-access layer
         run: pnpm --filter @dethernety/dt-core build
 
+      # tsup compiles without type-checking, so without this a type error in the plugin or its
+      # tests reaches nothing that can fail. It reads the bundled layer's types from the build above.
+      - name: Type-check
+        working-directory: apps/dethereal
+        run: pnpm exec tsc --noEmit -p .
+
       - name: No path from the model to session credentials
         working-directory: apps/dethereal
         run: pnpm vitest run src/__tests__/token-guard.test.ts src/__tests__/token-canary.test.ts src/tools/__tests__/auth-status.tool.test.ts
