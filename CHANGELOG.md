@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-10-13
+
+The bundle's embedding server now keeps its model loaded, so the first search after a quiet period
+no longer waits for the model to load again. The HTTP embedder is reported ready only once its
+endpoint answers; when it does not, the detailed `/health` response gives the reason. Class matching
+and MITRE technique search make one embedding call per request instead of one per text. `/health`
+reports the release version. The embedding settings are checked at start, and a blank one means
+unset. Modules written in code are no longer reinstalled on every start. A model update tolerates a
+class the platform does not have; Dethereal users get this with Dethereal 0.4.13. This is a patch
+release: no API, schema or data change. Compared against the previous tag, `v0.11.0`.
+
+**Upgrading:** take the new bundle and follow the operator guide's upgrade procedure — back up,
+unpack, set `PLATFORM_VERSION`, `./byodt update`. The only line of `.env.example` that changed is
+`PLATFORM_VERSION`. Take the new bundle's `compose.yaml`: it sets `OLLAMA_KEEP_ALIVE=-1` on the
+`ollama` service. **No other `.env` change is needed.** **The embedding model stays in memory.**
+With `OLLAMA_KEEP_ALIVE=-1` the model stays resident in the `ollama` container for as long as it
+runs, instead of unloading after 5 minutes idle, so that memory is now held the whole time. **A
+non-numeric `EMBEDDING_SIMILARITY_THRESHOLD` now stops the start.** A value that is not a number, or
+one outside -1 to 1, stops the backend with a message that names the variable; earlier releases
+accepted it silently. If the setting was changed from the bundle's `0.40`, check it before
+upgrading. An empty or blank value now means unset. **The first start after the upgrade waits
+briefly for the embedding server:** the start-up check makes up to three attempts, at most about
+half a minute. That start also reinstalls the modules written in code once, because the platform
+version is part of their computed hash; later starts skip them while they are unchanged. **Dethereal
+0.4.13** carries the model-update fix to plugin users. It is published after the platform, and it
+also works with platform 0.11.0, since this release changes no API. **Do not select an in-process
+ONNX embedding profile yet.** As with 0.11.0, keep `EMBEDDING_MODEL` on an HTTP model, such as the
+bundle's `embeddinggemma`.
+
 ### Changed
 
 - **The bundle's embedding server keeps its model loaded.** By default Ollama unloads a model after
@@ -76,6 +105,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the platform's reason. After the push, Dethereal keeps that element's class and answers in the
   local model files, so they still show the class you chose. Dethereal users get this fix with
   Dethereal 0.4.13.
+
+### Documentation
+
+- **The embedding configuration references describe the start-up check.** The configuration guide
+  states that an empty or blank similarity floor counts as unset, and that a non-numeric or
+  out-of-range `EMBEDDING_SIMILARITY_THRESHOLD` stops the backend like the per-corpus floors. It
+  describes the HTTP embedder's start-up check: up to three attempts and at most 34 seconds,
+  `loading` while it runs, `failed` with the reason in the detailed `/health` response, and a new
+  check every minute until the endpoint answers. It also states that the start-up module install
+  waits for that check, and that `/health` reports the release version or `unknown`. The BYODt
+  configuration page explains that the bundle sets `OLLAMA_KEEP_ALIVE` to `-1`, so the embedding
+  model stays loaded and its memory stays held.
+- **The embedding service references follow readiness and batched embedding.** The custom resolver
+  services reference states that the embedding service is enabled only when configured and ready,
+  documents its pending state, its state values and its wait for the start-up check, and drops the
+  per-session disable; the pre-computed embeddings specification drops it too. The class and
+  control resolver architecture describes class matching embedding a request's elements in one
+  call, and each text on its own when the batch fails.
+- **The module install references describe the content-hash skip.** The module management service
+  reference describes the install phases — the wait for the embedder check, vectors made outside
+  any transaction, one write transaction per module, then the obsolescence sweep and the
+  post-commit hooks — and the skip gate, with the hash computed for a module written in code from
+  its metadata, the active embedding model and the platform version. The module development guide
+  gains a section on what each kind of module needs for an unchanged install to be skipped.
+- **The model update references describe class resolution.** The data-access library's
+  import/export notes describe the class resolver that import and update now share, and what each
+  does with a class it cannot find; its operations notes state that update reads the platform's
+  reason for a refused answer write. The Dethereal sync notes gain a section on class resolution on
+  push: the warnings, the local files keeping the chosen class, and the errors that remain. The
+  sync user guide gains a section on classes the platform does not have.
 
 ## [0.11.0] - 2026-10-12
 
@@ -1941,6 +2000,8 @@ greenfield ID rebinding, and append-only audit log (#104).
 - GraphQL API with real-time subscriptions
 - OIDC/JWT authentication support
 
+[0.11.1]: https://github.com/dether-net/dethernety-oss/compare/v0.11.0...v0.11.1
+[0.11.0]: https://github.com/dether-net/dethernety-oss/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/dether-net/dethernety-oss/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/dether-net/dethernety-oss/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/dether-net/dethernety-oss/compare/v0.9.1...v0.9.2
