@@ -159,6 +159,16 @@ If a module upgrade withdraws a class that is still in use, the element keeps po
 
 An element carries **one** class at a time, which is why a pick is always a replacement and the browse drawer closes as soon as you select. Controls work differently: a control binds **several** control classes at once, so the same drawer stays open for repeat picks and marks classes already bound with an **Added** chip. See [Working with Security Controls](WORKING_WITH_SECURITY_CONTROLS.md).
 
+## Answering Yes-or-No Attributes
+
+On an **Attributes** form — of a component, boundary, data flow, data item, control class, or issue — a yes/no attribute is a three-way choice: **Yes**, **No**, or **Not answered**.
+
+- Click **Yes** or **No** to answer.
+- To take an answer back, click **Not answered**. Saving then removes the stored answer; it is not kept as **No**.
+- The same goes for other attributes: emptying a text field, clearing a choice, or removing an item from a list removes it when you save.
+
+**Not answered is not the same as No.** Some policies treat a missing answer as a reason to raise a finding, so setting an attribute back to **Not answered** can change the analysis — just as an attribute you never answered always could.
+
 ## Issue Class Integration
 
 > **No integration module ships with Dethernety.** The platform provides the *seam* described below; a module has to implement it before an issue in Dethernety is connected to anything outside it. Out of the box, issues are created and tracked entirely within the platform — see the [Issue Management Guide](ISSUE_MANAGEMENT_GUIDE.md).

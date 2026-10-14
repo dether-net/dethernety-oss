@@ -179,7 +179,7 @@ The card has a left column of actions and four tabs:
 | Tab | What you do there |
 |-----|-------------------|
 | **General** | Edit the name and description |
-| **Attributes** | Fill in the attributes the issue's class defines |
+| **Attributes** | Fill in the attributes the issue's class defines. A yes/no attribute answers **Yes**, **No**, or **Not answered** — see [Answering yes-or-no attributes](COMPONENT_CONFIGURATION_GUIDE.md#answering-yes-or-no-attributes) |
 | **Associated Elements** | Review, navigate to, add, and unlink elements |
 | **Comments** | Read and add comments |
 

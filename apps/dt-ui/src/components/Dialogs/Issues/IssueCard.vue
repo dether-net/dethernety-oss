@@ -4,6 +4,7 @@
   import { useIssueStore } from '@/stores/issueStore'
   import { JsonForms } from '@jsonforms/vue'
   import { extendedVuetifyRenderers } from '@jsonforms/vue-vuetify'
+  import TriStateBooleanRenderer, { triStateBooleanTester } from '@/components/DataFlow/TriStateBooleanRenderer.vue'
   import type { UISchemaElement } from '@jsonforms/core'
   import ContentSelectDialog from '@/components/Dialogs/Browser/ContentSelectDialog.vue'
   import { LocationQueryRaw } from 'vue-router'
@@ -57,6 +58,8 @@
   ]
 
   const renderers = markRaw([
+    // Booleans answer Yes, No or Not answered, so an answer can be taken back.
+    { tester: triStateBooleanTester, renderer: TriStateBooleanRenderer },
     ...extendedVuetifyRenderers,
   ])
   const uischema = ref<UISchemaElement | null>(null)
@@ -65,6 +68,8 @@
   const templateWarning = ref(false)
   const isSaving = ref(false)
   const saveError = ref(false)
+  // Set when elements could not be linked to the issue; shown above the tabs until dismissed.
+  const linkError = ref('')
   const justSaved = ref(false)
   // Plain (non-reactive) coalescing slot: a save requested while another is in
   // flight is snapshotted here at trigger time (before any server echo can reset
@@ -277,12 +282,23 @@
     emits('navigate:element', path, query)
   }
 
-  const addModelToIssue = (models: Model[]) => {
-    issueStore.addElementsToIssue({ issueId: issue.value.id, elementIds: models.map(model => model.id) }).then((result: number) => {
+  // Links elements to the issue. A failure is shown on the card rather than left as an unhandled rejection.
+  const linkElements = (elementIds: string[]) => {
+    const ids = elementIds.filter(Boolean)
+    if (!ids.length) return
+    linkError.value = ''
+    issueStore.addElementsToIssue({ issueId: issue.value.id, elementIds: ids }).then((result: number) => {
       if (result > 0) {
         emits('update:issue')
       }
+    }).catch((error: unknown) => {
+      console.error('Error linking elements to issue', error)
+      linkError.value = "Couldn't link the elements to this issue. Add them again from Associated Elements."
     })
+  }
+
+  const addModelToIssue = (models: Model[]) => {
+    linkElements(models.map(model => model.id))
   }
 
   const removeElementFromIssue = (elementId: string) => {
@@ -300,11 +316,7 @@
     }
     issueData.value.comments = [new Date().toLocaleString() + ': ' + clipboardData.name + ' - ' + clipboardData.description, ...issueData.value.comments]
     onSave()
-    issueStore.addElementsToIssue({ issueId: issue.value.id, elementIds: clipboardData?.elementIds || [] }).then((result: number) => {
-      if (result > 0) {
-        emits('update:issue')
-      }
-    })
+    linkElements(clipboardData?.elementIds || [])
     issueStore.clearIssueDataClipboard()
     returnTo.value = clipboardData.returnTo
   }
@@ -354,6 +366,16 @@
         </v-sheet>
       </v-card-title>
       <v-card-text>
+        <v-alert
+          v-if="linkError"
+          class="mb-2"
+          closable
+          density="compact"
+          type="error"
+          @click:close="linkError = ''"
+        >
+          {{ linkError }}
+        </v-alert>
         <v-sheet class="pa-1 ma-0 text-body-1 d-flex flex-row justify-space-between" color="transparent" density="compact" variant="plain">
           <v-container fluid>
             <v-row>

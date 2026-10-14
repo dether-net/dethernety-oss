@@ -197,7 +197,7 @@ Both tools also publish the model's **asset context**: model scope (read from `.
 4. **Control ID Pinning:** After successful push, check local model files for name-only control references (`id: null`).
    If any exist:
    - Call `mcp__plugin_dethereal_dethereal__manage_controls(action: 'list')` to get the platform control inventory
-   - For each name-only control reference in `structure.json` and `dataflows.json`, match by name against platform controls
+   - For each name-only control reference in `structure.json` and `dataflows.json`, match by exact name (or a name matching a single control when case is ignored) against platform controls
    - If matched: write the resolved platform ID back to the local JSON file:
      `{ id: null, name: "WAF", source: "declared" }` → `{ id: "ctrl-xyz", name: "WAF", source: "declared" }`
    - Write updated files to disk

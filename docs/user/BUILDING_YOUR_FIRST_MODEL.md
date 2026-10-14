@@ -45,7 +45,7 @@ Define what you want to achieve:
 ### Create Your Model
 
 1. **Open the Browser** and select the folder you want the model to live in. New models are created in the folder you have selected.
-2. **Create the model.** Click the **+** button at the top right of the content area and choose the diagram icon from the speed dial — or click the **New model** card in the **Models** row. A model named *New Model* is created immediately and its settings dialog opens on the **General** tab.
+2. **Create the model.** Click the **+** button at the top right of the content area (its tooltip reads **Create or import**) and choose **New model**, the diagram icon, from the speed dial — or click the **New model** card in the **Models** row. A model named *New Model* is created immediately and its settings dialog opens on the **General** tab.
 3. **Name and describe it.** Replace the placeholder name and description:
    ```
    Name: "E-commerce Platform Security Model"
@@ -503,10 +503,13 @@ This format is the same split-file structure used by the [Dethereal Claude Code 
 
 ### Importing a Model
 
-1. **Open the import dialog**: From Browser, use the import option in the menu
-2. **Select a ZIP file**: Click "Select File" and choose a `.zip` archive
-3. **Click "Import"**: The import process runs through 8 steps with a progress bar showing each step
-4. **Review results**: A success message confirms the import; the model appears in your folder immediately
+1. **Open the import dialog**: In the Browser, select the folder to import into, click the **+** button (**Create or import**), and choose **Import model**
+2. **Select a ZIP file**: Click **Select File** and choose a `.zip` archive
+3. **Check the name**: A **Model name** field appears, filled in with the model's name from the archive. If the folder already holds a model of that name, the field suggests the next free one — *`<name> (2)`*, *`<name> (3)`*, and so on — and a hint under the field says why. Only that folder counts; a model of the same name in another folder does not. If the folder's models cannot be listed, the field keeps the archive's name and the hint says it could not be checked, so the name may already be in use. You can type a different name, but the field cannot be left empty
+4. **Click Import**: The import button at the bottom of the dialog (tooltip **Import**) starts the process, which runs through 8 steps with a progress bar showing each step
+5. **Review results**: A success message confirms the import; the model appears in your folder immediately, and the import button becomes a **Close** button
+
+The model is imported under the name in the field. The ZIP archive itself is not changed.
 
 If the import encounters non-critical issues, warnings are displayed alongside the success message. Critical errors are shown in red and the import is aborted.
 

@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A control reference no longer attaches a control by part of its name.** Import and model update
+  attached a control whose name only contained, or was contained in, the name a model file gave, so
+  a reference to "Encryption at rest for S3 buckets" could attach a control called "Encryption", and
+  "Firewall" whichever firewall control came first. A control is now attached by its id, by its
+  exact name, or by a name that matches a single control when case and surrounding spaces are
+  ignored. A name that matches no control, or that several controls share, attaches nothing: the
+  import or update result lists it under `unresolvedControls`, and a warning names it, with the ids
+  of the controls a shared name matched so the reference can be pinned to one. Each entry under
+  `unresolvedControls` names, as `owner`, the model or element the reference came from. Dethereal
+  users get this fix with Dethereal 0.4.14.
+  **Check your model files:** a control that a name-only reference attached only by part of its name
+  ("Firewall" for a control called "Perimeter Firewall") is detached from its element on the next
+  model update. Dethereal keeps the reference in the model files and warns about it; give it the
+  control's id or its full name to attach the control again.
+- **A model update no longer removes a control because its name is shared.** When a name in the
+  model file matches several controls and the element already has one of them, the update keeps it
+  and warns, where it used to replace the element's controls without it.
+- **An import attaches a control by name only against the full control catalog.** When the
+  catalog of controls in folders cannot be fetched, a name could look unique among the controls
+  outside folders and attach the wrong one; such a reference is now reported as unresolved, and only
+  an id attaches.
+- **Dethereal keeps an unresolved control reference in the local model files.** A push rewrites
+  the files from the platform, which dropped any control reference the platform could not attach,
+  including a name several controls share. The reference now stays where it was written, so it can
+  be pinned to a control id, and the next push reports it again.
+- **A malformed answer from a remote knowledge-graph service is no longer read as an empty graph.**
+  An answer without a result list, with a malformed entry, or missing one of the keys it was asked
+  for was taken to mean the graph held nothing for those keys, and was cached as such. It is now a
+  service fault, like a truncated answer: the query fails and nothing is cached.
+- **"Add to Issue board" from a module's finding links what it names.** A finding raised on a model
+  with no element put an empty id on the issue board's clipboard, so adding it to an issue failed
+  and linked nothing, without a word. Only the ids given are carried now, and the issue card says
+  when elements could not be linked.
+- **A module's own finding description is the issue's description.** An issue raised from a module
+  finding that carries a description was described as "Exposure: <description>". The description
+  is now used as given; a finding passed by name only is still described as "Exposure: <name>".
+
 ## [0.11.1] - 2026-10-13
 
 The bundle's embedding server now keeps its model loaded, so the first search after a quiet period

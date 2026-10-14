@@ -1038,7 +1038,7 @@ No changes needed to:
 
 ### Gap 1: SUPPORTS edge idempotency on re-sync
 
-Name-only control references (`{ id: null, name: "WAF" }`) use partial name matching in `resolveControls()` (Priority 4 in the resolution chain), which is non-deterministic — "WAF" could match "WAF Protection" or "Cloud WAF Gateway." Repeated syncs with name-only references could flip between different controls.
+Name-only control references (`{ id: null, name: "WAF" }`) resolve by exact name, or by a name that matches a single control when case is ignored; there is no partial-name match, and a name several controls share attaches none (it is reported as unresolved). A renamed or duplicated library control can still make a name-only reference resolve differently from one sync to the next.
 
 **Mitigation:** After first successful sync, write the resolved platform ID back to the local JSON to pin the reference. Subsequent syncs use ID matching (Priority 1), which is deterministic. Implement in Phase 3 (P6).
 

@@ -174,7 +174,17 @@ export class CloudKgClient implements KgClient {
       );
     }
 
-    const results = Array.isArray(body.results) ? body.results : [];
+    const results = body.results as unknown;
+    const asked = parameters[PARAMETER_NAME[queryName]] as string[];
+    if (!isCompleteAnswer(results, asked)) {
+      // The protocol answers every requested key, each with its own array. Read as empty, a missing or
+      // malformed answer would say "the graph holds nothing for these keys" for as long as it stayed
+      // cached, so it is a fault like truncation, and nothing about it is cached.
+      throw new RemoteModuleMisconfiguredError(
+        `The knowledge-graph service answered "${queryName}" without a result for every key it was asked`,
+        'internal',
+      );
+    }
     this.cache.putKgQuery(token, queryName, this.version, parameters, results);
     return results;
   }
@@ -225,6 +235,19 @@ function requireToken(token: string | undefined): string {
     );
   }
   return token;
+}
+
+/** Whether a query answer is the protocol's: an entry per requested key, each with a key and a list of matches. */
+function isCompleteAnswer(results: unknown, asked: string[]): results is Array<{ key: string; matches: unknown[] }> {
+  if (!Array.isArray(results)) return false;
+  const answered = new Set<string>();
+  for (const entry of results) {
+    if (typeof entry !== 'object' || entry === null) return false;
+    const { key, matches } = entry as { key?: unknown; matches?: unknown };
+    if (typeof key !== 'string' || !Array.isArray(matches)) return false;
+    answered.add(key);
+  }
+  return asked.every((key) => answered.has(key));
 }
 
 /** Split into runs of at most `size`, preserving order. */

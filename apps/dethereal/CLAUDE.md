@@ -103,7 +103,7 @@ No default agent (D64). Users invoke via skills or `@dethereal:agent-name`.
 
 ## MCP Server Architecture
 
-- Entry: `src/index.ts` — MCP Server v3.0.0 + Stdio transport
+- Entry: `src/index.ts` — MCP Server (reports the package version, `src/version.ts`) + Stdio transport
 - Config: `src/config.ts` — validation, HTTPS enforcement, debug mode
 
 ### Tools (`src/tools/`) — 22 total

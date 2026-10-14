@@ -5,7 +5,7 @@
   import { useRouter } from 'vue-router'
   import { Class, Control, Exposure, Model } from '@dethernety/dt-core'
   import type { ChangeElementBindingResult, Zone, Plane, Conduit } from '@dethernety/dt-core'
-  import { getPageDisplayName, flattenProperties, unflattenProperties } from '@/utils/dataFlowUtils'
+  import { getPageDisplayName, flattenProperties, unflattenProperties, withClearedAttributes } from '@/utils/dataFlowUtils'
   import { emitBindingChangeFeedback } from '@/utils/bindingChangeFeedback'
   import type { UISchemaElement } from '@jsonforms/core'
   import SettingsGeneralTab from '@/components/DataFlow/SettingsTabs/SettingsGeneralTab.vue'
@@ -297,7 +297,10 @@
     if (!selectedItem.value?.id || !itemClass.value || attributesLoading.value) return
 
     try {
-      const flatAttributes = flattenProperties(pendingAttributes.value)
+      // What this save sends. An edit made while it is in flight replaces pendingAttributes, so it stays unsaved.
+      const sent = pendingAttributes.value
+      // An answer taken back (Not answered) is sent as null, so the server clears it.
+      const flatAttributes = withClearedAttributes(flattenProperties(lastLoadedAttributes.value), flattenProperties(sent))
 
       // setInstantiationAttributesWithStaleCount returns the
       // number of dispositioned exposures whose `dispositionStale` flipped to
@@ -308,12 +311,17 @@
         classId: itemClass.value.id,
         attributes: flatAttributes,
       })
+      // A save the server refused keeps the baseline, so a retry sends the same changes (cleared answers included).
+      if (!result?.success) {
+        showSnackbar('Failed to save attributes', 'error')
+        return
+      }
 
-      lastLoadedAttributes.value = pendingAttributes.value
+      lastLoadedAttributes.value = sent
       // Refetch exposures so row-level stale flags propagate; the count is
       // the headline, the refetch tells the table which rows to highlight.
       await loadExposures()
-      clearDirty('attributes')
+      if (pendingAttributes.value === sent) clearDirty('attributes')
       if (isFreshlyCreated.value) emit('clear-freshly-created')
 
       const staleCount = result?.staleFlippedCount ?? 0
@@ -946,6 +954,9 @@
   })
   
   updateForm()
+
+  // Test seam — the attribute save and its baseline, asserted by SettingsWindow.namedEdits.test.ts.
+  defineExpose({ saveAttributes, onAttributesChanged, isDirty, lastLoadedAttributes, pendingAttributes, itemClass })
 </script>
 
 <template>

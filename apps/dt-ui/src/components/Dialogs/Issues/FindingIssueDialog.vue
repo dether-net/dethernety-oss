@@ -58,9 +58,10 @@
   })
   const onLabel = computed(() => (store.elementLabel ? ` Issue on ${store.elementLabel}` : ' Issue'))
 
-  // Shapes mirror SettingsExposuresTab.onAddIssue.
+  // Shapes mirror SettingsExposuresTab.onAddIssue. A caller's own description is used as it is; only the name
+  // fallback reads as an exposure, the one kind of finding that has no description of its own here.
   const issueName = computed(() => displayName.value + onLabel.value)
-  const issueDescription = computed(() => 'Exposure: ' + (store.finding?.description ?? store.finding?.name ?? ''))
+  const issueDescription = computed(() => store.finding?.description || 'Exposure: ' + (store.finding?.name ?? ''))
   // The report's analog of [componentId, modelId, exposureId].
   const elementIds = computed(() =>
     [store.elementId, store.modelId, store.finding?.id ?? ''].filter(Boolean),
@@ -80,8 +81,9 @@
     const name = displayName.value || 'Finding'
     issueStore.setIssueDataClipboard({
       name,
-      description: name + onLabel.value + (store.finding?.description ?? ''),
-      elementIds: [store.finding?.id ?? '', store.elementId, store.modelId],
+      description: name + onLabel.value + (store.finding?.description ? ': ' + store.finding.description : ''),
+      // An element the caller did not name is left out, never sent on as an empty id.
+      elementIds: [store.finding?.id, store.elementId, store.modelId].filter((id): id is string => Boolean(id)),
       returnTo: {
         name: getPageDisplayName(current.path),
         path: current.path,

@@ -401,6 +401,59 @@ describe('UpdateModelTool — the re-export path fixes up what it invalidates', 
     expect(res.data!.warnings.join(' ')).toContain('Component "DB": Could not resolve')
   })
 
+  it('keeps a control reference the push could not attach in the model files; attached ones come from the platform', async () => {
+    const local = {
+      defaultBoundary: {
+        id: 'b-1', name: 'System', boundaries: [],
+        components: [
+          { id: 'c-api', name: 'API', controls: [{ id: null, name: 'Audit Logging', source: 'declared' }, { id: 'ctl-enc', name: 'Encryption' }] },
+          { id: 'c-new', name: 'Worker', controls: [{ name: 'Firewall' }] },
+        ],
+      },
+    }
+    await writeModelDir(tmpDir, local, [{ id: 'f-1', name: 'Sync', source: { id: 'c-api' }, target: { id: 'c-new' }, controls: [{ id: 'ctl-gone' }] }], [])
+
+    mockUpdateFromSplitModel.mockResolvedValue({
+      ...okResult,
+      warnings: ['Could not resolve control: Audit Logging (2 controls match that name: ctl-a, ctl-b)'],
+      unresolvedControls: [
+        { name: 'Audit Logging', reason: 'ambiguous', candidates: [{ id: 'ctl-a', name: 'Audit Logging' }, { id: 'ctl-b', name: 'Audit Logging' }], owner: { kind: 'COMPONENT', id: 'c-api', name: 'API' } },
+        // c-new was created by this push and got a platform id.
+        { name: 'Firewall', reason: 'not_found', owner: { kind: 'COMPONENT', id: 'c-new', name: 'Worker' } },
+        { id: 'ctl-gone', reason: 'not_found', owner: { kind: 'DATA_FLOW', id: 'f-1', name: 'Sync' } },
+        { name: 'Board Oversight', reason: 'not_found', owner: { kind: 'MODEL', name: 'Test' } },
+        // Its component is not in the re-exported model.
+        { name: 'Rate Limiting', reason: 'not_found', owner: { kind: 'COMPONENT', id: 'c-vanished', name: 'Edge' } },
+      ],
+      idMapping: new Map([['c-new', 'p-new']]),
+    })
+    const platform = {
+      defaultBoundary: {
+        id: 'b-1', name: 'System', boundaries: [],
+        components: [
+          { id: 'c-api', name: 'API', controls: [{ id: 'ctl-enc', name: 'Encryption' }] },
+          { id: 'p-new', name: 'Worker' },
+        ],
+      },
+    }
+    mockExportModelToSplit.mockResolvedValue(makeExportedModel(platform, [{ id: 'f-1', name: 'Sync', source: { id: 'c-api' }, target: { id: 'p-new' } }], []))
+
+    const res = await updateModelTool.run({ model_id: 'model-1', directory_path: tmpDir, create_backup: false }, contextWithClient)
+
+    expect(res.success).toBe(true)
+    const structure = JSON.parse(await fs.readFile(path.join(tmpDir, 'structure.json'), 'utf-8'))
+    const byId = Object.fromEntries(structure.defaultBoundary.components.map((c: any) => [c.id, c]))
+    expect(byId['c-api'].controls).toEqual([{ id: 'ctl-enc', name: 'Encryption' }, { id: null, name: 'Audit Logging', source: 'declared' }])
+    expect(byId['p-new'].controls).toEqual([{ name: 'Firewall' }])
+    const flows = JSON.parse(await fs.readFile(path.join(tmpDir, 'dataflows.json'), 'utf-8'))
+    expect(flows.dataFlows[0].controls).toEqual([{ id: 'ctl-gone' }])
+    const manifest = JSON.parse(await fs.readFile(path.join(tmpDir, 'manifest.json'), 'utf-8'))
+    expect(manifest.model.controls).toEqual([{ name: 'Board Oversight' }])
+    expect(res.data!.warnings).toContain(
+      'Unresolved control references could not be kept in the model files, because their element is no longer there: Rate Limiting',
+    )
+  })
+
   it('warns that an unreadable attribute file was not pushed', async () => {
     // Distinct from the merge-back warning: this one is about the PUSH. The file
     // is absent from the bag dt-core receives, so the element's attributes never

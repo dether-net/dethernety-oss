@@ -75,7 +75,7 @@ describe('chunking', () => {
   /** Read from the fixture registry, because the published bound is sized by what one response may
    *  weigh — it has moved once already, and a hard-coded chunk count would break on the next change
    *  while proving nothing about chunking. */
-  const publishedBound = kgRegistry.queries.find((q) => q.name === 'rulesByClassId')!.parameters.classIds.maxItems;
+  const publishedBound = kgRegistry.queries.find((q) => q.name === 'rulesByClassId')!.parameters.classIds.maxItems!;
 
   it('splits a key set wider than the published bound and merges the answers', async () => {
     const map = await client().rulesByClassId(wide, undefined, ENTITLED_TOKEN);
@@ -192,6 +192,35 @@ describe('truncation is a fault, not data', () => {
     // saying it would. A short map and a complete one look identical at the call site.
     mock.setKgTruncated(true);
     await expect(client().rulesByClassId([KG_CLASS_ID], undefined, ENTITLED_TOKEN)).rejects.toThrow(/truncated/i);
+  });
+});
+
+describe('a malformed answer is a fault, not an empty graph', () => {
+  // Read as empty, each of these would say "the graph holds nothing for this class" until the cache
+  // let go of it.
+  const malformed: Array<[string, (results: Array<{ key: string; matches: unknown[] }>) => unknown]> = [
+    ['no results', () => undefined],
+    ['results that are not a list', () => ({})],
+    ['an entry without a key', (results) => results.map(({ matches }) => ({ matches }))],
+    ['an entry whose matches are not a list', (results) => results.map(({ key }) => ({ key, matches: null }))],
+    ['a requested key left out', (results) => results.filter((r) => r.key !== KG_CLASS_ID)],
+  ];
+
+  it.each(malformed)('raises on %s, and caches nothing', async (_shape, override) => {
+    mock.setKgResults(override);
+    const c = client();
+    await expect(c.rulesByClassId([KG_CLASS_ID, KG_OTHER_CLASS_ID], undefined, ENTITLED_TOKEN)).rejects.toBeInstanceOf(
+      RemoteModuleMisconfiguredError,
+    );
+    mock.setKgResults(undefined);
+    const map = await c.rulesByClassId([KG_CLASS_ID, KG_OTHER_CLASS_ID], undefined, ENTITLED_TOKEN);
+    expect(map.get(KG_CLASS_ID)!.length).toBeGreaterThan(0);
+  });
+
+  it('accepts a key that matched nothing, carried with an empty list', async () => {
+    mock.setKgResults((results) => results.map(({ key }) => ({ key, matches: [] })));
+    const map = await client().rulesByClassId([KG_CLASS_ID], undefined, ENTITLED_TOKEN);
+    expect(map.get(KG_CLASS_ID)).toEqual([]);
   });
 });
 

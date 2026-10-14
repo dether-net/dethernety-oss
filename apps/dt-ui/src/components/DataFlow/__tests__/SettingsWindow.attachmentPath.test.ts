@@ -75,7 +75,7 @@ vi.mock('@/stores/issueStore', () => ({
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: vi.fn(), currentRoute: { value: { path: '/dataflow', query: {} } } }),
 }))
-vi.mock('@jsonforms/vue-vuetify', () => ({ extendedVuetifyRenderers: [] }))
+vi.mock('@jsonforms/vue-vuetify', () => ({ extendedVuetifyRenderers: [], ControlWrapper: {}, useVuetifyControl: () => ({}) }))
 
 import SettingsWindow from '../SettingsWindow.vue'
 import { useFlowStore } from '@/stores/flowStore'

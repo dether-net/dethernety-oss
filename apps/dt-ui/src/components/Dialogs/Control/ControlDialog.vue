@@ -3,7 +3,7 @@
   import { useControlsStore } from '@/stores/controlsStore'
   import { useClassSuggestionsStore } from '@/stores/classSuggestionsStore'
   import { Class, Control, Countermeasure, type DispositionMutationResult } from '@dethernety/dt-core'
-  import { unflattenProperties } from '@/utils/dataFlowUtils'
+  import { unflattenProperties, withClearedAttributes } from '@/utils/dataFlowUtils'
   import { emitBindingChangeFeedback } from '@/utils/bindingChangeFeedback'
   import { mitreUrl } from '@/utils/mitreUrl'
   import type { UISchemaElement } from '@jsonforms/core'
@@ -649,7 +649,9 @@
     return controlsStore.setInstantiationAttributes({
       classId: selectedClassId.value,
       componentId: props.id,
-      attributes: pending,
+      // An answer taken back (Not answered) is sent as null, so the server clears it. The map stays in its
+      // top-level shape, as the control library stores it: a list is one value, replaced whole.
+      attributes: withClearedAttributes(lastLoadedAttributes.value as Record<string, unknown>, pending as Record<string, unknown>),
     }).then(ret => {
       if (ret) {
         lastLoadedAttributes.value = pending
@@ -781,11 +783,12 @@
   }
 
   // Test seam — expose the countermeasure/attributes lifecycle internals asserted by
-  // ControlDialog.test.ts (dialog-open guards, attribute-reset-before-load).
+  // ControlDialog.test.ts (dialog-open guards, attribute-reset-before-load, the save payload).
   defineExpose({
     onCountermeasureFailed, onCountermeasureCreated, showCountermeasureDialog,
     showClassControl, showClassControlDialog,
     lastLoadedAttributes, attributesSchema, attributesUiSchema, attributesLoading, attributesTemplateWarning,
+    saveAttributes,
   })
 
 </script>

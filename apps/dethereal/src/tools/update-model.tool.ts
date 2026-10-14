@@ -20,7 +20,7 @@
  */
 
 import { z } from 'zod'
-import { DtUpdateSplit, DtExportSplit, mergeAttributes, type UpdateProgress } from '@dethernety/dt-core'
+import { DtUpdateSplit, DtExportSplit, describeUnresolvedControl, mergeAttributes, type UpdateProgress } from '@dethernety/dt-core'
 import { ClientDependentTool, ToolContext, ToolResult } from './base-tool.js'
 import {
   readModelDirectory,
@@ -38,6 +38,7 @@ import {
 import type { AttributeReadIssue } from '../utils/directory-utils.js'
 import { pathExists } from '../utils/file-utils.js'
 import { keepUnresolvedClasses } from '../utils/unresolved-classes.js'
+import { keepUnresolvedControls } from '../utils/unresolved-controls.js'
 import { getConfig, debugLog } from '../config.js'
 import { writeSyncJson, readSyncJson, computeContentHash, collectBaselineElementIds } from '../utils/sync-utils.js'
 
@@ -205,6 +206,14 @@ export class UpdateModelTool extends ClientDependentTool<UpdateInput, UpdateOutp
           exportedModel.attributes = mergeAttributes(localAttributes, exportedModel.attributes)
           // An element whose class the platform does not have keeps the class the user chose, and its answers.
           keepUnresolvedClasses(exportedModel, localAttributes, result.unresolvedClasses, result.idMapping)
+          // A control reference the push could not attach stays where it was written, so it can be pinned to an id.
+          const lostControls = keepUnresolvedControls(exportedModel, splitModel, result.unresolvedControls, result.idMapping)
+          if (lostControls.length > 0) {
+            result.warnings.push(
+              `Unresolved control references could not be kept in the model files, because their element is no longer there: ` +
+              lostControls.map(describeUnresolvedControl).join('; '),
+            )
+          }
 
           // Re-materialise scope.json from the post-push platform state and strip it from
           // the manifest (scope.json is the single on-disk home — same as the pull path).
