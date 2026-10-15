@@ -169,7 +169,7 @@ The main entry point initializes the MCP server and registers request handlers:
 
 ```typescript
 const server = new Server(
-  { name: 'dethereal', version: '3.0.0' },
+  { name: 'dethereal', version: PACKAGE_VERSION },  // read from package.json (src/version.ts)
   { capabilities: { tools: {} } }
 )
 

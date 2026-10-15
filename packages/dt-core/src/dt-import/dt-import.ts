@@ -12,6 +12,7 @@ import { DtDataItem } from '../dt-dataitem/dt-dataitem.js'
 import { DtModule } from '../dt-module/dt-module.js'
 import { ClassResolver, ResolvableClassKind } from '../dt-class/class-resolver.js'
 import { DtControl } from '../dt-control/dt-control.js'
+import { ControlOwner, ControlResolver, UnresolvedControl, describeControlOwner, describeUnresolvedControl } from '../dt-control/control-resolver.js'
 import { validateMonolithicModel } from '../schemas/model.schema.js'
 
 // Attribute writes run this many at a time once every element exists (see attributeWrites).
@@ -46,6 +47,8 @@ export interface ImportResult {
   errors: ImportError[]
   warnings: string[]
   progress: ImportProgress
+  /** Control references that were not attached: no control or several matched, or the catalog could not be fetched; a warning names each. */
+  unresolvedControls?: UnresolvedControl[]
 }
 
 export interface ImportOptions {
@@ -74,11 +77,12 @@ export class DtImport {
   private elementParent: Map<string, string> = new Map()
   // Per-import catalog memo: the module and control catalogs are fetched once and reused
   // for the whole run (both are `network-only` and return the entire catalog — resolving
-  // each element against a fresh fetch is the per-element DoS this replaces). `null` = not
-  // yet loaded; an empty array is a valid "loaded but nothing/failed" state (a down catalog
-  // is down for the whole import — retrying per element is the pathology, not the fix).
+  // each element against a fresh fetch is the per-element DoS this replaces). Each resolver
+  // fetches once; a catalog that failed stays empty for the whole import (a down catalog is
+  // down for the whole import — retrying per element is the pathology, not the fix).
   private classResolver = new ClassResolver(() => this.dtModule.getModules())
-  private cachedControls: any[] | null = null
+  private controlResolver = new ControlResolver((folderId) => this.dtControl.getControls({ folderId }))
+  private unresolvedControls: UnresolvedControl[] = []
   private errors: ImportError[] = []
   private warnings: string[] = []
   // Attribute writes queued while the elements are created. Each write also evaluates the element's class, and the
@@ -126,7 +130,8 @@ export class DtImport {
         this.idMapping.clear()
         this.elementParent.clear()
         this.classResolver = new ClassResolver(() => this.dtModule.getModules())
-        this.cachedControls = null
+        this.controlResolver = new ControlResolver((folderId) => this.dtControl.getControls({ folderId }))
+        this.unresolvedControls = []
         this.errors = []
         this.warnings = []
         this.attributeWrites = []
@@ -254,6 +259,7 @@ export class DtImport {
           errors: this.errors,
           warnings: this.warnings,
           progress: this.progress,
+          unresolvedControls: this.unresolvedControls,
           // Snapshot taken INSIDE the mutexed body: a queued second import's first act
           // is this.idMapping.clear(), so any post-await read of the live private Map
           // (as DtImportSplit.buildIdMapping used to do) races it. The copy is immutable
@@ -380,7 +386,7 @@ export class DtImport {
       // Resolve model-level controls (by id/name) so they are restored at create
       // time — the export→manifest→import round-trip carries them on jsonData.controls.
       const modelControlIds = jsonData.controls
-        ? await this.resolveControls(jsonData.controls)
+        ? await this.resolveControls(jsonData.controls, { kind: 'MODEL', name: jsonData.name })
         : []
 
       const model = await this.dtModel.createModel({
@@ -513,7 +519,7 @@ export class DtImport {
       }
 
       // Set controls if available
-      await this.setElementControls(defaultBoundaryId, boundaryData.controls || [])
+      await this.setElementControls(defaultBoundaryId, boundaryData.controls || [], { kind: 'BOUNDARY', id: boundaryData.id, name: boundaryData.name })
 
       // Handle represented model if present
       if (boundaryData.representedModel?.id) {
@@ -633,7 +639,7 @@ export class DtImport {
         positionX: componentData.positionX,
         positionY: componentData.positionY,
         parentBoundaryId: parentBoundaryId
-      })
+      }, { kind: 'COMPONENT', id: componentData.id, name: componentData.name })
 
       // Handle represented model if present
       if (componentData.representedModel?.id) {
@@ -764,7 +770,7 @@ export class DtImport {
         width: boundaryData.dimensionsWidth,
         height: boundaryData.dimensionsHeight,
         parentBoundaryId: parentBoundaryId
-      })
+      }, { kind: 'BOUNDARY', id: boundaryData.id, name: boundaryData.name })
 
       // Handle represented model if present
       if (boundaryData.representedModel?.id) {
@@ -867,7 +873,7 @@ export class DtImport {
           description: dataFlowData.description,
           sourceId: newEdge.source,
           targetId: newEdge.target
-        })
+        }, { kind: 'DATA_FLOW', id: dataFlowData.id, name: dataFlowData.name })
 
       } catch (error) {
         this.errors.push({
@@ -1186,13 +1192,13 @@ export class DtImport {
     return resolved.id
   }
 
-  private setElementControls = async (elementId: string, controls: any[]): Promise<void> => {
+  private setElementControls = async (elementId: string, controls: any[], owner: ControlOwner): Promise<void> => {
     if (!controls || !Array.isArray(controls) || controls.length === 0) {
       return
     }
 
     try {
-      const resolvedControlIds = await this.resolveControls(controls)
+      const resolvedControlIds = await this.resolveControls(controls, owner)
       if (resolvedControlIds.length > 0) {
         await this.associateControlsWithElement(elementId, resolvedControlIds)
       }
@@ -1201,13 +1207,19 @@ export class DtImport {
     }
   }
 
-  private setElementControlsDirect = async (elementId: string, controls: any[], elementType: 'component' | 'boundary' | 'dataflow', elementData: any): Promise<void> => {
+  private setElementControlsDirect = async (
+    elementId: string,
+    controls: any[],
+    elementType: 'component' | 'boundary' | 'dataflow',
+    elementData: any,
+    owner: ControlOwner
+  ): Promise<void> => {
     if (!controls || !Array.isArray(controls) || controls.length === 0) {
       return
     }
 
     try {
-      const resolvedControlIds = await this.resolveControls(controls)
+      const resolvedControlIds = await this.resolveControls(controls, owner)
 
       if (resolvedControlIds.length > 0) {
         await this.associateControlsDirectly(elementId, resolvedControlIds, elementType, elementData)
@@ -1438,82 +1450,16 @@ export class DtImport {
     }
   }
 
-  private resolveControls = async (controls: any[]): Promise<string[]> => {
-    const controlIds: string[] = []
-
-    // Load the control catalog once per import (no-folder + all-folders, deduped by id) and
-    // reuse it. getControls is `network-only`; fetching it twice per control-bearing element
-    // is the DoS. Cache even an empty/failed load — a down catalog is down for the run.
-    if (this.cachedControls === null) {
-      const merged: any[] = []
-      try {
-        // Get controls with no folder
-        const noFolderControls = await this.dtControl.getControls({ folderId: undefined })
-        merged.push(...noFolderControls)
-      } catch (error) {
-        // Silently continue
-      }
-      try {
-        // Get all controls (from all folders)
-        const allControls = await this.dtControl.getControls({ folderId: 'all' })
-        // Add controls that aren't already in the list
-        for (const control of allControls) {
-          if (!merged.find(c => c.id === control.id)) {
-            merged.push(control)
-          }
-        }
-      } catch (error) {
-        // Silently continue
-      }
-      this.cachedControls = merged
+  /**
+   * The ids of the controls a model file names (see ControlResolver); each reference left unattached is reported, with
+   * the model or element it came from when the caller says.
+   */
+  private resolveControls = async (controls: any[], owner?: ControlOwner): Promise<string[]> => {
+    const { ids, unresolved } = await this.controlResolver.resolve(controls)
+    for (const u of unresolved) {
+      this.unresolvedControls.push(owner ? { ...u, owner } : u)
+      this.warnings.push(`Could not find control: ${describeUnresolvedControl(u)}${owner ? `, on ${describeControlOwner(owner)}` : ''}`)
     }
-    const availableControls = this.cachedControls
-
-    for (const controlData of controls) {
-      // Priority 1: Match by ID
-      if (controlData.id) {
-        const existingControl = availableControls.find(c => c.id === controlData.id)
-        if (existingControl) {
-          controlIds.push(existingControl.id)
-          continue
-        }
-      }
-
-      // Priority 2: Match by name (exact)
-      if (controlData.name) {
-        const existingControl = availableControls.find(c => c.name === controlData.name)
-        if (existingControl) {
-          controlIds.push(existingControl.id)
-          continue
-        }
-      }
-
-      // Priority 3: Match by name (case-insensitive)
-      if (controlData.name) {
-        const existingControl = availableControls.find(c => 
-          c.name.toLowerCase() === controlData.name.toLowerCase()
-        )
-        if (existingControl) {
-          controlIds.push(existingControl.id)
-          continue
-        }
-      }
-
-      // Priority 4: Match by partial name (case-insensitive)
-      if (controlData.name) {
-        const existingControl = availableControls.find(c => 
-          c.name.toLowerCase().includes(controlData.name.toLowerCase()) ||
-          controlData.name.toLowerCase().includes(c.name.toLowerCase())
-        )
-        if (existingControl) {
-          controlIds.push(existingControl.id)
-          continue
-        }
-      }
-
-      this.warnings.push(`Could not find control: ${controlData.name || controlData.id || 'unnamed'}`)
-    }
-
-    return controlIds
+    return ids
   }
 }

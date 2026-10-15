@@ -5,6 +5,7 @@
   import type { UISchemaElement } from '@jsonforms/core'
   import { Class } from '@dethernety/dt-core'
   import CustomCategorizationRenderer, { customCategorizationTester } from '@/components/DataFlow/CustomCategorizationRenderer.vue'
+  import TriStateBooleanRenderer, { triStateBooleanTester } from '@/components/DataFlow/TriStateBooleanRenderer.vue'
 
   const emit = defineEmits(['form:updated', 'form:panel-opened', 'form:info-clicked', 'form:panel-closed', 'attributes:changed'])
   
@@ -35,6 +36,8 @@
       ? [{ tester: customCategorizationTester, renderer: CustomCategorizationRenderer }]
       : []
     ),
+    // Booleans answer Yes, No or Not answered, so an answer can be taken back.
+    { tester: triStateBooleanTester, renderer: TriStateBooleanRenderer },
     ...extendedVuetifyRenderers,
   ]))
 

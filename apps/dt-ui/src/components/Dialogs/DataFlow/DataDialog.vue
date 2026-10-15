@@ -3,7 +3,7 @@
   import { useIssueStore } from '@/stores/issueStore'
   import { computed, onMounted, onUnmounted, ref, shallowRef, watch, nextTick } from 'vue'
   import type { UISchemaElement } from '@jsonforms/core'
-  import { flattenProperties, unflattenProperties } from '@/utils/dataFlowUtils'
+  import { flattenProperties, unflattenProperties, withClearedAttributes } from '@/utils/dataFlowUtils'
   import { Exposure, ORIGIN_LEVELS, RECOMMENDED_REGULATORY_FLAGS } from '@dethernety/dt-core'
   import AttributesForm from '@/components/DataFlow/AttributesForm.vue'
   import AttributesDialog from '@/components/DataFlow/AttributesDialog.vue'
@@ -223,7 +223,10 @@
     if (!attributesDirty.value) return
 
     try {
-      const flatAttributes = flattenProperties(pendingAttributes.value)
+      // What this save sends. An edit made while it is in flight replaces pendingAttributes, so it stays unsaved.
+      const sent = pendingAttributes.value
+      // An answer taken back (Not answered) is sent as null, so the server clears it.
+      const flatAttributes = withClearedAttributes(flattenProperties(lastLoadedAttributes.value), flattenProperties(sent))
 
       // setInstantiationAttributesWithStaleCount returns the
       // number of dispositioned exposures whose `dispositionStale` flipped to
@@ -234,9 +237,14 @@
         classId: dataClass.value,
         attributes: flatAttributes,
       })
+      // A save the server refused keeps the baseline, so a retry sends the same changes (cleared answers included).
+      if (!result?.success) {
+        emit('update:snackBar', { show: true, message: 'Failed to save attributes', color: 'error' })
+        return
+      }
 
-      lastLoadedAttributes.value = pendingAttributes.value
-      attributesDirty.value = false
+      lastLoadedAttributes.value = sent
+      if (pendingAttributes.value === sent) attributesDirty.value = false
       // Refetch exposures so the row-level stale flags propagate to the
       // exposures table. The staleFlippedCount is the *count*, not the *which*
       // — refetch tells SettingsExposuresTab which rows to mark stale.
@@ -581,6 +589,7 @@
   defineExpose({
     onClassChangeDiscard, onSubmit, name, description, dataClass,
     sensitivity, regulatoryFlags, origin, isCredential, attributesDirty, pendingClassId, initialState,
+    lastLoadedAttributes, pendingAttributes, saveAttributes, onAttributesChanged,
   })
 
 </script>

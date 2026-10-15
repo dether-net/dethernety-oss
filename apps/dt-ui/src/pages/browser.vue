@@ -419,6 +419,8 @@
             <template #activator="{ props: activatorProps }">
               <v-fab
                 v-bind="activatorProps"
+                v-tooltip:start="'Create or import'"
+                aria-label="Create or import"
                 class="ma-2"
                 color="secondary"
                 elevation="12"
@@ -429,6 +431,8 @@
             </template>
             <v-btn
               key="1"
+              v-tooltip:start="'New model'"
+              aria-label="New model"
               color="quinary"
               elevation="12"
               icon="mdi-vector-polyline"
@@ -438,6 +442,8 @@
             />
             <v-btn
               key="2"
+              v-tooltip:start="'New control'"
+              aria-label="New control"
               color="quinary"
               elevation="12"
               icon="mdi-shield-sword-outline"
@@ -447,6 +453,8 @@
             />
             <v-btn
               key="3"
+              v-tooltip:start="'Import model'"
+              aria-label="Import model"
               color="quinary"
               elevation="12"
               icon="mdi-import"

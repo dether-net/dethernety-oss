@@ -486,6 +486,10 @@ invokes `openFindingIssueSelector(args)` and awaits the picker outcome — "Add 
 Issue board" (copy + redirect) or a real issue created of a chosen class and
 attached to the element. The host owns all issue logic; the module only triggers
 it, so there is no drift and no second issue implementation in module code.
+The issue's description is `finding.description` as the caller gives it; a finding
+passed without one is described as `Exposure: <name>`. The finding's id, the element
+and the model are linked to the issue, each only when it names a node, and an id the
+caller leaves out is never sent.
 
 > Note: the window-level `HostDependencies.services` (exposed via `ModuleLoader.exposeHostDependencies`) carries only `componentRegistry`; the finding-action services (`openDispositionDialog`, `affirmFinding`, `clearFindingDisposition`, `supersedeFinding`, `deleteFinding`, `openFindingIssueSelector`) are provided through the `useHostContext()` composable, which is the surface modules call.
 

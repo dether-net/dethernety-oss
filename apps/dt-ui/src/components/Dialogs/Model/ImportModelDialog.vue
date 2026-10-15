@@ -1,11 +1,12 @@
 <script setup lang="ts">
-  import { ref } from 'vue'
+  import { computed, ref, shallowRef } from 'vue'
   import { useApolloClient } from '@/plugins/apolloComposable'
-  import { DtImportSplit } from '@dethernety/dt-core'
-  import type { ImportProgress, ImportSplitResult, Model } from '@dethernety/dt-core'
+  import { DtImportSplit, DtModel } from '@dethernety/dt-core'
+  import type { ImportProgress, ImportSplitResult, Model, SplitModel } from '@dethernety/dt-core'
   import { useFolderStore } from '@/stores/folderStore'
   import { useModelsStore } from '@/stores/modelsStore'
   import { zipToSplitModel } from '@/utils/modelZipUtils'
+  import { suggestModelName } from '@/utils/modelNameUtils'
 
   interface Props {
     show: boolean
@@ -16,9 +17,20 @@
 
   const dialog = ref(props.show)
   const fileInput = ref<HTMLInputElement | null>(null)
-  const importedFile = ref<File | null>(null)
+  // Held as is, never wrapped, so a read can tell whether its file is still the chosen one.
+  const importedFile = shallowRef<File | null>(null)
   const isImporting = ref(false)
   const importedModel = ref<Model | null>(null)
+  // The archive read once a file is chosen, and the name the model will be imported under: the archive's, or the
+  // next free "<name> (n)" when the folder it lands in already holds a model of that name. The user may change it.
+  const splitModel = ref<SplitModel | null>(null)
+  const modelName = ref('')
+  const archiveName = ref('')
+  const archiveNameTaken = ref(false)
+  // Set when the folder's models could not be listed, so the name could not be told apart from one already there.
+  const folderCheckFailed = ref(false)
+  // While the chosen file is still being read there is no name to import it under yet, so Import waits.
+  const readingArchive = ref(false)
   const errorMessages = ref<string[]>([])
   const warningMessages = ref<string[]>([])
   const successMessage = ref('')
@@ -33,6 +45,7 @@
   const folderStore = useFolderStore()
   const modelsStore = useModelsStore()
   const dtImportSplit = new DtImportSplit(client!)
+  const dtModel = new DtModel(client!)
 
   const onProgressUpdate = (progress: ImportProgress) => {
     importProgress.value = progress
@@ -47,15 +60,52 @@
     fileInput.value?.click()
   }
 
-  const handleFileSelected = (event: Event) => {
+  const handleFileSelected = async (event: Event) => {
     const input = event.target as HTMLInputElement
     if (input.files && input.files.length > 0) {
-      importedFile.value = input.files[0]
+      const file = input.files[0]
+      importedFile.value = file
       errorMessages.value = []
       warningMessages.value = []
       successMessage.value = ''
+      splitModel.value = null
+      modelName.value = ''
+      archiveName.value = ''
+      archiveNameTaken.value = false
+      folderCheckFailed.value = false
+      readingArchive.value = true
+      try {
+        // A file chosen after this one, while this one was still being read, wins: each await checks it still is.
+        const archive = zipToSplitModel(new Uint8Array(await readFileAsArrayBuffer(file)))
+        if (importedFile.value !== file) return
+        splitModel.value = archive
+        archiveName.value = archive.manifest.model?.name ?? ''
+        // Only the folder the model lands in counts: the same name elsewhere tells the two apart already.
+        const inFolder = await dtModel.getModels({ folderId: folderStore.selectedFolder?.id })
+        if (importedFile.value !== file) return
+        modelName.value = suggestModelName(archiveName.value, inFolder.map(m => m.name ?? ''))
+        archiveNameTaken.value = modelName.value !== archiveName.value.trim()
+      } catch (error) {
+        if (importedFile.value !== file) return
+        console.error('Error reading model archive:', error)
+        modelName.value = archiveName.value
+        if (!splitModel.value) {
+          errorMessages.value = [error instanceof Error ? error.message : 'The file could not be read as a model archive']
+        } else {
+          // The archive was read; only the folder lookup failed, so the name is the archive's, unchecked.
+          folderCheckFailed.value = true
+        }
+      } finally {
+        if (importedFile.value === file) readingArchive.value = false
+      }
     }
   }
+
+  const nameHint = computed(() => {
+    if (folderCheckFailed.value) return "Couldn't check this folder for a model of the same name, so this name may already be in use. You can change it."
+    if (archiveNameTaken.value) return `This folder already has a model named “${archiveName.value.trim()}”, so the import is named apart. You can change the name.`
+    return ''
+  })
 
   const readFileAsArrayBuffer = (file: File): Promise<ArrayBuffer> => {
     return new Promise((resolve, reject) => {
@@ -86,10 +136,16 @@
       warningMessages.value = []
       successMessage.value = ''
 
-      const arrayBuffer = await readFileAsArrayBuffer(importedFile.value)
-      const splitModel = zipToSplitModel(new Uint8Array(arrayBuffer))
+      const archive = splitModel.value ?? zipToSplitModel(new Uint8Array(await readFileAsArrayBuffer(importedFile.value)))
+      const name = modelName.value.trim()
+      if (!name) {
+        errorMessages.value = ['Please give the model a name']
+        return
+      }
+      // The model is imported under the chosen name; the archive itself is left as it was.
+      const named: SplitModel = { ...archive, manifest: { ...archive.manifest, model: { ...archive.manifest.model, name } } }
 
-      const result: ImportSplitResult = await dtImportSplit.importSplitModel(splitModel, {
+      const result: ImportSplitResult = await dtImportSplit.importSplitModel(named, {
         folderId: folderStore.selectedFolder?.id,
         onProgress: onProgressUpdate
       })
@@ -123,6 +179,7 @@
 <template>
   <v-dialog
     v-model="dialog"
+    aria-label="Import model"
     max-width="500"
     @click:outside="handleClose"
     @keydown.esc="handleClose"
@@ -136,6 +193,8 @@
             <span class="ml-2 text-body-1">Import Model</span>
           </div>
           <v-btn
+            v-tooltip:bottom="'Close'"
+            aria-label="Close"
             color="foreground"
             icon="mdi-close"
             size="medium"
@@ -172,6 +231,19 @@
             No file selected
           </span>
         </div>
+
+        <v-text-field
+          v-if="splitModel"
+          v-model="modelName"
+          class="mb-2"
+          density="compact"
+          :disabled="isImporting || !!importedModel"
+          :hint="nameHint"
+          label="Model name"
+          persistent-hint
+          :rules="[(v: string) => !!v?.trim() || 'A name is required']"
+          variant="outlined"
+        />
 
         <v-alert
           v-if="errorMessages.length > 0"
@@ -219,8 +291,10 @@
       <v-card-actions class="py-4 px-6">
         <v-btn
           v-if="!importedModel"
+          v-tooltip:top="'Import'"
+          aria-label="Import"
           color="secondary"
-          :disabled="!importedFile || isImporting"
+          :disabled="!importedFile || readingArchive || isImporting || (!!splitModel && !modelName.trim())"
           icon="mdi-import"
           :loading="isImporting"
           size="x-large"
@@ -229,6 +303,8 @@
         />
         <v-btn
           v-else
+          v-tooltip:top="'Close'"
+          aria-label="Close"
           color="secondary"
           icon="mdi-close"
           size="x-large"

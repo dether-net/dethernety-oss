@@ -57,6 +57,7 @@ interface Exposed {
   attributesUiSchema: object | null
   attributesLoading: boolean
   attributesTemplateWarning: boolean
+  saveAttributes: (pending: object) => Promise<boolean>
 }
 
 const mountDialog = () =>
@@ -151,5 +152,29 @@ describe('ControlDialog — attribute class-bleed guard (showClassControl)', () 
     expect(vm(wrapper).attributesSchema).toBeNull()
     expect(vm(wrapper).showClassControlDialog).toBe(true)
     expect(vm(wrapper).attributesLoading).toBe(false)
+  })
+})
+
+describe('ControlDialog — saving attributes', () => {
+  it('sends an answer taken back as null, so the server clears it, and keeps the others', async () => {
+    mocks.store.setInstantiationAttributes.mockResolvedValue(true)
+    const w = mountDialog()
+    vm(w).lastLoadedAttributes = { mfa_enforced: true, owner: 'ops' }
+    await vm(w).saveAttributes({ owner: 'ops' })
+    expect(mocks.store.setInstantiationAttributes).toHaveBeenCalledWith(
+      expect.objectContaining({ attributes: { owner: 'ops', mfa_enforced: null } }),
+    )
+    // What the save stored is the new baseline: nothing to clear next time.
+    expect(vm(w).lastLoadedAttributes).toEqual({ owner: 'ops' })
+  })
+
+  it('keeps a list as one value, so a shortened list replaces the stored one', async () => {
+    mocks.store.setInstantiationAttributes.mockResolvedValue(true)
+    const w = mountDialog()
+    vm(w).lastLoadedAttributes = { feeds: ['nvd', 'osv'], mfa: true }
+    await vm(w).saveAttributes({ feeds: ['nvd'], mfa: true })
+    expect(mocks.store.setInstantiationAttributes).toHaveBeenCalledWith(
+      expect.objectContaining({ attributes: { feeds: ['nvd'], mfa: true } }),
+    )
   })
 })

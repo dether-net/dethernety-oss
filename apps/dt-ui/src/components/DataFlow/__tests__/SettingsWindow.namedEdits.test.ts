@@ -63,7 +63,7 @@ vi.mock('vue-router', () => ({
 }))
 // Children reached through this panel statically import @jsonforms/vue-vuetify, which pulls Vuetify
 // component CSS Vitest can't parse. Same cut as SettingsWindow.freshTab.test.ts.
-vi.mock('@jsonforms/vue-vuetify', () => ({ extendedVuetifyRenderers: [] }))
+vi.mock('@jsonforms/vue-vuetify', () => ({ extendedVuetifyRenderers: [], ControlWrapper: {}, useVuetifyControl: () => ({}) }))
 
 import SettingsWindow from '../SettingsWindow.vue'
 
@@ -367,5 +367,53 @@ describe('a General edit on a data flow names the field that changed', () => {
     await flushPromises()
 
     expect(lastEdgeUpdates()).toEqual({ data: {} })
+  })
+})
+
+describe('saving attributes', () => {
+  type Seam = { saveAttributes: () => Promise<void>, onAttributesChanged: (data: object) => void, isDirty: boolean, lastLoadedAttributes: object, pendingAttributes: object, itemClass: object | null }
+  const prepare = async (result: unknown) => {
+    mockFlowStore.selectedItem = componentNode()
+    mockFlowStore.setInstantiationAttributesWithStaleCount.mockResolvedValue(result)
+    const w = await mountPanel()
+    const seam = w.vm as unknown as Seam
+    seam.itemClass = { id: 'cls-1' }
+    seam.lastLoadedAttributes = { mfa_enforced: true, owner: 'ops' }
+    seam.pendingAttributes = { owner: 'ops' }
+    return seam
+  }
+
+  it('sends an answer taken back as null, and makes what was saved the new baseline', async () => {
+    const seam = await prepare({ success: true, staleFlippedCount: 0 })
+    await seam.saveAttributes()
+    expect(mockFlowStore.setInstantiationAttributesWithStaleCount).toHaveBeenLastCalledWith(
+      expect.objectContaining({ attributes: { owner: 'ops', mfa_enforced: null } }),
+    )
+    expect(seam.lastLoadedAttributes).toEqual({ owner: 'ops' })
+  })
+
+  it('keeps the baseline when the server refuses the save, so a retry sends the cleared answer again', async () => {
+    const seam = await prepare({ success: false, staleFlippedCount: null })
+    await seam.saveAttributes()
+    expect(seam.lastLoadedAttributes).toEqual({ mfa_enforced: true, owner: 'ops' })
+  })
+
+  it('keeps an edit made while a save is in flight unsaved, and sends it, a clear included, on the next save', async () => {
+    const seam = await prepare({ success: true, staleFlippedCount: 0 })
+    let finish: (v: unknown) => void = () => {}
+    mockFlowStore.setInstantiationAttributesWithStaleCount.mockImplementationOnce(() => new Promise((r) => { finish = r }))
+    seam.onAttributesChanged({ owner: 'ops' })
+    const saving = seam.saveAttributes()
+    seam.onAttributesChanged({})
+    finish({ success: true, staleFlippedCount: 0 })
+    await saving
+    await flushPromises()
+    expect(seam.lastLoadedAttributes).toEqual({ owner: 'ops' })
+    expect(seam.isDirty).toBe(true)
+    await seam.saveAttributes()
+    expect(mockFlowStore.setInstantiationAttributesWithStaleCount).toHaveBeenLastCalledWith(
+      expect.objectContaining({ attributes: { owner: null } }),
+    )
+    expect(seam.isDirty).toBe(false)
   })
 })

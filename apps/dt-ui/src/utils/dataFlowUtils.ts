@@ -271,3 +271,21 @@ export function getPageDisplayName (path: string): string {
       return path.split('/').pop()?.replace(/[-_]/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Unknown Page'
   }
 }
+
+/**
+ * The attributes to save, with every answer the user took back sent as null. The server merges a save into the
+ * stored attributes (a key left out keeps its old value), and a null removes the key there, so an attribute the
+ * user set back to unanswered needs an explicit null. `prior` and `next` are attribute maps in the shape the caller
+ * saves (flattened, or top-level where a list is one value); a key `prior` held a value for and `next` does not is
+ * sent as null.
+ */
+export function withClearedAttributes (
+  prior: Record<string, unknown>,
+  next: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...next }
+  for (const [key, value] of Object.entries(prior ?? {})) {
+    if (value !== undefined && value !== null && (out[key] === undefined)) out[key] = null
+  }
+  return out
+}

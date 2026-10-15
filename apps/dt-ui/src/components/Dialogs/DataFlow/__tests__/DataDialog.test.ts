@@ -46,7 +46,7 @@ vi.mock('vue-router', () => ({ useRouter: () => mocks.router }))
 // Several stubbed-out children (AttributesForm, IssueDialog→IssueCard) statically import
 // @jsonforms/vue-vuetify, which pulls Vuetify component CSS that Vitest's node env can't parse.
 // Mock the package to cut that chain for every importer in the graph at once.
-vi.mock('@jsonforms/vue-vuetify', () => ({ extendedVuetifyRenderers: [] }))
+vi.mock('@jsonforms/vue-vuetify', () => ({ extendedVuetifyRenderers: [], ControlWrapper: {}, useVuetifyControl: () => ({}) }))
 
 import DataDialog from '../DataDialog.vue'
 
@@ -63,6 +63,10 @@ interface Exposed {
   attributesDirty: boolean
   pendingClassId: string | null
   initialState: { name: string; description: string; dataClass: string | null; sensitivity: string | null; regulatoryFlags: string[]; origin: string | null; isCredential: boolean | null }
+  lastLoadedAttributes: object
+  pendingAttributes: object
+  saveAttributes: () => Promise<void>
+  onAttributesChanged: (data: object) => void
 }
 
 // v-hover exposes a scoped slot ({ isHovering, props }); the shallowMount auto-stub doesn't
@@ -244,5 +248,52 @@ describe('DataDialog — origin and credential', () => {
     vm(w).isCredential = true
     await vm(w).onSubmit()
     expect(lastSave()).toEqual({ dataItemId: 'd1', isCredential: true })
+  })
+})
+
+describe('DataDialog — saving attributes', () => {
+  const prepare = async (result: object) => {
+    mocks.flow.setInstantiationAttributesWithStaleCount.mockResolvedValue(result)
+    const w = mountDialog()
+    await flushPromises()
+    vm(w).dataClass = 'classA'
+    vm(w).lastLoadedAttributes = { encrypted: true, owner: 'ops' }
+    vm(w).pendingAttributes = { owner: 'ops' }
+    vm(w).attributesDirty = true
+    return w
+  }
+
+  it('sends an answer taken back as null, and makes what was saved the new baseline', async () => {
+    const w = await prepare({ success: true, staleFlippedCount: 0 })
+    await vm(w).saveAttributes()
+    expect(mocks.flow.setInstantiationAttributesWithStaleCount).toHaveBeenCalledWith(
+      expect.objectContaining({ attributes: { owner: 'ops', encrypted: null } }),
+    )
+    expect(vm(w).lastLoadedAttributes).toEqual({ owner: 'ops' })
+  })
+
+  it('keeps the baseline when the server refuses the save, so a retry sends the cleared answer again', async () => {
+    const w = await prepare({ success: false, staleFlippedCount: null })
+    await vm(w).saveAttributes()
+    expect(vm(w).lastLoadedAttributes).toEqual({ encrypted: true, owner: 'ops' })
+    expect(vm(w).attributesDirty).toBe(true)
+    expect(w.emitted('update:snackBar')?.at(-1)?.[0]).toMatchObject({ color: 'error' })
+  })
+
+  it('keeps an answer cleared while a save is in flight unsaved, and sends its clearing on the next save', async () => {
+    const w = await prepare({ success: true, staleFlippedCount: 0 })
+    let finish: (v: unknown) => void = () => {}
+    mocks.flow.setInstantiationAttributesWithStaleCount.mockImplementationOnce(() => new Promise((r) => { finish = r }))
+    const saving = vm(w).saveAttributes()
+    vm(w).onAttributesChanged({})
+    finish({ success: true, staleFlippedCount: 0 })
+    await saving
+    expect(vm(w).lastLoadedAttributes).toEqual({ owner: 'ops' })
+    expect(vm(w).attributesDirty).toBe(true)
+    await vm(w).saveAttributes()
+    expect(mocks.flow.setInstantiationAttributesWithStaleCount).toHaveBeenLastCalledWith(
+      expect.objectContaining({ attributes: { owner: null } }),
+    )
+    expect(vm(w).attributesDirty).toBe(false)
   })
 })

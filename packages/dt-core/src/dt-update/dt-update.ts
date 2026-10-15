@@ -19,6 +19,7 @@ import { DtDataflow } from '../dt-dataflow/dt-dataflow.js'
 import { DtDataItem } from '../dt-dataitem/dt-dataitem.js'
 import { DtModule } from '../dt-module/dt-module.js'
 import { ClassResolver, ResolvableClassKind } from '../dt-class/class-resolver.js'
+import { ControlOwner, ControlResolver, UnresolvedControl, describeControlOwner, describeUnresolvedControl } from '../dt-control/control-resolver.js'
 import { DtControl } from '../dt-control/dt-control.js'
 
 export interface UpdateProgress {
@@ -61,6 +62,8 @@ export interface UpdateResult {
   stats: UpdateStats
   /** Elements whose class this platform does not have (see UnresolvedClass); a warning names each. */
   unresolvedClasses?: UnresolvedClass[]
+  /** Control references that were not attached: no control or several controls matched; a warning names each. */
+  unresolvedControls?: UnresolvedControl[]
 }
 
 export interface UpdateOptions {
@@ -70,6 +73,12 @@ export interface UpdateOptions {
 
 // Attribute writes run this many at a time once every element is written (see attributeWrites).
 const ATTRIBUTE_WRITE_CONCURRENCY = 4
+
+/** The ids in a fetched controls list, whose entries are ids or controls. */
+const controlIdsOf = (controls: unknown): string[] =>
+  Array.isArray(controls)
+    ? controls.map((c: any) => (typeof c === 'string' ? c : c?.id)).filter((id): id is string => typeof id === 'string' && id !== '')
+    : []
 
 /** An update error's element name: the element's name, or its id when it has none; none when it has neither. */
 const labelOf = (name: string | undefined | null, id: string | undefined | null): string | undefined => name || id || undefined
@@ -101,10 +110,16 @@ export class DtUpdate {
   private currentModelId: string = ''
   private defaultBoundaryId: string = ''
   private assignedModuleIds: string[] = []
-  // Set when BOTH control-catalog fetches fail during a batch: the catalog is
-  // unavailable (not genuinely empty), so resolveControls preserves rather than
-  // REPLACE-wipes, and one error is surfaced so success reflects it.
+  // Control references resolve through ControlResolver, whose catalog is fetched once per update batch. When the
+  // catalog is incomplete or unavailable (not genuinely empty), resolveControls preserves the element's controls
+  // rather than REPLACE-wiping them, and one error is surfaced so success reflects it.
+  private controlResolver = new ControlResolver((folderId) => this.dtControl.getControls({ folderId }))
+  private controlCatalogChecked = false
   private controlCatalogUnavailable = false
+  private unresolvedControls: UnresolvedControl[] = []
+  // The controls each existing boundary, component and data flow has on the platform, by element id. An ambiguous
+  // control reference keeps the candidates an element already has rather than removing them (see resolveControls).
+  private attachedControlIds: Map<string, string[]> = new Map()
   private stats: UpdateStats = { created: 0, updated: 0, deleted: 0 }
 
   // Track existing elements to detect deletions
@@ -123,9 +138,6 @@ export class DtUpdate {
   private processedComponentIds: Set<string> = new Set()
   private processedDataflowIds: Set<string> = new Set()
   private processedDataitemIds: Set<string> = new Set()
-
-  // Cached controls for resolveControls() — populated once per update batch
-  private cachedAvailableControls: any[] | null = null
 
   private progress: UpdateProgress = {
     currentStep: 0,
@@ -170,8 +182,11 @@ export class DtUpdate {
     this.processedDataflowIds = new Set()
     this.processedDataitemIds = new Set()
 
-    this.cachedAvailableControls = null
+    this.controlResolver = new ControlResolver((folderId) => this.dtControl.getControls({ folderId }))
+    this.controlCatalogChecked = false
     this.controlCatalogUnavailable = false
+    this.unresolvedControls = []
+    this.attachedControlIds = new Map()
 
     this.progress = {
       currentStep: 0,
@@ -369,6 +384,7 @@ export class DtUpdate {
         errors: this.errors,
         warnings: this.warnings,
         unresolvedClasses: this.unresolvedClasses,
+        unresolvedControls: this.unresolvedControls,
         progress: this.progress,
         stats: this.stats
       }
@@ -383,6 +399,7 @@ export class DtUpdate {
         errors: this.errors,
         warnings: this.warnings,
         unresolvedClasses: this.unresolvedClasses,
+        unresolvedControls: this.unresolvedControls,
         progress: this.progress,
         stats: this.stats
       }
@@ -404,6 +421,9 @@ export class DtUpdate {
         const allComponents = defaultBoundary.allDescendantComponents || []
         const allBoundaries = defaultBoundary.allDescendantBoundaries || []
         const allDataFlows = defaultBoundary.allDescendantDataFlows || []
+        for (const element of [defaultBoundary, ...allComponents, ...allBoundaries, ...allDataFlows]) {
+          this.attachedControlIds.set(element.id, controlIdsOf(element.controls))
+        }
 
         for (const component of allComponents) {
           this.existingComponentIds.add(component.id)
@@ -446,83 +466,50 @@ export class DtUpdate {
   }
 
   /**
-   * Resolve control references (by ID or name) to server control IDs.
-   * Caches available controls for the duration of the update batch.
-   * Returns undefined when input is undefined (preserves existing controls).
+   * Resolve control references to server control ids (see ControlResolver); each reference left unattached is
+   * reported with the model or element it came from. A name several controls share never removes a control: the
+   * candidates the element already has (`attached`) stay, and only when it has none is the reference reported.
+   * Returns undefined when the input is undefined, or when the control catalog is incomplete or unavailable: callers
+   * then leave the key unset, so the element's existing controls are preserved.
    */
   private resolveControls = async (
-    controls: any[] | undefined
+    controls: any[] | undefined,
+    owner: ControlOwner,
+    attached: string[] = []
   ): Promise<string[] | undefined> => {
     if (controls === undefined) return undefined
     if (controls.length === 0) return []
 
-    // Populate cache on first call
-    if (this.cachedAvailableControls === null) {
-      this.cachedAvailableControls = []
-      let noFolderOk = false
-      let allOk = false
-      try {
-        const noFolderControls = await this.dtControl.getControls({ folderId: undefined })
-        this.cachedAvailableControls.push(...noFolderControls)
-        noFolderOk = true
-      } catch { /* silently continue */ }
-      try {
-        const allControls = await this.dtControl.getControls({ folderId: 'all' })
-        for (const control of allControls) {
-          if (!this.cachedAvailableControls.find((c: any) => c.id === control.id)) {
-            this.cachedAvailableControls.push(control)
-          }
-        }
-        allOk = true
-      } catch { /* silently continue */ }
-      // The 'all' fetch is the superset (folderId:'all' → no folder filter), so the
-      // catalog is complete iff it succeeded — a half-outage where only the no-folder
-      // fetch worked would leave folder-scoped controls unresolvable and REPLACE-strip
-      // them just as silently as a full outage. Flag EITHER an 'all' failure or a full
-      // failure as UNAVAILABLE (this and later elements preserve) and surface ONE error
-      // so the run reports success:false rather than silently wiping controls.
-      // (noFolderOk alone is NOT sufficient; allOk alone is — hence the gate on allOk.)
-      if (!allOk) {
+    if (!this.controlCatalogChecked) {
+      this.controlCatalogChecked = true
+      // The 'all' fetch is the superset, so the catalog is complete exactly when it succeeded. A half-outage where
+      // only the no-folder fetch worked would leave folder-scoped controls unresolvable and REPLACE-strip them as
+      // silently as a full outage, so either case preserves, with ONE error so the run reports success:false.
+      const status = await this.controlResolver.catalogStatus()
+      if (status !== 'complete') {
         this.controlCatalogUnavailable = true
         this.errors.push({
           step: 'resolve_controls',
-          error: noFolderOk
+          error: status === 'incomplete'
             ? "Control catalog incomplete (the 'all' fetch failed) — controls preserved, not synced"
             : 'Control catalog unavailable (both fetches failed) — controls preserved, not synced',
         })
       }
     }
-
-    // Catalog outage: preserve existing controls (undefined ⇒ callers omit the key)
-    // rather than resolving this non-empty input against an empty catalog and wiping.
     if (this.controlCatalogUnavailable) return undefined
 
-    const controlIds: string[] = []
-    for (const controlData of controls) {
-      let found = false
-
-      // Priority 1: Match by exact ID
-      if (controlData.id) {
-        const match = this.cachedAvailableControls.find((c: any) => c.id === controlData.id)
-        if (match) { controlIds.push(match.id); found = true }
+    const { ids, unresolved } = await this.controlResolver.resolve(controls)
+    for (const u of unresolved) {
+      const kept = u.reason === 'ambiguous' ? (u.candidates ?? []).map((c) => c.id).filter((id) => attached.includes(id)) : []
+      if (kept.length > 0) {
+        for (const id of kept) if (!ids.includes(id)) ids.push(id)
+        this.warnings.push(`Control ${describeUnresolvedControl(u)}, on ${describeControlOwner(owner)}: kept ${kept.join(', ')}, which it already had`)
+        continue
       }
-
-      // Priority 2-4: Match by name (exact → case-insensitive → partial)
-      if (!found && controlData.name) {
-        const match = this.cachedAvailableControls.find((c: any) => c.name === controlData.name)
-          || this.cachedAvailableControls.find((c: any) =>
-            c.name.toLowerCase() === controlData.name.toLowerCase())
-          || this.cachedAvailableControls.find((c: any) =>
-            c.name.toLowerCase().includes(controlData.name.toLowerCase()) ||
-            controlData.name.toLowerCase().includes(c.name.toLowerCase()))
-        if (match) { controlIds.push(match.id); found = true }
-      }
-
-      if (!found) {
-        this.warnings.push(`Could not resolve control: ${controlData.name || controlData.id || 'unnamed'}`)
-      }
+      this.unresolvedControls.push({ ...u, owner })
+      this.warnings.push(`Could not resolve control: ${describeUnresolvedControl(u)}, on ${describeControlOwner(owner)}`)
     }
-    return controlIds
+    return ids
   }
 
   /**
@@ -557,7 +544,7 @@ export class DtUpdate {
       const existingControlIds = existingModel.controls?.map((c: any) => typeof c === 'string' ? c : c.id) || []
       let controlIds: string[]
       if (data.controls !== undefined) {
-        const resolved = await this.resolveControls(data.controls)
+        const resolved = await this.resolveControls(data.controls, { kind: 'MODEL', name: data.name }, existingControlIds)
         controlIds = resolved ?? existingControlIds
       } else {
         controlIds = existingControlIds
@@ -678,7 +665,11 @@ export class DtUpdate {
       // a present key uses the resolved list (incl []). If a present input can't be
       // resolved (resolveControls → undefined), leave the key unset so the builder
       // omits it (preserve) rather than wiping.
-      const resolvedControls = await this.resolveControls(boundaryData.controls)
+      const resolvedControls = await this.resolveControls(
+        boundaryData.controls,
+        { kind: 'BOUNDARY', id: boundaryData.id, name: boundaryData.name },
+        this.attachedControlIds.get(this.defaultBoundaryId)
+      )
       if (boundaryData.controls === undefined) {
         boundaryNode.data.controls = []
       } else if (resolvedControls !== undefined) {
@@ -921,7 +912,11 @@ export class DtUpdate {
       // a present key uses the resolved list (incl []). If a present input can't be
       // resolved (resolveControls → undefined), leave the key unset so the builder
       // omits it (preserve) rather than wiping.
-      const resolvedControls = await this.resolveControls(boundaryData.controls)
+      const resolvedControls = await this.resolveControls(
+        boundaryData.controls,
+        { kind: 'BOUNDARY', id: boundaryId, name: boundaryData.name },
+        this.attachedControlIds.get(boundaryId)
+      )
       if (boundaryData.controls === undefined) {
         boundaryNode.data.controls = []
       } else if (resolvedControls !== undefined) {
@@ -1016,7 +1011,7 @@ export class DtUpdate {
       // Associate controls and/or data items with the newly created boundary via a
       // follow-up update (the create mutation carries neither).
       if (createdBoundary) {
-        const resolvedControls = await this.resolveControls(boundaryData.controls)
+        const resolvedControls = await this.resolveControls(boundaryData.controls, { kind: 'BOUNDARY', id: boundaryData.id, name: boundaryData.name })
         const followUpControls = resolvedControls && resolvedControls.length > 0 ? resolvedControls : undefined
         const followUpDataItems = this.mapDataItemIds(boundaryData.dataItemIds)
         // createBoundaryNode (ADD_BOUNDARY) can't set zoning, so the follow-up must also fire when the
@@ -1217,7 +1212,11 @@ export class DtUpdate {
       // a present key uses the resolved list (incl []). If a present input can't be
       // resolved (resolveControls → undefined), leave the key unset so the builder
       // omits it (preserve) rather than wiping.
-      const resolvedControls = await this.resolveControls(componentData.controls)
+      const resolvedControls = await this.resolveControls(
+        componentData.controls,
+        { kind: 'COMPONENT', id: componentId, name: componentData.name },
+        this.attachedControlIds.get(componentId)
+      )
       if (componentData.controls === undefined) {
         componentNode.data.controls = []
       } else if (resolvedControls !== undefined) {
@@ -1312,7 +1311,7 @@ export class DtUpdate {
       // Associate controls and/or data items with the newly created component via a
       // follow-up update (the create mutation carries neither).
       if (createdComponent) {
-        const resolvedControls = await this.resolveControls(componentData.controls)
+        const resolvedControls = await this.resolveControls(componentData.controls, { kind: 'COMPONENT', id: componentData.id, name: componentData.name })
         const followUpControls = resolvedControls && resolvedControls.length > 0 ? resolvedControls : undefined
         const followUpDataItems = this.mapDataItemIds(componentData.dataItemIds)
         if (followUpControls || followUpDataItems.length > 0) {
@@ -1419,7 +1418,11 @@ export class DtUpdate {
       // a present key uses the resolved list (incl []). If a present input can't be
       // resolved (resolveControls → undefined), leave the key unset so the builder
       // omits it (preserve) rather than wiping.
-      const resolvedControls = await this.resolveControls(flowData.controls)
+      const resolvedControls = await this.resolveControls(
+        flowData.controls,
+        { kind: 'DATA_FLOW', id: flowId, name: flowData.name },
+        this.attachedControlIds.get(flowId)
+      )
       if (flowData.controls === undefined) {
         edge.data.controls = []
       } else if (resolvedControls !== undefined) {
@@ -1510,7 +1513,7 @@ export class DtUpdate {
       // Associate controls and/or data items with the newly created data flow via a
       // follow-up update (the create mutation carries neither).
       if (createdFlow) {
-        const resolvedControls = await this.resolveControls(flowData.controls)
+        const resolvedControls = await this.resolveControls(flowData.controls, { kind: 'DATA_FLOW', id: flowData.id, name: flowData.name })
         const followUpControls = resolvedControls && resolvedControls.length > 0 ? resolvedControls : undefined
         const followUpDataItems = this.mapDataItemIds(flowData.dataItemIds)
         if (followUpControls || followUpDataItems.length > 0) {

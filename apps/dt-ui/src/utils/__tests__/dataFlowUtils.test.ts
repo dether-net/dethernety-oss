@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { flattenProperties, unflattenProperties, getNewName, getPageDisplayName } from '../dataFlowUtils'
+import { flattenProperties, unflattenProperties, getNewName, getPageDisplayName, withClearedAttributes } from '../dataFlowUtils'
 
 describe('flattenProperties', () => {
   it('should flatten a simple nested object', () => {
@@ -117,5 +117,20 @@ describe('getPageDisplayName', () => {
 
   it('should format unknown paths', () => {
     expect(getPageDisplayName('/some-page')).toBe('Some Page')
+  })
+})
+
+describe('withClearedAttributes', () => {
+  it('sends a key the prior attributes held and the new ones lack as null, and keeps the rest', () => {
+    expect(withClearedAttributes({ a: true, b: 'x', c: false }, { b: 'y', d: 1 })).toEqual({ b: 'y', d: 1, a: null, c: null })
+  })
+
+  it('sends nothing extra for a key that was never answered, or is answered still', () => {
+    expect(withClearedAttributes({ a: null, b: undefined, c: 0 }, { c: 0 })).toEqual({ c: 0 })
+    expect(withClearedAttributes({}, { a: true })).toEqual({ a: true })
+  })
+
+  it('works on flattened keys, so a shortened list clears its dropped entries', () => {
+    expect(withClearedAttributes({ 'l[0]': 'a', 'l[1]': 'b' }, { 'l[0]': 'a' })).toEqual({ 'l[0]': 'a', 'l[1]': null })
   })
 })

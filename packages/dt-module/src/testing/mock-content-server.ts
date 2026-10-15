@@ -62,9 +62,11 @@ export class MockContentServer {
    */
   private kgDenial: DenialInfo = fixtures.kgDenial;
   /** The named-query registry served by the contract tier; `null` makes that route fail. */
-  private kgRegistry: typeof fixtures.kgRegistry | null = fixtures.kgRegistry;
+  private kgRegistry: fixtures.KgRegistryFixture | null = fixtures.kgRegistry;
   /** When true, every query answer claims it was capped — which the protocol never permits. */
   private kgTruncated = false;
+  /** When set, replaces each query answer's `results`; returning undefined leaves the field out. */
+  private kgResultsOverride?: (results: Array<{ key: string; matches: unknown[] }>) => unknown;
   private moduleDocOverride?: ModuleDocument;
   private failureMode: FailureMode = 'none';
   /** When set, the mock hangs until the caller's abort signal fires (timeout). */
@@ -125,7 +127,7 @@ export class MockContentServer {
    * than such a service accepts. `null` models the registry being unavailable, which is a
    * different situation from it being restrictive and has to fail differently.
    */
-  setKgRegistry(registry: typeof fixtures.kgRegistry | null): void {
+  setKgRegistry(registry: fixtures.KgRegistryFixture | null): void {
     this.kgRegistry = registry;
   }
 
@@ -138,6 +140,15 @@ export class MockContentServer {
    */
   setKgTruncated(on: boolean): void {
     this.kgTruncated = on;
+  }
+
+  /**
+   * Replace each query answer's `results` with what `override` makes of the real ones; undefined
+   * removes the field. Like truncation, a malformed answer is the service breaking its word, and the
+   * client's response to it is not testable any other way.
+   */
+  setKgResults(override?: (results: Array<{ key: string; matches: unknown[] }>) => unknown): void {
+    this.kgResultsOverride = override;
   }
 
   /** Override the module document the catalog returns (e.g. a zero-class doc). */
@@ -158,6 +169,7 @@ export class MockContentServer {
     this.kgDenial = fixtures.kgDenial;
     this.kgRegistry = fixtures.kgRegistry;
     this.kgTruncated = false;
+    this.kgResultsOverride = undefined;
     this.moduleDocOverride = undefined;
     this.requests.length = 0;
   }
@@ -339,7 +351,7 @@ export class MockContentServer {
       requestId: 'fixture-request-id',
       query: queryName,
       version: fixtures.KG_VERSION,
-      results,
+      results: this.kgResultsOverride ? this.kgResultsOverride(results) : results,
       truncated: this.kgTruncated,
     });
   }

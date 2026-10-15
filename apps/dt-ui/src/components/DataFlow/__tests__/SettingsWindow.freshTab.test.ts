@@ -46,7 +46,7 @@ vi.mock('vue-router', () => ({
 // Children reached through this panel statically import @jsonforms/vue-vuetify, which pulls
 // Vuetify component CSS Vitest can't parse. Same cut as DataDialog.test.ts — mock the package
 // once and every importer in the graph is covered.
-vi.mock('@jsonforms/vue-vuetify', () => ({ extendedVuetifyRenderers: [] }))
+vi.mock('@jsonforms/vue-vuetify', () => ({ extendedVuetifyRenderers: [], ControlWrapper: {}, useVuetifyControl: () => ({}) }))
 
 import SettingsWindow from '../SettingsWindow.vue'
 

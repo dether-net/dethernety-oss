@@ -124,7 +124,7 @@ describe('model-level controls round-trip', () => {
 
     await dtImport.createModel({ name: 'M', description: '', controls: [{ id: 'ctl1', name: 'C1' }] });
 
-    expect(dtImport.resolveControls).toHaveBeenCalledWith([{ id: 'ctl1', name: 'C1' }]);
+    expect(dtImport.resolveControls).toHaveBeenCalledWith([{ id: 'ctl1', name: 'C1' }], { kind: 'MODEL', name: 'M' });
     expect(createSpy.mock.calls[0][0].controls).toEqual(['CTL1']);
   });
 });

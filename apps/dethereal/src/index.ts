@@ -30,6 +30,7 @@ import {
 } from './auth/index.js'
 import { redactSecrets, redactStderr } from './auth/redact.js'
 import { allTools, authTools, clientDependentTools, BaseTool, ToolContext } from './tools/index.js'
+import { PACKAGE_VERSION } from './version.js'
 
 // Before anything can log: the bundled GraphQL layer writes platform error text
 // to stderr on its own, and that text can echo the session's bearer.
@@ -47,7 +48,7 @@ for (const event of ['uncaughtException', 'unhandledRejection'] as const) {
 const server = new Server(
   {
     name: 'dethereal',
-    version: '3.0.0'
+    version: PACKAGE_VERSION
   },
   {
     capabilities: {

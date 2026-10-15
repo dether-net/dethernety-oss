@@ -34,7 +34,7 @@ The Browser is your primary interface for creating and managing reusable control
 - The buttons at the top right of the folder area create, rename, move, and delete folders
 
 **2. Create the control**:
-- Click the **+** button at the top right of the models and controls area, then choose the **shield** action — or click the **New control** card in the controls area
+- Click the **+** button at the top right of the models and controls area (tooltip **Create or import**), then choose **New control**, the shield action — or click the **New control** card in the controls area
 - The control is created immediately with a placeholder name, and its **Control** dialog opens
 
 **3. Name and describe it** (General tab):
@@ -51,7 +51,7 @@ The Browser is your primary interface for creating and managing reusable control
 
 **5. Configure each control class**:
 - Click the **tune** button on a class row to open its attributes form
-- Fill in the attributes the class defines, then **Save**
+- Fill in the attributes the class defines, then **Save**. A yes/no attribute answers **Yes**, **No**, or **Not answered**, and an answer can be taken back — see [Answering yes-or-no attributes](COMPONENT_CONFIGURATION_GUIDE.md#answering-yes-or-no-attributes)
 - **Only configured classes generate countermeasures.** A class's policy fires on the attribute values you set — an unconfigured class contributes nothing
 - Attributes are saved by their own form, separately from the control's name, description, and class list
 

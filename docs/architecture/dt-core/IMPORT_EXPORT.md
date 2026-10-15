@@ -336,7 +336,7 @@ interface ImportSplitResult extends ImportResult {
 │                                                                         │
 │  Step 7: Associate Controls (87.5%)                                     │
 │  └── Process deferred control associations                              │
-│      ├── Resolve control IDs (exact → case-insensitive → partial)       │
+│      ├── Resolve control IDs (id → exact name → unique case-insens.)    │
 │      └── Link controls to elements                                      │
 │                                                                         │
 │  Step 8: Complete (100%)                                                │
@@ -524,21 +524,21 @@ export interface ExportedClassData {
 
 Every `classData` written by `DtExport` (and `DtExportSplit`) carries `module: { id, name }` for components, boundaries, data flows, and data items. PR #225 closed the gap where some export paths emitted `classData` without the `module` reference — without that field, an export taken before a `migrateClassId` could not be re-imported after the rebind, because Priority 1 misses on the stale id and Priority 2/3 have nothing to match against.
 
-### Control Resolution (4-level fuzzy matching)
+### Control Resolution
 
-```typescript
-private resolveControlId = async (controlData: any): Promise<string | null> => {
-  const availableControls = await this.dtControl.getControls()
+Import and update resolve control references through one `ControlResolver` (`packages/dt-core/src/dt-control/control-resolver.ts`), which fetches the control catalog once per run:
 
-  // Priority 1: Exact ID match
-  // Priority 2: Exact name match
-  // Priority 3: Case-insensitive name match
-  // Priority 4: Partial name match (substring)
+1. **Id** — a control with that id.
+2. **Exact name** — attached only when exactly one control has that name.
+3. **Name ignoring case and surrounding spaces** — attached only when exactly one control matches.
 
-  this.warnings.push(`Could not resolve control: ${controlData.name || controlData.id}`)
-  return null
-}
-```
+There is no partial-name match: a reference to "Firewall" does not attach "Perimeter Firewall". A reference that matches no control, or a name that several controls share, attaches nothing; it is reported in the result's `unresolvedControls` (`reason: 'not_found' | 'ambiguous'`, with the candidate controls for an ambiguous one, and `owner`: the model or the boundary, component or data flow it came from, by its id in the model file) and in a warning, which names the model or element and lists an ambiguous reference's candidate ids.
+
+On update, a name several controls share never removes a control: if the element (or the model) already has one or more of the candidates, they stay attached and a warning says so, and the reference is not reported as unresolved. Only when it has none of them is the reference reported.
+
+When the catalog could not be fetched in full (the all-folders fetch failed), an update leaves every element's controls as they are and reports one `resolve_controls` error. An import attaches only by id, since a name unique among the controls that were fetched may be shared by one in a folder; it reports every other reference with `reason: 'catalog_unavailable'`.
+
+Dethereal's push rewrites the local model files from the platform afterwards. It writes each entry of `unresolvedControls` back to the `controls[]` of its owner, as the local file has it (including fields such as `source`), so an unresolved reference stays in `manifest.json`, `structure.json` or `dataflows.json` until it is pinned by id or removed. A reference whose element is no longer in the model is named in a warning instead.
 
 ---
 

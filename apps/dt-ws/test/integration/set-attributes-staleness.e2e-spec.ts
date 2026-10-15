@@ -17,6 +17,8 @@
 //     DispositionResolverService → dispositionStale = false
 //   - Case G (no re-count): already-stale row excluded from a second change's
 //     count → staleFlippedCount = 0 (state stays stale)
+//   - Case H (cleared answer): an attribute sent as null is removed from the
+//     instantiation edge (back to unanswered) and counts as a change → count=1
 
 import { ConfigService } from '@nestjs/config';
 import { startMemgraph, clearGraph, MemgraphHandle } from './memgraph-container';
@@ -393,6 +395,37 @@ describe('SetInstantiationAttributesService — staleness extension (e2e)', () =
     expect(second.staleFlippedCount).toBe(0);
     // The row remains stale (the exclusion only affects counting, not state).
     expect((await readExposureStale(mg.driver, 'exp-1')).stale).toBe(true);
+  });
+
+  it('Case H — an attribute sent as null is removed (unanswered again) and counts as a change, count=1', async () => {
+    await seedFixture(mg.driver, {
+      initialAttrs: {
+        tls_enabled: 'true',
+        unencrypted_remnant_partitions: ['/boot', '/recovery'],
+      },
+      dispositionedExposureIds: ['exp-1'],
+    });
+    const result = await svc.setAttributes({
+      componentId: 'cmp-1',
+      classId: 'cls-1',
+      attributes: { tls_enabled: null },
+    });
+    expect(result.success).toBe(true);
+    expect(result.staleFlippedCount).toBe(1);
+    const session = mg.driver.session();
+    try {
+      const r = await session.run(
+        `MATCH (:Component {id: 'cmp-1'})-[r:IS_INSTANCE_OF]->(:ComponentClass {id: 'cls-1'}) RETURN properties(r) AS p`,
+      );
+      const props = r.records[0].get('p');
+      expect(Object.prototype.hasOwnProperty.call(props, 'tls_enabled')).toBe(false);
+      // A key the save left out keeps its value: the save merges.
+      expect(props.unencrypted_remnant_partitions).toEqual(['/boot', '/recovery']);
+    } finally {
+      await session.close();
+    }
+    const exp = await readExposureStale(mg.driver, 'exp-1');
+    expect(exp.stale).toBe(true);
   });
 
   // ===========================================================================

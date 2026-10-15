@@ -13,6 +13,7 @@
 import type { KgRule, KgThreat } from '../../interfaces/kg-client-interface';
 import { KG_KEY_SEPARATOR } from '../../interfaces/kg-client-interface';
 import type { DenialInfo, RecallInfo } from '../../remote/errors';
+import type { KgRegistryResponse } from '../../remote/wire-client';
 
 /**
  * The knowledge-graph version every kg request addresses. Deliberately NOT the module content
@@ -62,6 +63,19 @@ export function kgRefKey(classId: string, ruleId: string): string {
   return classId + KG_KEY_SEPARATOR + ruleId;
 }
 
+type KgRegistryQuery = KgRegistryResponse['queries'][number];
+
+/** The registry as the service publishes it: the wire's shape, with each query's parameters and privacy statement present. */
+export interface KgRegistryFixture {
+  protocol: string;
+  queries: Array<
+    Omit<KgRegistryQuery, 'parameters' | 'privacy'> & {
+      parameters: NonNullable<KgRegistryQuery['parameters']>;
+      privacy: NonNullable<KgRegistryQuery['privacy']>;
+    }
+  >;
+}
+
 /**
  * `GET /v1/kg/queries` — the named-query registry, the contract itself.
  *
@@ -70,7 +84,7 @@ export function kgRefKey(classId: string, ruleId: string): string {
  * no deployment uses. The bound is sized by what a single response may weigh, not by what a caller
  * might reasonably ask for.
  */
-export const kgRegistry = {
+export const kgRegistry: KgRegistryFixture = {
   protocol: '1',
   queries: [
     {
