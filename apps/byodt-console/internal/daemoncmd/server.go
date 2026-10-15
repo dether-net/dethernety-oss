@@ -123,7 +123,7 @@ func (s *server) routes() http.Handler {
 	// Everything else requires a live session.
 	mux.HandleFunc("GET /api/mode", s.sess.requireSession(s.mode))
 	mux.HandleFunc("GET /api/state", s.sess.requireSession(s.state))
-	// THE SIX ROUTES THAT CHANGE THE DEPLOYMENT ARE ADMIN-GATED, AND SO ARE THE TWO READS THAT REVEAL WHO
+	// THE ROUTES THAT CHANGE THE DEPLOYMENT ARE ADMIN-GATED, AND SO ARE THE TWO READS THAT REVEAL WHO
 	// MAY SIGN IN. Every other read below is not — a member who cannot see what their deployment has is
 	// worse served than one who cannot change it — and the two are the named exception because what they
 	// disclose is not what the deployment has but the team's people, by address, and the selection among
@@ -137,19 +137,24 @@ func (s *server) routes() http.Handler {
 	// refused — so to change ANY OTHER variable on a connected deployment you must disconnect first, and
 	// disconnect IS gated. The control holds through the route that has a subject to check.
 	//
-	// "ANY OTHER" is load-bearing, and this sentence said "any" until the allowlist apply existed. Exactly
-	// one variable can now be changed on a connected deployment without disconnecting, on its own gated
-	// route, and it carries the self-exclusion guard this one cannot.
+	// "ANY OTHER" is load-bearing, and this sentence said "any" until the allowlist apply existed. Two
+	// variables can now be changed on a connected deployment without disconnecting, each on its own gated
+	// route: the access list, which carries the self-exclusion guard this one cannot, and the
+	// knowledge-graph version, which can only move to the version the service lists as latest.
 	//
 	// DELETE /api/cloud takes the recovery variant: it is the operation an operator reaches for to fix a
 	// bad recipe, so it alone proceeds on a deployment that can never make the check.
 	mux.HandleFunc("POST /api/cloud", s.sess.requireSession(s.cloudApply))
 	mux.HandleFunc("DELETE /api/cloud", s.sess.requireSession(s.requireAdminOrRecovery(s.cloudDisable)))
-	// POST /api/cloud/allowlist — the allowlist-only apply. It is the sixth gated route, and the one whose
-	// absence from a list phrased as a COUNT is how it would get dropped. It changes who may sign in to a
+	// POST /api/cloud/allowlist — the allowlist-only apply. It changes who may sign in to a
 	// connected deployment without disconnecting, which is the whole reason it exists: the reconfiguration
 	// it replaces costs every cloud module and the classes they declare. See allowlist.go.
 	mux.HandleFunc("POST /api/cloud/allowlist", s.sess.requireSession(s.requireAdmin(s.cloudAllowlist)))
+	// POST /api/cloud/knowledge-graph — moves the knowledge-graph pin to the service's latest version without
+	// disconnecting, which would otherwise cost every cloud module and the classes they declare. On a
+	// deployment that names no team it inherits the gate's pass-through, as mount and unmount do: the value
+	// it writes is fixed to the service's latest, and it removes nothing. See kgupdate.go.
+	mux.HandleFunc("POST /api/cloud/knowledge-graph", s.sess.requireSession(s.requireAdmin(s.cloudKgUpdate)))
 	// GET /api/cloud/allowlist and GET /api/cloud/roster — the two admin-gated reads, and the exception the
 	// comment above names. The first answers the identifiers the deployment admits; the second relays the
 	// team's members, by address, from the content service. ServeMux tells the two allowlist patterns apart
@@ -994,9 +999,18 @@ type mountedModuleView struct {
 //
 // Version comes from the mode layer — the value the platform actually reads — rather than from the
 // mount's own marker, so what the operator sees is what is in force.
+//
+// Currency and the fields after it judge the pin against the service's version listing (kgCurrencyOf). An
+// update is offered only through LatestVersion, and UpdateNotice — the sentence the operator reads before
+// updating — is present exactly when it is.
 type knowledgeGraphView struct {
-	Version   string `json:"version"`
-	MountedAt string `json:"mountedAt,omitempty"`
+	Version          string `json:"version"`
+	MountedAt        string `json:"mountedAt,omitempty"`
+	Currency         string `json:"currency"`
+	PinnedReleasedAt string `json:"pinnedReleasedAt,omitempty"`
+	LatestVersion    string `json:"latestVersion,omitempty"`
+	LatestReleasedAt string `json:"latestReleasedAt,omitempty"`
+	UpdateNotice     string `json:"updateNotice,omitempty"`
 }
 
 // installedArtifactView is one installed artifact and its update state relative to the catalog. It is a
@@ -1046,6 +1060,18 @@ func (s *server) modulesList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "reading mounted modules", http.StatusInternalServerError)
 		return
 	}
+
+	// The knowledge-graph connection is judged against its own service's listing, read alongside the
+	// catalog rather than after it, so an inventory with both services slow waits one timeout and not two.
+	type kgReport struct {
+		view *knowledgeGraphView
+		note string
+	}
+	kgDone := make(chan kgReport, 1)
+	go func() {
+		view, kgNote := s.knowledgeGraph(r.Context())
+		kgDone <- kgReport{view, kgNote}
+	}()
 
 	// Resolve the catalog to judge currency. If it is unreachable the inventory still returns, with
 	// every mount marked unknown and a note — the mount list must not depend on the cloud being up.
@@ -1144,8 +1170,9 @@ func (s *server) modulesList(w http.ResponseWriter, r *http.Request) {
 		note = joinNote(note, curNote)
 	}
 
-	kg, kgNote := s.knowledgeGraph()
-	note = joinNote(note, kgNote)
+	kgr := <-kgDone
+	note = joinNote(note, kgr.note)
+	kg := kgr.view
 
 	removalNotice := ""
 	if len(artifacts) > 0 {
@@ -1172,38 +1199,42 @@ func joinNote(note, add string) string {
 	}
 }
 
-// knowledgeGraph reports the mounted knowledge-graph connection, if there is one.
+// knowledgeGraph reports the mounted knowledge-graph connection, if there is one, and how its pin stands
+// against the service's version listing.
 //
 // It reports a connection only when the pin AND the mount are both there, because either one alone is
 // not a connection: the pin without a module is configuration nothing reads, and a module without a
-// pin answers nothing. The half state is reachable — a mount write that failed during an apply, or a
-// directory removed by hand — and it is surfaced as a note rather than left to look like a deployment
-// that simply has no knowledge graph. Nothing at all is the ordinary case and says nothing.
-func (s *server) knowledgeGraph() (*knowledgeGraphView, string) {
+// pin answers nothing. Both half states are reachable — a mount write that failed during an apply, a
+// directory removed or a file edited by hand — and each is surfaced as a note rather than left to look like
+// a deployment that simply has no knowledge graph. Nothing at all is the ordinary case and says nothing.
+//
+// The listing is read only for a complete connection: there is nothing to offer an update to otherwise.
+// It is read from the base URL in the mode file, re-checked on read; a connection whose base is absent or
+// unusable is still reported, with a note that names the remedy rather than one an operator would retry.
+func (s *server) knowledgeGraph(ctx context.Context) (*knowledgeGraphView, string) {
 	vars, ok := s.cloudModeFile()
 	if !ok {
 		return nil, ""
 	}
 	version := vars["MODULE_KG_VERSION"]
-	dir, err := kgMountDir(s.cfg.ModulesDir)
-	if err != nil {
-		return nil, ""
-	}
-	// readKgMarker is the ownership test as well as the read — a directory carrying someone else's
-	// marker is not a connection this console made, and is not reported as one.
-	marker, markerErr := readKgMarker(dir)
-	// The marker alone is no longer proof of a mount: it is written BEFORE the stub, so a mount whose
-	// stub write failed carries the marker without the module the platform loads. Both, or this is the
-	// half state the note below is for.
-	mounted := markerErr == nil && stubPresent(dir, moduleFileName(kgModuleKey))
+	// kgMounted is the ownership test as well as the read — a directory carrying someone else's marker is
+	// not a connection this console made, and is not reported as one.
+	marker, mounted := kgMounted(s.cfg.ModulesDir)
 	switch {
-	case version != "" && mounted:
-		return &knowledgeGraphView{Version: version, MountedAt: marker.MountedAt}, ""
-	case version != "":
-		return nil, "this deployment is configured for a knowledge-graph service but its module is not mounted — disconnect and reconnect to restore it"
-	default:
+	case version == "" && mounted:
+		return nil, kgNoPinNote
+	case version == "":
 		return nil, ""
+	case !mounted:
+		return nil, kgHalfStateNote
 	}
+	view := &knowledgeGraphView{Version: version, MountedAt: marker.MountedAt}
+	base := s.kgBaseFrom(vars)
+	if base == "" {
+		view.Currency = kgUnknown
+		return view, kgNotConfiguredNote
+	}
+	return view, s.knowledgeGraphCurrency(ctx, base, view)
 }
 
 // mountModule writes the stub and marker for one module at one pin. Re-posting the same key over the

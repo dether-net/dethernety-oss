@@ -69,7 +69,7 @@ Which command applies a change depends on what you changed. The full table is in
 ```sh
 ./byodt up                    # after editing .env
 ./byodt restart               # after connecting or disconnecting the cloud
-./byodt restart platform      # after mounting or unmounting a content module
+./byodt restart platform      # after mounting or unmounting a content module, or updating the knowledge graph
 ./byodt restart proxy         # after adding, replacing, or removing a certificate
 ./byodt restart db            # after changing DB_DATA or SNAPSHOT_INTERVAL_SEC
 ```

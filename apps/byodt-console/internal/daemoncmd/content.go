@@ -249,8 +249,9 @@ func publicGet(ctx context.Context, base, path string, dst any) error {
 		// Refuse to follow a redirect rather than let a 3xx repoint the request at another host.
 		// The base has passed secureURL, but that constrains the SCHEME — https, or http only on
 		// loopback — and never the destination: the host is whatever the operator's recipe named.
-		// On the catalog path it is read back from the mode file; on the knowledge-graph path
-		// (kg.go) it comes from the recipe being applied, before that file exists. So the host is
+		// On the catalog path it is read back from the mode file; on the knowledge-graph path it
+		// comes from the recipe being applied at connect, before that file exists, and from the
+		// mode file afterwards (kg.go, kgupdate.go). So the host is
 		// caller-nameable by design, and refusing redirects is what keeps the set of hosts this
 		// dials equal to the set the operator named. The wire protocol serves these surfaces
 		// without redirects anyway, so a 3xx is unexpected and its target unvalidated.

@@ -272,9 +272,28 @@ export interface PackagesResponse {
 // The deployment's knowledge-graph connection, when it has one. It is reported apart from the content
 // mounts because it is a different thing — a client for a service, holding no graph data of its own —
 // and `version` is the pin the platform actually reads, not a copy kept beside the mount.
+//
+// currency judges the pin against the service's version listing. 'recalled' means the listing marks the
+// pinned version withdrawn — what the service says, which the page reports as such rather than as proof of
+// what a query will answer. An update is offered only through latestVersion, and updateNotice, the sentence
+// to show before the operator updates, is present exactly when it is. Release times are RFC 3339 when present.
 export interface KnowledgeGraphConnection {
   version: string
   mountedAt?: string
+  currency: 'current' | 'outdated' | 'recalled' | 'unknown'
+  pinnedReleasedAt?: string
+  latestVersion?: string
+  latestReleasedAt?: string
+  updateNotice?: string
+}
+
+// The knowledge-graph update's answer. 'current' wrote nothing (the version was already pinned); 'applied'
+// wrote the new pin, which takes effect at the next platform start. message is the receipt either way.
+export interface KnowledgeGraphUpdateResult {
+  status: 'applied' | 'current'
+  version: string
+  from?: string
+  message: string
 }
 
 // note is a non-fatal reason (e.g. the catalog was unreachable so currency could not be judged); the
@@ -555,4 +574,8 @@ export const api = {
   // and forwards one now for the same reason an unmount does.
   installArtifact: (req: InstallArtifactRequest) => postEntitled<InstallArtifactResult>('/api/artifacts', req),
   removeArtifact: (key: string) => delEntitled<RemoveArtifactResult>(`/api/artifacts/${encodeURIComponent(key)}`),
+  // Moving the knowledge-graph pin to the version the page showed. The daemon writes it only if the service
+  // still lists it as latest; it forwards the operator's token because it changes the deployment.
+  updateKnowledgeGraph: (version: string) =>
+    postEntitled<KnowledgeGraphUpdateResult>('/api/cloud/knowledge-graph', { version }),
 }

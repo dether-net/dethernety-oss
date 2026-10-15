@@ -26,7 +26,14 @@ const props = defineProps<{ reloadToken: number }>()
 // 'sign-in-required' is re-emitted from the artifact panel: App owns sign-in — it builds the OIDC config
 // and completes the callback — so the request travels up to it rather than the config travelling down
 // through a component with no use for it.
-const emit = defineEmits<{ (e: 'changed'): void; (e: 'sign-in-required'): void; (e: 'admin', value: boolean | undefined): void }>()
+// 'kg-withdrawn' tells the dashboard the knowledge graph's pinned version is listed as withdrawn, so it can say
+// so on every tab: an operator rarely opens this one, and a withdrawn pin degrades every analysis quietly.
+const emit = defineEmits<{
+  (e: 'changed'): void
+  (e: 'sign-in-required'): void
+  (e: 'admin', value: boolean | undefined): void
+  (e: 'kg-withdrawn', value: boolean): void
+}>()
 
 const packages = ref<CatalogPackage[]>([])
 // Keyed by moduleKey alone: only one directory per module key can exist on disk, and a module's content
@@ -37,6 +44,9 @@ const mountedByKey = ref<Map<string, MountedModule>>(new Map())
 // is not a content module: nothing about it was installed here except a client, and listing it among
 // modules whose content is served per request invites reading it as the graph itself having arrived.
 const knowledgeGraph = ref<KnowledgeGraphConnection | undefined>()
+// The knowledge-graph update's own result line. It renders inside the knowledge-graph block, beside the
+// button that caused it, rather than in the tab's message line at the foot of the card below every package.
+const kgMessage = ref('')
 // Installed artifacts and the sentence a removal has to be preceded by, from the same inventory response
 // as the mounts above. One directory, one round trip, and the artifact panel below is a child rather than
 // a sibling so that stays true on this side of the wire too.
@@ -100,6 +110,7 @@ async function refresh() {
   if (refreshing.value || busyKey.value) return
   refreshing.value = true
   message.value = ''
+  kgMessage.value = ''
   try {
     await load()
   } finally {
@@ -150,6 +161,7 @@ async function load() {
     catalogError.value = cat.reason instanceof Error ? cat.reason.message : 'could not load the catalog'
   }
   loaded.value = true
+  emit('kg-withdrawn', knowledgeGraph.value?.currency === 'recalled')
   // LIFTED TO THE PARENT so the disconnect panel can read it, and it costs nothing: this component is
   // mounted whenever the deployment is post-cloud — the tab switch is v-show, not v-if — so this load has
   // already run whether or not the operator ever opened the Content tab. Telling that panel therefore costs
@@ -420,6 +432,82 @@ async function unmountAll(pkg: CatalogPackage) {
   }
 }
 
+// ── The knowledge-graph connection ──────────────────────────────────────────────────────────────────
+
+const KG_BUSY = 'knowledge-graph'
+// The knowledge-graph update re-reads the inventory on a refusal, so no mount may start under it — the same
+// reason refresh() is refused while an action runs. Module and package controls disable on this, as the
+// update's own button disables while any action runs.
+const kgBusy = computed(() => busyKey.value === KG_BUSY)
+
+// A version is named by its release date first and its digest second: the date is what an operator reads,
+// the digest is what the configuration file, support and the command line use, so it stays reachable (the
+// full value is in the element's title, and selectable). ISO dates, because a locale's date is ambiguous in
+// a handoff.
+function kgDate(at?: string): string {
+  return at ? at.slice(0, 10) : ''
+}
+function kgShort(digest: string): string {
+  return digest.length > 'sha256:'.length + 12 ? digest.slice(0, 'sha256:'.length + 12) : digest
+}
+
+function kgChipClass(currency: KnowledgeGraphConnection['currency']): string {
+  if (currency === 'current') return 'bg-dt-secondary/15 text-dt-accent'
+  // The fault tone, as for a diverged mount: this is not something to get around to.
+  if (currency === 'recalled') return 'bg-dt-quinary/15 text-dt-quinary'
+  if (currency === 'outdated') return 'bg-dt-tertiary/15 text-dt-tertiary'
+  return 'bg-white/5 text-dt-text-muted'
+}
+
+function kgChipLabel(kg: KnowledgeGraphConnection): string {
+  if (kg.currency === 'current') return 'up to date'
+  if (kg.currency === 'recalled') return 'withdrawn'
+  if (kg.currency === 'outdated') {
+    // "Newer" is claimed only when both versions carry a release date to compare.
+    const latest = kgDate(kg.latestReleasedAt)
+    if (latest && kgDate(kg.pinnedReleasedAt)) return `newer available (released ${latest})`
+    return 'a different version is published'
+  }
+  return 'update unknown'
+}
+
+// The button names the version it moves to: by release date when the listing gives one, by digest otherwise.
+const kgUpdateLabel = computed(() => {
+  const kg = knowledgeGraph.value
+  if (!kg?.latestVersion) return ''
+  if (busyKey.value === KG_BUSY) return 'Updating…'
+  const date = kgDate(kg.latestReleasedAt)
+  return date ? `Update to the ${date} version` : `Update to ${kgShort(kg.latestVersion)}`
+})
+
+async function updateKnowledgeGraph() {
+  const target = knowledgeGraph.value?.latestVersion
+  if (!target || busyKey.value) return
+  busyKey.value = KG_BUSY
+  kgMessage.value = ''
+  try {
+    const r = await api.updateKnowledgeGraph(target)
+    kgMessage.value = r.message
+    // Only a write owes a restart. An update to the version already pinned wrote nothing.
+    if (r.status === 'applied') {
+      restartNeeded.value = true
+      emit('changed')
+    }
+  } catch (e) {
+    if (e instanceof SessionExpired) return
+    if (e instanceof ApiError && e.status === 412) {
+      emit('sign-in-required')
+      return
+    }
+    kgMessage.value = e instanceof Error ? e.message : 'could not update the knowledge graph'
+    // A refusal because the published version moved, or the configuration did: re-read so the block shows
+    // what is true now, and keep the sentence that says why. No retry — the operator decides again.
+    if (e instanceof ApiError && e.status === 409) await load()
+  } finally {
+    busyKey.value = ''
+  }
+}
+
 // An artifact action is written into the same modules directory a mount writes into, so it raises the SAME
 // reminder rather than a second one, and reloads the same inventory.
 function onArtifactChanged() {
@@ -484,22 +572,68 @@ onMounted(load)
       class="mb-4"
       data-restart-required
     >
-      Mounted and unmounted modules take effect when you recreate the platform:
+      Your changes on this tab take effect when you recreate the platform:
       <code class="ml-1 rounded bg-white/5 px-1.5 py-0.5 font-mono text-xs text-dt-text">byodt restart platform</code>
     </Banner>
 
-    <!-- The knowledge-graph connection. Deliberately not a row in the list below and deliberately
-         without controls: it is mounted with the cloud connection and removed with it, so there is
-         nothing here for an operator to do — and saying what it is, is the point. It renders above the
-         catalog error, because the local inventory loads whether or not the catalog answered. -->
+    <!-- The knowledge-graph connection. Deliberately not a row in the list below: it is a client for a
+         service, mounted with the cloud connection and removed with it, and no graph data was installed.
+         Its one control moves the version it is pinned at to the one the service publishes as latest,
+         without disconnecting. It renders above the catalog error, because the local inventory loads
+         whether or not the catalog answered. -->
     <div v-if="knowledgeGraph" class="mb-4 rounded-md border border-dt-border px-3 py-2" data-kg-connection>
-      <p class="font-medium">Knowledge graph — cloud connection</p>
+      <div class="flex items-start justify-between gap-2">
+        <p class="font-medium">Knowledge graph — cloud connection</p>
+        <span
+          class="shrink-0 rounded-full px-2 py-0.5 text-xs"
+          :class="kgChipClass(knowledgeGraph.currency)"
+          data-kg-chip
+        >{{ kgChipLabel(knowledgeGraph) }}</span>
+      </div>
       <p class="mt-0.5 text-xs text-dt-text-muted">
-        Answered by the cloud service per request; no graph data was installed on this deployment. Pinned
-        at <span class="font-mono">{{ knowledgeGraph.version }}</span>. It arrives with the cloud
-        connection and is removed when you disconnect.
+        Answered by the cloud service per request; no graph data was installed on this deployment. Pinned to
+        <template v-if="kgDate(knowledgeGraph.pinnedReleasedAt)">the version released {{ kgDate(knowledgeGraph.pinnedReleasedAt) }}</template>
+        <template v-else>the version</template>
+        <span class="select-all font-mono" :title="knowledgeGraph.version" data-kg-pinned>({{ kgShort(knowledgeGraph.version) }})</span>.
+        It arrives with the cloud connection and is removed when you disconnect.
       </p>
+
+      <!-- Withdrawn: the service lists the pinned version as withdrawn. Said as what the service says,
+           with what it means for analyses, and what to do — including when there is nothing to do yet. -->
+      <p v-if="knowledgeGraph.currency === 'recalled'" class="mt-2 text-xs text-dt-quinary" data-kg-withdrawn>
+        The knowledge-graph service lists this version as withdrawn. Until the deployment is updated and the
+        platform restarted, analyses may get no knowledge-graph answers; re-run the ones that matter after the
+        restart.
+        <template v-if="!knowledgeGraph.latestVersion">
+          The service has no other version to offer yet, so there is nothing to update to and nothing to do on
+          this deployment — Refresh later.
+        </template>
+      </p>
+
+      <div v-if="knowledgeGraph.latestVersion" class="mt-2" data-kg-update>
+        <p class="text-xs text-dt-text-muted" data-kg-notice>{{ knowledgeGraph.updateNotice }}</p>
+        <button
+          type="button"
+          :disabled="!!busyKey || notAdmin"
+          :title="notAdmin ? adminOnlyHint : undefined"
+          class="mt-2 rounded-lg px-3 py-1.5 text-sm disabled:opacity-50"
+          :class="
+            knowledgeGraph.currency === 'recalled'
+              ? 'bg-dt-secondary font-heading text-dt-surface hover:bg-dt-secondary/80'
+              : 'border border-dt-border text-dt-text hover:border-dt-text-muted hover:bg-white/5'
+          "
+          data-kg-update-button
+          @click="updateKnowledgeGraph"
+        >
+          {{ kgUpdateLabel }}
+        </button>
+      </div>
+
+      <p v-if="kgMessage" class="mt-2 text-xs text-dt-text-muted" data-kg-message>{{ kgMessage }}</p>
     </div>
+    <!-- A refusal can leave no connection to report — a re-read that finds the mount or the pin gone — and the
+         sentence saying why must not leave with the block it was written into. -->
+    <p v-else-if="kgMessage" class="mb-4 text-xs text-dt-text-muted" data-kg-message>{{ kgMessage }}</p>
 
     <!-- Artifacts, above the catalog bands: signed components installed here, as opposed to mounts whose
          content is served per request. It raises no banner of its own — an install and a mount both apply
@@ -574,7 +708,7 @@ onMounted(load)
             <button
               v-else-if="row.unmountedCount"
               type="button"
-              :disabled="busyKey === row.pkg.key || notAdmin"
+              :disabled="busyKey === row.pkg.key || kgBusy || notAdmin"
               :title="notAdmin ? adminOnlyHint : undefined"
               class="rounded-lg bg-dt-secondary px-3 py-1.5 font-heading text-sm text-dt-surface hover:bg-dt-secondary/80 disabled:opacity-50"
               @click="mountAll(row.pkg)"
@@ -584,7 +718,7 @@ onMounted(load)
             <button
               v-if="row.mountedCount"
               type="button"
-              :disabled="busyKey === row.pkg.key || notAdmin"
+              :disabled="busyKey === row.pkg.key || kgBusy || notAdmin"
               :title="notAdmin ? adminOnlyHint : undefined"
               class="rounded-lg border border-dt-border px-3 py-1.5 text-sm text-dt-text hover:border-dt-text-muted hover:bg-white/5 disabled:opacity-50"
               @click="unmountAll(row.pkg)"
@@ -619,7 +753,7 @@ onMounted(load)
               <button
                 v-if="offersRemount(m.mounted.currency)"
                 type="button"
-                :disabled="busyKey === m.cat.key || busyKey === row.pkg.key || notAdmin"
+                :disabled="busyKey === m.cat.key || busyKey === row.pkg.key || kgBusy || notAdmin"
                 :title="notAdmin ? adminOnlyHint : undefined"
                 class="rounded-lg border border-dt-border px-3 py-1.5 text-sm text-dt-text hover:border-dt-text-muted hover:bg-white/5 disabled:opacity-50"
                 @click="update(m.mounted)"
@@ -628,7 +762,7 @@ onMounted(load)
               </button>
               <button
                 type="button"
-                :disabled="busyKey === m.cat.key || busyKey === row.pkg.key || notAdmin"
+                :disabled="busyKey === m.cat.key || busyKey === row.pkg.key || kgBusy || notAdmin"
                 :title="notAdmin ? adminOnlyHint : undefined"
                 class="rounded-lg border border-dt-border px-3 py-1.5 text-sm text-dt-text hover:border-dt-text-muted hover:bg-white/5 disabled:opacity-50"
                 @click="unmountOne(m.cat.key)"
@@ -639,7 +773,7 @@ onMounted(load)
             <button
               v-else
               type="button"
-              :disabled="busyKey === m.cat.key || busyKey === row.pkg.key || row.notSubscribed || notAdmin"
+              :disabled="busyKey === m.cat.key || busyKey === row.pkg.key || row.notSubscribed || kgBusy || notAdmin"
               :title="row.notSubscribed ? 'Not subscribed to this package' : notAdmin ? adminOnlyHint : undefined"
               class="shrink-0 rounded-lg bg-dt-secondary px-3 py-1.5 font-heading text-sm text-dt-surface hover:bg-dt-secondary/80 disabled:opacity-50"
               @click="mountOne(row.pkg.key, m.cat)"
@@ -672,7 +806,7 @@ onMounted(load)
             <button
               v-if="offersRemount(m.currency)"
               type="button"
-              :disabled="busyKey === m.moduleKey || notAdmin"
+              :disabled="busyKey === m.moduleKey || kgBusy || notAdmin"
               :title="notAdmin ? adminOnlyHint : undefined"
               class="rounded-lg border border-dt-border px-3 py-1.5 text-sm text-dt-text hover:border-dt-text-muted hover:bg-white/5 disabled:opacity-50"
               @click="update(m)"
@@ -681,7 +815,7 @@ onMounted(load)
             </button>
             <button
               type="button"
-              :disabled="busyKey === m.moduleKey || notAdmin"
+              :disabled="busyKey === m.moduleKey || kgBusy || notAdmin"
               :title="notAdmin ? adminOnlyHint : undefined"
               class="rounded-lg border border-dt-border px-3 py-1.5 text-sm text-dt-text hover:border-dt-text-muted hover:bg-white/5 disabled:opacity-50"
               @click="unmountOne(m.moduleKey)"

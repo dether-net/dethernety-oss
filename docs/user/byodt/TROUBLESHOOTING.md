@@ -549,7 +549,7 @@ The same applies to a recipe value: `OIDC_ISSUER must be https (or http on local
 
 > `You are not an administrator of the team this deployment belongs to. Only an administrator may change this deployment or see who may sign in to it. Nothing was changed. An owner or administrator of that team can grant you the administrator role in the portal.`
 
-**Cause.** Every console control that *changes* a connected deployment — mounting and unmounting content, installing and removing artifacts, changing who may sign in, and disconnecting — is available only to an administrator of the team the deployment belongs to, and so is the one thing the console *shows* only to an administrator: the **Who may sign in** card, which lists your team's members and who among them may sign in. The console asked the cloud who you are on this attempt, and the answer was no. Every other read is unaffected: the status, the catalog and the inventory are all still yours to see. On the Cloud tab the card shows this sentence in the console's own words and nothing of the team — no list, no ticks, nothing about who has left.
+**Cause.** Every console control that *changes* a connected deployment — mounting and unmounting content, installing and removing artifacts, updating the knowledge graph, changing who may sign in, and disconnecting — is available only to an administrator of the team the deployment belongs to, and so is the one thing the console *shows* only to an administrator: the **Who may sign in** card, which lists your team's members and who among them may sign in. The console asked the cloud who you are on this attempt, and the answer was no. Every other read is unaffected: the status, the catalog and the inventory are all still yours to see. On the Cloud tab the card shows this sentence in the console's own words and nothing of the team — no list, no ticks, nothing about who has left.
 
 **Fix.** Ask an owner or administrator of that team to grant you the administrator role in the portal, or to run the operation for you. Retrying changes nothing until the role does. Once it does, your next attempt picks it up — you do not have to sign in again — though the Content tab learns which controls to offer only when it reads the catalog, so click **Refresh** there for the buttons to become available. The **Who may sign in** card has no retry in this state — reload the page; the reload clears the tab's cloud sign-in, so the card offers **Sign in to the cloud** and fetches the team when you return. See [Cloud → Who can change a connected deployment](./CLOUD.md#who-can-change-a-connected-deployment).
 
@@ -739,6 +739,95 @@ A third message is not this problem: `Warning: a module is gone but its files co
 The message suggests disconnecting again, and that does re-run the sweep, but there is no button for it once the disconnect is written: the **Cloud** tab offers the recipe form instead, and mount and unmount refuse with `content mounts are available only in cloud mode`. Taking that route means pasting a recipe, recreating the stack, disconnecting again and recreating once more — which the deletion above spares you.
 
 What a disconnect removes, and what it costs the graph, is in [Cloud → Disconnecting](./CLOUD.md#disconnecting).
+
+### The dashboard says **The knowledge graph's version has been withdrawn**
+
+> **The knowledge graph's version has been withdrawn** — The knowledge-graph service lists the version this deployment is pinned to as withdrawn, so analyses may get no knowledge-graph answers until it is replaced. The Content tab says what to do.
+
+The knowledge-graph entry on the **Content** tab is labelled `withdrawn` at the same time.
+
+**Cause.** The knowledge-graph service has withdrawn the version your deployment is pinned to. Your deployment does not move off a version on its own, so it stays pinned to it until you update it. Until you do, analyses may get no knowledge-graph answers.
+
+**Fix.**
+
+1. Click **Open the Content tab** on the banner.
+2. On the knowledge-graph entry, click **Update to the … version**. You need the administrator role.
+3. Restart the platform:
+
+   ```sh
+   ./byodt restart platform
+   ```
+
+4. Re-run the analyses that matter. Any you ran while the withdrawn version was pinned may have had no knowledge-graph answers.
+
+If the entry says the service has no other version to offer yet, there is no button and nothing to do on your deployment yet. Click **Refresh** on the Content tab later; the button appears once the service publishes a new version. See [Cloud → If the pinned version is withdrawn](./CLOUD.md#if-the-pinned-version-is-withdrawn).
+
+### The knowledge-graph entry says `update unknown`
+
+**Cause.** The console could not compare your pinned version with what the knowledge-graph service publishes. Your deployment keeps answering from its pinned version; only the check failed. A line at the foot of the Content tab says which of three causes it is:
+
+| The line says | Cause | Fix |
+|---|---|---|
+| *the knowledge-graph service could not be reached, so whether an update exists could not be checked* | The service's version list could not be read just now. | Check the machine's network access, then click **Refresh**. |
+| *the knowledge-graph service's version listing offers no usable version, so whether an update exists could not be checked* | The service is reachable but currently publishes no version the console can offer. | Nothing to do on your deployment. Click **Refresh** later. |
+| *this deployment has no usable knowledge-graph service configured, so whether an update exists cannot be checked; disconnecting and reconnecting is the remedy* | The knowledge-graph address in the deployment's configuration is missing or not one the console will call — typically after the file was edited by hand. | Disconnect and reconnect, which writes the configuration afresh — read [what disconnecting costs](./CLOUD.md#disconnecting) first. |
+
+### `The knowledge-graph service's latest version changed after this page loaded`
+
+> `The knowledge-graph service's latest version changed after this page loaded, so nothing was changed. It is now the version released 2026-10-14 (sha256:…); update again to take it.`
+
+**Cause.** The console updates only to the version the page showed you, and only while the service still publishes it as its newest. The service's latest version changed between loading the page and clicking — usually because a newer one was published.
+
+**Fix.** The console has already reloaded the knowledge-graph entry. Read it, then click the update button again if one is offered — it names the version that is latest now.
+
+Two similar refusals have the same fix — click **Refresh**, then try again:
+
+- `This deployment's cloud configuration changed while the update was being checked, so nothing was changed. Reload and try again.`
+- `This deployment was disconnected while the update was being checked, so nothing was changed.` — after a disconnect there is no knowledge-graph connection to update.
+
+### `The knowledge-graph service could not be reached, so nothing was changed`
+
+> `The knowledge-graph service could not be reached, so nothing was changed. Try again later.`
+
+or
+
+> `The knowledge-graph service offers no usable version right now, so nothing was changed.`
+
+**Cause.** The console reads the service's version list again when you click update, and that read failed, or the list offered nothing to update to.
+
+**Fix.** Check the machine's network access and try again later. Your deployment keeps its current version in the meantime.
+
+### `This deployment is configured for a knowledge-graph service but its module is not mounted`
+
+> `This deployment is configured for a knowledge-graph service but its module is not mounted, so it is not updated. Disconnect and reconnect to restore it.`
+
+The same cause shows at the foot of the Content tab as *this deployment is configured for a knowledge-graph service but its module is not mounted — disconnect and reconnect to restore it*, and the knowledge-graph entry is missing.
+
+**Cause.** The deployment's configuration names a knowledge-graph service, but the knowledge-graph module in `modules/` is missing or incomplete — for example, the directory was removed by hand.
+
+**Fix.** Disconnect and reconnect, which writes both afresh — read [what disconnecting costs](./CLOUD.md#disconnecting) first.
+
+### `This deployment has a knowledge-graph module mounted but no version pinned`
+
+> `This deployment has a knowledge-graph module mounted but no version pinned, so it is not updated. Disconnect and reconnect to restore it.`
+
+The same cause shows at the foot of the Content tab as *this deployment has a knowledge-graph module mounted but no version pinned — disconnect and reconnect to restore it*, and the knowledge-graph entry is missing.
+
+**Cause.** The knowledge-graph module is in `modules/`, but the deployment's configuration names no version for it — typically after the configuration file was edited by hand.
+
+**Fix.** Disconnect and reconnect, which writes the configuration and the module afresh — read [what disconnecting costs](./CLOUD.md#disconnecting) first.
+
+### The Content tab shows the new knowledge-graph version, but analyses have not changed
+
+**Cause.** The Content tab reads the deployment's configuration, not the running platform. After an update it shows the new version straight away, but the platform keeps answering from the version it started with until it is recreated.
+
+**Fix.**
+
+```sh
+./byodt restart platform
+```
+
+This restart removes no module, so it does not touch your classes or the links to them.
 
 ---
 

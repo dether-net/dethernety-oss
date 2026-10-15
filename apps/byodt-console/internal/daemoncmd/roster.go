@@ -23,7 +23,7 @@ import (
 // all, and the test that holds that in place fails if a byte of the relayed body reaches a log record.
 //
 // THE ONE OUTCOME OF THE GATE THESE TWO MUST NOT INHERIT. The gate stands aside on a deployment that names
-// no team (admin.go), and for the six routes that change the deployment that is correct — they behave
+// no team (admin.go), and for the routes that change the deployment that is correct — they behave
 // exactly as they did before the gate existed. A read that inherited the pass-through would be UNGATED on
 // exactly those deployments: any session holder could read who may sign in. So both refuse there, on their
 // own and before anything is read, with the sentence the card shows — a recipe that predates team

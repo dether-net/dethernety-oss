@@ -108,8 +108,8 @@ read, which asks what the subscription includes; the artifact install, which ask
 service hands only to a subscriber; and the roster relay, which asks for the team's members on the
 administrator's behalf. The rest forward it because the *authorization* needs it: every route that changes
 the deployment is admin-gated, and the gate asks the content service who is acting. So an unmount carries a
-credential even though what it does is delete a file on this host, and so does the route that rewrites this
-deployment's access list — and so do the two reads that reveal who may sign in, which change nothing and
+credential even though what it does is delete a file on this host, and so do the routes that rewrite this
+deployment's access list and move its knowledge-graph pin — and so do the two reads that reveal who may sign in, which change nothing and
 are gated for what they show. The distinction matters when reading the sentence below about relaying: on
 the gated routes the token is not passed along as part of the work, it is spent asking whether the work may
 happen at all. On the roster relay it is both — spent on the gate's question first, and then forwarded as
@@ -234,7 +234,7 @@ entire apply** if any name outside it appears.
 | `DEPLOYMENT_TEAM_ID` | Accepted; may legitimately be empty or absent. It names the team this deployment belongs to, so the content service can scope what it serves — a person who belongs to two teams must not be served one team's content on the other team's deployment, and the deployment is the only party that knows which team it is. Neither a destination nor a credential, but a value that *leaves* the console again — it rides out as a request header on the entitled calls, beside the operator's own bearer and never without it — so it is held to its own shape rule below. Absent, entitled calls name no team — which the service currently still answers, but only while it is counting how many deployments have not yet been told their team. Once it enforces, an absent value means every entitled call fails |
 | `DEPLOYMENT_EXPOSURE` | Recognised and **dropped**. It is the operator's own exposure declaration and must not be taken from a recipe. Two retired names — `COMMERCE_API_BASE_URL` and `DEPLOYMENT_PACKAGES` — are likewise tolerated-and-dropped, so a saved recipe carrying either still applies rather than failing as a foreign variable |
 | `NODE_ENV`, `OIDC_REDIRECT_URI`, `MODULE_CONTENT_CACHE_DIR`, `ALLOWED_ORIGINS` | Supplied by the console, never taken from the paste |
-| `MODULE_KG_VERSION` | Supplied by the console, never taken from the paste — a recipe that could carry it could pin a deployment to a version of the sender's choosing. Read from a public listing with no credential, and validated as `sha256:` plus 64 hex before it is written |
+| `MODULE_KG_VERSION` | Supplied by the console, never taken from the paste — a recipe that could carry it could pin a deployment to a version of the sender's choosing. Read from a public listing with no credential, and validated as `sha256:` plus 64 hex before it is written. Written at connect, and afterwards only by the admin-gated knowledge-graph update, which writes the service's listed latest and nothing else (see below, and [`CONSOLE.md`](./CONSOLE.md#updating-the-knowledge-graph-version)) |
 | Anything else | The apply is refused, naming every offending variable at once |
 
 **The check is on the name set, not the name shape.** That distinction is the control. The mode layer
@@ -303,7 +303,8 @@ Six further constraints apply to the values:
 - **`ALLOWED_ORIGINS` is derived, not pasted.** It is the origin of the deployment's own front-door
   callback, so it stays in step with the redirect URI by construction.
 
-**`DEPLOYMENT_ALLOWLIST` has a second, narrower write path, and it is the only name that does.** One
+**`DEPLOYMENT_ALLOWLIST` has a second, narrower write path, and it is one of only two names that do** —
+the other is `MODULE_KG_VERSION`, below. One
 route rewrites that variable alone on a connected deployment and leaves every other line as it found it
 ([`CONSOLE.md`](./CONSOLE.md#changing-who-may-sign-in)), so changing who may sign in no longer requires a
 disconnect — an act that removes every cloud-provided module and, at the next platform start, the classes
@@ -328,6 +329,22 @@ disconnect-and-reconnect this route exists to remove, which is the data-losing a
 the other way — whitespace-separated entries are accepted and normalised into the comma-joined form the
 platform parses, so a list copied from an account that renders its members one per line applies rather than
 failing on a separator nobody chose.
+
+**`MODULE_KG_VERSION` has the other narrow write path, and
+what bounds it is the value rather than the caller.** One admin-gated route moves the knowledge-graph pin
+on a connected deployment and leaves every other line, and every mount, as it found them
+([`CONSOLE.md`](./CONSOLE.md#updating-the-knowledge-graph-version)) — so a newer knowledge graph no longer
+costs a disconnect. The request names the version the operator was shown, and the route writes it only if
+the service's public listing, read again from the base URL in the mode file, still names it as the usable
+latest. Neither the page nor a crafted request can choose a version, and nothing advances on its own. That
+is why the route takes the gate's team-less pass-through, as mount and unmount do, where the two reads that
+reveal who may sign in refuse it: the value is fixed to the service's latest and nothing is removed. The base
+URL is held to the URL rule below on every read, not only when it was written, because the file sits on the
+operator's host. The listing is read outside the mode-layer lock, so a slow remote host can never stall a
+disconnect; inside the lock the file is read again and the write refused if the deployment disconnected, its
+knowledge-graph base URL changed, or its mount went missing — so a version listed by one service is never
+written into a file that now points at another. Before writing it re-runs the present-and-non-empty rule
+over the whole variable set, as the access-list path does.
 
 **And one limit of the whole arrangement, stated because the paragraphs above could otherwise be read as
 claiming more.** This route is strictly safer than the reconfiguration it replaces *for graph data* — it
@@ -403,8 +420,8 @@ a card that redirected on mount would send every reloaded tab to the identity pr
 `412` on the *write* still acts, as every gated control does.
 
 Two write-path rules complete it: a **recipe** cannot be applied over an existing cloud configuration
-(disconnect first, so reconfiguration is never a silent overwrite — the single-variable write above is the
-one exception, and it is a gated route with a subject to check rather than a paste), and the file is
+(disconnect first, so reconfiguration is never a silent overwrite — the two single-variable writes above
+are the only exceptions, and each is a gated route rather than a paste), and the file is
 **rewritten, never deleted** — a missing env-file breaks the container runtime's own file reading, which
 would break the recovery path itself. Reverting contacts the cloud for one thing only — the admin check
 its gate makes — and proceeds without it on a deployment that could never make that check, because a

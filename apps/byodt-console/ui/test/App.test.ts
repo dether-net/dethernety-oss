@@ -470,6 +470,30 @@ describe('App', () => {
     w.unmount()
   })
 
+  // A WITHDRAWN KNOWLEDGE-GRAPH VERSION REACHES THE OVERVIEW too: the Content tab loads whether or not it is
+  // open, and an operator rarely opens it, while a withdrawn pin degrades every analysis quietly.
+  it('alerts on the overview when the knowledge graph version is withdrawn, and opens the Content tab', async () => {
+    setSession('sess-1')
+    modeBody = { phase: 'post-cloud', authDisabled: false, cloudFileWritten: true, restartPending: false }
+    modulesBody = { modules: [], artifacts: [], knowledgeGraph: { version: 'sha256:' + '1'.repeat(64), currency: 'recalled' } }
+    const w = mount(App)
+    await flushPromises()
+    await flushPromises()
+    const alert = w.find('[data-kg-withdrawn-alert]')
+    expect(alert.exists()).toBe(true)
+    expect(alert.text()).toContain('lists the version this deployment is pinned to as withdrawn')
+    await w.find('[data-kg-withdrawn-open]').trigger('click')
+    expect(w.find('[data-tab="content"]').attributes('aria-selected')).toBe('true')
+    w.unmount()
+
+    modulesBody = { modules: [], artifacts: [], knowledgeGraph: { version: 'sha256:' + '1'.repeat(64), currency: 'current' } }
+    const fine = mount(App)
+    await flushPromises()
+    await flushPromises()
+    expect(fine.find('[data-kg-withdrawn-alert]').exists()).toBe(false)
+    fine.unmount()
+  })
+
   it('shows no departed alert when nobody has left, or when the card could not learn it', async () => {
     setSession('sess-1')
     modeBody = { phase: 'post-cloud', authDisabled: false, cloudFileWritten: true, restartPending: false }

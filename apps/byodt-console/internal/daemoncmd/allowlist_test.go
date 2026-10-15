@@ -263,8 +263,8 @@ func TestAllowlistIsRefusedOnAPreCloudDeployment(t *testing.T) {
 	}
 }
 
-// TestAllowlistIsAdminGated. It is the sixth gated route, and the one a requirement phrased as a count
-// drops. Asserting the GATE's own sentence is what separates "the gate refused" from "the handler did".
+// TestAllowlistIsAdminGated. It is a gated route, and the kind a requirement phrased as a count drops.
+// Asserting the GATE's own sentence is what separates "the gate refused" from "the handler did".
 func TestAllowlistIsAdminGated(t *testing.T) {
 	f := newGateFixture(t, gateOptions{
 		team:         "team-a",

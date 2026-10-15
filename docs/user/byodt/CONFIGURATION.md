@@ -38,6 +38,7 @@ A configuration change is not live until the affected containers are **recreated
 | A certificate in `tls/` (added, replaced, or removed) | `./byodt restart proxy` |
 | Connected or disconnected the cloud, in the console | `./byodt restart` |
 | Mounted or unmounted a content module, in the console | `./byodt restart platform` |
+| Updated the knowledge graph, in the console | `./byodt restart platform` |
 | The pinned image versions, to move to a new release | `./byodt update` |
 
 Two rules of thumb behind that table:
@@ -220,17 +221,18 @@ NODE_ENV=development
 
 That is the unauthenticated single-operator posture. Security headers and the platform's query-depth guard apply in every mode regardless.
 
-Three console controls write this file, and nothing else does. Two of them replace it whole; the third rewrites a single line.
+Four console controls write this file, and nothing else does. Two of them replace it whole; the other two each rewrite a single line.
 
 | Control | What it writes | What applies it |
 |---|---|---|
 | **Apply cloud configuration**, in section **2 · Configuration** of the Cloud tab | The whole file, replaced with the identity settings from your deployment recipe | `./byodt restart` |
 | **Disconnect from cloud**, in the **Disconnect** section at the foot of the Cloud tab | The whole file, replaced with the two standalone values above | `./byodt restart` |
 | The **Who may sign in** card, section **3 · Who may sign in** of the Cloud tab — **Apply**, **Remove people who have left**, or the paste box's **Apply access list**, all through one write | One line, `DEPLOYMENT_ALLOWLIST`. Every other value is left exactly as it was | `./byodt restart platform` |
+| **Update to the … version**, on the knowledge-graph entry of the Content tab | One line, `MODULE_KG_VERSION` — the knowledge-graph version this deployment is pinned to. Every other value is left exactly as it was | `./byodt restart platform` |
 
 It is always rewritten, **never deleted** — a missing file would break the very recovery path disconnecting is.
 
-**Which restart follows from which value moved, not from which file was written.** Connecting and disconnecting change values that several services read, so the whole stack has to come back up in the new mode. The access list is read only by the platform, so only the platform is recreated — and that restart removes no module, so it has none of the consequences for your classes and links that a restart finding a module missing does. See [Cloud → Changing who may sign in](./CLOUD.md#changing-who-may-sign-in).
+**Which restart follows from which value moved, not from which file was written.** Connecting and disconnecting change values that several services read, so the whole stack has to come back up in the new mode. The access list and the knowledge-graph version are read only by the platform, so only the platform is recreated — and that restart removes no module, so it has none of the consequences for your classes and links that a restart finding a module missing does. See [Cloud → Changing who may sign in](./CLOUD.md#changing-who-may-sign-in) and [Cloud → Update the knowledge graph](./CLOUD.md#update-the-knowledge-graph).
 
 **Do not hand-edit this file — reading it is fine.** The console is its author, it validates everything it writes, and it refuses values that do not belong there; a hand edit gets none of those checks, and a connect or a disconnect replaces the file whole, so it would not survive one anyway. Make changes from the console instead; see [Cloud](./CLOUD.md).
 

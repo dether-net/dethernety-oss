@@ -460,11 +460,12 @@ func pureOSSModeVars() map[string]string {
 	}
 }
 
-// modeLayerMu serialises every write to the mode-layer file, and the one read-modify-write over it.
+// modeLayerMu serialises every write to the mode-layer file, and the read-modify-writes over it.
 //
-// WHY A LOCK OVER A FILE ONE PROCESS OWNS. The daemon serves requests concurrently, and three routes now
-// write this file: connect, disconnect, and the allowlist apply. Two of them racing produced two distinct
-// faults, and the second is the reason this is a package-level lock rather than a per-write one.
+// WHY A LOCK OVER A FILE ONE PROCESS OWNS. The daemon serves requests concurrently, and four routes now
+// write this file: connect, disconnect, the allowlist apply and the knowledge-graph update. Two of them
+// racing produced two distinct faults, and the second is the reason this is a package-level lock rather
+// than a per-write one.
 //
 // A TORN MODE FILE TURNS THE ADMIN GATE OFF. An unparseable file makes modeFileIntent report intentNone,
 // so the deployment reads as not-cloud, so the gate takes its fail-open arm and calls through with no
