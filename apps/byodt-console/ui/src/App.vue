@@ -47,6 +47,10 @@ const contentReload = ref(0)
 // call of its own, and the content panel is mounted whenever the deployment is post-cloud, so this costs
 // no request at all.
 const contentAdmin = ref<boolean | undefined>(undefined)
+// The knowledge graph's pinned version is listed as withdrawn. Raised from the Content tab, which loads
+// whether or not it is open, so the warning reaches an operator on whichever tab they are on.
+const kgWithdrawn = ref(false)
+const kgWithdrawnAlert = computed(() => kgWithdrawn.value && mode.value?.phase === 'post-cloud')
 // How many accounts on this deployment's access list no longer belong to a team member, as the cloud panel
 // last worked it out from the roster it fetched in this tab. Undefined is "not known" — a member, a
 // reloaded tab with no cloud credential, an unreachable service — and shows nothing. NEVER PERSISTED and
@@ -81,7 +85,8 @@ const hasAlerts = computed(
     !!(mode.value && mode.value.restartPending) ||
     !!(state.value && state.value.failures.length) ||
     !!cloudNotice.value ||
-    !!departedCount.value,
+    !!departedCount.value ||
+    kgWithdrawnAlert.value,
 )
 
 // The status line for people who have left the team and can still sign in. One sentence, the same one the
@@ -129,6 +134,7 @@ function toLogin() {
   loadError.value = ''
   cloudNotice.value = null
   departedCount.value = undefined
+  kgWithdrawn.value = false
   void reestablish()
 }
 
@@ -365,6 +371,25 @@ onUnmounted(() => {
               Open the Cloud tab
             </button>
           </Banner>
+
+          <!-- The knowledge graph's pinned version is withdrawn. In the alerts region for the departed-members
+               alert's reason: it is something to act on, and the action is one tab away. -->
+          <Banner
+            v-if="kgWithdrawnAlert"
+            tone="warn"
+            title="The knowledge graph's version has been withdrawn"
+            data-kg-withdrawn-alert
+          >
+            The knowledge-graph service lists the version this deployment is pinned to as withdrawn, so analyses may get no knowledge-graph answers until it is replaced. The Content tab says what to do.
+            <button
+              type="button"
+              class="ml-2 text-dt-text underline hover:text-dt-accent"
+              data-kg-withdrawn-open
+              @click="activeTab = 'content'"
+            >
+              Open the Content tab
+            </button>
+          </Banner>
         </div>
 
         <!-- At-a-glance health -->
@@ -425,6 +450,7 @@ onUnmounted(() => {
               @changed="onContentChanged"
               @sign-in-required="onSignInRequired"
               @admin="contentAdmin = $event"
+              @kg-withdrawn="kgWithdrawn = $event"
             />
           </section>
         </template>

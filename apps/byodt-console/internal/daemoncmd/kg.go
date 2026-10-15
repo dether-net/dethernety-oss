@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // A knowledge-graph connection is the console's third kind of mount, and the one that carries the
@@ -15,14 +16,18 @@ import (
 // the whole deployment rather than of the module — so the stub is fixed text and the pin lives in the
 // mode layer, where the platform reads it.
 //
-// The console writes it on cloud activation when the recipe carries a knowledge-graph service, and
-// removes it on disconnect, so the module's presence always means "a service is wired" and never
+// The console writes the mount on cloud activation when the recipe carries a knowledge-graph service,
+// and removes it on disconnect, so the module's presence always means "a service is wired" and never
 // outlives the connection that justified it.
 //
 // What the console decides here is only WHICH version to pin. It reads that from the service's public
 // version listing with no credential — the same public-read path the content catalog uses — because a
 // deployment must pin deliberately: taking whatever is newest at query time would advance the
 // knowledge graph under a deployment that chose a version, which is not how a pin works.
+//
+// The pin is written at activation, and moved forward afterwards only when an administrator asks for it
+// on the update route (kgupdate.go). Both write the listing's latest and nothing else; the mount is never
+// touched by an update, because it names no version.
 
 // The stub the console writes. It is fixed text with NOTHING substituted into it — the class it
 // extends takes only what every module is handed, because there is no per-module value to carry. That
@@ -75,43 +80,96 @@ type kgMarker struct {
 	MountedAt string `json:"mountedAt"`
 }
 
-// kgVersionList is the wire protocol's public version listing. Only the fields the console needs are
-// named; unknown fields are tolerated. A version entry carries a recall note when the version has been
-// withdrawn — a withdrawn version answers queries with a refusal, so it must never be pinned.
+// kgVersionList is the wire protocol's public version listing, newest first. Only the fields the console
+// needs are named; unknown fields are tolerated. A version entry carries a recall note when the version
+// has been withdrawn, and a withdrawn version must never be pinned.
+//
+// The note is the ADVISORY half of a recall. The service refuses a recalled version on its own record,
+// not on this listing, and the listing is a cached public document — so the console treats the note as
+// what the service says about a version, never as proof of what a query against it will answer.
 type kgVersionList struct {
-	Latest   string `json:"latest"`
-	Versions []struct {
-		ID       string          `json:"id"`
-		Recalled json.RawMessage `json:"recalled"`
-	} `json:"versions"`
+	Latest   string          `json:"latest"`
+	Versions []kgVersionInfo `json:"versions"`
 }
 
-// resolveKgVersion reads the service's public version listing and returns the version to pin.
-//
-// The call carries NO credential: the listing is public, and the console holds an operator credential
-// that must not be forwarded to a surface which does not need it. The destination is the base URL the
-// caller already validated, never a value taken from a request path.
-//
-// It refuses anything it cannot pin with confidence — an absent or malformed latest, or a latest the
-// listing itself marks recalled. Recall exists because something went wrong with a version; assuming
-// the recall also re-pointed `latest` would be assuming the failure mode away, and the check costs one
-// pass over a response already in hand.
-func resolveKgVersion(ctx context.Context, base string) (string, error) {
-	var list kgVersionList
-	if err := publicGet(ctx, base, "/v1/kg/versions", &list); err != nil {
-		return "", fmt.Errorf("reading the knowledge-graph version listing: %w", err)
-	}
-	// The same sha256 digest shape the content pin takes, held to one pattern rather than two that
-	// would have to be kept identical.
-	if !pinPattern.MatchString(list.Latest) {
-		return "", fmt.Errorf("the knowledge-graph service published no usable version")
-	}
-	for _, v := range list.Versions {
-		if v.ID == list.Latest && len(v.Recalled) > 0 {
-			return "", fmt.Errorf("the newest knowledge-graph version has been withdrawn")
+type kgVersionInfo struct {
+	ID         string          `json:"id"`
+	ReleasedAt string          `json:"releasedAt"`
+	Recalled   json.RawMessage `json:"recalled"`
+}
+
+// entry returns the listing's entry for one version.
+func (l kgVersionList) entry(id string) (kgVersionInfo, bool) {
+	for _, v := range l.Versions {
+		if v.ID == id {
+			return v, true
 		}
 	}
-	return list.Latest, nil
+	return kgVersionInfo{}, false
+}
+
+// recalled reports whether the listing marks a version withdrawn. A JSON null is no note at all: it is
+// what an encoder writes for an absent value, and reading its four bytes as a recall would put a
+// deployment's knowledge graph into the withdrawn state over a serialisation detail.
+func (l kgVersionList) recalled(id string) bool {
+	v, ok := l.entry(id)
+	return ok && len(v.Recalled) > 0 && string(v.Recalled) != "null"
+}
+
+// usableLatest returns the version the listing offers to pin, or "" when it offers none: an absent or
+// malformed latest, or a latest the listing itself marks recalled. Recall exists because something went
+// wrong with a version; assuming the recall also re-pointed `latest` would be assuming the failure mode
+// away, and the check costs one pass over a response already in hand. The same sha256 digest shape the
+// content pin takes, held to one pattern rather than two that would have to be kept identical.
+func (l kgVersionList) usableLatest() string {
+	if !pinPattern.MatchString(l.Latest) || l.recalled(l.Latest) {
+		return ""
+	}
+	return l.Latest
+}
+
+// releasedAt returns a version's release time as the listing gives it, only when it parses as RFC 3339.
+// It is shown to an operator as a date, and a value that is not one is better absent than displayed.
+func (l kgVersionList) releasedAt(id string) string {
+	v, ok := l.entry(id)
+	if !ok {
+		return ""
+	}
+	if _, err := time.Parse(time.RFC3339, v.ReleasedAt); err != nil {
+		return ""
+	}
+	return v.ReleasedAt
+}
+
+// readKgListing reads the service's public version listing. It is the one read behind connect, the
+// inventory and the update route, so the three cannot disagree about what the listing says.
+//
+// The call carries NO credential: the listing is public, and the console holds an operator credential
+// that must not be forwarded to a surface which does not need it. The destination is a base URL the
+// caller already validated — the recipe being applied, or the mode file re-checked on read — never a
+// value taken from a request.
+func readKgListing(ctx context.Context, base string) (kgVersionList, error) {
+	var list kgVersionList
+	if err := publicGet(ctx, base, "/v1/kg/versions", &list); err != nil {
+		return kgVersionList{}, fmt.Errorf("reading the knowledge-graph version listing: %w", err)
+	}
+	return list, nil
+}
+
+// resolveKgVersion reads the listing and returns the version to pin, refusing anything it cannot pin
+// with confidence.
+func resolveKgVersion(ctx context.Context, base string) (string, error) {
+	list, err := readKgListing(ctx, base)
+	if err != nil {
+		return "", err
+	}
+	if latest := list.usableLatest(); latest != "" {
+		return latest, nil
+	}
+	if pinPattern.MatchString(list.Latest) {
+		return "", fmt.Errorf("the newest knowledge-graph version has been withdrawn")
+	}
+	return "", fmt.Errorf("the knowledge-graph service published no usable version")
 }
 
 // kgMountDir resolves the knowledge-graph mount's directory, through the same containment check every
@@ -144,6 +202,37 @@ func readKgMarker(dir string) (kgMarker, error) {
 func isKgMount(dir string) bool {
 	_, err := readKgMarker(dir)
 	return err == nil
+}
+
+// kgBaseFrom returns the knowledge-graph base URL from a cloud mode file, or "" when there is none or it is
+// unusable. It is re-checked on read for contentTargetFrom's reason: validity checked only on write is a
+// property of "this console wrote this file", and the mode layer is a file on the operator's host. The
+// unusable case is logged because it and the absent case get the same answer.
+func (s *server) kgBaseFrom(vars map[string]string) string {
+	base := vars["MODULE_KG_BASE_URL"]
+	if base == "" {
+		return ""
+	}
+	if err := secureURL(base); err != nil {
+		s.logger.Error("the cloud mode layer holds an unusable knowledge-graph base URL; refusing to call it", "err", err)
+		return ""
+	}
+	return base
+}
+
+// kgMounted reports whether the console's knowledge-graph mount is complete — its marker and the module
+// the platform loads — and returns the marker. The marker is written before the stub, so a mount whose
+// stub write failed carries the marker alone; that is not a mount the platform can load.
+func kgMounted(modulesDir string) (kgMarker, bool) {
+	dir, err := kgMountDir(modulesDir)
+	if err != nil {
+		return kgMarker{}, false
+	}
+	marker, err := readKgMarker(dir)
+	if err != nil || !stubPresent(dir, moduleFileName(kgModuleKey)) {
+		return kgMarker{}, false
+	}
+	return marker, true
 }
 
 // mountKg writes the knowledge-graph mount: the directory, the marker, then the stub. Re-mounting over

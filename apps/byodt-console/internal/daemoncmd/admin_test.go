@@ -41,7 +41,7 @@ type gatedRoute struct {
 	// its own expectation rather than openStatus.
 	localStatus int
 	// teamlessStatus is what the route answers on a deployment that NAMES NO TEAM, where the gate stands
-	// aside. For the six routes that change the deployment it is openStatus — they behave exactly as before
+	// aside. For the routes that change the deployment it is openStatus — they behave exactly as before
 	// the gate existed, which is the pass-through's whole justification. For the two reads that reveal who
 	// may sign in it is their OWN refusal, because a read that inherited the pass-through would be ungated
 	// on exactly those deployments. A third value per row rather than a rule derived from the other two, so
@@ -67,13 +67,17 @@ func gatedRoutes() []gatedRoute {
 		// The allowlist-only apply, with an empty body. It decodes cleanly, so the gate runs first and the
 		// handler then refuses the empty list — a HANDLER status, reached only if the gate admitted, and
 		// independent of whether the session carries a subject (which the fixtures' sessions do not).
-		// Adding it here rather than giving it a gate test of its own is what makes "the sixth gated route"
-		// a fact: every case below now runs against it too.
+		// Adding it here rather than giving it a gate test of its own is what makes it a gated route in
+		// fact: every case below now runs against it too.
 		{"change the access list", http.MethodPost, "/api/cloud/allowlist", `{}`, http.StatusBadRequest, http.StatusConflict, http.StatusBadRequest},
+		// The knowledge-graph update, with an empty body: admitted, the handler refuses the missing version
+		// (400); on a pre-cloud deployment it refuses for itself (409) before reading the body's version.
+		// Teamless, it inherits the pass-through like the other routes that change the deployment.
+		{"update the knowledge graph", http.MethodPost, "/api/cloud/knowledge-graph", `{}`, http.StatusBadRequest, http.StatusConflict, http.StatusBadRequest},
 		// THE TWO READS THAT REVEAL WHO MAY SIGN IN. Admitted, each answers 200 with its list — the fixture's
 		// content service serves a roster, and its recipe carries an access list. On a pre-cloud deployment
 		// each refuses 409 for itself. And on a deployment that names no team each refuses 409 AGAIN, which is
-		// the one column where these rows differ from the six above: the gate stands aside there, and a read
+		// the one column where these rows differ from the routes above: the gate stands aside there, and a read
 		// that inherited that would be open to any session holder. They are in this table rather than in a
 		// suite of their own for the reason the apply is — every gate case below runs against them too — and
 		// their own suite in roster_test.go holds what the gate cases cannot.

@@ -141,6 +141,7 @@ These are the controls that need the role:
 |---|---|
 | **Mount**, **Mount all**, **Update**, **Unmount**, **Unmount all** | Content tab |
 | **Install** and **Remove**, for entitled artifacts | Content tab |
+| **Update to the … version**, on the knowledge-graph entry | Content tab |
 | The **Who may sign in** card — seeing the team and the ticks, **Apply**, **Remove people who have left**, and the paste box's **Apply access list** | Cloud tab, section **3 · Who may sign in** |
 | **Disconnect from cloud** | Cloud tab, the **Disconnect** section at the foot |
 
@@ -172,7 +173,7 @@ Mounting is not a download. It writes a small marker into the deployment's modul
 3. Click **Mount** on a module — or **Mount all** on the package header to take every module in it.
 4. The console confirms, and a banner appears at the top of the tab:
 
-   > **Restart required to apply your changes** — Mounted and unmounted modules take effect when you recreate the platform: `byodt restart platform`
+   > **Restart required to apply your changes** — Your changes on this tab take effect when you recreate the platform: `byodt restart platform`
 
 5. Run it:
 
@@ -195,7 +196,7 @@ Only the platform is recreated. The database, the embedding server, and the cons
 | A muted line above the list, beginning *Nothing is restricted, but subscriptions cannot be checked on this deployment…* | This deployment's configuration does not carry the permission the check needs, so signing in again and pressing **Refresh** will not change it. Get a fresh recipe from the portal, then [disconnect](#disconnecting), apply it, and connect again — read what disconnecting costs first. |
 | A muted line above the list: *Your subscription could not be checked just now.* | The check did not go through this time. Nothing is restricted; click **Refresh** to try again. |
 | **Mounted — not in catalog** | A module you mounted that the catalog no longer lists. Kept visible so you can still unmount it. |
-| A banner: **You can see this deployment, but not change it** | You are signed in, but you do not administer the team this deployment belongs to, so **Mount**, **Unmount**, **Install** and **Remove** are disabled. Nothing you can read is affected. See [Who can change a connected deployment](#who-can-change-a-connected-deployment). |
+| A banner: **You can see this deployment, but not change it** | You are signed in, but you do not administer the team this deployment belongs to, so **Mount**, **Unmount**, **Install**, **Remove** and the knowledge graph's **Update** button are disabled. Nothing you can read is affected. See [Who can change a connected deployment](#who-can-change-a-connected-deployment). |
 
 ### Refresh
 
@@ -221,11 +222,74 @@ The console only ever removes directories it created. A module that shipped with
 
 ### The knowledge-graph connection
 
-If your subscription includes the knowledge graph, the **Content** tab shows one further entry above the packages: **Knowledge graph — cloud connection**, with the version it is pinned at. It has no buttons, and that is deliberate — it is not something you mount.
+If your subscription includes the knowledge graph, the **Content** tab shows one further entry above the packages: **Knowledge graph — cloud connection**. It is not something you mount: it arrives when you connect and is removed when you disconnect. Like a content mount it is a client rather than a copy: no graph data is installed on your deployment, and every answer is served per request against your own sign-in.
 
-It arrives when you connect and is removed when you disconnect. Like a content mount it is a client rather than a copy: no graph data is installed on your deployment, and every answer is served per request against your own sign-in. The pinned version is fixed for as long as the connection lasts, so what your deployment answers does not change under it; reconnecting is what takes a newer one.
+The entry names the version your deployment is pinned to by its release date first and a shortened identifier second — for example *Pinned to the version released 2026-09-30 (sha256:3f9a1c0be27d)*. Hover over the identifier to see it in full, or select it to copy it. Dates are always shown as year-month-day.
+
+**The pinned version never moves on its own.** Your deployment answers from the version it was connected at until an administrator updates it, so what your analyses draw on does not change under them.
+
+A label beside the entry says how the pinned version compares with what the knowledge-graph service publishes:
+
+| What you see | Meaning |
+|---|---|
+| `up to date` | Pinned to the newest version the service publishes. |
+| `newer available (released 2026-10-12)` | A newer version is published. The entry shows what updating does and an **Update to the 2026-10-12 version** button — see [Update the knowledge graph](#update-the-knowledge-graph). |
+| `a different version is published` | The service publishes a version other than the one you are pinned to, but one of the two has no release date, so the console does not claim which is newer. The button names the published version by its release date when it has one, and by its identifier otherwise — **Update to sha256:…**. |
+| `withdrawn` | The service lists your pinned version as withdrawn. See [If the pinned version is withdrawn](#if-the-pinned-version-is-withdrawn). |
+| `update unknown` | The console could not check. A line at the foot of the tab says why. Your deployment keeps answering from its pinned version as before. See [Troubleshooting → The knowledge-graph entry says `update unknown`](./TROUBLESHOOTING.md#the-knowledge-graph-entry-says-update-unknown). |
+
+**How fresh this is.** The console checks when the Content tab loads and when you click **Refresh**. What it checks is the service's public list of versions, which is a published document that is cached on its way to you — so a version that has just been released or withdrawn can take a while to show here. The label is as current as that list, not more.
 
 If the service cannot be reached at the moment you connect, the console says so and connects you anyway, without it. Nothing else about the connection is affected — disconnect and reconnect when you want to try again.
+
+### Update the knowledge graph
+
+Updating moves your deployment to the newest knowledge-graph version the service publishes. It changes that one setting and nothing else: no module is mounted or removed, so you keep every class and every link. **Reach for this rather than disconnecting and reconnecting**, which would cost you every cloud-provided module — see [What disconnecting costs](#disconnecting).
+
+You need the administrator role. Without it the button is shown but disabled — see [Who can change a connected deployment](#who-can-change-a-connected-deployment).
+
+1. Select the **Content** tab. When a newer version is published, the knowledge-graph entry reads `newer available (released …)` and shows a paragraph above the button:
+
+   > Updating changes which version of the knowledge graph this deployment asks, and nothing else. It takes effect when you restart the platform: byodt restart platform. Until then the platform keeps answering from the version it started with, even though this page shows the new one. That restart removes no module, so it has none of the consequences for your classes and links that a restart finding a module missing does. Analyses run after it may differ from earlier ones, because the rules they draw on have changed.
+
+2. Click **Update to the … version**. There is no confirmation step, as with updating a module. The console reports what it changed beneath the button — for example:
+
+   > The knowledge graph is updated from the version released 2026-09-30 (sha256:3f9a1c0be27d) to the version released 2026-10-12 (sha256:8e04d27a95c1). Updating changes which version …
+
+   The entry now shows the new version and `up to date`, and the **Restart required to apply your changes** banner appears at the top of the tab. Copy the two versions from the message into your change notes if you keep them.
+
+3. Restart the platform:
+
+   ```sh
+   ./byodt restart platform
+   ```
+
+   Only the platform is recreated. This restart removes no module, so it does not touch your classes or the links to them.
+
+**Until you restart, nothing has changed.** The Content tab shows the new version as soon as you click, because it reads the deployment's configuration — but the running platform keeps answering from the version it started with until you recreate it.
+
+**Analyses run after the restart may differ from earlier ones**, because the knowledge they draw on has changed. The receipt names both versions; if a comparison between analyses matters, note it together with when you restarted.
+
+**If the console refuses, nothing was changed.** It updates only to the version the page showed you, and only while the service still publishes that version as its newest. If a newer one was published after the page loaded, the console says so and reloads the entry so you can see it; click the button again. The other refusals are in [Troubleshooting → Content mounts](./TROUBLESHOOTING.md#content-mounts).
+
+There is no way to move back to an earlier version from the console. The service's newest version only ever moves forward, so the console never offers one.
+
+### If the pinned version is withdrawn
+
+The knowledge-graph service can withdraw a version — for example, because something in it turned out to be wrong. When the version your deployment is pinned to is withdrawn:
+
+- **The dashboard shows a warning on every tab**: **The knowledge graph's version has been withdrawn**, with an **Open the Content tab** button.
+- **The knowledge-graph entry is labelled `withdrawn`** and says that, until the deployment is updated and the platform restarted, analyses may get no knowledge-graph answers.
+
+To recover:
+
+1. On the **Content** tab, click the **Update to the … version** button on the knowledge-graph entry. It offers the service's newest version.
+2. Restart the platform: `./byodt restart platform`.
+3. **Re-run the analyses that matter** — any you ran while the withdrawn version was pinned may have had no knowledge-graph answers.
+
+If the entry says the service has no other version to offer yet, there is no button: there is nothing to update to and nothing to do on your deployment yet. Click **Refresh** later; when the service publishes a new version, the button appears.
+
+The `withdrawn` label reports what the service's public version list says, and that list is cached on its way to you, as above. Whether a withdrawn version still answers is decided by the service itself, not by this label — the label tells you to act, it does not prove what a query would get.
 
 ---
 
@@ -400,7 +464,7 @@ Worth knowing, because it explains the messages you may see.
 - **It requires every expected variable to be present and non-empty.** A half-applied recipe would boot the deployment into a broken state, so it is refused outright.
 - **It keeps your deployment's own exposure declaration** rather than taking the recipe's, and says so when it does.
 - **It supplies the values a recipe cannot know** — the callback address of your front door, and where cached content lives.
-- **It refuses to reconfigure a deployment that is already connected.** Disconnect first, then apply the new recipe. There is exactly one exception, and it is not a recipe: [who may sign in](#changing-who-may-sign-in) can be changed in place on a connected deployment, from the card. No other value can.
+- **It refuses to reconfigure a deployment that is already connected.** Disconnect first, then apply the new recipe. There are exactly two exceptions, and neither is a recipe: [who may sign in](#changing-who-may-sign-in) can be changed in place on a connected deployment, from the card, and so can [the knowledge-graph version](#update-the-knowledge-graph), from the Content tab — to the version the service publishes as newest, and no other. No other value can.
 - **It will not write a plaintext identity endpoint or a non-local plaintext callback.** Those must be HTTPS, or `localhost`.
 
 ---

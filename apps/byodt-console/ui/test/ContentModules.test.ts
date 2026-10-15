@@ -8,6 +8,7 @@ const modules = vi.fn()
 const mountModule = vi.fn()
 const unmountModule = vi.fn()
 const installArtifact = vi.fn()
+const updateKnowledgeGraph = vi.fn()
 
 vi.mock('@/api', async () => {
   const actual = await vi.importActual<typeof import('@/api')>('@/api')
@@ -19,6 +20,7 @@ vi.mock('@/api', async () => {
       mountModule: (req: unknown) => mountModule(req),
       unmountModule: (key: string) => unmountModule(key),
       installArtifact: (req: unknown) => installArtifact(req),
+      updateKnowledgeGraph: (version: string) => updateKnowledgeGraph(version),
     },
   }
 })
@@ -29,6 +31,7 @@ afterEach(() => {
   mountModule.mockReset()
   unmountModule.mockReset()
   installArtifact.mockReset()
+  updateKnowledgeGraph.mockReset()
   // The tokens are module-level state in the real api module, which the mock spreads through — so a test
   // that sets them would otherwise leak them into every test that runs after it.
   clearCloudTokens()
@@ -655,7 +658,7 @@ describe('ContentModules', () => {
     w.unmount()
   })
 
-  it('shows the knowledge-graph connection apart from the content modules, with no controls', async () => {
+  it('shows the knowledge-graph connection apart from the content modules, with no control when nothing is offered', async () => {
     packages.mockResolvedValue({ packages: catalog })
     modules.mockResolvedValue({
       modules: [] as MountedModule[],
@@ -670,7 +673,8 @@ describe('ContentModules', () => {
     // The sentence that keeps the entry from reading as "the knowledge graph was installed here",
     // which is the whole reason it is not a row among the content modules.
     expect(band.text()).toContain('no graph data was installed')
-    // It is mounted and removed with the cloud connection, so there is nothing to act on.
+    // It is mounted and removed with the cloud connection; with no newer version offered, there is nothing
+    // to act on.
     expect(band.findAll('button')).toHaveLength(0)
     // And it is not one of the module rows.
     expect(w.findAll('[data-module-row]')).toHaveLength(0)
@@ -876,6 +880,280 @@ describe('ContentModules — a reloaded tab', () => {
 
     expect(w.emitted('sign-in-required')).toBeUndefined()
     expect(w.text()).toContain('You are not an administrator of the team')
+    w.unmount()
+  })
+})
+
+// The knowledge-graph update. The daemon judges currency and supplies the sentence shown before the button;
+// these hold what the block does with what it is given.
+const V_OLD = 'sha256:' + '1'.repeat(64)
+const V_NEW = 'sha256:' + '2'.repeat(64)
+const NOTICE = 'Updating changes which version of the knowledge graph this deployment asks. byodt restart platform.'
+
+function kgInventory(kg: Record<string, unknown>) {
+  return { modules: [] as MountedModule[], knowledgeGraph: { version: V_OLD, mountedAt: '2026-09-14T10:00:00Z', ...kg } }
+}
+
+const outdated = {
+  currency: 'outdated',
+  pinnedReleasedAt: '2026-09-14T09:00:00Z',
+  latestVersion: V_NEW,
+  latestReleasedAt: '2026-10-12T09:00:00Z',
+  updateNotice: NOTICE,
+}
+
+describe('ContentModules — the knowledge-graph update', () => {
+  it('leads with the release date and keeps the full digest reachable', async () => {
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValue(kgInventory(outdated))
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    const band = w.get('[data-kg-connection]')
+    expect(band.text()).toContain('the version released 2026-09-14')
+    const pinned = w.get('[data-kg-pinned]')
+    expect(pinned.text()).toContain('sha256:111111111111')
+    expect(pinned.text()).not.toContain(V_OLD)
+    expect(pinned.attributes('title')).toBe(V_OLD)
+    w.unmount()
+  })
+
+  it.each([
+    ['current', {}, 'up to date'],
+    ['outdated', outdated, 'newer available (released 2026-10-12)'],
+    ['recalled', { ...outdated, currency: 'recalled' }, 'withdrawn'],
+    ['unknown', {}, 'update unknown'],
+  ])('labels the %s state', async (currency, extra, label) => {
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValue(kgInventory({ ...extra, currency }))
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    expect(w.get('[data-kg-chip]').text()).toBe(label)
+    w.unmount()
+  })
+
+  it('claims no "newer" when a release date is missing', async () => {
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValue(kgInventory({ ...outdated, pinnedReleasedAt: undefined }))
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    expect(w.get('[data-kg-chip]').text()).toBe('a different version is published')
+    w.unmount()
+  })
+
+  it('shows the notice before the button, and offers no button when nothing is offered', async () => {
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValue(kgInventory(outdated))
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    expect(w.get('[data-kg-notice]').text()).toBe(NOTICE)
+    expect(w.get('[data-kg-update-button]').text()).toBe('Update to the 2026-10-12 version')
+    w.unmount()
+
+    modules.mockResolvedValue(kgInventory({ currency: 'current' }))
+    const w2 = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    expect(w2.find('[data-kg-update-button]').exists()).toBe(false)
+    expect(w2.find('[data-kg-notice]').exists()).toBe(false)
+    w2.unmount()
+  })
+
+  it('updates in one click, shows the receipt in the block, and raises the one restart banner', async () => {
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValue(kgInventory(outdated))
+    updateKnowledgeGraph.mockResolvedValue({ status: 'applied', version: V_NEW, from: V_OLD, message: 'The knowledge graph is updated.' })
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    await w.get('[data-kg-update-button]').trigger('click')
+    await flushPromises()
+    expect(updateKnowledgeGraph).toHaveBeenCalledWith(V_NEW)
+    expect(w.get('[data-kg-message]').text()).toBe('The knowledge graph is updated.')
+    const banner = w.get('[data-restart-required]')
+    expect(banner.text()).toContain('byodt restart platform')
+    // The banner is shared with unmounts, whose restart does remove classes; it must not promise otherwise.
+    expect(banner.text()).not.toContain('removes no module')
+    expect(w.emitted('changed')).toHaveLength(1)
+    w.unmount()
+  })
+
+  it('raises no banner when the version was already pinned', async () => {
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValue(kgInventory(outdated))
+    updateKnowledgeGraph.mockResolvedValue({ status: 'current', version: V_NEW, message: 'nothing was changed.' })
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    await w.get('[data-kg-update-button]').trigger('click')
+    await flushPromises()
+    expect(w.find('[data-restart-required]').exists()).toBe(false)
+    expect(w.emitted('changed')).toBeUndefined()
+    expect(w.get('[data-kg-message]').text()).toBe('nothing was changed.')
+    w.unmount()
+  })
+
+  it('disables the button for a member, and never hides it', async () => {
+    packages.mockResolvedValue({ packages: catalog, admin: false })
+    modules.mockResolvedValue(kgInventory(outdated))
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    const b = w.get('[data-kg-update-button]')
+    expect(b.attributes('disabled')).toBeDefined()
+    expect(b.attributes('title')).toBeTruthy()
+    w.unmount()
+  })
+
+  it('leaves the button enabled when whether the operator administers could not be asked', async () => {
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValue(kgInventory(outdated))
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    expect(w.get('[data-kg-update-button]').attributes('disabled')).toBeUndefined()
+    w.unmount()
+  })
+
+  it('answers a 412 by asking for sign-in rather than reporting it', async () => {
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValue(kgInventory(outdated))
+    updateKnowledgeGraph.mockRejectedValue(new ApiError(412, 'This tab no longer holds your cloud sign-in'))
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    await w.get('[data-kg-update-button]').trigger('click')
+    await flushPromises()
+    expect(w.emitted('sign-in-required')).toHaveLength(1)
+    expect(w.find('[data-kg-message]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('re-reads after a 409 and keeps the sentence that says why', async () => {
+    const V_NEWER = 'sha256:' + '3'.repeat(64)
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValueOnce(kgInventory(outdated)).mockResolvedValueOnce(
+      kgInventory({ ...outdated, latestVersion: V_NEWER, latestReleasedAt: '2026-10-14T09:00:00Z' }),
+    )
+    updateKnowledgeGraph.mockRejectedValue(new ApiError(409, "The knowledge-graph service's latest version changed after this page loaded"))
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    await w.get('[data-kg-update-button]').trigger('click')
+    await flushPromises()
+    expect(modules).toHaveBeenCalledTimes(2)
+    expect(w.get('[data-kg-message]').text()).toContain('changed after this page loaded')
+    // The button re-arms against what is true now; nothing retried on its own.
+    expect(w.get('[data-kg-update-button]').text()).toBe('Update to the 2026-10-14 version')
+    expect(updateKnowledgeGraph).toHaveBeenCalledTimes(1)
+    w.unmount()
+  })
+
+  it('says a withdrawn version with nothing to update to is nothing to act on, and offers no button', async () => {
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValue(kgInventory({ currency: 'recalled', pinnedReleasedAt: '2026-09-14T09:00:00Z' }))
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    const warn = w.get('[data-kg-withdrawn]')
+    expect(warn.text()).toContain('lists this version as withdrawn')
+    expect(warn.text()).toContain('nothing to update to')
+    expect(w.find('[data-kg-update-button]').exists()).toBe(false)
+    expect(w.emitted('kg-withdrawn')?.slice(-1)[0]).toEqual([true])
+    w.unmount()
+  })
+
+  it('reports any other refusal without re-reading', async () => {
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValue(kgInventory(outdated))
+    updateKnowledgeGraph.mockRejectedValue(new ApiError(503, 'The knowledge-graph service could not be reached, so nothing was changed.'))
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    await w.get('[data-kg-update-button]').trigger('click')
+    await flushPromises()
+    expect(modules).toHaveBeenCalledTimes(1)
+    expect(w.get('[data-kg-message]').text()).toContain('could not be reached')
+    expect(w.find('[data-restart-required]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('keeps the refusal visible when the re-read no longer reports a connection', async () => {
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValueOnce(kgInventory(outdated)).mockResolvedValueOnce({ modules: [] as MountedModule[], note: 'no version pinned' })
+    updateKnowledgeGraph.mockRejectedValue(new ApiError(409, 'This deployment has a knowledge-graph module mounted but no version pinned'))
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    await w.get('[data-kg-update-button]').trigger('click')
+    await flushPromises()
+    expect(w.find('[data-kg-connection]').exists()).toBe(false)
+    expect(w.get('[data-kg-message]').text()).toContain('no version pinned')
+    w.unmount()
+  })
+
+  it('names the version by digest when it has no release date', async () => {
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValue(kgInventory({ ...outdated, latestReleasedAt: undefined }))
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    expect(w.get('[data-kg-update-button]').text()).toBe('Update to sha256:222222222222')
+    w.unmount()
+  })
+
+  it('shows a withdrawn version with somewhere to go as urgent, without the nothing-to-do clause', async () => {
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValue(kgInventory({ ...outdated, currency: 'recalled' }))
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    expect(w.get('[data-kg-withdrawn]').text()).not.toContain('nothing to update to')
+    expect(w.get('[data-kg-update-button]').classes()).toContain('bg-dt-secondary')
+    w.unmount()
+  })
+
+  it('disables the button while the update or any other action is in flight', async () => {
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValue(kgInventory(outdated))
+    let release: (v: unknown) => void = () => {}
+    updateKnowledgeGraph.mockReturnValue(new Promise((r) => (release = r)))
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    await w.get('[data-kg-update-button]').trigger('click')
+    await flushPromises()
+    const b = w.get('[data-kg-update-button]')
+    expect(b.text()).toBe('Updating…')
+    expect(b.attributes('disabled')).toBeDefined()
+    // The Refresh control is held too, so the inventory is not replaced under the update.
+    expect(w.get('[data-content-refresh]').attributes('disabled')).toBeDefined()
+    release({ status: 'applied', version: V_NEW, from: V_OLD, message: 'done' })
+    await flushPromises()
+    expect(w.get('[data-kg-update-button]').attributes('disabled')).toBeUndefined()
+    w.unmount()
+  })
+
+  it('disables the update while another action runs, and the module controls while the update runs', async () => {
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValue(kgInventory(outdated))
+    let releaseMount: (v: unknown) => void = () => {}
+    mountModule.mockReturnValue(new Promise((r) => (releaseMount = r)))
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    await expand(w)
+    await btn(w, 'Mount')!.trigger('click')
+    await flushPromises()
+    expect(w.get('[data-kg-update-button]').attributes('disabled')).toBeDefined()
+    releaseMount({ status: 'mounted', message: 'module mounted' })
+    await flushPromises()
+    expect(w.get('[data-kg-update-button]').attributes('disabled')).toBeUndefined()
+
+    let releaseKg: (v: unknown) => void = () => {}
+    updateKnowledgeGraph.mockReturnValue(new Promise((r) => (releaseKg = r)))
+    await w.get('[data-kg-update-button]').trigger('click')
+    await flushPromises()
+    const moduleButtons = w.findAll('[data-module-row] button')
+    expect(moduleButtons.length).toBeGreaterThan(0)
+    for (const b of moduleButtons) expect(b.attributes('disabled')).toBeDefined()
+    expect(btn(w, 'Mount all')!.attributes('disabled')).toBeDefined()
+    releaseKg({ status: 'current', version: V_NEW, message: 'nothing was changed.' })
+    await flushPromises()
+    w.unmount()
+  })
+
+  it('tells the dashboard whether the version is withdrawn', async () => {
+    packages.mockResolvedValue({ packages: catalog })
+    modules.mockResolvedValue(kgInventory(outdated))
+    const w = mount(ContentModules, { props: { reloadToken: 0 } })
+    await flushPromises()
+    expect(w.emitted('kg-withdrawn')?.slice(-1)[0]).toEqual([false])
     w.unmount()
   })
 })

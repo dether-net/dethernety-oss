@@ -259,13 +259,16 @@ the banner that names the command to run.
 
 Most of what the layer holds comes from the recipe. Two values do not: those that depend on where the
 deployment answers or how it is laid out, and the knowledge-graph pin, which the console reads from a
-public listing at connect time (see [below](#the-knowledge-graph-connection)).
+public listing at connect time and moves forward afterwards only when an administrator asks it to (see
+[below](#the-knowledge-graph-connection) and [Updating the knowledge-graph
+version](#updating-the-knowledge-graph-version)).
 
 **Writing the layer** is guarded. A pasted **recipe** — the block of `NAME=value` lines an operator
 copies from their account — is refused outright if a cloud file already exists, so reconfiguring a
-connected deployment means disconnecting first. That is now true of every variable **except one**: the
-deployment's access list has a narrow writer of its own ([below](#changing-who-may-sign-in)), and a
-pasted recipe is still refused. The variable names the console will copy out of it are a closed set,
+connected deployment means disconnecting first. That is now true of every variable **except two**: the
+deployment's access list ([below](#changing-who-may-sign-in)) and its knowledge-graph version
+([below](#updating-the-knowledge-graph-version)) each have a narrow writer of their own, and a pasted
+recipe is still refused. The variable names the console will copy out of it are a closed set,
 which is the subject of
 [`SECURITY_MODEL.md`](./SECURITY_MODEL.md#the-mode-layer-is-a-closed-variable-allowlist). Reverting
 rewrites the same file with the local values.
@@ -296,7 +299,8 @@ cannot yet satisfy. See [`SECURITY_MODEL.md`](./SECURITY_MODEL.md#sessions).
 
 `POST /api/cloud/allowlist` rewrites **exactly one** variable in the mode layer — `DEPLOYMENT_ALLOWLIST`,
 the set of subjects this deployment admits at sign-in — on a deployment that is already connected, and
-leaves every other line as it found it. It is the only variable that can be changed that way.
+leaves every other line as it found it. It is one of two variables that can be changed that way; the
+other is the knowledge-graph version, on a route of its own ([below](#updating-the-knowledge-graph-version)).
 
 **It exists because the discoverable way to do this destroyed data.** A connected deployment refuses a
 second recipe, so removing one person from the list meant a disconnect and a reconnect — and a disconnect
@@ -682,7 +686,9 @@ Three properties are worth stating because each is a decision rather than a cons
   recipe — a recipe that could carry it could pin a deployment to a version of the sender's choosing.
   The console validates it as `sha256:` plus 64 hex before writing, refuses a version the listing marks
   withdrawn, and refuses to take "whatever is newest" at query time, which would advance the knowledge
-  graph under a deployment that pinned deliberately.
+  graph under a deployment that pinned deliberately. The pin is written at connect, and moved afterwards
+  only by an administrator's explicit update, to the listing's latest and nothing else
+  ([below](#updating-the-knowledge-graph-version)).
 - **Both variables are written, or neither is.** If the service cannot be reached the console writes no
   knowledge-graph configuration at all, mounts nothing, and says so — the deployment connects to the
   cloud without it. A service that is momentarily down must not cost an operator their cloud connection,
@@ -694,9 +700,150 @@ Three properties are worth stating because each is a decision rather than a cons
   mount's, this one is parsed and its schema checked rather than stat'd: a file carrying the marker's
   name and another schema is not the console's.
 
-The connection is reported apart from the content mounts, and read-only. There is nothing for an
-operator to do with it, and listing it among modules whose content is served per request would invite
-reading it as the knowledge graph itself having been installed — when what was installed is a client.
+The connection is reported apart from the content mounts, because listing it among modules whose
+content is served per request would invite reading it as the knowledge graph itself having been
+installed — when what was installed is a client. It carries exactly one control, and that control never
+touches the mount: it moves the version the mode layer pins, described next.
+
+### Updating the knowledge-graph version
+
+`POST /api/cloud/knowledge-graph`, with body `{"version": "<sha256 digest>"}`, rewrites **exactly one**
+variable in the mode layer — `MODULE_KG_VERSION` — on a deployment that is already connected, and leaves
+every other line and every mount as it found them.
+
+**It exists for the access-list route's reason.** The pin used to be written once, at connect, and nothing
+moved it afterwards: the only way to a newer knowledge graph was a disconnect and a reconnect, and a
+disconnect removes every cloud-provided module, taking at the next platform start the classes those modules
+declare and every link those classes are in ([above](#the-mode-layer)). The mount names no version, so
+moving the pin is a one-variable change, and this route is that change, named and gated.
+
+**What keeps the pin deliberate.** The route writes only the service's latest version, and only the one the
+operator was shown. The request names the version the page displayed; the route reads the listing again,
+from the base URL in the mode file, and writes only if the listing still names that version as its usable
+latest. Neither the page nor a request alone can choose a version, and nothing advances on its own — a
+deployment moves only when an administrator asks it to. There is no path to an earlier version, because
+there is no earlier version to offer: the listing's latest never moves backwards, and withdrawing a version
+does not re-point it.
+
+**It is admin-gated like every other route that changes the deployment**, wired the same way — the gate
+composed over the session check ([below](#authentication-posture)). On a deployment that names no team the
+gate stands aside, as it does for mount and unmount. That is accepted here for a reason specific to this
+route: the value it writes is fixed to the service's latest, and it removes nothing. (The two reads that
+reveal who may sign in are the routes that refuse the team-less case for themselves; this one is not of
+that kind.)
+
+**The lock order.** The mode-layer lock also serialises the disconnect's revert, and an outbound request can take as long as
+its timeout. Holding the lock across the listing read would let a slow remote host stall the recovery path,
+which the disconnect is built never to wait on. So the listing is read **outside** the lock, and everything
+that decides what is written is checked again **inside** it:
+
+```mermaid
+sequenceDiagram
+  participant SPA as Content tab
+  participant D as Console daemon
+  participant F as Mode layer file
+  participant L as Knowledge-graph version listing
+
+  SPA->>D: POST /api/cloud/knowledge-graph {version}
+  D->>F: read (unlocked): cloud? base URL usable? mount complete?
+  D->>L: GET /v1/kg/versions (no credential)
+  L-->>D: latest, versions[] with releasedAt and recall markers
+  D->>D: version == usable latest?
+  Note over D,F: take the mode-layer lock
+  D->>F: read again: still cloud? same base URL? mount still complete? pin still there?
+  D->>F: write MODULE_KG_VERSION (unless already pinned)
+  Note over D,F: release the lock
+  D-->>SPA: 200 {status, version, from, message}
+```
+
+1. **Before the lock.** The mode file must be cloud-configured. The version must be `sha256:` plus 64 hex.
+   The knowledge-graph base URL is taken from the mode file and re-checked against the same URL rule the
+   connect path applies — on every read, because validity checked only on write is a property of "this
+   console wrote this file", and the mode layer is a file on the operator's host. The knowledge-graph mount
+   must be complete: its marker *and* the module file the platform loads — and the mode file must carry a pin.
+2. **The listing**, read from that base with no credential, through the same function connect and the
+   inventory use, so the three cannot disagree about what it says. It must offer a usable latest — present,
+   well-formed, and not itself marked withdrawn — and the requested version must equal it.
+3. **Inside the lock**, the file is read again. The update is refused if the deployment was disconnected in
+   between, if its knowledge-graph base URL is no longer the one that was dialled, if the mount went
+   missing, or if the pin went — a mount with nothing for it to read is not updated from nothing. The
+   base-equality check is what stops a version listed by one service being written into a file
+   that now points at another, after a disconnect and reconnect landed between the two reads. A pin that
+   already equals the version answers `current` and writes nothing. Otherwise the route re-runs the
+   present-and-non-empty rule over the whole variable set — the allowlist apply's guard, for its reason — and
+   writes. The lock is released before a success is answered, so a slow reader never holds it; a refusal
+   is written under it, as the allowlist apply's are, which costs a buffered write and nothing more.
+
+The log line records the old and new versions (both public digests) and the session subject that asked.
+
+**What it answers.** Every refusal changes nothing, and says so — and never `401`, for the reason no
+route here returns one.
+
+| Status | When |
+|---|---|
+| `200` `{"status": "applied", "version", "from", "message"}` | The pin was moved. `message` is the receipt: both versions by release date and shortened digest, followed by the update notice |
+| `200` `{"status": "current", "version", "message"}` | The deployment was already pinned to that version. Nothing was written, and no restart is owed |
+| `400` | The body is malformed, or the version is not `sha256:` plus 64 hex |
+| `409` | The deployment is not connected to the cloud; it has no usable knowledge-graph service configured (the remedy named is a disconnect and reconnect, which is what configures one); it is configured for one but the mount is in its half state, or the mount is there with no pin (the same remedy); the listing offers no usable version; the service's latest version changed after the page loaded (the refusal names the version that is latest now); the deployment disconnected or its cloud configuration changed while the update was being checked; or its configuration is missing a required variable |
+| `503` | The listing could not be read. Nothing was changed |
+| `500` | The mode layer could not be written. Nothing was changed |
+
+The gate's own refusals come first, with the statuses every gated route uses — `412` meaning sign in to the
+cloud again ([below](#authentication-posture)). On a `409` the SPA re-reads the inventory and keeps the
+sentence, so the block shows what is true now — a newer offer, or none — and the operator decides again.
+There is no automatic retry.
+
+**It is not a posture change, so it drops no sessions.** Nothing about identity or validation moves.
+
+**It takes effect at the next platform start, and the console names which restart.** `MODULE_KG_VERSION` is
+read only inside the platform, so the write is inert until `byodt restart platform`, and that restart removes
+no module. Until then the platform keeps answering from the version it started with, while the inventory —
+which reads configuration, not the running platform — already shows the new one. The update notice says
+all of this, and that analyses run after the restart may differ from earlier ones. It is one constant in the
+daemon, served with the inventory as `updateNotice` exactly when an update is offered, so the operator reads
+it *before* clicking, and repeated in the receipt. As with the access list, nothing the platform reports says
+which version it started with, so `restartPending` is unaffected; the SPA raises the tab's own restart
+reminder on an `applied` answer and never on `current` or a refusal.
+
+The receipt names both versions, by release date and shortened digest, in a form an operator can copy into
+a change note.
+
+**Currency in the inventory.** `GET /api/modules` reports the knowledge-graph connection only when the pin **and** the mount are both
+present — either one alone is the half state, reported as a note naming the remedy (disconnect and
+reconnect). Only for a complete connection is the listing read, and it is read concurrently with the content
+catalog, so an inventory with both services slow waits one timeout rather than two. A base URL that is absent
+or unusable is still reported, with currency `unknown` and a note naming the remedy rather than one an
+operator would retry.
+
+The pin is judged against the listing in a fixed order, and the order is the point: a withdrawn pin that is
+also the latest must read as withdrawn, never as up to date, so the recall is asked before equality.
+
+| Order | Condition | `currency` | Offer |
+|---|---|---|---|
+| 1 | The listing could not be read | `unknown`, with a note | None |
+| 2 | The listing marks the pinned version recalled | `recalled` | The listing's latest, **only if** it is usable; otherwise none, and no note — the connection's own entry says there is nothing to update to yet, and a second copy at the foot of the inventory would say it twice |
+| 3 | The pin equals the listing's latest | `current` | None |
+| 4 | The latest is missing, malformed, or itself marked recalled | `unknown`, with a note | None |
+| 5 | Anything else | `outdated` | The listing's latest |
+
+Row 5 also covers a pin the listing does not name at all. The listing never prunes a version, so that is a
+hand-edited pin; offering the latest is the remedy, and the page claims nothing about which of the two is
+newer. A recall field holding JSON `null` is no recall. Release times are passed through only when they parse
+as RFC 3339; a value that is not one is better absent than displayed.
+
+**The recall marker is advisory, and the page treats it that way.** The service enforces a recall on its own
+record, not on this listing, and the listing is a cached public document — so currency is only as fresh as
+the published listing, and `recalled` is reported as what the service says about a version, never as proof
+of what a query against it will answer.
+
+**What the SPA renders.** The entry leads with release dates, as ISO dates, and a shortened digest, with the
+full digest in the element's title. `outdated` reads "newer available (released …)" only when both versions
+carry a release date to compare, and "a different version is published" otherwise. When an update is
+offered, `updateNotice` is shown above a single **Update to the … version** button — one click and no
+confirmation card, like the module and artifact updates, because nothing is removed. A non-administrator
+sees the button disabled with the reason, not hidden ([below](#authentication-posture)). `recalled` renders
+in the fault tone with what it means for analyses and what to do, and raises a warning banner on the
+dashboard on every tab, with a button that opens the Content tab.
 
 ### Entitled artifacts
 
@@ -850,8 +997,9 @@ capped at four in flight, because the mint route is ungated and each one costs t
 authentication round trip.
 
 **Changing the deployment takes more than a session.** The gated set is these, and it is stated by naming
-them rather than by counting them — `DELETE /api/cloud`, `POST /api/cloud/allowlist`, `POST /api/modules`,
-`DELETE /api/modules/{key}`, `POST /api/artifacts`, `DELETE /api/artifacts/{key}` — **and two reads beside
+them rather than by counting them — `DELETE /api/cloud`, `POST /api/cloud/allowlist`,
+`POST /api/cloud/knowledge-graph`, `POST /api/modules`, `DELETE /api/modules/{key}`, `POST /api/artifacts`,
+`DELETE /api/artifacts/{key}` — **and two reads beside
 them, `GET /api/cloud/roster` and `GET /api/cloud/allowlist`**; every other read is not. Until this landed a
 session was the whole authority, so any member of a team who could reach the console could disconnect the
 deployment, taking every cloud-provided module and the classes those modules declare with it. That is the
@@ -918,16 +1066,19 @@ before the deployment is connected, when there is no cloud identity, no team and
 nobody to check. What keeps that from being a hole is the write guard it already had — applying to a
 deployment that has already written its cloud file is refused, so changing **any other** variable on a
 connected deployment means disconnecting first, and disconnect *is* gated. The control holds through the
-route that has a subject to check. "Any other" is load-bearing: the one variable that can be changed without
-a disconnect goes through a gated route of its own, which has a subject to check and uses it — it refuses a
-list that would lock its caller out ([above](#changing-who-may-sign-in)).
+route that has a subject to check. "Any other" is load-bearing: the two variables that can be changed
+without a disconnect each go through a gated route of their own. The access list's has a subject to check and
+uses it — it refuses a list that would lock its caller out ([above](#changing-who-may-sign-in)); the
+knowledge-graph version's writes only the version the service lists as latest
+([above](#updating-the-knowledge-graph-version)).
 
 **Disconnect alone has a carve-out**, and it is what makes failing closed acceptable. An outage that ends is
 something an operator waits out; an outage that *cannot* end — a deployment configured without permission to
 ask at all — would be a lockout, and disconnect is the operation an operator reaches for to fix a bad
 recipe. So on that one deployment state, that one route proceeds. It is disconnect's alone: the predicate is
 a property of the whole deployment, so written over every gated route it would ungate mount, unmount,
-install, remove, the access-list apply and the two reads that reveal who may sign in on any mis-scoped
+install, remove, the access-list apply, the knowledge-graph update and the two reads that reveal who may
+sign in on any mis-scoped
 deployment, which is a blanket bypass rather than a recovery. A
 *transient* outage does refuse disconnect, deliberately — an attacker who can interrupt this deployment's
 network can therefore deny a disconnect, which is the safe direction for a destructive act to fail in.
@@ -968,10 +1119,11 @@ at the click, with the sentence where the confirmation card would have opened.
 | `POST /api/cloud` | yes | no — there is no subject to check | Write the cloud mode layer from a pasted recipe |
 | `DELETE /api/cloud` | yes | yes, with the recovery carve-out | Revert the mode layer to the local values, removing every cloud-provided module |
 | `POST /api/cloud/allowlist` | yes | yes | Replace who may sign in — one variable of the mode layer, on a connected deployment, without a disconnect (cloud posture only) |
+| `POST /api/cloud/knowledge-graph` | yes | yes | Move the knowledge-graph pin to the version the page showed, only while the service still lists it as latest — one variable of the mode layer, without a disconnect (cloud posture only) |
 | `GET /api/cloud/allowlist` | yes | **yes — gated for what it reveals** | The identifiers this deployment admits, read from its own configuration in the canonical form the apply writes. Refuses for itself on a deployment that names no team (cloud posture only) |
 | `GET /api/cloud/roster` | yes | **yes — gated for what it reveals** | The team's current members by identifier and address, relayed from the content service with the operator's own token and re-encoded to two fields; never logged, never written. Refuses for itself on a deployment that names no team (cloud posture only) |
 | `GET /api/packages` | yes | no | The public content catalog, marked with what this deployment's subscription includes — read live on every load, never from the mode layer. Also reports whether this deployment is configured to ask at all, and whether this operator administers it (cloud posture only) |
-| `GET /api/modules` | yes | no | The whole modules-directory inventory in one read: the mounted stubs and their currency, the knowledge-graph connection, the installed artifacts and their currency, and — whenever there is an artifact it could apply to — what removing one does (cloud posture only) |
+| `GET /api/modules` | yes | no | The whole modules-directory inventory in one read: the mounted stubs and their currency, the knowledge-graph connection and its currency against the service's version listing (`currency`, `pinnedReleasedAt`, and — only when an update is offered — `latestVersion`, `latestReleasedAt` and `updateNotice`), the installed artifacts and their currency, and — whenever there is an artifact it could apply to — what removing one does (cloud posture only) |
 | `POST /api/modules` | yes | yes | Mount one module at one pin (cloud posture only) |
 | `DELETE /api/modules/{key}` | yes | yes | Unmount (cloud posture only) |
 | `POST /api/artifacts` | yes | yes | Install one entitled artifact at one version (cloud posture only) |
@@ -993,8 +1145,8 @@ operator's access token on `X-Console-Cloud-Token`. **This paragraph once counte
 there are and not how many.** Some forward it because the daemon needs it to answer: `GET /api/packages`
 asks what the subscription includes, `POST /api/artifacts` asks for bytes, `GET /api/cloud/roster` asks for
 the team's members. The rest forward it because the gate asks the cloud with it before a gated operation
-runs at all, so mounting, unmounting and rewriting the access list carry a credential even though what they
-do is write a file on this host — and so does `GET /api/cloud/allowlist`, which reads one. That is the
+runs at all, so mounting, unmounting, rewriting the access list and moving the knowledge-graph pin carry a
+credential even though what they do is write a file on this host — and so does `GET /api/cloud/allowlist`, which reads one. That is the
 difference between a gate that asks the cloud and one that trusts a local session record, and only the
 first is worth building. It is stated here rather than on the rows because it is a property of the set.
 Each attaches it in a request helper of its own rather than through a flag on the one every other call
@@ -1026,6 +1178,7 @@ not all apply at the same scope:
 | Connect to or disconnect from the cloud | `byodt restart` | The mode layer is read by more than one service, so all of them must come up in the new mode |
 | Change who may sign in | `byodt restart platform` | The access list lives in the mode layer, but it is one of the values only the platform reads — and the answer says so, because the restart an operator has been taught to fear is the one that finds a module missing, and this is not that one |
 | Mount or unmount a content module | `byodt restart platform` | The stub lands in the modules mount, which only the platform reads at startup |
+| Update the knowledge-graph version | `byodt restart platform` | `MODULE_KG_VERSION` lives in the mode layer, but only the platform reads it. Like the access-list change, this restart removes no module, and the notice says so |
 | Install or remove an entitled artifact | `byodt restart platform` | A whole verified payload tree is swapped into that same mount. A removed module stays loaded until that boot, which is also when its graph consequences fire |
 
 Every one of them is a recreate rather than a restart, because a container's environment is fixed at

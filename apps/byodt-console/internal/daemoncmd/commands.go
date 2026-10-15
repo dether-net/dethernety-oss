@@ -12,7 +12,8 @@ package daemoncmd
 //     connect/disconnect rewrites the mode layer wholesale, so all of them must come up in the new mode.
 //   - platformRestartCommand recreates only the platform, for a change to values ONLY the platform reads.
 //     A content mount writes into the modules bind mount it loads at startup; the allowlist apply rewrites
-//     DEPLOYMENT_ALLOWLIST, which only the platform reads, and leaves every other value alone.
+//     DEPLOYMENT_ALLOWLIST, which only the platform reads, and leaves every other value alone; the
+//     knowledge-graph update does the same with MODULE_KG_VERSION.
 const (
 	stackRestartCommand    = "byodt restart"
 	platformRestartCommand = "byodt restart platform"
