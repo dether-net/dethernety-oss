@@ -106,6 +106,9 @@ describe(`MITRE vector indexes on ${REKEYING_IMAGE}, which re-keys a vector inde
     embedEach(texts: string[], kind: 'query') {
       return EmbeddingService.prototype.embedEach.call(this, texts, kind);
     },
+    /** The helpers embedEach calls: no query timeout here, and an overload is not counted. */
+    queryEmbedOptions: () => undefined,
+    noteOverload: () => {},
   };
 
   function mitre(driver: Driver): { resolver: MatchMitreTechniquesResolverService; vectorSearch: VectorSearchService } {

@@ -8,6 +8,12 @@
  * outlasts `loadTimeoutMs`, asks the worker to stop and no longer lets it hold the process open. A worker stuck inside
  * a native call ends only when the call returns. A worker that exits or errors later rejects every pending call,
  * refuses new ones and reports through `onFailure`; it is never restarted here.
+ *
+ * The worker serves one request at a time, so query embeds are bounded on this side: the query items posted and not
+ * yet answered are counted, and a query embed that would take the count past `queryBacklogItems` is refused at once
+ * with an `EmbedderBusyError`. A query embed may also carry a timeout, past which it rejects with an
+ * `EmbedTimeoutError`. The worker cannot stop a native run, so a timed-out call stays in the count until the worker
+ * answers it, and its answer is dropped. Document embeds are neither counted nor refused.
  */
 
 // Before anything can load onnxruntime: a worker thread's own process.env is not seen by native code, so the opt-out
@@ -20,7 +26,17 @@ import { Worker } from 'worker_threads';
 import type { EmbeddingProfile, ProfileKind } from '@dethernety/dt-module/embedding';
 
 import { verifiedRecordsFor, type VerifiedRecord } from './acquire';
-import type { EmbedItem, Embedder, OnnxEmbedderOptions } from './embedder';
+import type { EmbedItem, EmbedOptions, Embedder, OnnxEmbedderOptions } from './embedder';
+
+/** A query embed refused because the worker already holds as many query items as it may. */
+export class EmbedderBusyError extends Error {
+  readonly name = 'EmbedderBusyError';
+}
+
+/** A query embed whose vectors did not come within its timeout. */
+export class EmbedTimeoutError extends Error {
+  readonly name = 'EmbedTimeoutError';
+}
 
 /** Marks the worker data, so `worker.js` serves only a worker started for it. */
 export const WORKER_DATA_KIND = 'dethernety-embedder';
@@ -60,6 +76,11 @@ export interface WorkerEmbedderOptions extends OnnxEmbedderOptions {
   loadTimeoutMs?: number;
   /** How long `release()` waits for the worker to free its session, and then to end. Default 5 s each. */
   releaseTimeoutMs?: number;
+  /**
+   * How many query items may be posted to the worker and not yet answered; a query embed past it is refused with an
+   * `EmbedderBusyError`. Default 200.
+   */
+  queryBacklogItems?: number;
   /** Called once when the worker fails after it was ready (exit, error), with the reason. */
   onFailure?: (error: Error) => void;
   /** Starts the worker. Injected in tests; the default runs worker.js next to this file. */
@@ -69,6 +90,7 @@ export interface WorkerEmbedderOptions extends OnnxEmbedderOptions {
 const LOAD_TIMEOUT_MS = 120_000;
 const seconds = (ms: number) => (Number.isInteger(ms / 1000) ? String(ms / 1000) : (ms / 1000).toFixed(1));
 const RELEASE_TIMEOUT_MS = 5_000;
+const QUERY_BACKLOG_ITEMS = 200;
 
 const defaultSpawn = (init: WorkerInit): WorkerLike => new Worker(join(__dirname, 'worker.js'), { workerData: init });
 
@@ -79,19 +101,37 @@ export async function createWorkerEmbedder(
   options: WorkerEmbedderOptions = {},
 ): Promise<Embedder> {
   if (profile.runtime.engine !== 'onnx' || !profile.source) throw new Error(`Profile "${profile.id}" is not an onnx profile`);
-  const { loadTimeoutMs = LOAD_TIMEOUT_MS, releaseTimeoutMs = RELEASE_TIMEOUT_MS, onFailure, spawn = defaultSpawn, ...embedderOptions } = options;
+  const {
+    loadTimeoutMs = LOAD_TIMEOUT_MS,
+    releaseTimeoutMs = RELEASE_TIMEOUT_MS,
+    queryBacklogItems = QUERY_BACKLOG_ITEMS,
+    onFailure,
+    spawn = defaultSpawn,
+    ...embedderOptions
+  } = options;
   const verified = await verifiedRecordsFor(profile, modelDir);
   const worker = spawn({ kind: WORKER_DATA_KIND, profile, modelDir, options: embedderOptions, verified });
-  const embedder = new WorkerEmbedder(profile, worker, releaseTimeoutMs, onFailure);
+  const embedder = new WorkerEmbedder(profile, worker, releaseTimeoutMs, queryBacklogItems, onFailure);
   await embedder.loaded(loadTimeoutMs);
   return embedder;
+}
+
+/** A call posted to the worker: settled once, and kept until the worker answers it, even after a timeout. */
+interface PendingCall {
+  resolve: (vectors: number[][]) => void;
+  reject: (error: Error) => void;
+  /** Its items, when it is a query embed: what it adds to the backlog. */
+  queryItems: number;
+  timer?: ReturnType<typeof setTimeout>;
 }
 
 class WorkerEmbedder implements Embedder {
   readonly profileId: string;
   readonly dimensions: number;
   private nextId = 1;
-  private readonly pending = new Map<number, { resolve: (vectors: number[][]) => void; reject: (error: Error) => void }>();
+  private readonly pending = new Map<number, PendingCall>();
+  /** Query items posted to the worker and not yet answered. */
+  private queryBacklog = 0;
   private ready = false;
   private failure: Error | null = null;
   private released = false;
@@ -102,6 +142,7 @@ class WorkerEmbedder implements Embedder {
     profile: EmbeddingProfile,
     private readonly worker: WorkerLike,
     private readonly releaseTimeoutMs: number,
+    private readonly queryBacklogItems: number,
     private readonly onFailure?: (error: Error) => void,
   ) {
     this.profileId = profile.id;
@@ -134,13 +175,29 @@ class WorkerEmbedder implements Embedder {
     });
   }
 
-  embed(kind: ProfileKind, items: EmbedItem[]): Promise<number[][]> {
+  embed(kind: ProfileKind, items: EmbedItem[], options: EmbedOptions = {}): Promise<number[][]> {
     if (this.failure) return Promise.reject(this.failure);
     if (this.released) return Promise.reject(new Error('the embedder was released'));
     if (items.length === 0) return Promise.resolve([]);
+    const queryItems = kind === 'query' ? items.length : 0;
+    if (queryItems > 0 && this.queryBacklog + queryItems > this.queryBacklogItems) {
+      return Promise.reject(
+        new EmbedderBusyError(
+          `the embedder is busy: ${this.queryBacklog} query items are waiting, and ${queryItems} more would pass the limit of ${this.queryBacklogItems}`,
+        ),
+      );
+    }
     const id = this.nextId++;
+    this.queryBacklog += queryItems;
     return new Promise<number[][]>((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const call: PendingCall = { resolve, reject, queryItems };
+      const { timeoutMs } = options;
+      if (timeoutMs !== undefined) {
+        // The call stays pending, and in the backlog, until the worker answers: only the caller stops waiting.
+        call.timer = setTimeout(() => reject(new EmbedTimeoutError(`the embedder did not answer within ${seconds(timeoutMs)} s`)), timeoutMs);
+        call.timer.unref?.();
+      }
+      this.pending.set(id, call);
       this.worker.postMessage({ type: 'embed', id, kind, items });
     });
   }
@@ -190,12 +247,10 @@ class WorkerEmbedder implements Embedder {
         void this.stop();
         return;
       case 'result':
-        this.pending.get(reply.id)?.resolve(reply.vectors);
-        this.pending.delete(reply.id);
+        this.answered(reply.id)?.resolve(reply.vectors);
         return;
       case 'error':
-        this.pending.get(reply.id)?.reject(new Error(reply.message));
-        this.pending.delete(reply.id);
+        this.answered(reply.id)?.reject(new Error(reply.message));
         return;
       case 'released':
         this.onReleased?.();
@@ -218,8 +273,22 @@ class WorkerEmbedder implements Embedder {
     if (this.ready && !this.released) this.onFailure?.(error);
   }
 
+  /** The call the worker answered, out of the pending map and the backlog. A call that timed out is already settled. */
+  private answered(id: number): PendingCall | undefined {
+    const call = this.pending.get(id);
+    if (!call) return undefined;
+    this.pending.delete(id);
+    clearTimeout(call.timer);
+    this.queryBacklog -= call.queryItems;
+    return call;
+  }
+
   private rejectPending(error: Error): void {
-    for (const { reject } of this.pending.values()) reject(error);
+    for (const call of this.pending.values()) {
+      clearTimeout(call.timer);
+      call.reject(error);
+    }
     this.pending.clear();
+    this.queryBacklog = 0;
   }
 }

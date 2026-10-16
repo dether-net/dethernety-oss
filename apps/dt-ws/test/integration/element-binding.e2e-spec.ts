@@ -678,6 +678,22 @@ describe('ElementBindingService — atomic class-change invariants', () => {
       const findings = await readFindings(mg.driver, 'ctl-1', 'HAS_COUNTERMEASURE');
       expect(findings.find((f) => f.name === 'StaleCM')).toBeUndefined();
     });
+
+    it('stamps the element with the policy hash of each class it is bound to, and none for a class without one', async () => {
+      await seedControl(mg.driver, 'ctl-1');
+      await bindClassEdge(mg.driver, 'ctl-1', 'ctlc-A');
+      await runWrite(mg.driver, `MATCH (k:ControlClass {id: 'ctlc-B'}) SET k.policyHash = 'hash-B'`);
+
+      const result = await service.changeElementBinding(
+        { elementId: 'ctl-1', target: { kind: 'CLASS', classIds: ['ctlc-B', 'ctlc-C'] } },
+        ctx(),
+      );
+      expect(result.success).toBe(true);
+
+      const stamps = await runWrite(mg.driver, `MATCH (c:Control {id: 'ctl-1'}) RETURN c.classPolicyStamps AS stamps`);
+      // A stamp is "<classId><unit separator><policyHash>".
+      expect(stamps.records[0].get('stamps')).toEqual([`ctlc-B${String.fromCharCode(31)}hash-B`]);
+    });
   });
 
   // -------------------------------------------------------------------------

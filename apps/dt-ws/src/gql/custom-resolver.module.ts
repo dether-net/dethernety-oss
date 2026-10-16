@@ -11,6 +11,7 @@ import { ClassIdentityMigrationService } from './module-management-services/clas
 import { ModuleManagementResolverService } from './resolver-services/module-management-resolver.service';
 import { SetInstantiationAttributesService } from './resolver-services/set-instantiation-attributes.service';
 import { ElementBindingService } from './resolver-services/element-binding.service';
+import { FindingReevaluationService } from './resolver-services/finding-reevaluation.service';
 import { DispositionResolverService } from './resolver-services/disposition-resolver.service';
 import { AnalysisResolverService } from './resolver-services/analysis-resolver.service';
 import { ModelResolverService } from './resolver-services/model-resolver.service';
@@ -72,6 +73,8 @@ const resolverServiceClasses = [
     AnalysisCacheService,
     EmbeddingService,
     VectorSearchService,
+    // Re-evaluates elements whose class policy changed, after installs and at start.
+    FindingReevaluationService,
 
     // Resolver services
     AnalysisResolverService,

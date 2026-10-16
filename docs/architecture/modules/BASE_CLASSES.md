@@ -111,7 +111,7 @@ async getMetadata(): Promise<DTMetadata>
 **Flow:**
 1. Read `module.json` from the module directory
 2. Scan each class type directory (`component/`, `dataFlow/`, etc.)
-3. For each class subdirectory, read `class.json` and eagerly register its `policies.rego` in the in-process engine (one Regorus engine per class). Registering eagerly means a policy that cannot be parsed or is not self-contained fails here, at load, rather than at the first analysis that needs it.
+3. For each class subdirectory, read `class.json` and eagerly register its `policies.rego` in the in-process engine (one Regorus engine per class). Registering eagerly means a policy that cannot be parsed or is not self-contained fails here, at load, rather than at the first analysis that needs it. Each class that is not an issue class gets a `policyHash` in its metadata: the sha256 of the policy source it registered (`RegoEngine.sourceHash(key)`), or the hash of the empty source when it has no `policies.rego`. A policy is self-contained and has an engine of its own, so that source is everything its evaluation compiles. A class whose policy failed to register gets no `policyHash`. The component, data flow, security boundary, data and control class metadata types declare it as optional. The platform writes the hash on the class node and re-evaluates an element whose findings came from an older policy (see [Module Management Service → Class policy hash](../backend/LLD/MODULE_MANAGEMENT_SERVICE.md#class-policy-hash)).
 4. Prune: free the engines of any classes that no longer exist on disk. A class whose policy failed to register is also pruned, so every later evaluation of it throws rather than answering from a stale engine.
 5. Return aggregated `DTMetadata`
 
@@ -128,6 +128,20 @@ async getExposures(id: string, classId: string): Promise<Exposure[]>
 2. Read `policies.rego` from the class directory
 3. Look up the class's Regorus engine (registered at load; registered on first use as a fallback)
 4. Evaluate the `exposures` / `countermeasures` rule in-process. Evaluation is fail-loud — an engine error throws rather than degrading to "no findings".
+
+#### getPolicyHash()
+
+Reports the `policyHash` of the policy a class evaluates with now, from the engine this instance holds. The platform records a save as following the class's stored hash only when this answer agrees with it (see [DTModule interface → getPolicyHash(classId)](./DT_MODULE_INTERFACE.md#getpolicyhashclassid)).
+
+```typescript
+async getPolicyHash(classId: string): Promise<string | undefined>
+```
+
+It returns the same values `getMetadata()` reports:
+- **A registered engine** for the class: that engine's source hash (`RegoEngine.sourceHash(key)`)
+- **No policy** (no `policies.rego`, or an empty one): the hash of the empty source
+- **A policy that failed to register** (a `policies.rego` with content but no engine): `undefined`
+- **A class it cannot read** (its `path` attribute or its directory cannot be resolved): `undefined`
 
 ### Usage Example
 

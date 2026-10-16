@@ -52,11 +52,13 @@ Domain terminology used throughout the Dethernety platform and documentation.
 
 **Disposition Kind** -- The structured argument for a disposition. Shared kinds: **Not Applicable** (the finding cannot or does not apply to this instantiation) and **False Positive** (the template fired this finding incorrectly for this kind of element). Exposure-only: **Compensating Control** (a control not formally linked already mitigates this) and **Risk Accepted** (the threat is real and unmitigated, and the residual risk is accepted). Countermeasure-only: **Waived** (a decision not to implement this control — a GRC control waiver). System-set: **Superseded** (the finding was replaced by a user-authored copy via the Supersede flow).
 
-**Stale Disposition** -- A disposition flagged for review because an instantiation attribute of the finding's element changed after the disposition was set. The decision is not dropped; the user re-affirms it (which clears the flag) or clears it.
+**Stale Disposition** -- A disposition flagged for review because an instantiation attribute of the finding's element changed after the disposition was set, or because a save (or a re-evaluation) changed the techniques or references linked to the system-generated finding. The decision is not dropped; the user re-affirms it (which clears the flag) or clears it.
 
 **Re-affirm** -- Confirming a stale disposition still applies. Re-affirming re-stamps the author and timestamp and clears the stale flag. Surfaced in the UI as a "Review" action.
 
 **Supersede (Fork)** -- Replacing a system-generated finding with an editable user-authored copy. The copy keeps its link to the same element (so it stays visible) but drops the class link (so re-derivation preserves it as a user finding); the original is dispositioned as Superseded. Deleting the user copy later flags the superseded original as stale.
+
+**Re-evaluation** -- Deriving an element's system-generated findings again after a module update changed its class's policy, without anyone saving the element. The platform compares the policy hash each element recorded at its last save with its class's current `policyHash`, and saves each out-of-date element again in the background with no attribute changes. Findings the policy no longer emits are deleted with their dispositions. See [Managing Findings](user/MANAGING_FINDINGS.md#after-a-module-update).
 
 ---
 

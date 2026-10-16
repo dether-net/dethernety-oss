@@ -104,6 +104,11 @@ class StubEmbeddingService {
   embedEach(texts: string[], kind: 'query') {
     return EmbeddingService.prototype.embedEach.call(this, texts, kind);
   }
+  /** The helpers embedEach calls: no query timeout here, and an overload is not counted. */
+  queryEmbedOptions() {
+    return undefined;
+  }
+  noteOverload() {}
 
   async embedBatch(texts: string[]): Promise<number[][] | null> {
     this.embedBatchCallCount += 1;

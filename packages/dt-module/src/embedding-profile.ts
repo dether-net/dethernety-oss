@@ -69,6 +69,8 @@ const PROFILE_ID = /^[a-z0-9][a-z0-9.-]*$/;
 const REPO = /^[A-Za-z0-9][\w.-]*\/[\w.-]+$/;
 const REVISION = /^[0-9a-f]{40}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
+// A plain token: the dtype reaches the header comment of every file the MITRE exporter writes.
+const DTYPE = /^[a-z0-9]+$/;
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -112,6 +114,9 @@ export function validateProfile(candidate: unknown): EmbeddingProfile {
     const dims = runtime.dimensions;
     if (typeof dims !== 'number' || !Number.isInteger(dims) || dims < 1 || dims > MAX_EMBEDDING_DIMENSIONS) {
       problems.push(`runtime.dimensions must be an integer in 1..${MAX_EMBEDDING_DIMENSIONS}`);
+    }
+    if (runtime.dtype !== undefined && (typeof runtime.dtype !== 'string' || !DTYPE.test(runtime.dtype))) {
+      problems.push(`runtime.dtype must match ${DTYPE}`);
     }
   }
 

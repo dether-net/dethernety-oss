@@ -290,6 +290,60 @@ describe('content-hash skip gate — updateAllModules end-to-end', () => {
     expect(upsert).not.toHaveBeenCalled();
   });
 
+  it('writes each class policy hash on its node, and clears it when the module stops reporting one', async () => {
+    const name = 'mod-policy';
+    const withHash = (contentHash: string, webHash?: string): DTModule =>
+      ({
+        getMetadata: async (): Promise<DTMetadata> =>
+          ({
+            name,
+            version: '1.0.0',
+            description: '',
+            contentHash,
+            componentClasses: [{ id: 'c-web', name: 'Web server', ...(webHash ? { policyHash: webHash } : {}) }],
+            issueClasses: [{ id: 'c-issue', name: 'Issue' }],
+          }) as unknown as DTMetadata,
+      }) as unknown as DTModule;
+    const hashes = async () =>
+      (
+        await withRead(mg.driver, (tx) =>
+          tx.run(
+            `MATCH (:Module {name: $name})-[:HAS_CLASS]->(c) RETURN c.id AS id, c.policyHash AS policyHash ORDER BY id`,
+            { name },
+          ),
+        )
+      ).records.map((r: any) => [r.get('id'), r.get('policyHash') ?? null]);
+
+    await service.updateAllModules(new Map([[name, withHash('sha256:v1', 'h1')]]));
+    expect(await hashes()).toEqual([
+      ['c-issue', null],
+      ['c-web', 'h1'],
+    ]);
+
+    // A policy that no longer registers: the module reports no hash, and the old one goes.
+    await service.updateAllModules(new Map([[name, withHash('sha256:v2')]]));
+    expect(await hashes()).toEqual([
+      ['c-issue', null],
+      ['c-web', null],
+    ]);
+  });
+
+  it('tells listeners which modules an install wrote, and nothing for a skipped re-run', async () => {
+    const name = 'mod-listen';
+    const installed: string[][] = [];
+    service.onModulesInstalled((names) => installed.push(names));
+
+    await service.updateAllModules(new Map([[name, fakeModule(name, 'sha256:v1')]]));
+    expect(installed).toEqual([[name]]);
+
+    // Unchanged: skipped, so not a write.
+    await service.updateAllModules(new Map([[name, fakeModule(name, 'sha256:v1')]]));
+    expect(installed).toEqual([[name]]);
+
+    await service.updateAllModules(new Map([[name, fakeModule(name, 'sha256:v2')]]));
+    expect(installed).toEqual([[name], [name]]);
+  });
+
   it('does not delete a skipped module (retained as valid)', async () => {
     const name = 'mod-keep';
     await service.updateAllModules(new Map([[name, fakeModule(name, 'sha256:v1')]]));

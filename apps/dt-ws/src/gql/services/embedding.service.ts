@@ -8,7 +8,7 @@ import {
   type EmbeddingProfile,
   type ProfileKind,
 } from '@dethernety/dt-module/embedding';
-import type { Embedder } from '@dethernety/embedder';
+import type { EmbedOptions, Embedder } from '@dethernety/embedder';
 import { embeddingEnabled, selectEmbeddingProfile } from '../../config/embedding-profile-selection';
 import { optionalNumber } from '../../config/optional-number';
 
@@ -35,6 +35,18 @@ function cosineFloor(name: string, value: unknown): number {
   return n;
 }
 
+/**
+ * Whether an embed failed because the embedder was too busy: its query backlog was full (EmbedderBusyError) or the
+ * vectors did not come within the query's timeout (EmbedTimeoutError). Read by name, so this file never loads the
+ * embedder package, and with it the native runtime.
+ */
+export function embedderOverload(error: unknown): 'busy' | 'timeout' | null {
+  const name = error instanceof Error ? error.name : undefined;
+  if (name === 'EmbedderBusyError') return 'busy';
+  if (name === 'EmbedTimeoutError') return 'timeout';
+  return null;
+}
+
 export type EmbeddingCorpus = 'classes' | 'mitre' | 'components';
 
 /** Where the embedder is. Only `ready` serves vectors. */
@@ -46,6 +58,9 @@ export interface EmbedderStatus {
   profileId: string;
   state: EmbedderState;
   error?: string;
+  /** Query embeds that ran out of time, and those refused because the embedder's query backlog was full. */
+  queryTimeouts: number;
+  queryRefusals: number;
 }
 
 /**
@@ -66,6 +81,13 @@ const ONNX_STARTUP_WAIT_MS = 60_000;
 /** How long a shutdown waits for a model load in progress (it cannot be ended; a stop's grace period is about 10 s). */
 const SHUTDOWN_WAIT_MS = 5_000;
 const CORPORA: EmbeddingCorpus[] = ['classes', 'mitre', 'components'];
+/**
+ * How long a resolver's query embed may take: a base plus an allowance per text, since one call embeds all of a
+ * request's texts (EMBEDDING_QUERY_TIMEOUT_MS, EMBEDDING_QUERY_TIMEOUT_PER_ITEM_MS). Past it the request answers
+ * from the name tiers.
+ */
+const QUERY_TIMEOUT_MS = 10_000;
+const QUERY_TIMEOUT_PER_ITEM_MS = 250;
 
 /**
  * The platform's embedder: an embedding profile run in process. `EMBEDDING_MODEL` names the profile, and only the
@@ -85,6 +107,11 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
   private readonly thresholds: Record<EmbeddingCorpus, number | null>;
   private readonly modelDir: string;
   private readonly threads: number;
+  /** EMBEDDING_QUERY_BACKLOG; unset leaves the embedder's own default. */
+  private readonly queryBacklogItems: number | undefined;
+  private readonly queryTimeout: { baseMs: number; perItemMs: number };
+  /** Counted for getStatus: query embeds that timed out, and those the embedder refused as busy. */
+  private readonly overloads = { timeout: 0, busy: 0 };
   private state: EmbedderState;
   private stateError: string | undefined;
   private embedder: Embedder | null = null;
@@ -106,6 +133,11 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
     this.profile = selectEmbeddingProfile({ enabled: enabledRaw, model: this.configService.get('EMBEDDING_MODEL') });
     this.modelDir = this.configService.get('EMBEDDING_MODEL_DIR') || 'models';
     this.threads = optionalNumber(this.configService.get('EMBEDDING_THREADS')) ?? 4;
+    this.queryBacklogItems = optionalNumber(this.configService.get('EMBEDDING_QUERY_BACKLOG'));
+    this.queryTimeout = {
+      baseMs: optionalNumber(this.configService.get('EMBEDDING_QUERY_TIMEOUT_MS')) ?? QUERY_TIMEOUT_MS,
+      perItemMs: optionalNumber(this.configService.get('EMBEDDING_QUERY_TIMEOUT_PER_ITEM_MS')) ?? QUERY_TIMEOUT_PER_ITEM_MS,
+    };
     this.dimensions = this.profile.runtime.dimensions;
 
     if (this.enabled) {
@@ -198,6 +230,7 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
       this.state = 'loading';
       embedder = await createWorkerEmbedder(this.profile, this.modelDir, {
         threads: this.threads,
+        ...(this.queryBacklogItems !== undefined ? { queryBacklogItems: this.queryBacklogItems } : {}),
         onFailure: (error) => {
           if (!embedder || this.embedder !== embedder) return;
           this.embedder = null;
@@ -212,6 +245,7 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
         return;
       }
       this.starting = embedder;
+      // No timeout: a slow first run must not fail the embedder for the life of the process.
       await embedder.embed('query', [{ text: 'warm-up' }]);
       this.starting = null;
       if (this.destroyed) {
@@ -339,19 +373,20 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
       profileId: this.profile.id,
       state: this.state,
       ...(this.stateError ? { error: this.stateError } : {}),
+      queryTimeouts: this.overloads.timeout,
+      queryRefusals: this.overloads.busy,
     };
   }
 
   /**
    * Embed a batch of texts as queries or as documents. A document's title (its name) feeds the
-   * profile's title rule. Returns null if the embedder is not enabled; throws on failure.
+   * profile's title rule. Returns null if the embedder is not enabled; throws on failure. Without options the call
+   * has no timeout, which is what document embeds (install, catch-up, reindex) rely on.
    */
-  async embedBatch(texts: string[], kind: ProfileKind, titles?: string[]): Promise<number[][] | null> {
+  async embedBatch(texts: string[], kind: ProfileKind, titles?: string[], options?: EmbedOptions): Promise<number[][] | null> {
     if (!this.isEnabled()) return null;
-    return this.embedder!.embed(
-      kind,
-      texts.map((text, i) => ({ text, title: titles?.[i] })),
-    );
+    const items = texts.map((text, i) => ({ text, title: titles?.[i] }));
+    return options ? this.embedder!.embed(kind, items, options) : this.embedder!.embed(kind, items);
   }
 
   /**
@@ -359,6 +394,11 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
    * returns another number of vectors, each text is embedded on its own, once, so a text that cannot be embedded costs
    * only its own vector (null, with its error in `failures`). A batch of one is not tried again. Every vector is null
    * when the embedder is not enabled.
+   *
+   * The resolvers' query embeds go through here, so a query embed carries a timeout that grows with its text count
+   * (queryEmbedOptions). A busy embedder ends the request's vector tier: a timeout or a busy refusal is not retried
+   * text by text, and in the per-text fallback the first one gives every remaining text null with that error. It is
+   * logged once, with the counts and no text.
    */
   async embedEach(
     texts: string[],
@@ -367,11 +407,15 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
     if (texts.length === 0) return { vectors: [], failures: [] };
     const allFail = (error: unknown) => ({ vectors: texts.map(() => null), failures: texts.map((_t, index) => ({ index, error })) });
     try {
-      const batch = await this.embedBatch(texts, kind);
+      const batch = await this.embedBatch(texts, kind, undefined, this.queryEmbedOptions(kind, texts.length));
       if (!batch) return { vectors: texts.map(() => null), failures: [] };
       if (batch.length === texts.length) return { vectors: batch, failures: [] };
       if (texts.length === 1) return allFail(new Error(`the embedder returned ${batch.length} vectors for 1 text`));
     } catch (error) {
+      if (embedderOverload(error)) {
+        this.noteOverload(error, kind, texts.length, 0);
+        return allFail(error);
+      }
       if (texts.length === 1) return allFail(error);
       // Falls through to one text at a time, so one bad text does not take the others' vectors with it.
     }
@@ -379,8 +423,16 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
     const failures: Array<{ index: number; error: unknown }> = [];
     for (let index = 0; index < texts.length; index++) {
       try {
-        vectors.push(await this.embedOnce(texts[index], kind));
+        vectors.push(await this.embedOnce(texts[index], kind, this.queryEmbedOptions(kind, 1)));
       } catch (error) {
+        if (embedderOverload(error)) {
+          this.noteOverload(error, kind, texts.length, vectors.filter(Boolean).length);
+          for (let rest = index; rest < texts.length; rest++) {
+            vectors.push(null);
+            failures.push({ index: rest, error });
+          }
+          break;
+        }
         vectors.push(null);
         failures.push({ index, error });
       }
@@ -388,10 +440,29 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
     return { vectors, failures };
   }
 
+  /** The timeout of a query embed of `count` texts; none for a document embed. */
+  private queryEmbedOptions(kind: ProfileKind, count: number): EmbedOptions | undefined {
+    if (kind !== 'query') return undefined;
+    return { timeoutMs: this.queryTimeout.baseMs + this.queryTimeout.perItemMs * count };
+  }
+
+  /** Counts a timeout or a busy refusal for getStatus and logs it, with the counts only. */
+  private noteOverload(error: unknown, kind: ProfileKind, texts: number, embedded: number): void {
+    const reason = embedderOverload(error)!;
+    this.overloads[reason]++;
+    this.logger.warn(
+      reason === 'busy'
+        ? 'The embedder is busy (its query backlog is full); the rest of this request answers from the name tiers'
+        : 'The embedder did not answer in time; the rest of this request answers from the name tiers',
+      { kind, texts, embedded },
+    );
+  }
+
   /** One text in one attempt: the per-text fallback after a failed batch. */
-  private async embedOnce(text: string, kind: ProfileKind): Promise<number[] | null> {
+  private async embedOnce(text: string, kind: ProfileKind, options?: EmbedOptions): Promise<number[] | null> {
     if (!this.isEnabled()) return null;
-    const vectors = await this.embedder!.embed(kind, [{ text }]);
+    const items = [{ text }];
+    const vectors = await (options ? this.embedder!.embed(kind, items, options) : this.embedder!.embed(kind, items));
     return vectors?.[0] ?? null;
   }
 

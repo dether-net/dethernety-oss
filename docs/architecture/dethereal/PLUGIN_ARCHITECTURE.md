@@ -601,6 +601,8 @@ Input:
 
 Note that `type` and `category` are required for creation; `score` defaults to 50.
 
+`update` applies only to USER countermeasures. A SYSTEM countermeasure (or one with no `createdBy`) is rewritten from its control's class policy on each save of the control, so the tool refuses any update of one; supersede it into a USER copy (in the platform, **Customize as an editable copy**) and update the copy. `delete` is refused for the same countermeasures, since the next save re-creates one while its policy still derives it; change the control's attribute answers instead, or supersede it.
+
 Wraps `DtCountermeasure` dt-core class. Critical for the enrichment workflow connecting controls to exposures.
 
 > **Temporal dependency (R6/F3):** Countermeasures created before model import will not have `exposure_ids` (no exposures exist yet). Without linking, the Analysis Engine's defense coverage gap analysis (Strategy C) will not credit these controls — a well-controlled system appears under-protected. The guided workflow handles this in Step 11: after sync, if the model has countermeasures, read back platform-computed exposures via `manage_exposures(action: 'list')` and present a batch linking table: "The platform found N exposures. I'll match them to your existing controls. Please confirm." If the user defers, warn: "Your controls exist but are not linked to specific exposures. Analysis will undercount your defenses."

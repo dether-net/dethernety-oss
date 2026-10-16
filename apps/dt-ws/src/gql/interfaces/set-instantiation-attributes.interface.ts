@@ -143,6 +143,8 @@ export interface UpsertCountermeasuresRequest {
 export interface UpsertFindingsResult {
   instantiated: string[];
   unresolved: string[];
+  /** Dispositioned findings this upsert flagged `dispositionStale` because their links changed. */
+  staleFlipped: number;
 }
 
 /**
@@ -163,6 +165,7 @@ export interface DatabaseOperationResult {
   recordsAffected?: number;
   error?: string;
   unresolvedReferences?: string[];
+  staleFlippedCount?: number;
 }
 
 // ============================================================================

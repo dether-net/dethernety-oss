@@ -136,6 +136,12 @@ describe('GET /health — the embedder', () => {
     expect(body.services?.embedder).toMatchObject({ state: 'downloading', profile: 'embeddinggemma-300m-retrieval-v1' });
   });
 
+  it('shows the embedder\'s query timeouts and busy refusals, and stays healthy for them', async () => {
+    const body = await withEmbedder({ enabled: true, state: 'ready', queryTimeouts: 2, queryRefusals: 5 } as any).getHealth(makeRes());
+    expect(body.status).toBe('healthy');
+    expect(body.services?.embedder).toMatchObject({ state: 'ready', queryTimeouts: 2, queryRefusals: 5 });
+  });
+
   it('is healthy once the embedder is ready', async () => {
     const body = await withEmbedder({ enabled: true, state: 'ready' }).getHealth(makeRes());
     expect(body.status).toBe('healthy');

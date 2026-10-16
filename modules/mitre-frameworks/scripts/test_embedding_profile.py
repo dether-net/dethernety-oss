@@ -7,9 +7,10 @@ A fake helper (a Python script run through sys.executable) speaks the embedder h
 protocol: a ready line, then one reply per request line. Its vectors are derived from each
 document's title and text, and it records every request, so the cases can check what was
 sent. The cases pin the provider (ready line, titles, order, every failure a RuntimeError,
-the helper ended on close and on a failed start, a hung helper killed at its deadline) and
-the exporter with it (the Profile header line, every SET naming the profile, the cache, and
-all-or-nothing on failure).
+the helper ended on close and on a failed start, a hung helper killed at its deadline, a
+ready-line field out of its format refused) and the exporter with it (the Profile header
+line, every SET naming the profile, the cache, all-or-nothing on failure, and a header line
+that could end its comment refused before anything is written).
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ PROFILE = "embeddinggemma-300m-retrieval-v1"
 DIMS = 4
 
 # The fake helper. argv: <mode> <requests log> --profile <id> --models-dir <dir> [...]
+# A mode "ready=<json>" serves as "ok" with those fields replaced in its ready line.
 FAKE_HELPER = r'''
 import hashlib, json, sys, time
 mode, log = sys.argv[1], sys.argv[2]
@@ -52,8 +54,11 @@ elif mode == "old-ready":
     print(json.dumps({"profile": profile, "dimensions": %(dims)d}), flush=True)
 else:
     named = "someone-else" if mode == "other-profile" else profile
-    print(json.dumps({"profile": named, "dimensions": %(dims)d, "repo": "org/model-ONNX",
-                      "revision": "a" * 40, "dtype": "fp32", "documentTitle": "name"}), flush=True)
+    spec = {"profile": named, "dimensions": %(dims)d, "repo": "org/model-ONNX",
+            "revision": "a" * 40, "dtype": "fp32", "documentTitle": "name"}
+    if mode.startswith("ready="):
+        spec.update(json.loads(mode[len("ready="):]))
+    print(json.dumps(spec), flush=True)
 if mode == "no-read":
     time.sleep(60)
     sys.exit(0)
@@ -182,6 +187,45 @@ def fails_and_ends_the_helper_on_a_bad_ready_line(env: Env) -> None:
         finally:
             embedding_provider.subprocess.Popen = real  # type: ignore[assignment]
         assert started[0].returncode is not None, f"{mode}: the helper still runs"
+
+
+def refuses_a_ready_line_field_out_of_its_format(env: Env) -> None:
+    # Every one of these would reach a generated file's header comment.
+    cases = [
+        ("revision", "a" * 40 + "\n"),  # what re.match with $ would accept
+        ("revision", "a" * 40 + "\r"),
+        ("revision", "a" * 39 + "\u2028"),
+        ("revision", "A" * 40),
+        ("revision", "a" * 41),
+        ("repo", "org/model\nMATCH (n) DETACH DELETE n"),
+        ("repo", "org/model\n"),
+        ("repo", "org/model\r"),
+        ("repo", "org/model\u2028x"),
+        ("repo", "org/mödel"),  # \w would take it
+        ("repo", "org model/x"),
+        ("repo", "orgmodel"),
+        ("dtype", "fp32\n"),
+        ("dtype", "fp32\r"),
+        ("dtype", "fp\u202832"),
+        ("dtype", "fp 32"),
+        ("dtype", "FP32"),
+    ]
+    for field, value in cases:
+        started, restore = started_helpers()
+        try:
+            raises(lambda: env.provider("ready=" + json.dumps({field: value})), RuntimeError, f"ready line lacks ['{field}']")
+        finally:
+            restore()
+        assert started[0].returncode is not None, f"{field}={value!r}: the helper still runs"
+
+
+def accepts_the_ready_line_fields_the_profiles_use(env: Env) -> None:
+    fields = {"repo": "onnx-community/embeddinggemma-300m-ONNX", "revision": "0123456789abcdef" * 2 + "01234567", "dtype": "q8"}
+    p = env.provider("ready=" + json.dumps(fields))
+    try:
+        assert (p.repo, p.revision, p.dtype) == (fields["repo"], fields["revision"], "q8")
+    finally:
+        p.close()
 
 
 def fails_when_the_helper_dies_mid_run(env: Env) -> None:
@@ -444,6 +488,56 @@ def writes_the_profile_into_every_file(env: Env) -> None:
     assert len(env.requests()) == before
 
 
+class HeaderProvider:
+    """A provider whose model name and header lines a case sets; write_cypher_file reads nothing else."""
+
+    def __init__(self, model_name: str = PROFILE, lines: Tuple[str, ...] = ()) -> None:
+        self.model_name, self.dimensions = model_name, DIMS
+        self._lines = list(lines)
+
+    def header_lines(self) -> List[str]:
+        return self._lines
+
+
+def refuses_a_header_line_that_could_end_its_comment(env: Env) -> None:
+    good = f"// Profile: {PROFILE}  Weights: org/m@{'a' * 40}  dtype: fp32  Document prompt: title = name"
+    providers = [HeaderProvider(lines=(good, bad)) for bad in (
+        "// Profile: x\nMATCH (n) DETACH DELETE n",
+        "// Profile: x\rMATCH (n) DETACH DELETE n",
+        "// Profile: x\u2028MATCH (n) DETACH DELETE n",
+        "// Profile: x\u2029y",
+        "// Profile: x\x00y",
+        "// Profile: x\ty",
+    )] + [HeaderProvider(model_name=name, lines=(good,)) for name in (
+        f"{PROFILE}\nMATCH (n) DETACH DELETE n",
+        f"{PROFILE}\u2028x",
+    )]
+    out = env.out / "05-mitre-embeddings.cypher"
+    sections = [("MitreAttackTechnique", "attack_id", [{"mitre_id": "T1"}], [[1.0, 0.0, 0.0, 0.0]])]
+    real_open = Path.open
+    for provider in providers:
+        opened: List[Path] = []
+
+        def spy(self: Path, *a: Any, **k: Any) -> Any:
+            opened.append(self)
+            return real_open(self, *a, **k)
+
+        Path.open = spy  # type: ignore[assignment]
+        try:
+            raises(lambda: exporter.write_cypher_file(out, provider, sections), ValueError, "not printable")  # type: ignore[arg-type]
+        finally:
+            Path.open = real_open  # type: ignore[assignment]
+        # Refused before the temp file was opened: neither it nor the file exists.
+        assert opened == [], f"{provider.model_name!r} {provider._lines!r}: opened {opened}"
+        assert list(env.out.iterdir()) == [], list(env.out.iterdir())
+    # The same provider with printable lines writes its header as it is.
+    tmp = exporter.write_cypher_file(out, HeaderProvider(lines=(good,)), sections)  # type: ignore[arg-type]
+    try:
+        assert tmp.read_text(encoding="utf-8").split("\n")[1:4] == [f"// Model: {PROFILE}  Dimensions: {DIMS}", good, "// Source: mitre-frameworks build"]
+    finally:
+        tmp.unlink()
+
+
 def writes_nothing_when_the_helper_fails(env: Env) -> None:
     for mode in ("die-after-one", "wrong-dims", "short"):
         assert export_with(env, mode) == 1, mode
@@ -468,6 +562,8 @@ def main_tests() -> int:
         ends_the_helper_on_close,
         fails_a_start_the_helper_refuses,
         fails_and_ends_the_helper_on_a_bad_ready_line,
+        refuses_a_ready_line_field_out_of_its_format,
+        accepts_the_ready_line_fields_the_profiles_use,
         fails_when_the_helper_dies_mid_run,
         fails_on_a_short_reply,
         kills_a_helper_that_hangs_before_its_ready_line,
@@ -483,6 +579,7 @@ def main_tests() -> int:
         main_fails_when_no_provider_starts,
         writes_the_profile_into_every_file,
         writes_nothing_when_the_helper_fails,
+        refuses_a_header_line_that_could_end_its_comment,
     ]
     failures = 0
     cases: List[Tuple[str, Callable[[], None]]] = [(f.__name__, f) for f in plain]

@@ -774,6 +774,7 @@ Provides GraphQL resolvers for managing component instantiation attributes, incl
 - Concurrency control using consistent mutex pattern
 - Input validation and error handling
 - Performance monitoring and metrics
+- Re-evaluation of elements whose class policy changed, by `FindingReevaluationService` through the save's own path (see [Policy stamps and re-evaluation](./SET_INSTANTIATION_ATTRIBUTES.md#policy-stamps-and-re-evaluation))
 
 ### GraphQL Resolvers
 
@@ -1019,15 +1020,9 @@ Owns the `changeElementBinding` mutation — the single sanctioned write path fo
 
 ### Transaction shape
 
-The mutation handler runs validation and a preflight read outside any transaction, then opens **one** `session.executeWrite(...)` block that performs:
+The mutation handler runs validation and a preflight read outside any transaction, then opens **one** `session.executeWrite(...)` block. Its seven steps, from the in-tx re-read of the binding to the per-class obsolete-finding cleanup and policy stamp, are listed under [Tx-bound helpers shared with `changeElementBinding`](./SET_INSTANTIATION_ATTRIBUTES.md#tx-bound-helpers-shared-with-changeelementbinding). The preflight read only lets the resolver call the module SDKs before the write transaction opens; the in-tx re-read is the authority.
 
-1. **In-tx authoritative re-read** of the current binding (`IS_INSTANCE_OF` and `REPRESENTS_MODEL`). The preflight read is an optimisation that lets the resolver invoke module SDKs (which produce the to-be-instantiated exposures / countermeasures) before opening the write transaction; the in-tx read is the authority.
-2. **Identity short-circuit** — if the in-tx-current binding equals the requested target, exit with `success = true, deltas = all-zero, errorCode = null`. No graph mutation persisted.
-3. **Destructive sweep** of stale SYSTEM-derived findings on the disconnected class(es). The sweep predicate `createdBy = 'SYSTEM' OR createdBy IS NULL` is the contract that protects USER-authored findings from cascading deletes; null-`createdBy` legacy rows are treated as SYSTEM.
-4. **Rewire** of `IS_INSTANCE_OF` / `REPRESENTS_MODEL` edges (idempotent `MERGE`).
-5. **Constructive upsert** via the public tx-bound helpers `upsertExposuresInTx` / `upsertCountermeasuresInTx` from [`SetInstantiationAttributesService`](./SET_INSTANTIATION_ATTRIBUTES.md) — both write paths share one upsert implementation and one module-attribute sanitiser ([`shared/finding-attrs.ts`](../../../../apps/dt-ws/src/gql/resolver-services/shared/finding-attrs.ts)).
-
-All five steps share one Bolt transaction. On any error inside the block (module-SDK failure, database error, constraint violation), Bolt rolls back the rewire and the upsert together — no partial graph state can land.
+All seven steps share one Bolt transaction. On any error inside the block (module-SDK failure, database error, constraint violation), Bolt rolls back the rewire and the upsert together — no partial graph state can land.
 
 Class-compatibility refusals are made in the preflight, before the write block opens: a class whose node label is wrong for the element type, and — for Components — a `ComponentClass` whose `type` contradicts the Component's own `type`. The label case has a downstream symptom (the rewire's final `MATCH` finds zero rows, but only *after* the destructive sweep has already run); the type case has none, so an unrefused wrong-type target rewires cleanly and leaves the element bound to a class describing something it is not.
 
@@ -1137,7 +1132,7 @@ Domain errors come back as `success: false` (not thrown). `DispositionErrorCode`
 
 ### Disposition staleness
 
-A disposition's `dispositionStale` flag tracks whether the finding has drifted since the user last reasoned about it. Two write paths flip it to `true`; both depend on `dispositionStale` **not** being `@settable`-locked (unlike `dispositionedBy` / `dispositionedAt`, which are):
+A disposition's `dispositionStale` flag tracks whether the finding has drifted since the user last reasoned about it. Three write paths flip it to `true`; all depend on `dispositionStale` **not** being `@settable`-locked (unlike `dispositionedBy` / `dispositionedAt`, which are):
 
 1. **Attribute-change flip.** When an instantiation attribute value actually changes, [`SetInstantiationAttributesService`](./SET_INSTANTIATION_ATTRIBUTES.md) runs **two sibling single-edge Cypher statements** inside the same transaction:
 
@@ -1150,6 +1145,8 @@ A disposition's `dispositionStale` flag tracks whether the finding has drifted s
    and the `HAS_COUNTERMEASURE` / `Countermeasure` analogue. Each no-ops for the wrong element type (a component carries exposures, a Control carries countermeasures — never both on one node), so these are two independent single-edge flips, not a label-disjunction or two-hop traversal. The flip is gated at the TypeScript level on a `valueChanged` boolean: Memgraph 3.8's planner does not constant-fold a Bolt boolean ahead of the seed lookup, so an unconditional run would waste the `MATCH`. The returned `staleFlippedCount` sums both statements.
 
 2. **USER-copy-delete companion.** When a USER copy of a finding is deleted, a fire-and-forget `updateExposures` / `updateCountermeasures` flips `dispositionStale = true` on any `SUPERSEDED` finding whose `dispositionReason CONTAINS "'<name>'"` (single-quote-wrapped). The single-quote wrapping in the default `SUPERSEDED` reason is load-bearing for this match.
+
+3. **Link-change flip.** Each upsert helper (`upsertExposuresInTx` / `upsertCountermeasuresInTx`, so a save and a binding change alike) reads each SYSTEM finding's links of the writer's own types before the upsert, then reconciles them to the finding's resolved references (see [Countermeasure verb edges](./SET_INSTANTIATION_ATTRIBUTES.md#countermeasure-verb-edges)). A dispositioned, not-yet-stale finding whose link set changed is flagged per finding node (matched by `id`, so two same-named findings are compared one by one). USER findings are outside the reconcile scope and never flip on this path. On the `setInstantiationAttributes` path the count is added to the result's `staleFlippedCount`; `changeElementBinding` flags the same way and does not return the count; it logs it as `linkStaleFlipped` on its `Element binding changed` line.
 
 See [Disposition fields on Exposure and Countermeasure](./SCHEMA.md#disposition-fields-on-exposure-and-countermeasure) for the field-level contract.
 
@@ -1232,8 +1229,11 @@ Two checks compute `vectorAvailable` and a structured `vectorDisabledReason`. Fi
 | `EMBEDDING_DISABLED` | The embedder is disabled or not ready, or the database cannot run vector search (failed self-test) |
 | `NO_VECTORS` | Some nodes lack a usable vector of the active model (missing vectors or a partial install) |
 | `MODEL_MISMATCH` | No node carries a vector of the active model, but some carry another model's |
+| `EMBEDDER_BUSY` | The precheck passed, but the embedder was too busy to embed this request's queries: its query backlog was full or the embed ran past its timeout |
 
 A kind is available only when **every** addressable node carries a usable vector of the active model. A kind with no nodes (its framework is not loaded) is skipped by the precheck with a log line and gets no index; the tier stays on for the other kinds, and a query for the skipped kind reports `NO_VECTORS`. Among the kinds that have nodes, each stands on its own: a failing kind loses the vector tier and reports its own reason, and the healthy kinds keep it. The tier is off for every kind only when no loaded kind is healthy, and then the dominant reason is surfaced.
+
+`EMBEDDER_BUSY` is never a precheck outcome. A request sets it after the deterministic tiers have run, when the query embed for the queries they left was refused or timed out; the response then carries `vectorAvailable: false` and the deterministic-tier matches. The embedder's limits are in the [Configuration guide](../../../CONFIGURATION_GUIDE.md#embedding-search-by-meaning).
 
 The embedding model is swappable; a vector of another model is never compared with the query. The precheck is cached (10-minute TTL); the MITRE corpus is cached (5-minute TTL). When the vector tier is off, the response still carries deterministic-tier matches.
 

@@ -115,6 +115,7 @@ describe('ManageCountermeasuresTool.execute — update merge-defaults', () => {
     tags: [],
     defendedTechniques: [{ id: 'D3-AL' }],
     mitigations: [{ id: 'M1036' }],
+    createdBy: 'USER',
   }
 
   beforeEach(() => {
@@ -186,6 +187,86 @@ describe('ManageCountermeasuresTool.execute — update merge-defaults', () => {
   })
 })
 
+describe('ManageCountermeasuresTool.execute — a SYSTEM countermeasure is not updated', () => {
+  const context: ToolContext = { debug: false, apolloClient: {} as never }
+  const systemCountermeasure = {
+    id: 'cm-sys',
+    name: 'Inventory',
+    description: 'From the class policy',
+    type: 'preventive',
+    category: 'governance',
+    score: 50,
+    references: '',
+    addressedExposures: [],
+    tags: [],
+    defendedTechniques: [],
+    mitigations: [{ id: 'M1030' }],
+    createdBy: 'SYSTEM',
+  }
+
+  beforeEach(() => {
+    mockGetCountermeasure.mockReset()
+    mockUpdateCountermeasure.mockReset()
+  })
+
+  // Link edits, the exposure list and the plain fields alike: the next save of the control would undo each.
+  const edits: Array<[string, Record<string, unknown>]> = [
+    ['mitigations', { mitigations: [{ id: 'M1032' }] }],
+    ['defend_technique_ids', { defend_technique_ids: ['D3-MFA'] }],
+    ['exposure_ids', { exposure_ids: ['exp-1'] }],
+    ['description', { description: 'Edited' }],
+    ['score', { score: 90 }],
+  ]
+
+  for (const [field, edit] of edits) {
+    it(`refuses an update of ${field}, and names supersede into a USER copy`, async () => {
+      mockGetCountermeasure.mockResolvedValueOnce(systemCountermeasure)
+
+      const result = await manageCountermeasuresTool.execute(
+        { action: 'update', countermeasure_id: 'cm-sys', ...edit } as never,
+        context,
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('"Inventory" (cm-sys)')
+      expect(result.error).toContain('createdBy SYSTEM')
+      expect(result.error).toContain('supersede it into a USER copy')
+      expect(result.error).toContain('"Customize as an editable copy"')
+      expect(mockUpdateCountermeasure).not.toHaveBeenCalled()
+    })
+  }
+
+  it('treats a countermeasure with no createdBy (legacy) as SYSTEM', async () => {
+    const { createdBy: _omit, ...legacy } = systemCountermeasure
+    mockGetCountermeasure.mockResolvedValueOnce(legacy)
+
+    const result = await manageCountermeasuresTool.execute(
+      { action: 'update', countermeasure_id: 'cm-sys', description: 'Edited' } as never,
+      context,
+    )
+
+    expect(result.success).toBe(false)
+    expect(mockUpdateCountermeasure).not.toHaveBeenCalled()
+  })
+
+  it('still updates a USER countermeasure', async () => {
+    mockGetCountermeasure.mockResolvedValueOnce({ ...systemCountermeasure, createdBy: 'USER' })
+    mockUpdateCountermeasure.mockResolvedValueOnce({ ...systemCountermeasure, createdBy: 'USER' })
+
+    const result = await manageCountermeasuresTool.execute(
+      { action: 'update', countermeasure_id: 'cm-sys', description: 'Edited' } as never,
+      context,
+    )
+
+    expect(result.success).toBe(true)
+    expect(mockUpdateCountermeasure).toHaveBeenCalledTimes(1)
+  })
+
+  it('says so in the tool description', () => {
+    expect(manageCountermeasuresTool.description).toContain('Update and delete apply only to USER countermeasures')
+  })
+})
+
 describe('ManageCountermeasuresTool — delete reports the outcome it actually got', () => {
   const context: ToolContext = { debug: false, apolloClient: {} as never }
 
@@ -197,7 +278,7 @@ describe('ManageCountermeasuresTool — delete reports the outcome it actually g
   it('refuses to report success when the delete comes back false', () => {
     // The controls tool already refuses this; the countermeasures tool returned
     // `success: true, deleted: false` — an outcome the caller reads as done.
-    mockGetCountermeasure.mockResolvedValue({ id: 'cm-1', name: 'TLS 1.3' })
+    mockGetCountermeasure.mockResolvedValue({ id: 'cm-1', name: 'TLS 1.3', createdBy: 'USER' })
     mockDeleteCountermeasure.mockResolvedValue(false)
 
     return manageCountermeasuresTool
@@ -212,7 +293,7 @@ describe('ManageCountermeasuresTool — delete reports the outcome it actually g
   it('reports success and forwards the pre-delete name when the delete works', async () => {
     // The name drives dt-core's supersede companion; it must be the pre-delete
     // value, which is exactly what the existence check holds.
-    mockGetCountermeasure.mockResolvedValue({ id: 'cm-1', name: 'TLS 1.3' })
+    mockGetCountermeasure.mockResolvedValue({ id: 'cm-1', name: 'TLS 1.3', createdBy: 'USER' })
     mockDeleteCountermeasure.mockResolvedValue(true)
 
     const res = await manageCountermeasuresTool.run(
@@ -233,6 +314,40 @@ describe('ManageCountermeasuresTool — delete reports the outcome it actually g
 
     expect(res.success).toBe(false)
     expect(res.error).toMatch(/not found/i)
+    expect(mockDeleteCountermeasure).not.toHaveBeenCalled()
+  })
+})
+
+describe('ManageCountermeasuresTool — a SYSTEM countermeasure is not deleted', () => {
+  const context: ToolContext = { debug: false, apolloClient: {} as never }
+
+  beforeEach(() => {
+    mockGetCountermeasure.mockReset()
+    mockDeleteCountermeasure.mockReset()
+  })
+
+  it('refuses the delete, and names the attribute answers and the USER copy', async () => {
+    mockGetCountermeasure.mockResolvedValue({ id: 'cm-sys', name: 'Inventory', createdBy: 'SYSTEM' })
+
+    const res = await manageCountermeasuresTool.run(
+      { action: 'delete', countermeasure_id: 'cm-sys' }, context)
+
+    expect(res.success).toBe(false)
+    expect(res.error).toContain('"Inventory" (cm-sys)')
+    expect(res.error).toContain('createdBy SYSTEM')
+    expect(res.error).toContain('re-creates it')
+    expect(res.error).toContain('attribute answers')
+    expect(res.error).toContain('"Customize as an editable copy"')
+    expect(mockDeleteCountermeasure).not.toHaveBeenCalled()
+  })
+
+  it('treats a countermeasure with no createdBy (legacy) as SYSTEM', async () => {
+    mockGetCountermeasure.mockResolvedValue({ id: 'cm-old', name: 'Legacy' })
+
+    const res = await manageCountermeasuresTool.run(
+      { action: 'delete', countermeasure_id: 'cm-old' }, context)
+
+    expect(res.success).toBe(false)
     expect(mockDeleteCountermeasure).not.toHaveBeenCalled()
   })
 })

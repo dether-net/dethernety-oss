@@ -163,7 +163,7 @@ Semantic ("Suggest matches") results depend on the deployment having an embeddin
 
 ## Reviewing a Control's Countermeasures
 
-The **Countermeasures** tab of the control dialog is also where you triage. Each row shows where the countermeasure came from (a provenance icon distinguishes module-generated from your own), and a lifecycle badge showing whether it is awaiting review, confirmed in place, or disposed. The tab label itself carries a count of countermeasures still needing a first look, and a marker when a decision has gone stale because the control's attributes changed underneath it.
+The **Countermeasures** tab of the control dialog is also where you triage. Each row shows where the countermeasure came from (a provenance icon distinguishes module-generated from your own), and a lifecycle badge showing whether it is awaiting review, confirmed in place, or disposed. The tab label itself carries a count of countermeasures still needing a first look, and a marker when a decision has gone stale because something changed underneath it: the control's attributes, or the techniques and references its class policy links to the countermeasure.
 
 From a row you can **affirm** a countermeasure as confirmed in place, **dispose** of it with a reason, or **customize** it as an editable copy you own. Your own countermeasures are edited and deleted directly instead.
 

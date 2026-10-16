@@ -15,6 +15,9 @@ import {
   RESOLVE_REFERENCES_CYPHER,
   resolveReferencesParams,
   ALL_REFERENCE_PAIRS,
+  REFERENCE_LABELS,
+  linkKey,
+  linkKeyCypher,
 } from './shared/reference-resolution';
 import { AuthorizationService } from '../services/authorization.service';
 import { MonitoringService } from '../services/monitoring.service';
@@ -47,7 +50,8 @@ import {
 } from '../interfaces/set-instantiation-attributes.interface';
 import { AuthorizationContext } from '../interfaces/authorization.interface';
 import { GqlConfig } from '../gql.config';
-import type { Countermeasure } from '@dethernety/dt-module';
+import type { Countermeasure, DTModule } from '@dethernety/dt-module';
+import { STAMP_POLICY_CYPHER, stampPolicyParams } from './shared/policy-stamp';
 
 // Pre-validate attribute value shapes against the Memgraph property model.
 // Memgraph properties are primitives or homogeneous lists of primitives;
@@ -107,7 +111,7 @@ export const EDGE_ATTR_KEYS = ['justification'] as const;
 
 /**
  * Apply the edge allowlist to a ref's `attributes`, returning only the keys safe to
- * write via `SET rel += $attributes`. A non-primitive value is dropped with a warning,
+ * write onto the edge, one `SET` per allowlisted key. A non-primitive value is dropped with a warning,
  * never thrown — a bad provenance string must not abort the whole upsert. Reuses
  * describeNonPrimitiveValue for the primitive guard. Exported for unit testing.
  */
@@ -162,11 +166,51 @@ interface PlannedReference {
   ref: unknown;
 }
 
+/** One link the writer will write, with the `linkKey` it is compared under. */
+interface PlannedLink {
+  relationName: string;
+  target: ExternalObjectTarget;
+  key: string;
+}
+
 /** What the writer does with a batch of references, keyed by finding name. */
 interface ReferencePlan {
-  links: Map<string, { relationName: string; target: ExternalObjectTarget }[]>;
+  links: Map<string, PlannedLink[]>;
   unresolved: Map<string, string[]>;
 }
+
+/**
+ * The relationship types the writer owns, per finding kind: the only edges it writes from
+ * a finding, and so the only ones it reconciles. Constants, never data-derived.
+ */
+const EXPOSURE_LINK_TYPES: readonly string[] = ['EXPLOITED_BY'];
+const COUNTERMEASURE_LINK_TYPES: readonly string[] = ['RESPONDS_WITH', ...Object.values(COUNTERMEASURE_VERB_EDGES)];
+
+/** One edge property `SET` per allowlisted key; a key the ref does not carry is set to null, which removes it. */
+const EDGE_ATTR_SET = EDGE_ATTR_KEYS.map(key => `rel.${key} = $edge.${key}`).join(', ');
+
+/** One finding's links as read before the upsert. */
+interface FindingLinksBefore {
+  name: string;
+  keys: Set<string>;
+  flaggable: boolean;
+}
+
+/** Which findings a link statement reaches: the element, the class, and the finding kind's edge and link types. */
+interface FindingLinkScope {
+  componentId: string;
+  classId: string;
+  findingRelation: 'HAS_EXPOSURE' | 'HAS_COUNTERMEASURE';
+  linkTypes: readonly string[];
+}
+
+/** Joins a finding's name to a `linkKey` in the keep list; a unit separator, which no name or id carries. */
+const FINDING_KEY_SEPARATOR = '\u001f';
+
+const hasJustification = (target: ExternalObjectTarget) => {
+  const value = target.attributes?.justification;
+  return (typeof value === 'string' && value.length > 0) || typeof value === 'number' || typeof value === 'boolean';
+};
 
 @Injectable()
 export class SetInstantiationAttributesService implements OnModuleInit, OnModuleDestroy {
@@ -300,7 +344,8 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       }
 
       // Provenance to copy onto the edge — allowlisted + primitive-guarded. A bad value is
-      // dropped (warn), never thrown, so it cannot abort the upsert. Empty ⇒ SET += {} no-op.
+      // dropped (warn), never thrown, so it cannot abort the upsert. Every allowlisted key is
+      // set, null when the ref does not carry it, so a value an earlier policy wrote is cleared.
       const edgeAttrs = sanitiseEdgeAttributes(
         request.target.attributes,
         { originName: request.originName, relationName: request.relationName },
@@ -320,7 +365,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         WITH e, t
         WHERE t IS NOT NULL
         MERGE (e)-[rel:${request.relationName}]->(t)
-        SET rel += $attributes
+        SET ${EDGE_ATTR_SET}
         RETURN COUNT(*) as relationshipsCreated
         `,
         {
@@ -328,7 +373,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
           originName: request.originName,
           classId: request.classId,
           value: request.target.value,
-          attributes: edgeAttrs,
+          edge: Object.fromEntries(EDGE_ATTR_KEYS.map(key => [key, edgeAttrs[key] ?? null])),
         },
       );
 
@@ -498,6 +543,22 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
   }
 
   /**
+   * Tx-bound obsolete-finding cleanup for one class: deletes the element's SYSTEM findings
+   * of `classId` whose names the module no longer emits, with their links. Throws on
+   * failure, so the caller's transaction rolls back. `changeElementBinding` runs it after
+   * its upsert, for every class the element is bound to, so a binding change also leaves
+   * exactly what the module declares now.
+   */
+  public async deleteObsoleteFindingsInTx(
+    tx: DatabaseTransaction,
+    request: DeleteObsoleteObjectsRequest,
+  ): Promise<number> {
+    const result = await this.deleteObsoleteExternalObjects(tx, request);
+    if (!result.success) throw new Error(`Failed to delete obsolete findings: ${result.error}`);
+    return result.recordsAffected ?? 0;
+  }
+
+  /**
    * Resolve every reference of a batch of derived findings in one statement, before
    * any edge is written. A reference is linked when it maps onto the closed set of
    * label/key pairs for its field and its node exists. Anything else is not written
@@ -530,7 +591,12 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
     for (const { r, c } of classified) {
       if (c.status === 'allowed' && found.has(referenceKey(c.pair, c.target.value))) {
         const links = plan.links.get(r.finding) ?? [];
-        links.push({ relationName: r.relationName, target: c.target });
+        const key = linkKey(r.relationName, c.pair, c.target.value);
+        const same = links.findIndex(link => link.key === key);
+        // One edge per type and target: a target named twice is written once, and a
+        // justified mention wins over a bare one whatever the order.
+        if (same === -1) links.push({ relationName: r.relationName, target: c.target, key });
+        else if (!hasJustification(links[same].target) && hasJustification(c.target)) links[same] = { relationName: r.relationName, target: c.target, key };
         plan.links.set(r.finding, links);
       } else if (c.status === 'allowed' && isToleratedWhenUnresolved(c.pair)) {
         toleratedMisses.push({ finding: r.finding, field: r.field, reference: c.target.value });
@@ -568,12 +634,152 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
   }
 
   /**
+   * The links each of the given SYSTEM findings has now, of the writer's own types and
+   * targets, keyed by `linkKey`; and whether the finding carries a disposition not yet
+   * flagged for review. Keyed by node id, so two same-named findings (the upsert race)
+   * are compared one by one. Read before the upsert, so the reconcile can tell which
+   * findings' links the save changes. A finding with no such link has an empty set.
+   */
+  private async readFindingLinks(
+    tx: DatabaseTransaction,
+    scope: FindingLinkScope,
+    names: string[],
+  ): Promise<Map<string, FindingLinksBefore>> {
+    const before = new Map<string, FindingLinksBefore>();
+    if (names.length === 0) return before;
+    const result = await this.runLinkStatement(scope, () =>
+      tx.run(
+        `
+        MATCH (c {id: $elementId})
+        WITH c
+        MATCH (c)-[:${scope.findingRelation}]->(e)-[:IS_EXPOSURE_OF|IS_COUNTERMEASURE_OF]->(klass)
+        WHERE klass.id = $classId AND e.name IN $names AND (e.createdBy = 'SYSTEM' OR e.createdBy IS NULL)
+        OPTIONAL MATCH (e)-[r:${scope.linkTypes.join('|')}]->(t)
+        WHERE any(l IN labels(t) WHERE l IN $targetLabels)
+        WITH e, CASE WHEN r IS NULL THEN null ELSE ${linkKeyCypher('r', 't')} END AS linkKey
+        RETURN e.id AS findingId, e.name AS findingName, collect(linkKey) AS linkKeys,
+               e.dispositionKind IS NOT NULL AND coalesce(e.dispositionStale, false) = false AS flaggable
+        `,
+        this.linkStatementParams(scope, names),
+      ),
+    );
+    for (const record of result.records) {
+      const id = record.get('findingId') as string;
+      const keys = new Set(((record.get('linkKeys') as string[]) ?? []).filter(Boolean));
+      before.set(id, { name: record.get('findingName') as string, keys, flaggable: record.get('flaggable') === true });
+    }
+    return before;
+  }
+
+  /**
+   * Bring the links of the SYSTEM findings this call wrote to the plan: a link of the
+   * writer's own types and targets that the policy no longer emits, or that no longer
+   * resolves, is deleted. Then a dispositioned finding whose link set changed is flagged
+   * `dispositionStale`, as an attribute change flags it. Returns the number flagged.
+   * "Changed" compares the links before with the links planned: a planned link the link
+   * write skipped (logged there) still counts as written.
+   */
+  private async reconcileLinks(
+    tx: DatabaseTransaction,
+    scope: FindingLinkScope,
+    names: string[],
+    plan: ReferencePlan,
+    before: Map<string, FindingLinksBefore>,
+  ): Promise<number> {
+    if (names.length === 0) return 0;
+    const planned = (name: string) => new Set((plan.links.get(name) ?? []).map(link => link.key));
+    const keep = names.flatMap(name => [...planned(name)].map(key => `${name}${FINDING_KEY_SEPARATOR}${key}`));
+
+    await this.runLinkStatement(scope, () =>
+      tx.run(
+        `
+        MATCH (c {id: $elementId})
+        WITH c
+        MATCH (c)-[:${scope.findingRelation}]->(e)-[:IS_EXPOSURE_OF|IS_COUNTERMEASURE_OF]->(klass)
+        WHERE klass.id = $classId AND e.name IN $names AND (e.createdBy = 'SYSTEM' OR e.createdBy IS NULL)
+        MATCH (e)-[r:${scope.linkTypes.join('|')}]->(t)
+        WHERE any(l IN labels(t) WHERE l IN $targetLabels)
+        WITH e, r, ${linkKeyCypher('r', 't')} AS linkKey
+        // A target without its key property is not one the writer links by key: it is left alone.
+        WHERE linkKey IS NOT NULL
+        WITH e, e.name + $separator + linkKey AS findingLinkKey, collect(r) AS rels
+        // A link the policy keeps stays once: any parallel copy of it goes, with every link it dropped.
+        WITH CASE WHEN findingLinkKey IN $keep THEN tail(rels) ELSE rels END AS doomed
+        UNWIND doomed AS r
+        DELETE r
+        RETURN count(*) AS prunedCount
+        `,
+        { ...this.linkStatementParams(scope, names), keep, separator: FINDING_KEY_SEPARATOR },
+      ),
+    );
+
+    const changed = [...before.entries()]
+      .filter(([, { name, keys, flaggable }]) => {
+        if (!flaggable) return false;
+        const now = planned(name);
+        return now.size !== keys.size || [...now].some(key => !keys.has(key));
+      })
+      .map(([id]) => id);
+    if (changed.length === 0) return 0;
+
+    const flipped = await this.runLinkStatement(scope, () =>
+      tx.run(
+        `
+        MATCH (c {id: $elementId})
+        WITH c
+        MATCH (c)-[:${scope.findingRelation}]->(e)-[:IS_EXPOSURE_OF|IS_COUNTERMEASURE_OF]->(klass)
+        WHERE klass.id = $classId AND e.id IN $ids AND (e.createdBy = 'SYSTEM' OR e.createdBy IS NULL)
+          AND e.dispositionKind IS NOT NULL AND coalesce(e.dispositionStale, false) = false
+        SET e.dispositionStale = true
+        RETURN count(e) AS linkStaleFlipped
+        `,
+        { elementId: scope.componentId, classId: scope.classId, ids: changed },
+      ),
+    );
+    const raw = flipped.records[0]?.get('linkStaleFlipped');
+    const count = typeof raw === 'number' ? raw : typeof raw?.toNumber === 'function' ? raw.toNumber() : Number(raw ?? 0);
+    if (count > 0) {
+      this.logger.log('Dispositions flipped stale by a change of their links', {
+        elementId: scope.componentId,
+        classId: scope.classId,
+        flippedCount: count,
+      });
+    }
+    return count;
+  }
+
+  private linkStatementParams(scope: FindingLinkScope, names: string[]) {
+    return {
+      elementId: scope.componentId,
+      classId: scope.classId,
+      names,
+      targetLabels: REFERENCE_LABELS,
+    };
+  }
+
+  /** A transient conflict reaches the managed transaction, which retries it; any other error fails the write. */
+  private async runLinkStatement<T>(scope: FindingLinkScope, run: () => Promise<T>): Promise<T> {
+    const startTime = Date.now();
+    const operationId = `reconcileLinks-${startTime}-${Math.random().toString(36).substr(2, 9)}`;
+    try {
+      return await run();
+    } catch (error) {
+      if (isRetriableError(error)) this.noteRetriableConflict('reconcileLinks', operationId, error, Date.now() - startTime);
+      else this.logger.error('Failed to reconcile finding links', { elementId: scope.componentId, classId: scope.classId, operationId, error: safeErrorMessage(error) });
+      throw error;
+    }
+  }
+
+  /**
    * Tx-bound exposure upsert primitive. Runs the scoped Cypher upsert
    * + MITRE technique linking for each exposure in `request.exposures`.
    * Does NOT run obsolete-finding cleanup — that semantic belongs to the
    * caller (the `setInstantiationAttributes` rebuild path keeps the
    * legacy "match module exactly" behavior; `changeElementBinding`'s flow
-   * runs an explicit destructive sweep before this).
+   * runs an explicit destructive sweep before this and a per-class cleanup
+   * after it, `deleteObsoleteFindingsInTx`). It does reconcile the
+   * links of each finding it writes to that finding's resolved references,
+   * and flags a dispositioned finding whose links changed (`staleFlipped`).
    *
    * Public so `ElementBindingService` can call it from inside its own
    * `executeWrite` transaction. Returns the list of finding names that
@@ -596,6 +802,15 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         })),
       ),
     );
+
+    const scope: FindingLinkScope = {
+      componentId: request.componentId,
+      classId: request.classId,
+      findingRelation: 'HAS_EXPOSURE',
+      linkTypes: EXPOSURE_LINK_TYPES,
+    };
+    const names = [...new Set(request.exposures.map(exposure => exposure.name))];
+    const before = await this.readFindingLinks(tx, scope, names);
 
     const instantiated: string[] = [];
     for (const exposure of request.exposures) {
@@ -662,7 +877,8 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         });
       }
     }
-    return { instantiated, unresolved: SetInstantiationAttributesService.unresolvedOf(plan) };
+    const staleFlipped = await this.reconcileLinks(tx, scope, names, plan, before);
+    return { instantiated, unresolved: SetInstantiationAttributesService.unresolvedOf(plan), staleFlipped };
   }
 
   /**
@@ -689,15 +905,17 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       const exposureNames = request.exposures.map((exposure) => exposure.name);
       let totalProcessed = 0;
       let unresolvedReferences: string[] = [];
+      let staleFlippedCount = 0;
 
       await session.executeWrite(async (tx: DatabaseTransaction) => {
-        const { instantiated, unresolved } = await this.upsertExposuresInTx(tx, request);
+        const { instantiated, unresolved, staleFlipped } = await this.upsertExposuresInTx(tx, request);
         totalProcessed = instantiated.length;
         unresolvedReferences = unresolved;
+        staleFlippedCount = staleFlipped;
 
         // Clean up obsolete exposures (rebuild-to-match semantic — owned
-        // by setInstantiationAttributes; ElementBindingService runs an
-        // explicit sweep before calling upsertExposuresInTx).
+        // by setInstantiationAttributes; ElementBindingService runs its own
+        // sweep before upsertExposuresInTx and deleteObsoleteFindingsInTx after it).
         const deleteRequest: DeleteObsoleteObjectsRequest = {
           elementId: request.componentId,
           relation: 'HAS_EXPOSURE',
@@ -734,6 +952,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         success: true,
         recordsAffected: totalProcessed,
         unresolvedReferences,
+        staleFlippedCount,
       };
 
     } catch (error) {
@@ -763,7 +982,8 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
 
   /**
    * Tx-bound countermeasure upsert primitive. Symmetric to
-   * `upsertExposuresInTx` — see that method's docblock. No obsolete cleanup.
+   * `upsertExposuresInTx` — see that method's docblock. No obsolete cleanup;
+   * the links of each countermeasure it writes are reconciled.
    */
   public async upsertCountermeasuresInTx(
     tx: DatabaseTransaction,
@@ -794,6 +1014,15 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         ),
       ]),
     );
+
+    const scope: FindingLinkScope = {
+      componentId: request.componentId,
+      classId: request.classId,
+      findingRelation: 'HAS_COUNTERMEASURE',
+      linkTypes: COUNTERMEASURE_LINK_TYPES,
+    };
+    const names = [...new Set(request.countermeasures.map(countermeasure => countermeasure.name))];
+    const before = await this.readFindingLinks(tx, scope, names);
 
     const instantiated: string[] = [];
     for (const countermeasure of request.countermeasures) {
@@ -852,7 +1081,8 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         });
       }
     }
-    return { instantiated, unresolved: SetInstantiationAttributesService.unresolvedOf(plan) };
+    const staleFlipped = await this.reconcileLinks(tx, scope, names, plan, before);
+    return { instantiated, unresolved: SetInstantiationAttributesService.unresolvedOf(plan), staleFlipped };
   }
 
   /**
@@ -879,11 +1109,13 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       );
       let totalProcessed = 0;
       let unresolvedReferences: string[] = [];
+      let staleFlippedCount = 0;
 
       await session.executeWrite(async (tx: DatabaseTransaction) => {
-        const { instantiated, unresolved } = await this.upsertCountermeasuresInTx(tx, request);
+        const { instantiated, unresolved, staleFlipped } = await this.upsertCountermeasuresInTx(tx, request);
         totalProcessed = instantiated.length;
         unresolvedReferences = unresolved;
+        staleFlippedCount = staleFlipped;
 
         const deleteRequest: DeleteObsoleteObjectsRequest = {
           elementId: request.componentId,
@@ -921,6 +1153,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         success: true,
         recordsAffected: totalProcessed,
         unresolvedReferences,
+        staleFlippedCount,
       };
 
     } catch (error) {
@@ -952,9 +1185,14 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
    * Set instantiation attributes with modern Neo4j v5 patterns and proper session management
    * Supports batch processing for frequent frontend updates
    */
+  /**
+   * `quiet` moves the per-save log lines (no-op, success, failure) to debug, for a caller that saves many elements
+   * and reports them in one summary of its own.
+   */
   async setAttributes(
     request: SetAttributesRequest,
     context?: AuthorizationContext,
+    { quiet = false }: { quiet?: boolean } = {},
   ): Promise<SetAttributesResult> {
     const operationId = `setAttributes-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const startTime = Date.now();
@@ -1040,7 +1278,8 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
           SET r += newAttrs
           RETURN m.name AS moduleName, labels(c)[0] AS type,
                  valueChanged AS valueChanged,
-                 changedKeys AS changedKeys
+                 changedKeys AS changedKeys,
+                 t.policyHash AS policyHash
           `,
           {
             componentId: request.componentId,
@@ -1126,12 +1365,16 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
             coerceCount(r2cm.records[0]?.get('staleFlippedCount'));
         }
 
+        // Read before the module evaluates, so the stamp written after it never names a newer policy than the one
+        // evaluated (an install between the two only makes the stamp older, and the binding is re-evaluated).
+        const policyHash = r1.records[0].get('policyHash');
         return {
           moduleName: r1.records[0].get('moduleName') as string,
           componentType: r1.records[0].get('type') as ComponentType,
           valueChanged,
           changedKeys,
           staleFlippedCount,
+          policyHash: typeof policyHash === 'string' ? policyHash : null,
         };
       });
       const metadata = {
@@ -1151,7 +1394,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
           changedAttributeKeys: changedKeys,
         });
       } else if (!valueChanged) {
-        this.logger.log('setInstantiationAttributes no-op (no value change)', {
+        this.logger[quiet ? 'debug' : 'log']('setInstantiationAttributes no-op (no value change)', {
           componentId: request.componentId,
           classId: request.classId,
         });
@@ -1179,6 +1422,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       // Unresolved references never fail the save: they are recorded on their
       // findings and returned alongside success.
       let unresolvedReferences: string[] | undefined;
+      let linkStaleFlipped = 0;
       if (metadata.componentType === 'Issue') {
         // Issues don't require additional processing
         this.logger.debug('Issue component processed', {
@@ -1187,24 +1431,30 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         });
       } else if (metadata.componentType === 'Control') {
         // Handle countermeasures for controls
-        unresolvedReferences = await this.processControlCountermeasures(
+        ({ unresolved: unresolvedReferences, staleFlipped: linkStaleFlipped } = await this.processControlCountermeasures(
           session,
           request.componentId,
           request.classId,
           moduleInstance,
           operationId,
           context?.token
-        );
+        ));
       } else {
         // Handle exposures for other component types
-        unresolvedReferences = await this.processComponentExposures(
+        ({ unresolved: unresolvedReferences, staleFlipped: linkStaleFlipped } = await this.processComponentExposures(
           session,
           request.componentId,
           request.classId,
           moduleInstance,
           operationId,
           context?.token
-        );
+        ));
+      }
+      const stampHash = metadata.componentType === 'Issue'
+        ? null
+        : await this.policyHashToStamp(moduleInstance, request.classId, txResult.policyHash);
+      if (stampHash) {
+        await this.stampPolicy(session, request.componentId, request.classId, stampHash, operationId);
       }
 
       // Record successful operation
@@ -1216,7 +1466,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         moduleName: metadata.moduleName,
       });
 
-      this.logger.log('Instantiation attributes set successfully', {
+      this.logger[quiet ? 'debug' : 'log']('Instantiation attributes set successfully', {
         componentId: request.componentId,
         classId: request.classId,
         componentType: metadata.componentType,
@@ -1227,7 +1477,8 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
 
       return {
         success: true,
-        staleFlippedCount,
+        // Flagged by the attribute change, plus findings whose links this save changed.
+        staleFlippedCount: staleFlippedCount + linkStaleFlipped,
         unresolvedReferences: unresolvedReferences?.length ? unresolvedReferences : undefined,
         metadata: {
           operationId,
@@ -1248,7 +1499,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         error: error.message,
       });
 
-      this.logger.error('Failed to set instantiation attributes', {
+      this.logger[quiet ? 'debug' : 'error']('Failed to set instantiation attributes', {
         componentId: request.componentId,
         classId: request.classId,
         operationId,
@@ -1283,6 +1534,53 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
   }
 
   /**
+   * The hash to stamp after `moduleInstance` evaluated `classId`, given the class's stored hash read before the
+   * evaluation: that hash, when the module evaluates with the same policy, and null otherwise. A module that cannot
+   * report its hash is taken at the stored one. On a rolling or multi-instance deployment an instance still holding an
+   * older policy then leaves the binding unstamped, and a later sweep re-evaluates it.
+   */
+  public async policyHashToStamp(moduleInstance: DTModule, classId: string, storedHash: string | null): Promise<string | null> {
+    if (!storedHash) return null;
+    if (typeof moduleInstance.getPolicyHash !== 'function') return storedHash;
+    try {
+      return (await moduleInstance.getPolicyHash(classId)) === storedHash ? storedHash : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Record on the element that its findings for `classId` follow the policy with hash `policyHash`.
+   * Inside the caller's transaction, for a write that derives findings in one (the binding change).
+   */
+  public async stampPolicyInTx(tx: DatabaseTransaction, elementId: string, classId: string, policyHash: string): Promise<void> {
+    await tx.run(STAMP_POLICY_CYPHER, stampPolicyParams(elementId, classId, policyHash));
+  }
+
+  /**
+   * The save's stamp, in its own transaction once the findings are written. A failure here does not fail the
+   * save: the findings are already right, and a binding left with an older stamp is only re-evaluated once more.
+   */
+  private async stampPolicy(
+    session: DatabaseSession,
+    elementId: string,
+    classId: string,
+    policyHash: string,
+    operationId: string,
+  ): Promise<void> {
+    try {
+      await session.executeWrite((tx: DatabaseTransaction) => this.stampPolicyInTx(tx, elementId, classId, policyHash));
+    } catch (error) {
+      this.logger.warn('Could not record the policy the findings were evaluated under', {
+        componentId: elementId,
+        classId,
+        operationId,
+        error: safeErrorMessage(error),
+      });
+    }
+  }
+
+  /**
    * Process countermeasures for control components
    */
   private async processControlCountermeasures(
@@ -1292,7 +1590,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
     moduleInstance: any,
     operationId: string,
     token?: string,
-  ): Promise<string[]> {
+  ): Promise<{ unresolved: string[]; staleFlipped: number }> {
     this.logger.debug('Processing control countermeasures', {
       componentId,
       classId,
@@ -1331,7 +1629,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       recordsAffected: result.recordsAffected,
       operationId,
     });
-    return result.unresolvedReferences ?? [];
+    return { unresolved: result.unresolvedReferences ?? [], staleFlipped: result.staleFlippedCount ?? 0 };
   }
 
   /**
@@ -1344,7 +1642,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
     moduleInstance: any,
     operationId: string,
     token?: string,
-  ): Promise<string[]> {
+  ): Promise<{ unresolved: string[]; staleFlipped: number }> {
     this.logger.debug('Processing component exposures', {
       componentId,
       classId,
@@ -1383,7 +1681,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       recordsAffected: result.recordsAffected,
       operationId,
     });
-    return result.unresolvedReferences ?? [];
+    return { unresolved: result.unresolvedReferences ?? [], staleFlipped: result.staleFlippedCount ?? 0 };
   }
 
   // ============================================================================
@@ -1467,7 +1765,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
    * A transient conflict inside a finding write, about to be rethrown for the managed transaction to retry: logged
    * and counted on its own (it is not a finished operation), so a run of them shows.
    */
-  private noteRetriableConflict(operation: 'linkExternalObjects' | 'deleteObsolete', operationId: string, error: unknown, duration: number): void {
+  private noteRetriableConflict(operation: 'linkExternalObjects' | 'deleteObsolete' | 'reconcileLinks', operationId: string, error: unknown, duration: number): void {
     const code = (error as { code?: string } | null)?.code;
     this.statistics.retriableConflicts++;
     this.logger.warn('Transient conflict in a finding write; the transaction will retry', { operation, operationId, code });

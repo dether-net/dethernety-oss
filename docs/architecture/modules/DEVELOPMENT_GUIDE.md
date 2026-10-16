@@ -219,7 +219,9 @@ SET cc.name = 'Web Server',
 ```
 
 Rego policies are never stored on graph nodes: they ship as `policies.rego` files in
-the module's class directories and are evaluated in-process from disk.
+the module's class directories and are evaluated in-process from disk. Only a policy's
+sha256 is stored, as the class node's `policyHash`, so the platform can re-evaluate the
+elements whose findings came from an older version of the policy.
 
 
 ### Graph Database Schema

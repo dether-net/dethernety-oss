@@ -33,6 +33,8 @@ interface HealthCheckResult {
       runtime: 'onnx';
       profile: string;
       error?: string;
+      queryTimeouts: number;
+      queryRefusals: number;
     };
   };
   system?: {
@@ -236,7 +238,16 @@ export class AppController {
           error: moduleError,
         },
         ...(embedder?.enabled
-          ? { embedder: { state: embedder.state, runtime: embedder.runtime, profile: embedder.profileId, error: embedder.error } }
+          ? {
+              embedder: {
+                state: embedder.state,
+                runtime: embedder.runtime,
+                profile: embedder.profileId,
+                error: embedder.error,
+                queryTimeouts: embedder.queryTimeouts,
+                queryRefusals: embedder.queryRefusals,
+              },
+            }
           : {}),
       },
       system: {

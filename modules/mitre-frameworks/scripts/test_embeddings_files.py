@@ -7,7 +7,8 @@ The file check runs on small generated files: a matching file passes, and each w
 can disagree with the manifest's profile fails (another model in the header or a SET, a
 mixed file, a missing label or a wrong row count, a short or non-unit vector, a missing
 file, a Profile header naming another id, a truncated file, an appended statement that is
-not one model-stamping UNWIND batch); a second Model header is ignored, as Go ignores it.
+not one model-stamping UNWIND batch, a clause placed before a batch's UNWIND or inside it); a second
+Model header is ignored, as Go ignores it.
 It also runs on the committed files against the committed manifest. Both splits are checked
 against the Go splitter's reference output for oss/pkg/cypher/testdata/synthetic.cypher,
 and the check's own splitter against the Go splitter's edge cases.
@@ -156,6 +157,26 @@ def a_second_model_stamping_statement_fails() -> None:
     fails_with(text + "\n" + batches[0] + ";\n", "rows per label are {'MitreAtlasTechnique': 6, 'MitreAtlasMitigation': 2}")
 
 
+def a_clause_before_an_unwind_fails() -> None:
+    # Every other rule still finds its batch in such a statement: only the anchor at UNWIND refuses it.
+    clause = "MATCH (x) DETACH DELETE x\nWITH count(*) AS gone\n"
+    text = embeddings_file(SMALL)
+    fails_with(text.replace("UNWIND [", clause + "UNWIND [", 1), "statement 0 is not one UNWIND batch")
+    fails_with(text.replace(";\n\nUNWIND [", ";\n\n" + clause + "UNWIND [", 1), "statement 1 is not one UNWIND batch")
+    # The header's line comments are dropped by the split, so they never count as such a clause.
+    assert check(text.replace("// Source:", "// Note: UNWIND comes next\n// Source:")) == []
+
+
+def a_clause_inside_a_batch_fails() -> None:
+    # Between the rows and the MATCH, or after the SET: every other rule still finds the batch.
+    text = embeddings_file(SMALL)
+    fails_with(text.replace("] AS row\n", "] AS row\nMATCH (x) DETACH DELETE x\nWITH row\n", 1), "statement 0 is not one UNWIND batch")
+    fails_with(text.replace('";\n\nUNWIND [', '"\nWITH n MATCH (x) DETACH DELETE x;\n\nUNWIND [', 1), "statement 0 is not one UNWIND batch")
+    # A backslash in a row's id is refused even where it parses (an escaped one): before the closing quote, a lone
+    # one would escape it and run the string on into the next row.
+    fails_with(text.replace('-0", embedding', '-0\\\\", embedding', 1), "statement 0 is not one UNWIND batch")
+
+
 def two_model_headers_use_the_first() -> None:
     text = embeddings_file(SMALL)
     other = f"// Model: embeddinggemma  Dimensions: {DIMENSIONS}\n"
@@ -240,6 +261,8 @@ def main_tests() -> int:
         rows_after_the_last_match_fail,
         an_extra_statement_fails,
         a_second_model_stamping_statement_fails,
+        a_clause_before_an_unwind_fails,
+        a_clause_inside_a_batch_fails,
         two_model_headers_use_the_first,
         a_truncated_file_fails,
         a_missing_file_fails,

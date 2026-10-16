@@ -43,6 +43,8 @@ export class ModuleManagementService {
   private installChain: Promise<unknown> = Promise.resolve();
   // Whether the last full install left a module waiting for the embedder (installed partial, its vectors kept).
   private installLeftPending = false;
+  // Told, after the fact, which modules an install wrote (see onModulesInstalled).
+  private readonly installedListeners: Array<(moduleNames: string[]) => void> = [];
   private readonly config: GqlConfig;
   private statistics: ModuleStatistics = {
     totalModules: 0,
@@ -484,6 +486,8 @@ export class ModuleManagementService {
       // sets createdAt; subsequent SET overwrites updatedAt + properties.
       const nodeProperties: Record<string, any> = {
         ...classData,
+        // Always written, so a class whose policy no longer registers loses the hash of the one it had.
+        policyHash: typeof cls.policyHash === 'string' ? cls.policyHash : null,
         updatedAt: new Date().toISOString(),
         ...(hasEmbedding
           ? { embedding, embeddingModel: this.embeddingService.getModel() }
@@ -1246,6 +1250,26 @@ export class ModuleManagementService {
     }
   }
 
+  /**
+   * Calls `listener` with the names of the modules each install wrote, once that install has committed and run its
+   * hooks: a full install that wrote at least one module (the skip gate's skips are not writes), and every module
+   * reset. A listener that throws is logged and never fails the install.
+   */
+  onModulesInstalled(listener: (moduleNames: string[]) => void): void {
+    this.installedListeners.push(listener);
+  }
+
+  private notifyInstalled(moduleNames: string[]): void {
+    if (moduleNames.length === 0) return;
+    for (const listener of this.installedListeners) {
+      try {
+        listener(moduleNames);
+      } catch (error) {
+        this.logger.error('A module-installed listener failed', { error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+  }
+
   /** Runs `task` after every install queued before it, so installs never overlap. */
   private serialised<T>(task: () => Promise<T>): Promise<T> {
     const run = this.installChain.then(task, task);
@@ -1331,6 +1355,7 @@ export class ModuleManagementService {
       // an operator "reset a broken module" must re-run the hook too, else the
       // reset re-installs classes but never re-does the hook's graph work.
       await this.runAfterInstall(session, moduleInstalled, moduleInstance);
+      this.notifyInstalled([moduleInstalled]);
 
       const duration = Date.now() - startTime;
       this.recordOperation('resetSingleModule', duration, {
@@ -1449,6 +1474,64 @@ export class ModuleManagementService {
   }
 
   /**
+   * The `policyHash` stored on every class node, keyed by module name and then `<label>:<id>`. A module whose content is
+   * unchanged can still hold classes installed before the platform wrote the hash, or written by an install that failed
+   * part-way; the skip gate compares these with the hashes the module reports. 'unknown' when the read fails, and every
+   * module is then installed in full.
+   */
+  private async readClassPolicyHashes(session: any): Promise<Map<string, Map<string, unknown>> | 'unknown'> {
+    try {
+      const result = await session.executeRead((tx: DatabaseTransaction) =>
+        tx.run(
+          `MATCH (m:Module)-[:HAS_CLASS]->(c)
+           WHERE any(l IN labels(c) WHERE l IN $labels)
+           RETURN m.name AS name, labels(c) AS labels, c.id AS id, c.policyHash AS policyHash`,
+          { labels: MODULE_CLASS_CONFIGS.map(c => c.label) },
+        ),
+      );
+      const hashes = new Map<string, Map<string, unknown>>();
+      for (const rec of result.records) {
+        const id = rec.get('id');
+        if (typeof id !== 'string') continue;
+        let byKey = hashes.get(rec.get('name'));
+        if (!byKey) hashes.set(rec.get('name'), (byKey = new Map<string, unknown>()));
+        for (const label of rec.get('labels') ?? []) byKey.set(`${label}:${id}`, rec.get('policyHash') ?? null);
+      }
+      return hashes;
+    } catch (error) {
+      this.logger.warn('Class policy hash check failed — installing every module in full', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return 'unknown';
+    }
+  }
+
+  /**
+   * How many of the classes a module declares report a policy hash their stored node does not hold. Only a hash the
+   * module reports counts, so a class without one (a remote module's, or one whose policy failed to register) cannot
+   * have its module installed at every start.
+   */
+  private policyDriftClasses(
+    moduleName: string,
+    metadata: DTMetadata,
+    storedPolicyHashes: Map<string, Map<string, unknown>> | 'unknown',
+  ): number | 'unknown' {
+    if (storedPolicyHashes === 'unknown') return 'unknown';
+    const stored = storedPolicyHashes.get(moduleName);
+    let count = 0;
+    for (const { key, label } of MODULE_CLASS_CONFIGS) {
+      const classes = metadata[key];
+      if (!Array.isArray(classes)) continue;
+      for (const cls of classes) {
+        const policyHash = (cls as { policyHash?: unknown } | undefined)?.policyHash;
+        if (typeof cls?.id !== 'string' || typeof policyHash !== 'string') continue;
+        if (stored?.get(`${label}:${cls.id}`) !== policyHash) count++;
+      }
+    }
+    return count;
+  }
+
+  /**
    * How many of the searchable classes a module declares hold a vector the active embedder did not make. Only declared
    * classes count: an install writes those, so installing the module again clears the count, and a stale node it does
    * not write (one it no longer declares) cannot have it installed at every start.
@@ -1561,6 +1644,7 @@ export class ModuleManagementService {
       // No class read where no gate runs (forced) or no vectors are made (embedding off).
       const staleClassKeys =
         options.force || profile === 'off' ? new Map<string, Set<string>>() : await this.readStaleClassKeys(session);
+      const storedPolicyHashes = options.force ? new Map<string, Map<string, unknown>>() : await this.readClassPolicyHashes(session);
       let skippedCount = 0;
 
       for (const [moduleName, moduleInstance] of modules) {
@@ -1597,7 +1681,16 @@ export class ModuleManagementService {
                 { moduleName, staleClasses, profile },
               );
             }
-            if (unchanged && db!.embeddingProfile === profile && staleClasses === 0) {
+            const policyDrift = unchanged && db!.embeddingProfile === profile && staleClasses === 0
+              ? this.policyDriftClasses(moduleName, metadata, storedPolicyHashes)
+              : 0;
+            if (typeof policyDrift === 'number' && policyDrift > 0) {
+              this.logger.log(
+                'Class policy hashes are not recorded or out of date — reinstalling the module so its elements can be re-evaluated',
+                { moduleName, classes: policyDrift },
+              );
+            }
+            if (unchanged && db!.embeddingProfile === profile && staleClasses === 0 && policyDrift === 0) {
               this.logger.log('Module unchanged — skipping embedding + write', {
                 moduleName,
                 contentHash: metadata.contentHash,
@@ -1688,6 +1781,7 @@ export class ModuleManagementService {
       for (const name of catchUp ? installedNow : modulesInstalled) {
         await this.runAfterInstall(session, name, modules.get(name));
       }
+      this.notifyInstalled(installedNow);
 
       const duration = Date.now() - startTime;
       this.recordOperation('updateAllModules', duration, {

@@ -3,14 +3,18 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 
 const ensureWeightsWithRetry = jest.fn(async () => undefined);
-const embedVectors = async (_kind: string, items: Array<{ text: string; title?: string }>) => items.map(() => [1, 0]);
+const embedVectors = async (_kind: string, items: Array<{ text: string; title?: string }>, _options?: { timeoutMs?: number }) =>
+  items.map(() => [1, 0]);
 const embed = jest.fn(embedVectors);
 const release = jest.fn(async () => undefined);
 const createWorkerEmbedder = jest.fn(async (..._args: unknown[]) => ({ profileId: 'p', dimensions: 768, embed, release }));
 const weightsPlaced = jest.fn(async () => false);
 jest.mock('@dethernety/embedder', () => ({ ensureWeightsWithRetry, createWorkerEmbedder, weightsPlaced }), { virtual: false });
 
-import { EmbeddingService, describeError } from '../embedding.service';
+import { EmbeddingService, describeError, embedderOverload } from '../embedding.service';
+
+/** The embedder package's two overload errors, by the names the service reads them by. */
+const overload = (name: 'EmbedderBusyError' | 'EmbedTimeoutError', message = 'busy') => Object.assign(new Error(message), { name });
 
 const EG1 = 'embeddinggemma-300m-retrieval-v1';
 const EG2 = 'embeddinggemma-2-text-retrieval-v1';
@@ -457,7 +461,7 @@ describe('EmbeddingService', () => {
       const spy = jest.spyOn(svc, 'embedBatch');
       const { vectors, failures } = await svc.embedEach(['a', 'b', 'c'], 'query');
       expect(spy).toHaveBeenCalledTimes(1);
-      expect(spy).toHaveBeenCalledWith(['a', 'b', 'c'], 'query');
+      expect(spy).toHaveBeenCalledWith(['a', 'b', 'c'], 'query', undefined, { timeoutMs: 10_750 });
       expect([vectors.length, failures]).toEqual([3, []]);
     });
 
@@ -498,6 +502,69 @@ describe('EmbeddingService', () => {
       expect([vectors, failures.map((f) => f.index)]).toEqual([[null], [0]]);
     });
 
+    it('gives a query embed a timeout that grows with its texts, configurable', async () => {
+      const svc = await readyOnnx();
+      await svc.embedEach(['a', 'b', 'c'], 'query');
+      await svc.embedEach(['a'], 'query');
+      expect(embed.mock.calls.map((c) => c[2])).toEqual([{ timeoutMs: 10_750 }, { timeoutMs: 10_250 }]);
+
+      const tuned = await buildService({ EMBEDDING_MODEL: EG1, EMBEDDING_QUERY_TIMEOUT_MS: '2000', EMBEDDING_QUERY_TIMEOUT_PER_ITEM_MS: '100' });
+      tuned.onModuleInit();
+      await tuned.whenSettled();
+      embed.mockClear();
+      await tuned.embedEach(['a', 'b', 'c'], 'query');
+      expect(embed.mock.calls.map((c) => c[2])).toEqual([{ timeoutMs: 2_300 }]);
+    });
+
+    it('gives no timeout to a document embed or to the warm-up', async () => {
+      const svc = await buildService({ EMBEDDING_MODEL: EG1 });
+      svc.onModuleInit();
+      await svc.whenSettled();
+      expect(embed.mock.calls[0]).toEqual(['query', [{ text: 'warm-up' }]]);
+      await svc.embedBatch(['a'], 'document', ['A']);
+      expect(embed.mock.calls.at(-1)).toEqual(['document', [{ text: 'a', title: 'A' }]]);
+      await svc.embedEach(['a', 'b'], 'document');
+      expect(embed.mock.calls.at(-1)).toEqual(['document', [{ text: 'a' }, { text: 'b' }]]);
+    });
+
+    it.each(['EmbedTimeoutError', 'EmbedderBusyError'] as const)(
+      'gives every text null on a %s, without trying them one at a time, and says so once',
+      async (name) => {
+        const svc = await readyOnnx();
+        const warn = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => undefined);
+        const error = overload(name);
+        embed.mockRejectedValue(error);
+        const { vectors, failures } = await svc.embedEach(['a', 'b', 'c'], 'query');
+        expect(embed).toHaveBeenCalledTimes(1);
+        expect(vectors).toEqual([null, null, null]);
+        expect(failures).toEqual([0, 1, 2].map((index) => ({ index, error })));
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn.mock.calls[0][1]).toEqual({ kind: 'query', texts: 3, embedded: 0 });
+        expect(svc.getStatus()).toMatchObject(name === 'EmbedTimeoutError' ? { queryTimeouts: 1, queryRefusals: 0 } : { queryTimeouts: 0, queryRefusals: 1 });
+      },
+    );
+
+    it.each(['EmbedTimeoutError', 'EmbedderBusyError'] as const)(
+      'after a plain batch error, tries the texts one at a time and stops at the first %s',
+      async (name) => {
+        const svc = await readyOnnx();
+        const warn = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => undefined);
+        const error = overload(name);
+        embed.mockImplementation(async (_kind, items) => {
+          if (items.length > 1) throw new TypeError('cannot embed');
+          if (items[0].text === 'b') throw error;
+          return [[1, 0]];
+        });
+        const { vectors, failures } = await svc.embedEach(['a', 'b', 'c', 'd'], 'query');
+        expect(embed.mock.calls.map((c) => c[1].map((it) => it.text))).toEqual([['a', 'b', 'c', 'd'], ['a'], ['b']]);
+        // Each single text has its own timeout.
+        expect(embed.mock.calls.slice(1).map((c) => c[2])).toEqual([{ timeoutMs: 10_250 }, { timeoutMs: 10_250 }]);
+        expect(vectors).toEqual([[1, 0], null, null, null]);
+        expect(failures).toEqual([1, 2, 3].map((index) => ({ index, error })));
+        expect(warn.mock.calls.map((c) => c[1])).toEqual([{ kind: 'query', texts: 4, embedded: 1 }]);
+      },
+    );
+
     it('makes no call for no text, and gives nulls when the embedder is not enabled', async () => {
       const svc = await buildService();
       const spy = jest.spyOn(svc, 'embedBatch');
@@ -505,6 +572,28 @@ describe('EmbeddingService', () => {
       expect(spy).not.toHaveBeenCalled();
       const off = await buildService({ EMBEDDING_ENABLED: 'false' });
       expect(await off.embedEach(['a', 'b'], 'query')).toEqual({ vectors: [null, null], failures: [] });
+    });
+  });
+
+  describe('embedderOverload', () => {
+    it('reads the busy refusal and the timeout by name, and nothing else', () => {
+      expect(embedderOverload(overload('EmbedderBusyError'))).toBe('busy');
+      expect(embedderOverload(overload('EmbedTimeoutError'))).toBe('timeout');
+      expect(embedderOverload(new Error('cannot embed'))).toBeNull();
+      expect(embedderOverload('EmbedderBusyError')).toBeNull();
+    });
+  });
+
+  describe('the query backlog', () => {
+    it('passes EMBEDDING_QUERY_BACKLOG to the worker embedder, and leaves its default when unset', async () => {
+      await readyService({ EMBEDDING_MODEL: EG1, EMBEDDING_QUERY_BACKLOG: '300' });
+      expect(createWorkerEmbedder.mock.calls.at(-1)![2]).toMatchObject({ queryBacklogItems: 300 });
+      await readyService({ EMBEDDING_MODEL: EG1, EMBEDDING_QUERY_BACKLOG: '' });
+      expect(createWorkerEmbedder.mock.calls.at(-1)![2]).not.toHaveProperty('queryBacklogItems');
+    });
+
+    it('starts its counters at zero', async () => {
+      expect((await readyService()).getStatus()).toMatchObject({ queryTimeouts: 0, queryRefusals: 0 });
     });
   });
 

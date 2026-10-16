@@ -600,6 +600,7 @@ type VectorDisabledReason =
   | 'EMBEDDING_DISABLED'  // embedder disabled or not ready, or the database cannot run vector search
   | 'NO_VECTORS'          // MITRE vectors of the active model missing or incomplete
   | 'MODEL_MISMATCH'      // corpus carries vectors of another embedding model only
+  | 'EMBEDDER_BUSY'       // embedder too busy to embed this request's queries in time
 
 interface TechniqueQueryInput {
   query: string
@@ -635,7 +636,7 @@ interface MatchMitreTechniquesResult {
 }
 ```
 
-> **Graceful vector degradation.** When the embedder or the database's vector search is unavailable, or the corpus lacks vectors of the active embedding model, the server sets `vectorAvailable: false` and a specific `vectorDisabledReason` rather than failing the query. The deterministic tiers (`EXACT_ID` through `DESCRIPTION_MATCH`) still return results; the picker shows a caption explaining that semantic search is unavailable. A kind whose framework is not loaded reports `NO_VECTORS` on its own; the other kinds keep the vector tier.
+> **Graceful vector degradation.** When the embedder or the database's vector search is unavailable, or the corpus lacks vectors of the active embedding model, the server sets `vectorAvailable: false` and a specific `vectorDisabledReason` rather than failing the query. The deterministic tiers (`EXACT_ID` through `DESCRIPTION_MATCH`) still return results; the picker shows a caption explaining that semantic search is unavailable. A kind whose framework is not loaded reports `NO_VECTORS` on its own; the other kinds keep the vector tier. `EMBEDDER_BUSY` is per request: the embedder was too busy to embed that request's queries in time, and a later request may get the vector tier again.
 
 ### Exposure
 

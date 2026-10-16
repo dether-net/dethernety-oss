@@ -454,6 +454,7 @@ The embedder runs **in process**, with one profile in this release: `embeddingge
 - **Selection and refusal.** `config/embedding-profile-selection.ts` holds the one rule the environment validation and `EmbeddingService` both apply. With `EMBEDDING_ENABLED=true`, the platform refuses to start — in the environment validation, before the database or the modules — on the legacy `embeddinggemma` id (the HTTP embedder's), on a built-in profile this release does not offer (`embeddinggemma-2-text-retrieval-v1`: its MITRE vectors are not published), and on any unknown id. With embedding off nothing is refused. `EMBEDDING_URL`, `EMBEDDING_API_KEY`, `EMBEDDING_DIMENSIONS` and `EMBEDDING_SIMILARITY_THRESHOLD` are ignored, with a logged warning; a stale value never stops a start.
 - **Weights.** After start, the weights are fetched into `EMBEDDING_MODEL_DIR` (layout `<dir>/<repo>/<revision>/<file>`) or found there, and verified by sha256 in the background (`ensureWeightsWithRetry`, `@dethernety/embedder`). Each file is written to a temporary name and renamed into place only once verified; a per-file lock lets replicas share the directory, with one process downloading while the others wait. A failed acquisition is retried after 10 s, 30 s, 2 min, 10 min and 30 min, then the embedder is `failed`. A shutdown aborts a download in flight and keeps nothing partial. Because a file is verified and then opened again by path, every existing entry on its path below `EMBEDDING_MODEL_DIR` must be one only a trusted account can change (`safeFilePath`): not a symbolic link, writable by no account but its owner (no group or other write bit; a sticky directory excepted), and owned by the process's account, root or the owner of `EMBEDDING_MODEL_DIR`; otherwise the file is refused with a `WeightFileError` naming the entry. Before a download, `ensureWeights` creates the file's directories and runs the check again, so a directory planted between the first check and the creation is refused before the lock file or the download is written in it. The directory itself may be a link or a mount point; it is refused when accounts other than its owner can write it without the sticky bit. What the embedder writes there is never writable by other accounts. Before a download the service logs, once, what it fetches, its size and its licence.
 - **Worker thread.** `createWorkerEmbedder` runs the model on a worker thread: tokenising, the session load and every inference happen off dt-ws's event loop, so a request that does not embed never waits behind one that does. The load is bounded at 120 s (the worker is terminated); a worker that exits or errors after it was ready rejects the calls pending on it and turns the embedder `failed` until the next start — the process keeps serving. onnxruntime's telemetry is switched off (`ORT_DISABLE_TELEMETRY=1`) before the runtime loads.
+- **Bounded query embeds.** The worker serves one request at a time, so the worker embedder bounds query work on its side. It counts the query items posted and not yet answered, and a query embed that would take the count past `queryBacklogItems` (`EMBEDDING_QUERY_BACKLOG`, default 200) is refused at once with an `EmbedderBusyError`. A query embed may carry `timeoutMs`; past it the call rejects with an `EmbedTimeoutError`. The worker cannot stop a native run, so a timed-out call stays in the count until the worker answers it, and the answer is dropped. `embedEach`, which the resolvers' query embeds go through, sets that timeout to `EMBEDDING_QUERY_TIMEOUT_MS` (10 s) plus `EMBEDDING_QUERY_TIMEOUT_PER_ITEM_MS` (250 ms) per text. Document embeds (install, catch-up, reindex) carry no timeout and are neither counted nor refused. The warm-up is a query embed of one item: it is counted, carries no timeout, and runs before `EmbeddingService` hands the embedder to any match. Each refusal or timeout is logged once per request, with counts and no text, and counted in `getStatus()` (`queryRefusals`, `queryTimeouts`), which `/health` reports. Operator settings: [Configuration guide → Query embeds under load](../../../CONFIGURATION_GUIDE.md#embedding-search-by-meaning).
 - **States.** `downloading` → `loading` → `ready`, or `failed`; `disabled` when `EMBEDDING_ENABLED` is not true. Until the model is ready the embedder reports itself as not enabled, so callers fall back to their name tiers; `/health` reports `degraded` with the state.
 
 ```
@@ -468,6 +469,9 @@ The embedder runs **in process**, with one profile in this release: `embeddingge
   │                  embeddinggemma-300m-retrieval-v1)│
   │    EMBEDDING_MODEL_DIR  (default: models)         │
   │    EMBEDDING_THREADS    (default: 4)              │
+  │    EMBEDDING_QUERY_BACKLOG (default: 200)         │
+  │    EMBEDDING_QUERY_TIMEOUT_MS (default: 10000)    │
+  │    EMBEDDING_QUERY_TIMEOUT_PER_ITEM_MS (250)      │
   │    EMBEDDING_THRESHOLD_<CORPUS> (per-corpus floor)│
   │    HF_TOKEN             (gated weights only)      │
   │                                                   │
@@ -478,7 +482,7 @@ The embedder runs **in process**, with one profile in this release: `embeddingge
   │    getModel()                 → profile id        │
   │    getDimensions()            → number            │
   │    getThreshold(corpus)       → number | null     │
-  │    embedBatch(texts, kind, titles?)               │
+  │    embedBatch(texts, kind, titles?, options?)     │
   │                               → number[][] | null │
   │    embedEach(texts, kind)     → vectors, failures │
   │    whenStartupChecked()       → bounded wait      │
@@ -488,6 +492,7 @@ The embedder runs **in process**, with one profile in this release: `embeddingge
   │                                                   │
   │  Weight retry: 10s, 30s, 2min, 10min, 30min       │
   │  Embed failure: throw (no retry)                  │
+  │  Query embeds: backlog cap + per-request timeout  │
   └───────────────────────────────────────────────────┘
 ```
 
@@ -567,15 +572,15 @@ The embedding pipeline integrates into the existing `ModuleManagementService.ups
 
 When `match_classes` runs the vector tier, the resolver embeds the request's elements on the fly, before the per-element tiers:
 
-1. Compose embedding text for every element with a description via `EmbeddingService.composeElementText(element)` -- produces `"{name}. {description}. Type: {type}."`
+1. Compose embedding text for every element with a description via `EmbeddingService.composeElementText(element)` -- produces `"{name}. {description}. Type: {type}."` -- and cut it to 2,000 characters (never between the two halves of a surrogate pair). Longer text is cut, not refused, so a long description from a code scan still matches; the profile's token limit still bounds the model's work per text.
 2. Call `EmbeddingService.embedEach(texts, 'query')` to get every element's query vector in one embedding call
 3. For each element, rank the label's classes against its query vector with the exact cosine search (see [Vector search](#vector-search)), keeping those at or above `getThreshold('classes')`
 
-This is one batch call per request, not one call per element. Every element with a description is embedded, including elements that also have an exact-name hit. If the batch throws or returns the wrong number of vectors, `embedEach` embeds each text on its own, once, so an element whose text cannot be embedded loses only its own vector tier (logged warning). A batch of one is not tried again. If the embedder is not ready at query time, the vector tier is skipped (same as when embeddings are disabled): exact-name hits stand alone, and an element without one falls through to name containment and the type-filtered heuristic.
+This is one batch call per request, not one call per element. Every element with a description is embedded, including elements that also have an exact-name hit. If the batch throws or returns the wrong number of vectors, `embedEach` embeds each text on its own, once, so an element whose text cannot be embedded loses only its own vector tier (logged warning). A batch of one is not tried again. If the embedder is too busy to answer (its query backlog is full, or the embed runs past its timeout; see **Bounded query embeds** above), `embedEach` does not retry text by text: the elements it left keep the name tiers, and the request returns `vectorAvailable: false`. In the text-by-text fallback after a failed batch, the first busy refusal or timeout ends the fallback the same way. If the embedder is not ready at query time, the vector tier is skipped (same as when embeddings are disabled): exact-name hits stand alone, and an element without one falls through to name containment and the type-filtered heuristic.
 
 ### Model version tracking and re-indexing
 
-The `embeddingModel` property on class nodes tracks which profile produced the vector. The vector search only compares vectors of the active profile, and `vectorAvailable` is false (with a logged warning) when no class in scope has one. A profile change is picked up at the next start by the skip gate, which reinstalls every module recorded with another embedder or whose declared searchable classes hold vectors of another profile. A `reindexClassEmbeddings` mutation re-computes all vectors on demand -- this is a blocking operation to prevent stale vectors from producing incorrect rankings during a partial reindex.
+The `embeddingModel` property on class nodes tracks which profile produced the vector. The vector search only compares vectors of the active profile, and `vectorAvailable` is false (with a logged warning) when no class in scope has one. A profile change is picked up at the next start by the skip gate, which reinstalls every module recorded with another embedder or whose declared searchable classes hold vectors of another profile. A `reindexClassEmbeddings` mutation re-computes all vectors on demand -- this is a blocking operation to prevent stale vectors from producing incorrect rankings during a partial reindex. One reindex runs at a time: a call while one runs returns at once with `alreadyRunning: true`, `reindexedCount: 0` and no module names, and embeds nothing.
 
 ---
 
@@ -708,6 +713,7 @@ Other consumers of the MITRE vectors must embed their queries with the same prof
 | Component | Unavailable | System behavior |
 |-----------|-------------|-----------------|
 | Embedding model | Still downloading or loading, or failed | Vector tier skipped. Deterministic matching continues. Logged warning. |
+| Embedding model | Busy: query backlog full, or the request's query embed timed out | That request's vector tier is off (`vectorAvailable: false`); the name tiers answer. One warning per request; counted in `/health`. |
 | Embedding model at module install | Not ready (downloading, loading, failed) | Modules install with their stored vectors kept, marked partial; the catch-up reinstalls them when the embedder becomes ready. |
 | Embedding model at module install | Ready, but a batch fails | That module's install fails (logged); the other modules install. |
 | Graph database | Down | All services fail. Existing platform behavior. |

@@ -77,6 +77,8 @@
         return 'Semantic search unavailable — MITRE vectors not yet installed. Update the mitre-frameworks module to enable.'
       case 'MODEL_MISMATCH':
         return 'Semantic search unavailable — module ships vectors for a different embedding model. Rebuild the module against your runtime model to enable.'
+      case 'EMBEDDER_BUSY':
+        return 'Semantic search is busy right now — showing name-based matches. Try again in a moment.'
       default:
         return null
     }

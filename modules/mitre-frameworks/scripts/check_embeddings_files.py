@@ -7,9 +7,10 @@ its first `// Model:` header names manifest.json's `embeddingProfile`, with 768 
 one `// Profile:` header names it too (the line the embedder's profile path writes; the
 legacy Ollama profile has none); the file splits into statements; every statement is one
 UNWIND batch of at least one row for one label that sets `embeddingModel` exactly once, to
-that profile; each label has its pinned row count; and every vector has 768 finite numbers
-and unit length. A file from another model, a half regeneration, a truncated file or an
-appended statement of any other kind fails.
+that profile, and starts with its UNWIND; each label has its pinned row count; and every
+vector has 768 finite numbers and unit length. A file from another model, a half
+regeneration, a truncated file, an appended statement of any other kind or a clause placed
+before a batch's UNWIND fails.
 
 The rules are the Go check's (oss/pkg/cypher/embeddings_files_test.go,
 embeddingsFileProblems), which runs in CI on the files the console embeds; this port keeps
@@ -47,6 +48,17 @@ _W = r"[0-9A-Za-z_]"
 MODEL_HEADER = re.compile(rf"^// Model: ({_NS}+)  Dimensions: ([0-9]+)$", re.M)
 PROFILE_HEADER = re.compile(rf"^// Profile: ({_NS}+)  ", re.M)
 EMBEDDING_ROW = re.compile(rf'^{_S}*\{{ {_W}+: "[^"]+", embedding: \[([^\]]*)\] \}},?$', re.M)
+# The whole statement, exactly as the exporter writes it: the others search inside a statement,
+# so a clause before the UNWIND, or between its rows and the MATCH, would pass them.
+STATEMENT_SHAPE = re.compile(
+    r"UNWIND \[\n"
+    # No backslash in a row's id: one before the closing quote would escape it and run the string on.
+    rf'(?:  \{{ {_W}+: "[^"\\\n]*", embedding: \[[^\]\n]*\] \}},?\n)+'
+    r"\] AS row\n"
+    rf"MATCH \(n:{_W}+ \{{{_W}+: row\.{_W}+\}}\)\n"
+    r"SET n\.embedding = row\.embedding,\n"
+    r'    n\.embeddingModel = "[^"\n]*"'
+)
 MATCH_LABEL = re.compile(rf"^MATCH \(n:({_W}+) \{{", re.M)
 SET_MODEL = re.compile(rf'^{_S}*n\.embeddingModel = "([^"]*)"$', re.M)
 
@@ -165,7 +177,7 @@ def file_problems(name: str, content: str, profile: str, expected: Dict[str, int
         label = MATCH_LABEL.search(stmt)
         models = SET_MODEL.findall(stmt)
         vectors = EMBEDDING_ROW.findall(stmt)
-        if label is None or len(models) != 1 or not vectors:
+        if not STATEMENT_SHAPE.fullmatch(stmt) or label is None or len(models) != 1 or not vectors:
             problems.append(
                 f"{name}: statement {i} is not one UNWIND batch for one label that sets embeddingModel: {stmt[:120]!r}"
             )

@@ -80,6 +80,13 @@ describe('validateProfile', () => {
     for (const p of listProfiles()) expect(problemsOf(JSON.parse(JSON.stringify(p)))).toBe('');
   });
 
+  it('accepts a profile without a dtype, as the legacy one is', () => {
+    const p = copyOf(EG1);
+    delete p.runtime.dtype;
+    expect(problemsOf(p)).toBe('');
+    expect(getProfile(LEGACY).runtime.dtype).toBeUndefined();
+  });
+
   it('rejects a non-object', () => {
     expect(problemsOf(null)).toMatch(/not an object/);
     expect(problemsOf([])).toMatch(/not an object/);
@@ -107,6 +114,13 @@ describe('validateProfile', () => {
     ['a missing threshold', (p) => delete p.thresholds.components, /thresholds\.components is required/],
     ['too many dimensions', (p) => (p.runtime.dimensions = 100000), /runtime\.dimensions must be an integer/],
     ['an unknown engine', (p) => (p.runtime.engine = 'tensorflow'), /runtime\.engine must be/],
+    ['a dtype with a line feed', (p) => (p.runtime.dtype = 'fp32\nMATCH (n) DETACH DELETE n'), /runtime\.dtype must match/],
+    ['a dtype ending in a line feed', (p) => (p.runtime.dtype = 'fp32\n'), /runtime\.dtype must match/],
+    ['a dtype with a carriage return', (p) => (p.runtime.dtype = 'fp32\r'), /runtime\.dtype must match/],
+    ['a dtype with a line separator', (p) => (p.runtime.dtype = 'fp\u202832'), /runtime\.dtype must match/],
+    ['a dtype with a space', (p) => (p.runtime.dtype = 'fp 32'), /runtime\.dtype must match/],
+    ['an upper-case dtype', (p) => (p.runtime.dtype = 'FP32'), /runtime\.dtype must match/],
+    ['a dtype that is not a string', (p) => (p.runtime.dtype = 32), /runtime\.dtype must match/],
     ['a query prompt without {text}', (p) => (p.prompts.query = 'query: '), /prompts\.query must contain \{text\}/],
     ['an unknown title rule', (p) => (p.prompts.title = 'class'), /prompts\.title must be/],
     ['an onnx profile without source', (p) => delete p.source, /source is required for an onnx profile/],

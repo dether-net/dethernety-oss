@@ -239,7 +239,9 @@ const classModule = (name: string) =>
     }),
   }) as any;
 
-const classRead = (reads: Array<{ cypher: string; params: any }>) => reads.filter((r) => r.cypher.includes('HAS_CLASS'));
+// The class-vector read (the class policy hash read is policy-change-hooks.spec's).
+const classRead = (reads: Array<{ cypher: string; params: any }>) =>
+  reads.filter((r) => r.cypher.includes('HAS_CLASS') && !r.cypher.includes('c.policyHash AS policyHash'));
 
 describe('ModuleManagementService.updateAllModules — the class vectors behind the recorded embedder', () => {
   it('reinstalls a module whose declared classes hold vectors of another embedder under a matching record', async () => {

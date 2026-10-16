@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuthorizationService } from '../services/authorization.service';
 import { MonitoringService } from '../services/monitoring.service';
-import { EmbeddingService } from '../services/embedding.service';
+import { EmbeddingService, embedderOverload } from '../services/embedding.service';
 import { safeErrorMessage } from '../../common/utils/safe-error-message';
 import { isMiskeyed, readVectorIndexKeys, rebuildVectorIndex } from '../services/vector-index-keys';
 import { VectorSearchService } from '../services/vector-search.service';
@@ -45,7 +45,8 @@ type MitreMatchType =
   | 'NAME_MATCH'
   | 'DESCRIPTION_MATCH'
   | 'VECTOR_SIMILARITY';
-type VectorDisabledReason = 'EMBEDDING_DISABLED' | 'NO_VECTORS' | 'MODEL_MISMATCH';
+// EMBEDDER_BUSY is never a precheck outcome: a request sets it when the embedder was too busy to embed its queries.
+type VectorDisabledReason = 'EMBEDDING_DISABLED' | 'NO_VECTORS' | 'MODEL_MISMATCH' | 'EMBEDDER_BUSY';
 
 const MITRE_KINDS: MitreKind[] = [
   'ATTACK_TECHNIQUE',
@@ -127,6 +128,7 @@ const REASON_PRIORITY: Record<VectorDisabledReason, number> = {
   MODEL_MISMATCH: 4,
   NO_VECTORS: 2,
   EMBEDDING_DISABLED: 1,
+  EMBEDDER_BUSY: 0,
 };
 
 // --- Internal types ---
@@ -666,12 +668,21 @@ export class MatchMitreTechniquesResolverService {
 
   /**
    * The query vectors of the queries the deterministic tiers left, in one embed call; null for a query whose text
-   * could not be embedded (logged by shape only; it stays unmatched by the vector tier).
+   * could not be embedded (logged by shape only; it stays unmatched by the vector tier). `overloaded` is true when
+   * the embedder was too busy to answer (a timeout or a busy refusal, which the embedding service logs once).
    */
-  private async queryVectors(queries: string[], kind: MitreKind): Promise<{ vectors: Array<number[] | null>; embeddingMs: number }> {
+  private async queryVectors(
+    queries: string[],
+    kind: MitreKind,
+  ): Promise<{ vectors: Array<number[] | null>; embeddingMs: number; overloaded: boolean }> {
     const start = Date.now();
     const { vectors, failures } = await this.embeddingService.embedEach(queries, 'query');
+    let overloaded = false;
     for (const f of failures) {
+      if (embedderOverload(f.error)) {
+        overloaded = true;
+        continue;
+      }
       // Don't log the raw query — picker fires per keystroke, so an
       // embedding-service hiccup would mass-log attacker-influenced text
       // (potential PII like credentials pasted into the picker). Log
@@ -682,7 +693,7 @@ export class MatchMitreTechniquesResolverService {
         error: safeErrorMessage(f.error),
       });
     }
-    return { vectors, embeddingMs: Date.now() - start };
+    return { vectors, embeddingMs: Date.now() - start, overloaded };
   }
 
   private async vectorSimilarityMatch(
@@ -754,7 +765,7 @@ export class MatchMitreTechniquesResolverService {
     const kind = input.kind;
 
     // 1. Vector availability (drives the response envelope + tier-5 gate)
-    const { vectorAvailable, vectorDisabledReason } =
+    let { vectorAvailable, vectorDisabledReason } =
       await this.computeVectorAvailability(kind);
 
     // 2. Corpus fetch (cache-aware)
@@ -827,8 +838,13 @@ export class MatchMitreTechniquesResolverService {
     // Tier 5: VECTOR_SIMILARITY, for the queries the deterministic tiers left, embedded in one call.
     const left = settled.filter((r) => !r.matched && vectorAvailable && r.trimmed.length > 0);
     if (left.length > 0) {
-      const { vectors, embeddingMs: ms } = await this.queryVectors(left.map((r) => r.trimmed), kind);
+      const { vectors, embeddingMs: ms, overloaded } = await this.queryVectors(left.map((r) => r.trimmed), kind);
       embeddingMs += ms;
+      // The embedder was too busy: the deterministic tiers answered, and the envelope says why the vector tier did not.
+      if (overloaded) {
+        vectorAvailable = false;
+        vectorDisabledReason = 'EMBEDDER_BUSY';
+      }
       for (const [k, r] of left.entries()) {
         const vector = vectors[k];
         if (!vector) continue;

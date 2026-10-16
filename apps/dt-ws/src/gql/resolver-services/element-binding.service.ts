@@ -337,7 +337,7 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
       // so a module failure leaves the graph untouched (invariant I7).
       const moduleDataByClass = new Map<
         string,
-        { moduleName: string; findings: any[] }
+        { moduleName: string; findings: any[]; policyHash: string | null }
       >();
 
       for (const classId of targetClassIds) {
@@ -451,7 +451,11 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
             );
             return failure(elementId, target, 'MODULE_ERROR', msg);
           }
-          moduleDataByClass.set(classId, { moduleName, findings });
+          moduleDataByClass.set(classId, {
+            moduleName,
+            findings,
+            policyHash: await this.setInstantiation.policyHashToStamp(moduleInstance, classId, status.policyHash),
+          });
         } catch (err) {
           const msg = `Module ${moduleName} threw: ${safeErrorMessage(err)}`;
           this.logFailure(
@@ -494,12 +498,15 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
         | { kind: ElementBindingKind; classIds?: string[]; modelId?: string }
         | null = null;
       let identityShortCircuit = false;
+      // Dispositioned findings of the kept classes flagged stale because their links changed (not a GraphQL delta).
+      let linkStaleFlipped = 0;
 
       try {
         await session.executeWrite(async (tx: DatabaseTransaction) => {
           // The driver re-runs this function when a transient conflict rolls a try back, so every attempt
           // starts its counts and state afresh.
           Object.assign(deltas, zeroDeltas());
+          linkStaleFlipped = 0;
           oldBinding = null;
           identityShortCircuit = false;
 
@@ -573,31 +580,49 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
 
           // 5e — constructive upsert via SetInstantiationAttributesService's
           // tx-bound helpers, one class at a time, with per-class module
-          // findings pre-fetched at step 3.
-          for (const [classId, { findings }] of moduleDataByClass) {
+          // findings pre-fetched at step 3, then the class's obsolete-finding
+          // cleanup, so each bound class keeps exactly what its module emits.
+          for (const [classId, { findings, policyHash }] of moduleDataByClass) {
             if (isControl) {
               const upsertReq: UpsertCountermeasuresRequest = {
                 componentId: elementId,
                 countermeasures: findings,
                 classId,
               };
-              const { instantiated } = await this.setInstantiation.upsertCountermeasuresInTx(
+              const { instantiated, staleFlipped } = await this.setInstantiation.upsertCountermeasuresInTx(
                 tx,
                 upsertReq,
               );
               deltas.instantiatedDerivedCountermeasures += instantiated.length;
+              linkStaleFlipped += staleFlipped ?? 0;
+              // A class the Control keeps escaped the sweep above: remove what its module no longer emits.
+              deltas.deletedDerivedCountermeasures += await this.setInstantiation.deleteObsoleteFindingsInTx(tx, {
+                elementId,
+                relation: 'HAS_COUNTERMEASURE',
+                validNames: findings.map((finding: { name: string }) => finding.name),
+                classId,
+              });
             } else {
               const upsertReq: UpsertExposuresRequest = {
                 componentId: elementId,
                 exposures: findings,
                 classId,
               };
-              const { instantiated } = await this.setInstantiation.upsertExposuresInTx(
+              const { instantiated, staleFlipped } = await this.setInstantiation.upsertExposuresInTx(
                 tx,
                 upsertReq,
               );
               deltas.instantiatedDerivedExposures += instantiated.length;
+              linkStaleFlipped += staleFlipped ?? 0;
+              deltas.deletedDerivedExposures += await this.setInstantiation.deleteObsoleteFindingsInTx(tx, {
+                elementId,
+                relation: 'HAS_EXPOSURE',
+                validNames: findings.map((finding: { name: string }) => finding.name),
+                classId,
+              });
             }
+            // Read with the class status, before the module evaluated, as the save does.
+            if (policyHash) await this.setInstantiation.stampPolicyInTx(tx, elementId, classId, policyHash);
           }
 
           // 5f — preserved-custom counts. USER-authored findings linked to
@@ -633,6 +658,7 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
         oldBinding,
         newBinding,
         deltas,
+        linkStaleFlipped,
         identityShortCircuit,
         durationMs,
       });
@@ -840,6 +866,7 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
     moduleName: string | null;
     labels: string[];
     componentType: string | null;
+    policyHash: string | null;
   }> {
     return session.executeRead(async (tx) => {
       const result = await tx.run(
@@ -849,7 +876,7 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
         OPTIONAL MATCH (klass)<-[:HAS_CLASS]-(m:Module)
         RETURN klass IS NOT NULL AS exists, m.name AS moduleName,
                CASE WHEN klass IS NULL THEN [] ELSE labels(klass) END AS klassLabels,
-               klass.type AS klassComponentType
+               klass.type AS klassComponentType, klass.policyHash AS policyHash
         `,
         { classId },
       );
@@ -859,7 +886,8 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
       const labels = (rec?.get('klassLabels') as string[]) ?? [];
       const componentType =
         (rec?.get('klassComponentType') as string | null) ?? null;
-      return { exists, moduleName, labels, componentType };
+      const policyHash = rec?.get('policyHash');
+      return { exists, moduleName, labels, componentType, policyHash: typeof policyHash === 'string' ? policyHash : null };
     });
   }
 

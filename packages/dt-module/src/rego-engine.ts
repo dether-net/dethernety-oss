@@ -171,6 +171,15 @@ export class RegoEngine {
   }
 
   /**
+   * The sha256 of the source registered under `key`, or undefined when none is. A policy is
+   * self-contained and has an engine of its own, so this source is everything its evaluation
+   * compiles: two evaluations under the same hash answer alike.
+   */
+  sourceHash(key: string): string | undefined {
+    return this.registrations.get(key)?.sourceHash;
+  }
+
+  /**
    * Parse `regoSource` eagerly and hold it in its own engine. Throws on a parse failure, a
    * policy that is not self-contained, or a package already claimed by another key —
    * loudly, at module load, which is the property the old boot-time upload provided.

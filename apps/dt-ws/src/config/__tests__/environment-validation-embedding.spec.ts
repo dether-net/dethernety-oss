@@ -71,6 +71,23 @@ describe('EnvironmentVariables — embedding settings', () => {
     expect(() => validateEnvironment({ ...baseEnv, EMBEDDING_THREADS: 'many' })).toThrow();
   });
 
+  it('takes a query backlog of at least one maximum matchClasses request (100), and refuses a smaller one', () => {
+    expect(validateEnvironment({ ...baseEnv, EMBEDDING_QUERY_BACKLOG: '100' }).EMBEDDING_QUERY_BACKLOG).toBe(100);
+    expect(validateEnvironment({ ...baseEnv, EMBEDDING_QUERY_BACKLOG: '' }).EMBEDDING_QUERY_BACKLOG).toBeUndefined();
+    expect(() => validateEnvironment({ ...baseEnv, EMBEDDING_QUERY_BACKLOG: '99' })).toThrow(/EMBEDDING_QUERY_BACKLOG/);
+    expect(() => validateEnvironment({ ...baseEnv, EMBEDDING_QUERY_BACKLOG: '150.5' })).toThrow(/EMBEDDING_QUERY_BACKLOG/);
+    expect(() => validateEnvironment({ ...baseEnv, EMBEDDING_QUERY_BACKLOG: 'many' })).toThrow(/EMBEDDING_QUERY_BACKLOG/);
+  });
+
+  it('takes a query timeout of at least 1 ms and a per-text allowance of at least 0', () => {
+    const v = validateEnvironment({ ...baseEnv, EMBEDDING_QUERY_TIMEOUT_MS: '5000', EMBEDDING_QUERY_TIMEOUT_PER_ITEM_MS: '0' });
+    expect([v.EMBEDDING_QUERY_TIMEOUT_MS, v.EMBEDDING_QUERY_TIMEOUT_PER_ITEM_MS]).toEqual([5000, 0]);
+    const unset = validateEnvironment({ ...baseEnv, EMBEDDING_QUERY_TIMEOUT_MS: ' ', EMBEDDING_QUERY_TIMEOUT_PER_ITEM_MS: '' });
+    expect([unset.EMBEDDING_QUERY_TIMEOUT_MS, unset.EMBEDDING_QUERY_TIMEOUT_PER_ITEM_MS]).toEqual([undefined, undefined]);
+    expect(() => validateEnvironment({ ...baseEnv, EMBEDDING_QUERY_TIMEOUT_MS: '0' })).toThrow(/EMBEDDING_QUERY_TIMEOUT_MS/);
+    expect(() => validateEnvironment({ ...baseEnv, EMBEDDING_QUERY_TIMEOUT_PER_ITEM_MS: '-1' })).toThrow(/EMBEDDING_QUERY_TIMEOUT_PER_ITEM_MS/);
+  });
+
   it('leaves an empty thread count unset, so the default applies', () => {
     expect(validateEnvironment({ ...baseEnv, EMBEDDING_THREADS: '' }).EMBEDDING_THREADS).toBeUndefined();
     expect(validateEnvironment({ ...baseEnv, EMBEDDING_THREADS: '  ' }).EMBEDDING_THREADS).toBeUndefined();

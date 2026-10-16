@@ -596,6 +596,8 @@ Link all? (yes / modify / defer)
 
 If you defer linking: "Analysis will undercount your defenses — defense coverage analysis will not credit existing controls until exposures are linked to countermeasures."
 
+The plugin can change only countermeasures you authored. A countermeasure the platform derived from the control's class is refused. In the platform, open the control and click **Customize as an editable copy** on that countermeasure, then link the copy (see [Customizing a finding](../MANAGING_FINDINGS.md#customizing-a-finding-editable-copy)).
+
 ---
 
 ## README Generation
