@@ -6,13 +6,26 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/dether-net/dethernety-oss/apps/byodt-console/internal/assets"
 	"github.com/dether-net/dethernety-oss/apps/byodt-console/internal/moduleinstall/moduleinstalltest"
 )
 
 func discardLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
+
+// corpusModel is the model the bundled MITRE data was embedded with: the one a deployment must run, so a test of a
+// later step passes the profile check for the right reason.
+func corpusModel(t *testing.T) string {
+	t.Helper()
+	profile, err := assets.CorpusEmbeddingProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return profile
+}
 
 func TestRunVersionMismatchAborts(t *testing.T) {
 	cfg := Config{Version: "1.0.0", PlatformVersion: "2.0.0"}
@@ -38,9 +51,11 @@ func TestRunSchemaFailureAborts(t *testing.T) {
 		PlatformVersion:  "1.0.0",
 		EnableNoauth:     true,
 		SchemaNoauthPath: filepath.Join(file, "schema-noauth.graphql"),
+		EmbeddingModel:   corpusModel(t),
 	}
-	if res := Run(context.Background(), cfg, moduleinstalltest.FakeVerifier{}, discardLogger()); !res.AbortDeployment {
-		t.Fatal("a schema placement failure must abort")
+	res := Run(context.Background(), cfg, moduleinstalltest.FakeVerifier{}, discardLogger())
+	if !res.AbortDeployment || res.Err == nil || !strings.HasPrefix(res.Err.Error(), "schema placement:") {
+		t.Fatalf("a schema placement failure must abort, for that reason: %v", res.Err)
 	}
 }
 
@@ -55,6 +70,7 @@ func TestRunModuleAndIngestFailuresDoNotAbort(t *testing.T) {
 		ReleaseBaseURL:   "http://127.0.0.1:1", // unreachable
 		HTTPTimeout:      500 * time.Millisecond,
 		Neo4jURI:         "bolt://127.0.0.1:1", // connect refused
+		EmbeddingModel:   corpusModel(t),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

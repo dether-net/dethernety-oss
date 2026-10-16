@@ -15,6 +15,8 @@ package assets
 
 import (
 	"embed"
+	"encoding/json"
+	"fmt"
 	"io/fs"
 )
 
@@ -39,6 +41,32 @@ func NoauthSchema() ([]byte, error) {
 // sorted order at deploy time.
 func DataModules() (fs.FS, error) {
 	return fs.Sub(embedded, "embed/data-modules")
+}
+
+// CorpusEmbeddingProfile returns the embedding profile the bundled MITRE vectors were embedded with: the
+// mitre-frameworks manifest's embeddingProfile, which build-assets.sh embeds beside the data. A missing manifest or
+// profile is an error, never "no check": the embed tree is build output, and a regression there must not switch the
+// check off.
+func CorpusEmbeddingProfile() (string, error) {
+	return corpusProfileFrom(embedded.ReadFile("embed/data-modules/mitre-frameworks/manifest.json"))
+}
+
+// corpusProfileFrom reads the embeddingProfile from a manifest read: an error for a failed read, a manifest that is
+// not JSON, or one without a profile.
+func corpusProfileFrom(raw []byte, err error) (string, error) {
+	if err != nil {
+		return "", fmt.Errorf("the bundled MITRE data has no manifest: %w", err)
+	}
+	var manifest struct {
+		EmbeddingProfile string `json:"embeddingProfile"`
+	}
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return "", fmt.Errorf("the bundled MITRE data's manifest is not JSON: %w", err)
+	}
+	if manifest.EmbeddingProfile == "" {
+		return "", fmt.Errorf("the bundled MITRE data's manifest names no embeddingProfile")
+	}
+	return manifest.EmbeddingProfile, nil
 }
 
 // ConsoleUI returns a filesystem rooted at the built operator SPA — index.html at the root

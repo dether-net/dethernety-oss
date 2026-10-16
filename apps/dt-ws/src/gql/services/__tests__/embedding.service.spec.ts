@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 
@@ -5,59 +6,29 @@ const ensureWeightsWithRetry = jest.fn(async () => undefined);
 const embedVectors = async (_kind: string, items: Array<{ text: string; title?: string }>) => items.map(() => [1, 0]);
 const embed = jest.fn(embedVectors);
 const release = jest.fn(async () => undefined);
-const createOnnxEmbedder = jest.fn(async () => ({ profileId: 'p', dimensions: 768, embed, release }));
-jest.mock('@dethernety/embedder', () => ({ ensureWeightsWithRetry, createOnnxEmbedder }), { virtual: false });
+const createWorkerEmbedder = jest.fn(async (..._args: unknown[]) => ({ profileId: 'p', dimensions: 768, embed, release }));
+const weightsPlaced = jest.fn(async () => false);
+jest.mock('@dethernety/embedder', () => ({ ensureWeightsWithRetry, createWorkerEmbedder, weightsPlaced }), { virtual: false });
 
 import { EmbeddingService, describeError } from '../embedding.service';
 
 const EG1 = 'embeddinggemma-300m-retrieval-v1';
 const EG2 = 'embeddinggemma-2-text-retrieval-v1';
 
-/** An Ollama-shaped answer: one vector of `dims` per input. */
-function answer(dims: number) {
-  return jest.fn(async (_url: string, init: { body: string }) => ({
-    ok: true,
-    status: 200,
-    statusText: 'OK',
-    json: async () => ({ embeddings: (JSON.parse(init.body).input as string[]).map(() => Array.from({ length: dims }, (_, i) => (i === 0 ? 1 : 0))) }),
-  }));
-}
-
 describe('EmbeddingService', () => {
-  const realFetch = global.fetch;
-  let fetchMock: jest.Mock;
-
   beforeEach(() => {
     jest.clearAllMocks();
     embed.mockImplementation(embedVectors);
-    fetchMock = answer(768);
-    global.fetch = fetchMock as unknown as typeof fetch;
   });
 
   afterEach(() => {
     jest.useRealTimers();
-    global.fetch = realFetch;
+    jest.restoreAllMocks();
   });
 
-  /** Builds the service; an enabled HTTP embedder also runs its start-up check unless `start` is false. */
-  async function buildService(envOverrides: Record<string, string | undefined> = {}, { start = true } = {}) {
-    const svc = await compile(envOverrides);
-    if (start && svc.getStatus().enabled && svc.getStatus().runtime === 'http') {
-      svc.onModuleInit();
-      await svc.whenStartupChecked();
-    }
-    return svc;
-  }
-
-  async function compile(envOverrides: Record<string, string | undefined>) {
-    const defaults: Record<string, string> = {
-      EMBEDDING_ENABLED: 'true',
-      EMBEDDING_URL: 'http://localhost:11434/api/embed',
-      EMBEDDING_MODEL: 'nomic-embed-text',
-      EMBEDDING_DIMENSIONS: '768',
-      EMBEDDING_SIMILARITY_THRESHOLD: '0.75',
-    };
-    const env = { ...defaults, ...envOverrides };
+  /** Builds the service, not started: embedding on and EMBEDDING_MODEL unset unless overridden. */
+  async function buildService(envOverrides: Record<string, string | undefined> = {}) {
+    const env: Record<string, string | undefined> = { EMBEDDING_ENABLED: 'true', ...envOverrides };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
@@ -71,175 +42,125 @@ describe('EmbeddingService', () => {
     return moduleRef.get(EmbeddingService);
   }
 
-  describe('the HTTP embedder', () => {
-    it('serves a model that is not a built-in profile, under the legacy thresholds', async () => {
-      const svc = await buildService({ EMBEDDING_SIMILARITY_THRESHOLD: undefined });
-      expect(svc.isEnabled()).toBe(true);
-      expect(svc.getModel()).toBe('nomic-embed-text');
-      expect(svc.getStatus()).toMatchObject({ runtime: 'http', profileId: 'embeddinggemma', state: 'ready' });
-      expect(svc.getThreshold('classes')).toBe(0.4);
-      expect(svc.getThreshold('mitre')).toBe(0.4);
-      expect(svc.getThreshold('components')).toBeNull();
-    });
+  /** A service whose in-process embedder has started and is ready. */
+  async function readyService(envOverrides: Record<string, string | undefined> = {}) {
+    const svc = await buildService(envOverrides);
+    svc.onModuleInit();
+    await svc.whenSettled();
+    return svc;
+  }
 
-    it('defaults to the legacy embeddinggemma model when EMBEDDING_MODEL is unset', async () => {
-      const svc = await buildService({ EMBEDDING_MODEL: undefined, EMBEDDING_SIMILARITY_THRESHOLD: undefined });
-      expect(svc.getModel()).toBe('embeddinggemma');
-      expect(svc.getThreshold('classes')).toBe(0.4);
-    });
-
-    it('takes EMBEDDING_SIMILARITY_THRESHOLD for classes and MITRE, not components', async () => {
-      const svc = await buildService({ EMBEDDING_SIMILARITY_THRESHOLD: '0.55' });
-      expect(svc.getThreshold('classes')).toBe(0.55);
-      expect(svc.getThreshold('mitre')).toBe(0.55);
-      expect(svc.getThreshold('components')).toBeNull();
+  describe('the profile', () => {
+    it('is the default profile when EMBEDDING_MODEL is unset or blank, run in process', async () => {
+      for (const model of [undefined, '', '  ']) {
+        const svc = await buildService({ EMBEDDING_MODEL: model });
+        expect(svc.getModel()).toBe(EG1);
+        expect(svc.getDimensions()).toBe(768);
+        expect(svc.getStatus()).toMatchObject({ enabled: true, runtime: 'onnx', profileId: EG1, state: 'downloading' });
+      }
     });
 
     it.each([
-      ['EMBEDDING_SIMILARITY_THRESHOLD', 'high'],
-      ['EMBEDDING_SIMILARITY_THRESHOLD', '1.5'],
-      ['EMBEDDING_THRESHOLD_MITRE', 'NaN'],
-      ['EMBEDDING_THRESHOLD_CLASSES', '-2'],
-    ])('refuses to start with %s=%s, a floor that is not a cosine value', async (name, value) => {
-      await expect(buildService({ [name]: value })).rejects.toThrow(`${name} must be a number from -1 to 1`);
+      ['embeddinggemma', 'is no longer supported'],
+      [EG2, 'is not available in this release'],
+      ['nomic-embed-text', 'Unknown EMBEDDING_MODEL'],
+    ])('refuses %s with embedding on', async (model, message) => {
+      await expect(buildService({ EMBEDDING_MODEL: model })).rejects.toThrow(message);
     });
 
-    it('takes a floor the validated configuration already turned into a number', async () => {
-      const svc = await buildService({ EMBEDDING_SIMILARITY_THRESHOLD: 0.6 as unknown as string });
-      expect(svc.getThreshold('classes')).toBe(0.6);
+    it('refuses nothing with embedding off, and stays disabled on the default profile', async () => {
+      const svc = await buildService({ EMBEDDING_ENABLED: 'false', EMBEDDING_MODEL: 'embeddinggemma' });
+      expect(svc.getStatus()).toMatchObject({ enabled: false, profileId: EG1, state: 'disabled' });
     });
 
-    it('lets a per-corpus override win over EMBEDDING_SIMILARITY_THRESHOLD', async () => {
-      const svc = await buildService({ EMBEDDING_SIMILARITY_THRESHOLD: '0.55', EMBEDDING_THRESHOLD_MITRE: '0.3' });
-      expect(svc.getThreshold('classes')).toBe(0.55);
-      expect(svc.getThreshold('mitre')).toBe(0.3);
+    it('reads EMBEDDING_ENABLED ignoring case and space, as the environment validation does', async () => {
+      expect((await buildService({ EMBEDDING_ENABLED: ' TRUE ' })).getStatus().enabled).toBe(true);
+      expect((await buildService({ EMBEDDING_ENABLED: 'yes' })).getStatus().enabled).toBe(false);
     });
 
-    it('takes EMBEDDING_DIMENSIONS', async () => {
-      fetchMock = answer(384);
-      global.fetch = fetchMock as unknown as typeof fetch;
-      const svc = await buildService({ EMBEDDING_DIMENSIONS: '384' });
-      expect(svc.getDimensions()).toBe(384);
+    it('warns once about each old HTTP embedder setting it ignores, and changes nothing for them', async () => {
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      const svc = await buildService({
+        EMBEDDING_URL: 'http://ollama:11434/api/embed',
+        EMBEDDING_API_KEY: 'k',
+        EMBEDDING_DIMENSIONS: '384',
+        EMBEDDING_SIMILARITY_THRESHOLD: '0.75',
+      });
+      const messages = warn.mock.calls.map((c) => String(c[0]));
+      for (const name of ['EMBEDDING_URL', 'EMBEDDING_API_KEY', 'EMBEDDING_DIMENSIONS', 'EMBEDDING_SIMILARITY_THRESHOLD']) {
+        expect(messages.filter((m) => m.startsWith(`${name} is ignored by the platform's embedder`))).toHaveLength(1);
+      }
+      expect([svc.getDimensions(), svc.getThreshold('classes'), svc.getThreshold('mitre')]).toEqual([768, 0.35, 0.301]);
+    });
+
+    it('says nothing about them when they are blank, or when embedding is off', async () => {
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      await buildService({ EMBEDDING_URL: ' ', EMBEDDING_SIMILARITY_THRESHOLD: '' });
+      await buildService({ EMBEDDING_ENABLED: 'false', EMBEDDING_URL: 'http://ollama:11434/api/embed' });
+      expect(warn).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('the start-up wait and the ready signal', () => {
+    it('waits for an in-process embedder whose files are in place, until it is ready', async () => {
+      weightsPlaced.mockResolvedValueOnce(true);
+      let finish!: () => void;
+      ensureWeightsWithRetry.mockImplementationOnce(() => new Promise<undefined>((resolve) => (finish = () => resolve(undefined))) as never);
+      const svc = await buildService({ EMBEDDING_MODEL: EG1 });
+      svc.onModuleInit();
+      let checked = false;
+      const wait = svc.whenStartupChecked().then(() => (checked = true));
+      await new Promise((r) => setImmediate(r));
+      expect(checked).toBe(false);
+      finish();
+      await wait;
       expect(svc.getState()).toBe('ready');
     });
 
-    it('is loading, not ready, until its endpoint has answered a check', async () => {
-      const svc = await buildService({}, { start: false });
-      expect([svc.getState(), svc.isEnabled(), svc.isPending()]).toEqual(['loading', false, true]);
-
-      svc.onModuleInit();
-      await svc.whenStartupChecked();
-
-      expect([svc.getState(), svc.isEnabled()]).toEqual(['ready', true]);
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      const [url, init] = fetchMock.mock.calls[0];
-      expect(url).toBe('http://localhost:11434/api/embed');
-      expect(JSON.parse(init.body)).toEqual({ model: 'nomic-embed-text', input: ['warm-up'] });
-      expect(init.signal).toBeInstanceOf(AbortSignal);
-    });
-
-    it('fails with the reason when the endpoint does not answer, and becomes ready once it does', async () => {
+    it('stops waiting after 60 s and says so, so the install goes on and catches up later', async () => {
       jest.useFakeTimers();
-      fetchMock.mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:11434'));
-      const svc = await buildService({}, { start: false });
+      weightsPlaced.mockResolvedValueOnce(true);
+      ensureWeightsWithRetry.mockImplementationOnce(() => new Promise<undefined>(() => undefined) as never);
+      const svc = await buildService({ EMBEDDING_MODEL: EG1 });
+      const warn = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => undefined);
       svc.onModuleInit();
-      const checked = svc.whenStartupChecked();
-      await jest.advanceTimersByTimeAsync(1_000 + 3_000);
-      await checked;
-
-      expect(fetchMock).toHaveBeenCalledTimes(3);
-      expect(svc.getStatus()).toMatchObject({ state: 'failed', error: 'connect ECONNREFUSED 127.0.0.1:11434' });
-      expect(svc.isPending()).toBe(true);
-
-      await jest.advanceTimersByTimeAsync(60_000);
-      expect(svc.getState()).toBe('failed');
-
-      fetchMock.mockImplementation(answer(768));
-      await jest.advanceTimersByTimeAsync(60_000);
-      expect([svc.getState(), svc.isEnabled(), svc.getStatus().error]).toEqual(['ready', true, undefined]);
-
-      const calls = fetchMock.mock.calls.length;
-      await jest.advanceTimersByTimeAsync(180_000);
-      expect(fetchMock.mock.calls.length).toBe(calls);
-      await svc.onModuleDestroy();
-    });
-
-    it('reports why fetch failed, from its cause, as Node\'s fetch gives it', async () => {
-      jest.useFakeTimers();
-      const refused = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:11434'), { code: 'ECONNREFUSED' });
-      fetchMock.mockRejectedValue(new TypeError('fetch failed', { cause: refused }));
-      const svc = await buildService({}, { start: false });
-      svc.onModuleInit();
-      await jest.advanceTimersByTimeAsync(4_000);
-      await svc.whenStartupChecked();
-      expect(svc.getStatus()).toMatchObject({ state: 'failed', error: 'fetch failed (connect ECONNREFUSED 127.0.0.1:11434)' });
-      await svc.onModuleDestroy();
-    });
-
-    it('fails when the endpoint answers with other dimensions than EMBEDDING_DIMENSIONS', async () => {
-      jest.useFakeTimers();
-      fetchMock = answer(384);
-      global.fetch = fetchMock as unknown as typeof fetch;
-      const svc = await buildService({}, { start: false });
-      svc.onModuleInit();
-      const checked = svc.whenStartupChecked();
-      await jest.advanceTimersByTimeAsync(4_000);
-      await checked;
-      expect(svc.getStatus()).toMatchObject({ state: 'failed', error: 'the endpoint returned 384 dimensions; EMBEDDING_DIMENSIONS is 768' });
-      await svc.onModuleDestroy();
-    });
-
-    it('shutting down while a check request is in flight cancels it, starts no other and leaves no timer', async () => {
-      jest.useFakeTimers();
-      fetchMock.mockImplementation(
-        (_url: string, init: { signal: AbortSignal }) =>
-          new Promise((_resolve, reject) => init.signal.addEventListener('abort', () => reject(new Error('aborted')))),
+      let checked = false;
+      const wait = svc.whenStartupChecked().then(() => (checked = true));
+      await jest.advanceTimersByTimeAsync(59_000);
+      expect(checked).toBe(false);
+      await jest.advanceTimersByTimeAsync(1_000);
+      await wait;
+      expect(svc.getState()).toBe('downloading');
+      expect(warn).toHaveBeenCalledWith(
+        'Embedder not ready after the start-up wait; the module install continues and catches up when it is',
+        { profile: EG1, waitedMs: 60_000 },
       );
-      const svc = await buildService({}, { start: false });
-      svc.onModuleInit();
-      await jest.advanceTimersByTimeAsync(0);
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-
-      await svc.onModuleDestroy();
-      await svc.whenStartupChecked();
-      await jest.advanceTimersByTimeAsync(300_000);
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      expect(jest.getTimerCount()).toBe(0);
-      expect(svc.getState()).not.toBe('failed');
     });
 
-    it('shutting down during the back-off pause ends it at once, with no further attempt and no timer', async () => {
-      jest.useFakeTimers();
-      fetchMock.mockRejectedValue(new Error('down'));
-      const svc = await buildService({}, { start: false });
+    it('tells its listeners when the in-process embedder becomes ready, and not after one is removed', async () => {
+      const svc = await buildService({ EMBEDDING_MODEL: EG1 });
+      const first = jest.fn();
+      const second = jest.fn();
+      svc.onReady(first);
+      const remove = svc.onReady(second);
+      remove();
       svc.onModuleInit();
-      await jest.advanceTimersByTimeAsync(0);
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-
-      await svc.onModuleDestroy();
-      await svc.whenStartupChecked();
-      expect(jest.getTimerCount()).toBe(0);
-      await jest.advanceTimersByTimeAsync(300_000);
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-    });
-
-    it('stops checking again on shutdown', async () => {
-      jest.useFakeTimers();
-      fetchMock.mockRejectedValue(new Error('down'));
-      const svc = await buildService({}, { start: false });
-      svc.onModuleInit();
-      await jest.advanceTimersByTimeAsync(4_000);
-      await svc.whenStartupChecked();
-      await svc.onModuleDestroy();
-      const calls = fetchMock.mock.calls.length;
-      await jest.advanceTimersByTimeAsync(300_000);
-      expect(fetchMock.mock.calls.length).toBe(calls);
-    });
-
-    it('never loads the in-process embedder', async () => {
-      const svc = await buildService();
       await svc.whenSettled();
-      expect(createOnnxEmbedder).not.toHaveBeenCalled();
+      expect(first).toHaveBeenCalledTimes(1);
+      expect(second).not.toHaveBeenCalled();
+    });
+
+    it('a failing listener does not stop the others', async () => {
+      const svc = await buildService({ EMBEDDING_MODEL: EG1 });
+      jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => undefined);
+      const after = jest.fn();
+      svc.onReady(() => {
+        throw new Error('boom');
+      });
+      svc.onReady(after);
+      svc.onModuleInit();
+      await svc.whenSettled();
+      expect(after).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -264,15 +185,47 @@ describe('EmbeddingService', () => {
       svc.onModuleInit();
       await svc.whenSettled();
       expect(ensureWeightsWithRetry).toHaveBeenCalledWith(expect.objectContaining({ id: EG1 }), '/models', expect.anything());
-      expect(createOnnxEmbedder).toHaveBeenCalledWith(expect.objectContaining({ id: EG1 }), '/models', { threads: 4 });
+      expect(createWorkerEmbedder).toHaveBeenCalledWith(expect.objectContaining({ id: EG1 }), '/models', {
+        threads: 4,
+        onFailure: expect.any(Function),
+      });
       expect(embed).toHaveBeenCalledWith('query', [{ text: 'warm-up' }]);
       expect(svc.getStatus().state).toBe('ready');
       expect(svc.isEnabled()).toBe(true);
     });
 
+    it('a warm-up that fails releases the worker it started and leaves the embedder failed', async () => {
+      const failingEmbed = jest.fn(async (_kind: string, _items: Array<{ text: string; title?: string }>): Promise<number[][]> => {
+        throw new Error('embedding has 0 dimensions, expected 768');
+      });
+      const releaseWarm = jest.fn(async () => undefined);
+      createWorkerEmbedder.mockImplementationOnce(async () => ({ profileId: 'p', dimensions: 768, embed: failingEmbed, release: releaseWarm }));
+      const svc = await buildService({ EMBEDDING_MODEL: EG1, EMBEDDING_MODEL_DIR: '/models' });
+      svc.onModuleInit();
+      await svc.whenSettled();
+      expect(svc.getStatus()).toMatchObject({ state: 'failed', error: 'embedding has 0 dimensions, expected 768' });
+      expect(releaseWarm).toHaveBeenCalledTimes(1);
+      // A failure the released worker reports later changes nothing.
+      const { onFailure } = createWorkerEmbedder.mock.calls.at(-1)![2] as { onFailure: (error: Error) => void };
+      onFailure(new Error('embedder worker exited (code 1)'));
+      expect(svc.getStatus().error).toBe('embedding has 0 dimensions, expected 768');
+    });
+
+    it('a worker that fails after it was ready turns the embedder failed with the reason, and the vector tier off', async () => {
+      const svc = await buildService({ EMBEDDING_MODEL: EG1, EMBEDDING_MODEL_DIR: '/models' });
+      svc.onModuleInit();
+      await svc.whenSettled();
+      expect(svc.isEnabled()).toBe(true);
+      const { onFailure } = createWorkerEmbedder.mock.calls.at(-1)![2] as { onFailure: (error: Error) => void };
+      onFailure(new Error('embedder worker exited (code 134)'));
+      expect(svc.getStatus()).toMatchObject({ state: 'failed', error: 'embedder worker exited (code 134)' });
+      expect(svc.isEnabled()).toBe(false);
+      await expect(svc.embedBatch(['x'], 'query')).resolves.toBeNull();
+    });
+
     it('stores the profile id as the model and takes the profile dimensions', async () => {
-      const svc = await buildService({ EMBEDDING_MODEL: EG2, EMBEDDING_DIMENSIONS: '384' });
-      expect(svc.getModel()).toBe(EG2);
+      const svc = await buildService({ EMBEDDING_MODEL: EG1 });
+      expect(svc.getModel()).toBe(EG1);
       expect(svc.getDimensions()).toBe(768);
     });
 
@@ -295,9 +248,9 @@ describe('EmbeddingService', () => {
     });
 
     it('takes a per-corpus override', async () => {
-      const svc = await buildService({ EMBEDDING_MODEL: EG2, EMBEDDING_THRESHOLD_CLASSES: '0.7', EMBEDDING_THRESHOLD_COMPONENTS: '0.5' });
+      const svc = await buildService({ EMBEDDING_MODEL: EG1, EMBEDDING_THRESHOLD_CLASSES: '0.7', EMBEDDING_THRESHOLD_COMPONENTS: '0.5' });
       expect(svc.getThreshold('classes')).toBe(0.7);
-      expect(svc.getThreshold('mitre')).toBe(0.658);
+      expect(svc.getThreshold('mitre')).toBe(0.301);
       expect(svc.getThreshold('components')).toBe(0.5);
     });
 
@@ -324,6 +277,118 @@ describe('EmbeddingService', () => {
       await svc.whenSettled();
       await svc.onModuleDestroy();
       expect(release).toHaveBeenCalled();
+    });
+  });
+
+  describe('a shutdown during the start', () => {
+    it('aborts a download in flight and returns at once, without reporting a failure', async () => {
+      let received: AbortSignal | undefined;
+      ensureWeightsWithRetry.mockImplementationOnce(((_p: unknown, _d: unknown, options: { signal?: AbortSignal }) => {
+        received = options.signal;
+        return new Promise<undefined>((_resolve, reject) => options.signal?.addEventListener('abort', () => reject(options.signal?.reason)));
+      }) as never);
+      const svc = await buildService();
+      const error = jest.spyOn((svc as any).logger, 'error').mockImplementation(() => undefined);
+      svc.onModuleInit();
+      await new Promise((r) => setImmediate(r));
+      expect(received?.aborted).toBe(false);
+      await svc.onModuleDestroy();
+      expect(received?.aborted).toBe(true);
+      expect(error).not.toHaveBeenCalled();
+      expect(createWorkerEmbedder).not.toHaveBeenCalled();
+    });
+
+    it('releases a worker in its warm-up at once, so the warm-up ends, and announces nothing', async () => {
+      let rejectWarmUp!: (error: Error) => void;
+      const releaseWarming = jest.fn(async () => rejectWarmUp(new Error('the embedder was released')));
+      createWorkerEmbedder.mockImplementationOnce((async () => ({
+        profileId: 'p',
+        dimensions: 768,
+        embed: jest.fn(() => new Promise<number[][]>((_resolve, reject) => (rejectWarmUp = reject))),
+        release: releaseWarming,
+      })) as never);
+      const svc = await buildService();
+      const ready = jest.fn();
+      svc.onReady(ready);
+      const error = jest.spyOn((svc as any).logger, 'error').mockImplementation(() => undefined);
+      svc.onModuleInit();
+      while (!rejectWarmUp) await new Promise((r) => setImmediate(r));
+      await svc.onModuleDestroy();
+      expect(releaseWarming).toHaveBeenCalled();
+      expect(ready).not.toHaveBeenCalled();
+      expect(error).not.toHaveBeenCalled();
+      expect(svc.isEnabled()).toBe(false);
+    });
+
+    it('waits for a model load in progress at most a few seconds, and releases the worker it delivers later', async () => {
+      jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick'] });
+      let deliver!: () => void;
+      const releaseLate = jest.fn(async () => undefined);
+      createWorkerEmbedder.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => (deliver = () => resolve({ profileId: 'p', dimensions: 768, embed, release: releaseLate }))) as never,
+      );
+      const svc = await buildService();
+      svc.onModuleInit();
+      while (!deliver) await new Promise((r) => setImmediate(r));
+      let stopped = false;
+      const stopping = svc.onModuleDestroy().then(() => (stopped = true));
+      await jest.advanceTimersByTimeAsync(4_000);
+      expect(stopped).toBe(false);
+      await jest.advanceTimersByTimeAsync(1_500);
+      await stopping;
+      expect(stopped).toBe(true);
+      deliver();
+      await svc.whenSettled();
+      expect(releaseLate).toHaveBeenCalledTimes(1);
+      expect(embed).not.toHaveBeenCalled();
+      expect(svc.isEnabled()).toBe(false);
+    });
+
+    it('is no longer enabled once a shutdown begins, though it was ready', async () => {
+      const svc = await readyService();
+      expect(svc.isEnabled()).toBe(true);
+      const stopping = svc.onModuleDestroy();
+      expect(svc.isEnabled()).toBe(false);
+      expect(svc.isPending()).toBe(true);
+      await stopping;
+      expect(release).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not load the model when the shutdown came as the download finished, and announces nothing', async () => {
+      let finish!: () => void;
+      ensureWeightsWithRetry.mockImplementationOnce((() => new Promise<undefined>((resolve) => (finish = () => resolve(undefined)))) as never);
+      const svc = await buildService();
+      const ready = jest.fn();
+      svc.onReady(ready);
+      svc.onModuleInit();
+      await new Promise((r) => setImmediate(r));
+      const stopping = svc.onModuleDestroy();
+      finish();
+      await stopping;
+      expect(createWorkerEmbedder).not.toHaveBeenCalled();
+      expect(ready).not.toHaveBeenCalled();
+      expect(svc.isEnabled()).toBe(false);
+    });
+
+    it('says once, before a download, what it downloads and under which licence', async () => {
+      const svc = await buildService();
+      const log = jest.spyOn((svc as any).logger, 'log').mockImplementation(() => undefined);
+      svc.onModuleInit();
+      await svc.whenSettled();
+      const said = log.mock.calls.filter((c) => c[0] === 'Downloading the embedding model once; it stays in the models directory');
+      expect(said).toHaveLength(1);
+      expect(said[0][1]).toMatchObject({ profile: EG1, licence: 'Gemma Terms of Use', licenceUrl: 'https://ai.google.dev/gemma/terms' });
+      expect((said[0][1] as { bytes: number }).bytes).toBeGreaterThan(1_000_000_000);
+    });
+
+    it('says nothing about a download when the weights are already in place', async () => {
+      weightsPlaced.mockResolvedValueOnce(true);
+      const svc = await buildService();
+      const log = jest.spyOn((svc as any).logger, 'log').mockImplementation(() => undefined);
+      svc.onModuleInit();
+      await svc.whenSettled();
+      expect(log.mock.calls.map((c) => c[0])).not.toContain('Downloading the embedding model once; it stays in the models directory');
     });
   });
 
@@ -379,7 +444,7 @@ describe('EmbeddingService', () => {
     });
 
     it('reports disabled only from the configuration, so /health shows the embedder as it is', async () => {
-      const on = await buildService();
+      const on = await readyService();
       expect([on.getState(), on.getStatus().state, on.isEnabled()]).toEqual(['ready', 'ready', true]);
       const off = await buildService({ EMBEDDING_ENABLED: 'false' });
       expect([off.getState(), off.getStatus()]).toEqual(['disabled', expect.objectContaining({ enabled: false, state: 'disabled' })]);
@@ -425,72 +490,12 @@ describe('EmbeddingService', () => {
       expect(embed).toHaveBeenCalledTimes(3);
     });
 
-    describe('through the HTTP embedder, counting requests', () => {
-      const unreachable = () => new TypeError('fetch failed', { cause: Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }) });
-      /** Runs `work` while the embedder's 1 s and 3 s retry back-off elapses on fake timers. */
-      async function settle<T>(work: Promise<T>): Promise<T> {
-        let done = false;
-        const p = work.finally(() => (done = true));
-        while (!done) await jest.advanceTimersByTimeAsync(1_000);
-        return p;
-      }
-
-      it('does not try a single text again after the embedder gave up on it', async () => {
-        const svc = await buildService();
-        jest.useFakeTimers();
-        fetchMock.mockClear();
-        fetchMock.mockRejectedValue(unreachable());
-        const { vectors, failures } = await settle(svc.embedEach(['steal cached passwords'], 'query'));
-        expect(fetchMock).toHaveBeenCalledTimes(3);
-        expect([vectors, failures.map((f) => f.index)]).toEqual([[null], [0]]);
-      });
-
-      it('fails every text at once when the endpoint cannot be reached, without one request per text', async () => {
-        const svc = await buildService();
-        jest.useFakeTimers();
-        fetchMock.mockClear();
-        fetchMock.mockRejectedValue(unreachable());
-        const { vectors, failures } = await settle(svc.embedEach(['a', 'b', 'c'], 'query'));
-        expect(fetchMock).toHaveBeenCalledTimes(3);
-        expect(vectors).toEqual([null, null, null]);
-        expect(failures.map((f) => [f.index, (f.error as Error).message])).toEqual([
-          [0, 'fetch failed'],
-          [1, 'fetch failed'],
-          [2, 'fetch failed'],
-        ]);
-      });
-
-      it('falls back to one text at a time when the endpoint answers the batch with an error', async () => {
-        const svc = await buildService();
-        jest.useFakeTimers();
-        fetchMock.mockClear();
-        const ok = answer(768);
-        fetchMock.mockImplementation(async (url: string, init: { body: string }) =>
-          (JSON.parse(init.body).input as string[]).includes('bad') ? { ok: false, status: 500, statusText: 'Internal Server Error', json: async () => ({}) } : ok(url, init),
-        );
-        const { vectors, failures } = await settle(svc.embedEach(['good', 'bad'], 'query'));
-        // The batch (three tries), then 'good' and 'bad' once each.
-        expect(fetchMock).toHaveBeenCalledTimes(5);
-        expect([vectors[0]?.length, vectors[1], failures.map((f) => f.index)]).toEqual([768, null, [1]]);
-      });
-
-      it('tries each text once when every request is answered with an error, not three times more', async () => {
-        const svc = await buildService();
-        jest.useFakeTimers();
-        fetchMock.mockClear();
-        fetchMock.mockResolvedValue({ ok: false, status: 503, statusText: 'Service Unavailable', json: async () => ({}) });
-        const started = Date.now();
-        const { vectors, failures } = await settle(svc.embedEach(['a', 'b', 'c'], 'query'));
-        // The batch (three tries), then one request per text with no back-off of its own.
-        expect(fetchMock).toHaveBeenCalledTimes(6);
-        expect(Date.now() - started).toBeLessThanOrEqual(5_000);
-        expect(vectors).toEqual([null, null, null]);
-        expect(failures.map((f) => [f.index, (f.error as Error).message])).toEqual([
-          [0, 'Embedding API returned 503: Service Unavailable'],
-          [1, 'Embedding API returned 503: Service Unavailable'],
-          [2, 'Embedding API returned 503: Service Unavailable'],
-        ]);
-      });
+    it('does not try a single text again after the batch failed on it', async () => {
+      const svc = await readyOnnx();
+      embed.mockRejectedValue(new Error('cannot embed'));
+      const { vectors, failures } = await svc.embedEach(['steal cached passwords'], 'query');
+      expect(embed).toHaveBeenCalledTimes(1);
+      expect([vectors, failures.map((f) => f.index)]).toEqual([[null], [0]]);
     });
 
     it('makes no call for no text, and gives nulls when the embedder is not enabled', async () => {

@@ -1,6 +1,6 @@
 {
   "name": "mitre-frameworks",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "displayName": "MITRE ATT&CK, ATLAS & D3FEND Data",
   "description": "Pre-exported MITRE ATT&CK, ATLAS and D3FEND framework data in Cypher format",
   "author": "Dethermine Team",
@@ -9,5 +9,6 @@
     "attack": "v19.2",
     "atlas": "v2026.09",
     "d3fend": "1.6.0"
-  }
+  },
+  "embeddingProfile": "embeddinggemma-300m-retrieval-v1"
 }

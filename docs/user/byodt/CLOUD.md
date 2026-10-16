@@ -181,7 +181,9 @@ Mounting is not a download. It writes a small marker into the deployment's modul
    ./byodt restart platform
    ```
 
-Only the platform is recreated. The database, the embedding server, and the console keep running.
+   The platform then embeds the new classes (about 0.2 s each); they match by name until it finishes.
+
+Only the platform is recreated. The database and the console keep running.
 
 ### Package and module states
 

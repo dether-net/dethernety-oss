@@ -18,6 +18,9 @@
     "test:atlas-loader": "python3 scripts/test_atlas_loader.py",
     "test:export-checks": ". .venv/bin/activate && .venv/bin/python scripts/test_export_checks.py",
     "test:module-refs": "python3 scripts/test_check_module_refs.py",
+    "test:embedding-profile": "python3 scripts/test_embedding_profile.py",
+    "test:embeddings-files": "python3 scripts/test_embeddings_files.py",
+    "check:embeddings-files": "python3 scripts/check_embeddings_files.py",
     "check:module-refs": "python3 scripts/check_module_refs.py --min-references 1000 ../dethernety-general"
   }
 }

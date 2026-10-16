@@ -8,7 +8,8 @@
  * by id. The id is what a node stores as `embeddingModel`, so it changes whenever anything that
  * shapes a stored vector changes.
  *
- * `embeddinggemma` describes the HTTP embedder used today: no prompts, no pinned weights.
+ * `embeddinggemma` describes the retired HTTP (Ollama) embedder: no prompts, no pinned weights. The platform refuses
+ * it; it stays for the tools that compare against vectors made with it.
  */
 
 import { createHash } from 'crypto';

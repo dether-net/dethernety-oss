@@ -1339,7 +1339,7 @@ Provides text embeddings and runtime embedding-model metadata for the vector-sim
 #### Key Methods
 
 ##### `isEnabled(): boolean`
-Whether the service can embed right now. True only when both hold: embedding is enabled by configuration (`EMBEDDING_ENABLED`) and the embedder is `ready` — the HTTP embedder once its start-up check has passed, the in-process ONNX embedder once its weights are loaded. Callers read it before every resolve pass.
+Whether the service can embed right now. True only when both hold: embedding is enabled by configuration (`EMBEDDING_ENABLED`) and the embedder is `ready`: its weights verified and its model loaded. Callers read it before every resolve pass.
 
 ##### `isPending(): boolean`
 Enabled by configuration, but not `ready` yet: the model is downloading or loading, or it failed to. Vectors already stored stay valid, so a caller keeps them rather than treating this as "disabled".
@@ -1348,7 +1348,7 @@ Enabled by configuration, but not `ready` yet: the model is downloading or loadi
 The embedder's state: `disabled` (embedding is off by configuration), `downloading`, `loading`, `ready` or `failed`.
 
 ##### `whenStartupChecked(): Promise<void>`
-Resolves once the HTTP embedder's start-up check has finished, passed or failed; at once for the ONNX embedder, whose download can take minutes. The start-up module install waits on it, so a reachable endpoint embeds that install's classes.
+Resolves once the embedder is ready or failed, for at most 60 s, when its weight files are already in place (the model loads on a worker thread, so the bound holds); at once when a download is due, which can take minutes. The start-up module install waits on it, so a model already on disk embeds that install's classes; a later one catches the install up when it becomes ready.
 
 ##### `getModel(): string`
 The runtime embedding model identifier (compared against each corpus node's `embeddingModel` in the model-coherence precheck).

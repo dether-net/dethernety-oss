@@ -15,9 +15,11 @@ const rec = (
   name: string,
   contentHash: string | null,
   lastInstallStatus: string | null,
+  // The fingerprint of the embedding stub below: a module installed with it is skipped while nothing else changed.
+  embeddingProfile: string | null = 'nomic-embed-text/3',
 ) => ({
   get: (k: string) =>
-    (({ name, contentHash, lastInstallStatus }) as Record<string, unknown>)[k],
+    (({ name, contentHash, lastInstallStatus, embeddingProfile }) as Record<string, unknown>)[k],
 });
 
 // A single persistent session whose executeWrite runs the callback against a

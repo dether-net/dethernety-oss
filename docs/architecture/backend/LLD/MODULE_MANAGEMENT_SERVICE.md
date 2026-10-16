@@ -325,6 +325,7 @@ async updateAllModules(
   modules: Map<string, DTModule>,
   options: ModuleOperationOptions = {},
 ): Promise<void> {
+  // Queued behind any install already running; waits for the embedder, within a bound
   // Phase A: skip-gate read + resolve vectors per module, outside any transaction
   // Phase B: one write transaction per module
   // Obsolescence sweep (deleteOldModules) in its own final write transaction
@@ -337,8 +338,12 @@ async updateAllModules(
 
 `updateAllModules` never holds a write transaction open while class vectors are being made, and never lets one module's failed write take the others down with it:
 
-1. **Wait for the embedder's start-up check.** It awaits `EmbeddingService.whenStartupChecked()`, so a reachable HTTP embedding endpoint embeds this install instead of every module being installed `partial`.
-2. **Phase A — resolve vectors, outside any transaction.** One read of every `:Module` node's stored state feeds the [content-hash skip gate](#content-hash-skip-gate). For each module the gate does not skip, `resolveVectors` makes the class vectors. A module whose metadata or vectors fail is logged and left out of this round; the rest carry on.
+1. **Wait for the embedder, within a bound.** It awaits `EmbeddingService.whenStartupChecked()`, so an embedder that is about to be ready embeds this install instead of every module being installed `partial`. The embedder runs in process; what the install waits for depends on whether its weights are on disk:
+   - **Files already in place** — `weightsPlaced` (`@dethernety/embedder`) checks, by size only, with no hashing and no network, that the profile's weight files are in place, so no download is due. The install then waits until the embedder is `ready` or `failed`, for at most 60 s, the platform healthcheck's start period; verify, load and warm-up took about 8 s on a 4-CPU host. When the bound runs out it logs `Embedder not ready after the start-up wait; the module install continues and catches up when it is` and carries on.
+   - **Download due** — no wait. A download can take minutes and is never waited for.
+
+   The model loads on the embedder's worker thread (`createWorkerEmbedder`, `@dethernety/embedder`), not on the event loop the install runs on, so the 60 s bound is a real one: when it runs out the install carries on while the load continues, and the worker's own load timeout (120 s) fails a load that hangs. A module this install leaves `partial` for want of an embedder is installed again when the embedder becomes ready (see [Catch-up when the embedder becomes ready](#catch-up-when-the-embedder-becomes-ready)).
+2. **Phase A — resolve vectors, outside any transaction.** One read of every `:Module` node's stored state, and with embedding on one read of the class vectors, feed the [content-hash skip gate](#content-hash-skip-gate). For each module the gate does not skip, `resolveVectors` makes the class vectors. It gives every class the module declares a vector, or fails: an embedder that returns another number of vectors than classes, or a vector that cannot be stored (`vectorDefect`: not a list, the wrong length, a non-finite value or a zero norm), throws. A pre-computed vector from the module's `getEmbedding()` that cannot be stored is not an error: it is logged (`Pre-computed embedding cannot be stored; falling through to on-the-fly`, with the defect) and the class is embedded on the fly, as one of the wrong length is. A module whose metadata or vectors fail is logged and left out of this round, unchanged in the graph; the rest carry on.
 3. **Phase B — one write transaction per module.** Each resolved module's `upsertModule` runs in its **own** `session.executeWrite`, with the vectors from Phase A (no embedding requests inside the transaction). A module whose write fails rolls back only its own transaction; every other module still commits.
 4. **Obsolescence sweep — its own final transaction.** After every module upsert has committed, `deleteOldModules` runs in one more write transaction. It protects every module **present on disk this round**, not only the ones that installed, so a module that failed this time is never taken for a removed one and deleted with its classes. A failed sweep is logged and does not stop start-up; an obsolete module then lingers until the next sweep.
 5. **Post-commit hooks.** Each installed or skipped module's `afterInstall` hook runs (see [below](#afterinstall-post-commit-hook-invocation)).
@@ -347,12 +352,14 @@ async updateAllModules(
 
 ### Content-hash skip gate
 
-Before it resolves any class vectors, `updateAllModules` reads every `:Module` node's stored `contentHash` and `lastInstallStatus` in one read. A module is **skipped** — no vector resolution, no graph write — when both of these hold:
+Before it resolves any class vectors, `updateAllModules` reads every `:Module` node's stored `contentHash`, `lastInstallStatus` and `embeddingProfile` in one read. A module is **skipped** — no vector resolution, no graph write — when all four of these hold:
 
-- its `contentHash` equals the one stored on its `:Module` node, and
-- its last install was `authoritative`.
+- its `contentHash` equals the one stored on its `:Module` node,
+- its last install was `authoritative`,
+- the `embeddingProfile` stored on its `:Module` node equals the active embedder's (see [The recorded embedder](#the-recorded-embedder)), and
+- none of the searchable classes it declares holds a vector the active embedder did not make (see [The class vector check](#the-class-vector-check)).
 
-A skipped module still counts as installed: `deleteOldModules` keeps it, and its `afterInstall` hook still runs (see [below](#afterinstall-post-commit-hook-invocation)). Every other case is a full install: no stored node, a different hash, a `partial` last install, or a forced run (`MODULE_LOAD_FORCE=1`, which `ModuleRegistryService` passes as `options.force`).
+A skipped module still counts as installed: `deleteOldModules` keeps it, and its `afterInstall` hook still runs (see [below](#afterinstall-post-commit-hook-invocation)). Every other case is a full install: no stored node, a different hash, a `partial` last install, a different or missing `embeddingProfile`, a declared searchable class whose vector the active embedder did not make, a failed class vector check, or a forced run (`MODULE_LOAD_FORCE=1`, which `ModuleRegistryService` passes as `options.force`).
 
 **Where the hash comes from.**
 
@@ -364,15 +371,65 @@ A skipped module still counts as installed: `deleteOldModules` keeps it, and its
 
 **The computed hash.** `computedContentHash` (`module-content-hash.ts`) returns `sha256:<hex>` over the canonical JSON (object keys sorted at every depth) of:
 
-- the module's `getMetadata()` result, without any `contentHash` field,
-- the active embedder: `<model>/<dimensions>` while embedding is enabled or pending, otherwise `off`, and
+- the module's `getMetadata()` result, without any `contentHash` field, and
 - the platform version: the `version` in dt-ws's `package.json` (`platform-version.ts`).
 
-The install stores the computed hash on the `:Module` node exactly like a shipped one, so the next start skips the module while nothing changed. A change to the metadata — any class, any class field, the module `version`, the `idRebindPolicy` — to the embedder (model, dimensions, on/off) or to the platform version yields a different hash and a full reinstall. A platform upgrade therefore reinstalls each such module once, then the gate skips it again.
+The install stores the computed hash on the `:Module` node exactly like a shipped one, so the next start skips the module while nothing changed. A change to the metadata — any class, any class field, the module `version`, the `idRebindPolicy` — or to the platform version yields a different hash and a full reinstall. A platform upgrade therefore reinstalls each such module once, then the gate skips it again.
 
-**Why these inputs are complete.** An install writes the `:Module` node and its classes from `getMetadata()` alone, plus one vector per class that the active embedder makes from that metadata. The platform's own install code does the writing, and an upgrade may write the same metadata differently, so the platform version is an input too. A file module is unaffected: the gate compares its shipped hash as is. Templates, guides, exposures, countermeasures and Rego policies are not install inputs: the platform asks the module for them when they are used, so a skipped install cannot leave a stale one behind. `update-all-modules.skip-gate.spec.ts` pins this — the install reads nothing from a module except `getMetadata`, `getEmbedding` and `afterInstall`. If the install ever reads another input, that input belongs in the computed hash.
+**Why these inputs are complete.** An install writes the `:Module` node and its classes from `getMetadata()` alone. The platform's own install code does the writing, and an upgrade may write the same metadata differently, so the platform version is an input too. The embedder that makes the class vectors is not a hash input: the gate checks it for every module through the recorded `embeddingProfile`. A file module is unaffected: the gate compares its shipped hash as is. Templates, guides, exposures, countermeasures and Rego policies are not install inputs: the platform asks the module for them when they are used, so a skipped install cannot leave a stale one behind. `update-all-modules.skip-gate.spec.ts` pins this — the install reads nothing from a module except `getMetadata`, `getEmbedding` and `afterInstall`. If the install ever reads another input, that input belongs in the computed hash.
 
 **The `getEmbedding()` exception.** A module that implements `getEmbedding()` hands the install pre-computed vectors from a source its metadata does not show, so a hash over the metadata cannot vouch for them. Such a module gets no computed hash and is installed on every start unless it ships its own `contentHash`. `DtFileOpaModule` implements `getEmbedding()`, so a file module whose `module.json` carries no `contentHash` is likewise installed on every start.
+
+### The recorded embedder
+
+An install writes `embeddingProfile` on the `:Module` node: the embedder the module's class vectors are made with, as returned by `embedderFingerprint` (`module-content-hash.ts`) — `<model>/<dimensions>` while embedding is enabled or pending, otherwise `off`. It follows the configuration, not readiness, so a pending embedder counts as on and the value does not change while the model loads. An install made while the embedder is still pending keeps the stored vectors and writes no `embeddingProfile`, so the node keeps the record of the embedder that made them; the install is `partial` and is repeated when the embedder becomes ready (see [Catch-up when the embedder becomes ready](#catch-up-when-the-embedder-becomes-ready)), or else at the next start. `reindexClassEmbeddings` writes it too, on each `:Module` whose searchable classes (the labels in `CLASS_LABELS`) it re-embedded, all of them; a module with such a class left without a new vector keeps its old record. Analysis and issue classes, which no vector search reads, keep their vectors. That way the next start does not reinstall those modules only to embed them again.
+
+When a module's hash matches and its last install was `authoritative` but the stored `embeddingProfile` differs from the active one, the gate logs `Embedding model changed — reinstalling the module so its classes are embedded with the active model` (with `from` and `to`) and installs it in full. A change of model, of dimensions, or switching embedding on or off therefore re-embeds the classes of every module, whatever its content hash. A matching record is not enough on its own: the gate also checks the classes' stored vectors (see [The class vector check](#the-class-vector-check)).
+
+**Upgrade.** A `:Module` node written before the platform recorded the embedder has no `embeddingProfile`, so every module is reinstalled once on the first start after the upgrade (logged as `Embedding model not recorded for this module yet — reinstalling it once to record it`, `from: unrecorded`); later starts skip it again. Under an unchanged embedding model that reinstall uses the vectors a module ships or publishes for that model and embeds only the classes that have none; under a changed model the classes are embedded again. With the in-process embedder, a start whose install runs while the model is still downloading or loading leaves the modules `partial`, and the catch-up installs them again once the model is ready.
+
+### The class vector check
+
+The recorded `embeddingProfile` can disagree with the classes it describes. A platform version that does not record the embedder may have installed the module again since the record was written — a rollback to an older version that keeps the current graph, or an older version's forced install after a newer one recorded the embedder. The classes then hold that version's vectors under a record that still matches, and the record alone would never have them embedded again: the class vector tier stays off.
+
+So when embedding is enabled or pending and the run is not forced, `updateAllModules` makes one more read before the gate, `readStaleClassKeys`, for every module at once. It lists each class reached through `HAS_CLASS` that carries a searchable label (`CLASS_LABELS`: `ComponentClass`, `ControlClass`, `DataFlowClass`, `SecurityBoundaryClass`, `DataClass`) and whose stored vector the active embedder did not make:
+
+- no `embedding`, or no `embeddingModel`,
+- an `embeddingModel` other than the active profile id (`getModel()`), or
+- an `embedding` whose length is not the active dimensions (`getDimensions()`).
+
+These are the vectors the class vector search does not score. For a module whose hash, last install and record all match, `staleDeclaredClasses` counts the listed classes the module **declares** in its metadata, matched by label and `id`. A count above zero is logged as `Class vectors do not match the recorded embedding model — reinstalling the module so its classes are embedded with the active model` (with `moduleName`, `staleClasses` — the count — and `profile`), and the module is installed in full. A module that declares no classes is skipped as before.
+
+**What does not count.** Counting any of these would reinstall the module to no effect, at every start or after every reindex:
+
+| Not counted | Why |
+|---|---|
+| Analysis and issue classes | No search reads their vectors, and `reindexClassEmbeddings` leaves them as they are while it records the embedder |
+| Orphaned classes (`HAS_ORPHANED_CLASS`) | An install does not write them |
+| A stale class node the module does not declare | An install does not write it either |
+
+**Why one install clears it.** An install gives every class the module declares a vector from the active embedder, or fails (see [Install phases](#install-phases)), so an `authoritative` install leaves no declared searchable class stale, and the next start skips the module again.
+
+**When no read is made.** With embedding off, the record `off` covers it: no class vectors are made. A forced run installs every module anyway.
+
+**While the embedder is pending.** The read is made, since the recorded embedder counts a pending embedder as on. A module with stale classes is installed, keeps its stored vectors and ends `partial`, with no record written; the catch-up installs it again when the embedder is ready (see [below](#catch-up-when-the-embedder-becomes-ready)).
+
+**When the read fails.** It is logged as `Class vector check failed — installing every module in full` (with `error`), every module is installed in full, and the start goes on: without the read the gate cannot vouch for any module.
+
+### Catch-up when the embedder becomes ready
+
+An install that runs before the embedder is ready leaves modules waiting for it: installed `partial`, their stored vectors kept (see [The recorded embedder](#the-recorded-embedder)). The catch-up installs them again, with vectors, without a restart.
+
+- **Wiring.** `ModuleRegistryService.onModuleInit` calls `enableCatchUp` before the start-up install, passing a function that returns the healthy loaded modules. `enableCatchUp` registers a listener with `EmbeddingService.onReady(listener)`.
+- **The ready signal.** `onReady` calls its listeners on each move into `ready`: the in-process model loaded and warmed up. It returns a function that removes the listener; a listener that throws is logged and does not stop the others.
+- **What runs.** On each ready signal, if the last full install left a module waiting for the embedder, the install runs once more over the modules healthy at that moment, logged as `Embedder ready — installing the modules that were waiting for it`. The [skip gate](#content-hash-skip-gate) keeps every module already installed `authoritative` with the active embedder, so only the waiting modules are installed again. Unlike the start-up install, a catch-up runs no obsolescence sweep — a module missing from its set may only be unhealthy right now, and must not be deleted with its classes — and runs `afterInstall` only for the modules it installed again, since the platform is already serving.
+- **When nothing runs.** If the last install left no module waiting, a ready signal does nothing. Several ready signals queue several catch-ups, but only the first finds a module waiting; it clears the mark, so the others do nothing. A catch-up that throws is logged as `Catch-up module install failed` and keeps the waiting modules marked; the next start installs any module still `partial`.
+
+For operators: a deployment whose in-process model downloads at first start gets its classes embedded once the model is ready, without a restart.
+
+### Installs run one at a time
+
+`updateAllModules` and `resetSingleModule` queue on one chain: each runs after every install queued before it has finished, successfully or not. The start-up install, a catch-up and a module reset therefore never overlap; a reset requested while the start-up install runs waits for it.
 
 ### afterInstall post-commit hook invocation
 
@@ -389,7 +446,7 @@ for (const name of modulesInstalled) {
 }
 ```
 
-- **When it fires.** From `updateAllModules` at boot for every module in the installed set — which includes **content-hash-skipped (unchanged) modules**, so an unchanged module still re-runs its hook each boot. Also from `resetSingleModule` (the operator "reset a broken module" path), which re-runs the hook for the single reset module post-commit.
+- **When it fires.** From `updateAllModules` at boot, and on a [catch-up](#catch-up-when-the-embedder-becomes-ready), for every module in the installed set — which includes **content-hash-skipped (unchanged) modules**, so an unchanged module still re-runs its hook each boot. Also from `resetSingleModule` (the operator "reset a broken module" path), which re-runs the hook for the single reset module post-commit.
 - **What it passes.** The hook receives `{ driver, moduleName, databaseName }` — the raw driver (not a `tx`), so the hook opens its **own** session. The authoring contract for that session lives in the [DTModule interface → afterInstall(ctx)](../../modules/DT_MODULE_INTERFACE.md#afterinstallctx).
 - **Timeout bound.** The call is wrapped in a `Promise.race` against `MODULE_LOAD_TIMEOUT` (default 30 000 ms). A hook that exceeds it is treated as a failure.
 - **Failure isolation + self-heal.** A throw *or* a timeout is caught and logged, then downgrades **only this module** — `SET m.lastInstallStatus = 'partial'` on its `:Module` node. The content-hash skip gate reinstalls a `partial` module on the next boot and re-invokes its hook, so a transient failure self-heals. `runAfterInstall` **never throws**: a failing hook never aborts the batch, and sibling modules in the same run are unaffected.

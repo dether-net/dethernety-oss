@@ -16,7 +16,7 @@
 
 import { createHash, randomBytes } from 'crypto';
 import { createReadStream, type Stats } from 'fs';
-import { link, lstat, mkdir, open, readdir, readFile, rename, unlink, utimes } from 'fs/promises';
+import { link, lstat, mkdir, open, readdir, readFile, rename, stat, unlink, utimes } from 'fs/promises';
 import { dirname, join, relative, resolve, sep } from 'path';
 
 import type { EmbeddingProfile, ProfileSourceFile } from '@dethernety/dt-module/embedding';
@@ -43,6 +43,11 @@ export interface AcquireOptions {
   token?: string;
   /** Progress and problem reporting. Never receives a URL or a header. */
   log?: (message: string, detail?: Record<string, unknown>) => void;
+  /**
+   * Ends the acquisition early (a shutdown): the request in flight and the wait for another process's lock stop, the
+   * partial file is removed, and the promise rejects with the signal's reason. A lock already taken is released.
+   */
+  signal?: AbortSignal;
 }
 
 /** A file failed its size or sha256 check, or could not be placed safely. */
@@ -86,26 +91,79 @@ export function profileRoot(profile: EmbeddingProfile, modelDir: string): string
   return join(modelDir, ...source.repo.split('/'), source.revision);
 }
 
+/** The modes the weights are written with, whatever the umask: nothing below the models directory is writable by others. */
+const DIR_MODE = 0o755;
+const FILE_MODE = 0o644;
+
 /**
- * The absolute path of one listed file, after proving it stays under the models directory and that
- * no existing component below the models directory is a symbolic link. The models directory itself
- * may be a link or a mount point: operators relocate bulk storage that way.
+ * The absolute path of one listed file, after proving it stays under the models directory and that every existing
+ * component below the models directory is one only a trusted account can change: not a symbolic link, writable by
+ * no account but its owner (a directory may be, with the sticky bit), and owned by this process's account, root, or the models
+ * directory's owner. The weights are checked and then opened again by path, so an entry another local account could
+ * replace would let it swap what is loaded after the check. The models directory itself may be a link or a mount
+ * point (operators relocate bulk storage that way); its owner can replace anything in it anyway, so the weights an
+ * operator copies in under their own account pass.
  */
 export async function safeFilePath(profile: EmbeddingProfile, modelDir: string, file: ProfileSourceFile): Promise<string> {
   const base = resolve(modelDir);
   const target = resolve(profileRoot(profile, modelDir), file.path);
   if (!target.startsWith(base + sep)) throw new WeightFileError(file.path, 'resolves outside the models directory');
+  const trusted = await trustedOwners(base, file);
   let current = base;
   for (const part of relative(base, target).split(sep)) {
     current = join(current, part);
+    let st;
     try {
-      if ((await lstat(current)).isSymbolicLink()) throw new WeightFileError(file.path, 'a symbolic link is on its path');
+      st = await lstat(current);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') break;
       throw err;
     }
+    if (st.isSymbolicLink()) throw new WeightFileError(file.path, 'a symbolic link is on its path');
+    const problem = untrusted(st, trusted);
+    if (problem) {
+      throw new WeightFileError(
+        file.path,
+        `${relative(base, current)} in the models directory ${problem}; remove it and place the weights again ` +
+          '(the platform downloads them on its start; in the BYODt bundle, ./byodt models pull)',
+      );
+    }
   }
   return target;
+}
+
+/**
+ * The accounts whose entries below the models directory are trusted; null where the platform has no uids. The models
+ * directory itself may be writable by every account only with the sticky bit, or any account could rename its
+ * entries away and put its own in their place.
+ */
+async function trustedOwners(base: string, file: ProfileSourceFile): Promise<Set<number> | null> {
+  if (typeof process.getuid !== 'function') return null;
+  const owners = new Set([process.getuid(), 0]);
+  try {
+    const st = await stat(base);
+    if ((st.mode & 0o022) !== 0 && (st.mode & 0o1000) === 0) {
+      throw new WeightFileError(
+        file.path,
+        'the models directory is writable by accounts other than its owner without the sticky bit; make it sticky ' +
+          '(chmod +t) or writable only by its owner (in the BYODt bundle, ./byodt up does it)',
+      );
+    }
+    owners.add(st.uid);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+  return owners;
+}
+
+/** Why another local account could replace this entry, or null when it cannot. */
+function untrusted(st: { uid: number; mode: number; isDirectory(): boolean }, trusted: Set<number> | null): string | null {
+  if (!trusted) return null;
+  if (!trusted.has(st.uid)) return `is owned by uid ${st.uid}, which is not the platform's, root's or the models directory's owner`;
+  const othersWrite = (st.mode & 0o022) !== 0;
+  const sticky = (st.mode & 0o1000) !== 0;
+  if (othersWrite && !(st.isDirectory() && sticky)) return 'is writable by accounts other than its owner';
+  return null;
 }
 
 /** Size and sha256 of a file on disk, streamed. */
@@ -134,6 +192,31 @@ const statKey = (st: Stats) => `${st.dev}:${st.ino}:${st.size}:${st.mtimeMs}:${s
 /** Forgets every file verified so far, so the next check reads and hashes it. */
 export function forgetVerifiedFiles(): void {
   verified.clear();
+}
+
+/** One verified file: its absolute path, and the stat key and sha256 it was verified with. */
+export type VerifiedRecord = [path: string, entry: { stat: string; sha256: string }];
+
+/**
+ * The verification records this thread holds for a profile's files, to hand to another thread: a worker thread has
+ * its own memory, so without them it would read and hash every file again, the largest over a gigabyte.
+ */
+export async function verifiedRecordsFor(profile: EmbeddingProfile, modelDir: string): Promise<VerifiedRecord[]> {
+  const out: VerifiedRecord[] = [];
+  for (const file of sourceOf(profile).files) {
+    const path = await safeFilePath(profile, modelDir, file);
+    const entry = verified.get(path);
+    if (entry) out.push([path, { ...entry }]);
+  }
+  return out;
+}
+
+/**
+ * Takes another thread's verification records (verifiedRecordsFor). A record counts only while the file's stat still
+ * matches it, so a file changed since is read and hashed again.
+ */
+export function seedVerifiedFiles(records: VerifiedRecord[]): void {
+  for (const [path, entry] of records) verified.set(path, { stat: entry.stat, sha256: entry.sha256 });
 }
 
 async function recordVerified(path: string, sha256: string): Promise<void> {
@@ -251,12 +334,13 @@ async function lockTarget(target: string, file: ProfileSourceFile, options: Acqu
   const staleMs = options.lockStaleMs ?? STALE_LOCK_MS;
   const touchMs = options.lockTouchMs ?? LOCK_TOUCH_MS;
   const token = randomBytes(16).toString('hex');
-  await mkdir(dirname(target), { recursive: true });
+  await mkdir(dirname(target), { recursive: true, mode: DIR_MODE });
   let told = false;
   for (;;) {
+    options.signal?.throwIfAborted();
     let handle;
     try {
-      handle = await open(lock, 'wx');
+      handle = await open(lock, 'wx', FILE_MODE);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
     }
@@ -290,7 +374,7 @@ async function lockTarget(target: string, file: ProfileSourceFile, options: Acqu
       options.log?.('waiting for another process to place a weight file', { file: file.path });
       told = true;
     }
-    await new Promise((r) => setTimeout(r, pollMs));
+    await abortableSleep(pollMs, options.signal);
   }
   const ours = async () => (await lockToken(lock)) === token;
   /** Fails once another process has taken the lock over. */
@@ -315,7 +399,11 @@ async function lockTarget(target: string, file: ProfileSourceFile, options: Acqu
 
 /** `promise`, or a rejection with the signal's reason once it aborts, so a fetch or a body that ignores the signal still ends. */
 function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) return Promise.reject(signal.reason);
+  if (signal.aborted) {
+    // The promise is dropped here: its own rejection (a fetch or a body ending on the same abort) must not go unhandled.
+    promise.catch(() => undefined);
+    return Promise.reject(signal.reason);
+  }
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => reject(signal.reason);
     signal.addEventListener('abort', onAbort, { once: true });
@@ -329,6 +417,24 @@ function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
         reject(err);
       },
     );
+  });
+}
+
+/** A pause of `ms` that the signal, when given, ends early with its reason. */
+function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) return new Promise<void>((resolve) => setTimeout(resolve, ms));
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<void>((resolve, reject) => {
+    // The timer goes with the abort, so a stopped process is not held open by it.
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal.reason);
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener('abort', onAbort, { once: true });
   });
 }
 
@@ -356,17 +462,22 @@ async function download(
   const idleMs = options.idleTimeoutMs ?? IDLE_TIMEOUT_MS;
 
   let response: Awaited<ReturnType<FetchLike>> | undefined;
-  // One controller per hop; the last one also bounds the body, which belongs to its request.
+  // One controller per hop; the last one also bounds the body, which belongs to its request. The caller's signal, when
+  // there is one, ends each hop too.
   let controller = new AbortController();
+  let hopSignal: AbortSignal = controller.signal;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const parsed = new URL(url);
     if (parsed.protocol !== 'https:') throw new WeightFileError(file.path, 'a redirect left HTTPS');
     const headers: Record<string, string> = {};
     if (options.token && parsed.origin === hubOrigin) headers.Authorization = `Bearer ${options.token}`;
     controller = new AbortController();
+    hopSignal = options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal;
     const answered = abortAfter(controller, connectMs, () => new WeightFileError(file.path, `no response within ${seconds(connectMs)}`));
     try {
-      response = await untilAborted(fetchFn(url, { redirect: 'manual', headers, signal: controller.signal }), controller.signal);
+      // An abort that came before this hop starts no request.
+      hopSignal.throwIfAborted();
+      response = await untilAborted(fetchFn(url, { redirect: 'manual', headers, signal: hopSignal }), hopSignal);
     } finally {
       answered();
     }
@@ -387,19 +498,20 @@ async function download(
     throw new WeightFileError(file.path, `download failed with HTTP ${response.status}`);
   }
 
-  await mkdir(dirname(target), { recursive: true });
+  await mkdir(dirname(target), { recursive: true, mode: DIR_MODE });
   const temp = `${target}${TEMP_MARKER}${randomBytes(6).toString('hex')}`;
   const hash = createHash('sha256');
   let bytes = 0;
-  const handle = await open(temp, 'wx');
+  const handle = await open(temp, 'wx', FILE_MODE);
   const chunks = response.body[Symbol.asyncIterator]();
-  const { signal } = controller;
+  const signal = hopSignal;
   try {
     for (;;) {
       // Only the wait for the next chunk counts as idle; writing it to disk does not.
       const arrived = abortAfter(controller, idleMs, () => new WeightFileError(file.path, `no data for ${seconds(idleMs)}`));
       let next: IteratorResult<Uint8Array>;
       try {
+        signal.throwIfAborted();
         next = await untilAborted(chunks.next(), signal);
       } finally {
         arrived();
@@ -440,8 +552,13 @@ export async function ensureWeights(profile: EmbeddingProfile, modelDir: string,
   const removed = await removeStaleTemporaries(profile, modelDir);
   if (removed > 0) log('removed stale temporary weight files', { profile: profile.id, removed });
   for (const file of sourceOf(profile).files) {
+    options.signal?.throwIfAborted();
     const target = await safeFilePath(profile, modelDir, file);
     if (await fileMatches(target, file)) continue;
+    // The directories are made before anything is written in them, then checked again: one another account planted
+    // after the check above is refused before the lock or the download writes into it.
+    await mkdir(dirname(target), { recursive: true, mode: DIR_MODE });
+    await safeFilePath(profile, modelDir, file);
     // One process downloads a file at a time, in a models directory replicas share; the others wait for it.
     const lock = await lockTarget(target, file, options);
     try {
@@ -456,6 +573,24 @@ export async function ensureWeights(profile: EmbeddingProfile, modelDir: string,
 }
 
 /**
+ * Whether every listed file is in place with its listed size: a cheap check (no hashing, no network) of whether a
+ * start will load the model from disk rather than download it first. It proves nothing about the content;
+ * verifyWeights does, before anything is loaded.
+ */
+export async function weightsPlaced(profile: EmbeddingProfile, modelDir: string): Promise<boolean> {
+  if (!profile.source) return false;
+  for (const file of profile.source.files) {
+    try {
+      const st = await lstat(await safeFilePath(profile, modelDir, file));
+      if (!st.isFile() || st.size !== file.bytes) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Prove that every listed file is present and matches its size and sha256, without any network use.
  * Throws a WeightFileError naming the first file that does not.
  */
@@ -467,30 +602,51 @@ export async function verifyWeights(profile: EmbeddingProfile, modelDir: string)
 }
 
 /**
+ * The waits between weight attempts. The first is short: the common failure is a resolver or a connection that
+ * stalls past the HTTP client's connect timeout (10 s, the name lookup included) and answers on the next try.
+ */
+export const RETRY_DELAYS_MS = [10_000, 30_000, 120_000, 600_000, 1_800_000];
+
+/** The underlying reason of a failed fetch (`fetch failed` alone says nothing): its code and message, as one string. */
+export function causeOf(err: unknown): string | undefined {
+  const cause = (err as { cause?: unknown } | null)?.cause;
+  if (cause === undefined || cause === null) return undefined;
+  if (typeof cause !== 'object') return String(cause);
+  const { code, message } = cause as { code?: unknown; message?: unknown };
+  const parts = [typeof code === 'string' ? code : undefined, typeof message === 'string' ? message : undefined].filter(Boolean);
+  return parts.length ? parts.join(': ') : undefined;
+}
+
+/**
  * `ensureWeights` with a bounded retry: one attempt, then one per delay. Gives up (rethrows the last
  * error) when the delays run out. A verification failure is retried too: a truncated CDN response
- * looks the same as a bad file until it is downloaded again.
+ * looks the same as a bad file until it is downloaded again. Each retry is logged with the error and, when it has
+ * one, its cause.
  */
 export async function ensureWeightsWithRetry(
   profile: EmbeddingProfile,
   modelDir: string,
   options: AcquireOptions & { delaysMs?: number[]; sleep?: (ms: number) => Promise<void> } = {},
 ): Promise<void> {
-  const delays = options.delaysMs ?? [30_000, 120_000, 600_000, 1_800_000];
+  const delays = options.delaysMs ?? RETRY_DELAYS_MS;
   const sleep = options.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms).unref()));
   for (let attempt = 0; ; attempt++) {
+    options.signal?.throwIfAborted();
     try {
       await ensureWeights(profile, modelDir, options);
       return;
     } catch (err) {
+      // An abort is not a failure to retry: it ends the acquisition.
+      if (options.signal?.aborted) throw options.signal.reason;
       if (attempt >= delays.length) throw err;
       options.log?.('weight acquisition failed, retrying', {
         profile: profile.id,
         attempt: attempt + 1,
         retryInMs: delays[attempt],
         error: err instanceof Error ? err.message : String(err),
+        ...(causeOf(err) ? { cause: causeOf(err) } : {}),
       });
-      await sleep(delays[attempt]);
+      await (options.signal ? untilAborted(sleep(delays[attempt]), options.signal) : sleep(delays[attempt]));
     }
   }
 }

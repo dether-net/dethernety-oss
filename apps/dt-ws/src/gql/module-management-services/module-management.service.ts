@@ -1,13 +1,14 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DTModule, DTMetadata, ClassKind, IdRebindPolicy } from '@dethernety/dt-module';
-import { computedContentHash } from './module-content-hash';
+import { computedContentHash, embedderFingerprint } from './module-content-hash';
 import { PLATFORM_VERSION } from '../../common/utils/platform-version';
 import { ClassReconciler } from './class-reconciler.service';
 import { ClassIdentityEventLog } from './class-identity-event-log.service';
-import { slugifyModelName } from '@dethernety/dt-module/embedding';
+import { CLASS_LABELS, slugifyModelName, vectorDefect } from '@dethernety/dt-module/embedding';
 import { EmbeddingService } from '../services/embedding.service';
 import { GqlConfig } from '../gql.config';
+import neo4j from 'neo4j-driver';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import {
@@ -37,6 +38,11 @@ export class ModuleManagementService {
   private readonly logger = new Logger(ModuleManagementService.name);
   // The "embedder not ready" warning is logged once per boot, not once per module.
   private loggedEmbedderNotReady = false;
+  // Installs (all modules, or one module) run one at a time: the start-up install, the catch-up and a module reset
+  // never overlap.
+  private installChain: Promise<unknown> = Promise.resolve();
+  // Whether the last full install left a module waiting for the embedder (installed partial, its vectors kept).
+  private installLeftPending = false;
   private readonly config: GqlConfig;
   private statistics: ModuleStatistics = {
     totalModules: 0,
@@ -732,7 +738,7 @@ export class ModuleManagementService {
    *
    * Runs OUTSIDE any write transaction — the caller must invoke this before
    * session.executeWrite. The returned Map is handed to upsertModule(...,
-   * vectors?) which does no embedding HTTP.
+   * vectors?) which does no embedding.
    *
    * Returns null when embedding is disabled (EMBEDDING_ENABLED is not true).
    * When null is returned, Phase 3
@@ -744,11 +750,14 @@ export class ModuleManagementService {
    *
    * For each class:
    *   1. Ask the module via moduleInstance.getEmbedding?.(className, slug).
-   *   2. If that returns a vector of the expected dimension, use it.
-   *   3. Otherwise, compose text and batch-embed via the HTTP endpoint.
+   *   2. If that returns a vector of the expected dimension that can be stored (vectorDefect), use it.
+   *   3. Otherwise, compose text and batch-embed with the platform's embedder.
    *
-   * Failures in the on-the-fly batch throw — the caller decides per-module
-   * whether to swallow (bulk path) or propagate (single-module mutation).
+   * Failures in the on-the-fly batch throw, and so does a batch that returns
+   * another number of vectors than classes or a vector that cannot be stored:
+   * every class gets a vector, or the module is not installed. The caller
+   * decides per-module whether to swallow (bulk path) or propagate
+   * (single-module mutation).
    */
   async resolveVectors(
     metadata: DTMetadata,
@@ -764,19 +773,11 @@ export class ModuleManagementService {
           { state: this.embeddingService.getState() },
         );
       }
+      this.installLeftPending = true;
       return 'pending';
     }
 
-    const rawModel = this.embeddingService.getModel();
-    if (!rawModel) {
-      // Empty EMBEDDING_MODEL config — treat as "no pre-computed lookup
-      // possible" and fall through to on-the-fly for every class.
-      this.logger.warn(
-        'EMBEDDING_MODEL is empty — all classes will be embedded on the fly',
-        { moduleName: metadata.name },
-      );
-    }
-    const modelSlug = rawModel ? slugifyModelName(rawModel) : '';
+    const modelSlug = slugifyModelName(this.embeddingService.getModel());
     const expectedDim = this.embeddingService.getDimensions();
 
     // Flatten classes in the same order upsertModule's Phase 3 will iterate.
@@ -799,7 +800,7 @@ export class ModuleManagementService {
       if (!cls?.name) continue;
 
       let pre: number[] | null = null;
-      if (modelSlug && moduleInstance?.getEmbedding) {
+      if (moduleInstance?.getEmbedding) {
         try {
           // getEmbedding contract: synchronous, returns null or number[].
           // Coerce undefined → null (optional chaining quirk).
@@ -814,9 +815,18 @@ export class ModuleManagementService {
         }
       }
 
-      if (pre && Array.isArray(pre) && pre.length === expectedDim) {
+      const sized = !!pre && Array.isArray(pre) && pre.length === expectedDim;
+      const preDefect = sized ? vectorDefect(pre, expectedDim) : null;
+      if (sized && !preDefect) {
         resolved.set(cls.name, pre);
       } else {
+        if (preDefect) {
+          this.logger.warn('Pre-computed embedding cannot be stored; falling through to on-the-fly', {
+            moduleName: metadata.name,
+            className: cls.name,
+            defect: preDefect,
+          });
+        }
         if (pre && Array.isArray(pre) && pre.length !== expectedDim) {
           this.logger.warn(
             'Pre-computed embedding dimension mismatch; falling through to on-the-fly',
@@ -845,7 +855,16 @@ export class ModuleManagementService {
       // check above rules out and nothing reverses: a ready embedder stays ready.
       // Kept as a guard, because writing no vectors is the safe answer if that changes.
       if (!fresh) return null;
+      // An install writes every class it declares a vector, or fails: a class written without one would stay
+      // without one, since the skip gate would install the module again at every start to no effect.
+      if (fresh.length !== missing.length) {
+        throw new Error(`The embedder returned ${fresh.length} vectors for ${missing.length} classes`);
+      }
       for (let i = 0; i < missing.length; i++) {
+        const defect = vectorDefect(fresh[i], expectedDim);
+        if (defect) {
+          throw new Error(`The embedder returned a vector that cannot be stored for class "${missing[i].className}": ${defect}`);
+        }
         resolved.set(missing[i].className, fresh[i]);
       }
     }
@@ -870,8 +889,8 @@ export class ModuleManagementService {
    * `:Module(name)` UNIQUE constraint serializes Module-node MERGEs
    * but does not protect the per-class flow. Callers (registry,
    * admin endpoints, scheduled refresh) MUST serialize per moduleName
-   * — today this is implicit (single-writer install path); a future
-   * advisory-lock or per-module mutex is tracked as a follow-up.
+   * — updateAllModules, resetSingleModule and the embedder catch-up do,
+   * through serialised() (one install at a time in this process).
    *
    * @param tx The database transaction
    * @param metadata The module metadata
@@ -934,6 +953,9 @@ export class ModuleManagementService {
 
       const nodeProperties = {
         ...moduleData,
+        // The embedder these classes' vectors are made with; the start-up skip gate compares it. Not while the
+        // embedder is pending: the stored vectors are kept, so the node keeps the record of what made them.
+        ...(vectors === 'pending' ? {} : { embeddingProfile: this.embedderFingerprint() }),
         updatedAt: new Date().toISOString(),
       };
 
@@ -986,8 +1008,8 @@ export class ModuleManagementService {
 
       // Phase 2 (embedding resolution) runs OUTSIDE this write transaction now
       // — see resolveVectors() + updateAllModules Phase A. Holding a Bolt
-      // write tx across an HTTP call to the embedding endpoint would keep
-      // locks open for the entire network round-trip.
+      // write tx across the embedder's batch would keep locks open while it
+      // works.
       //
       // `vectors` is the pre-resolved map keyed by className:
       //   - null      → embedding disabled for the whole module, write no embedding property
@@ -1224,13 +1246,48 @@ export class ModuleManagementService {
     }
   }
 
+  /** Runs `task` after every install queued before it, so installs never overlap. */
+  private serialised<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.installChain.then(task, task);
+    this.installChain = run.catch(() => undefined);
+    return run;
+  }
+
   /**
-   * Resets a single module using modern Neo4j v5 transaction patterns.
+   * Re-runs the module install when the embedder becomes ready (once per process: it finishes its download or load
+   * after the start-up install), if that install left a module waiting for it. The skip gate keeps every module
+   * installed with the active embedder, so only the modules installed partial are installed again. A catch-up that
+   * fails, or a shutdown that comes first, leaves those modules partial in the database, and the next start's install
+   * takes them up.
+   */
+  enableCatchUp(currentModules: () => Map<string, DTModule>): void {
+    this.embeddingService.onReady(() => {
+      this.serialised(async () => {
+        if (!this.installLeftPending) return;
+        // A shutdown since the signal: the embedder is being released, and the next start installs these modules.
+        if (!this.embeddingService.isEnabled()) return;
+        this.logger.log('Embedder ready — installing the modules that were waiting for it');
+        await this.runUpdateAllModules(currentModules(), {}, { catchUp: true });
+      }).catch((error) => {
+        this.logger.error('Catch-up module install failed', { error: error instanceof Error ? error.message : String(error) });
+      });
+    });
+  }
+
+  /**
+   * Resets a single module using modern Neo4j v5 transaction patterns, after any install already running.
    * @param moduleInstance The module instance
    * @param options Operation options
    * @returns The installed module name
    */
   async resetSingleModule(
+    moduleInstance: DTModule,
+    options: ModuleOperationOptions = {},
+  ): Promise<string> {
+    return this.serialised(() => this.runResetSingleModule(moduleInstance, options));
+  }
+
+  private async runResetSingleModule(
     moduleInstance: DTModule, 
     options: ModuleOperationOptions = {}
   ): Promise<string> {
@@ -1257,7 +1314,7 @@ export class ModuleManagementService {
         version: metadata.version,
       });
 
-      // Phase B — write tx with pre-resolved vectors (no HTTP inside).
+      // Phase B — write tx with pre-resolved vectors (no embedding inside).
       await session.executeWrite(async (tx: DatabaseTransaction) => {
         const result = await this.upsertModule(tx, metadata, options, vectors);
         moduleInstalled = result.moduleName;
@@ -1353,28 +1410,107 @@ export class ModuleManagementService {
   }
 
   /**
+   * The searchable classes (CLASS_LABELS, through HAS_CLASS) whose stored vector the active embedder did not make:
+   * none, another model, or another length. Keyed by module name, each a set of `<label>:<id>`. The Module node's
+   * recorded embedder can disagree with its classes: a platform that does not record it may have installed the module
+   * again since. One read for every module; 'unknown' when it fails, and every module is then installed in full.
+   */
+  private async readStaleClassKeys(session: any): Promise<Map<string, Set<string>> | 'unknown'> {
+    try {
+      const result = await session.executeRead((tx: DatabaseTransaction) =>
+        tx.run(
+          `MATCH (m:Module)-[:HAS_CLASS]->(c)
+           WHERE any(l IN labels(c) WHERE l IN $labels)
+             AND (c.embedding IS NULL OR c.embeddingModel IS NULL OR c.embeddingModel <> $model
+                  OR size(c.embedding) <> $dims)
+           RETURN m.name AS name, labels(c) AS labels, c.id AS id`,
+          {
+            labels: [...CLASS_LABELS],
+            model: this.embeddingService.getModel(),
+            dims: neo4j.int(this.embeddingService.getDimensions()),
+          },
+        ),
+      );
+      const stale = new Map<string, Set<string>>();
+      for (const rec of result.records) {
+        const id = rec.get('id');
+        if (typeof id !== 'string') continue;
+        let keys = stale.get(rec.get('name'));
+        if (!keys) stale.set(rec.get('name'), (keys = new Set<string>()));
+        for (const label of rec.get('labels') ?? []) keys.add(`${label}:${id}`);
+      }
+      return stale;
+    } catch (error) {
+      this.logger.warn('Class vector check failed — installing every module in full', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return 'unknown';
+    }
+  }
+
+  /**
+   * How many of the searchable classes a module declares hold a vector the active embedder did not make. Only declared
+   * classes count: an install writes those, so installing the module again clears the count, and a stale node it does
+   * not write (one it no longer declares) cannot have it installed at every start.
+   */
+  private staleDeclaredClasses(
+    moduleName: string,
+    metadata: DTMetadata,
+    staleClassKeys: Map<string, Set<string>> | 'unknown',
+  ): number | 'unknown' {
+    if (staleClassKeys === 'unknown') return 'unknown';
+    const keys = staleClassKeys.get(moduleName);
+    if (!keys) return 0;
+    let count = 0;
+    for (const { key, label } of MODULE_CLASS_CONFIGS) {
+      if (!(CLASS_LABELS as readonly string[]).includes(label)) continue;
+      const classes = metadata[key];
+      if (!Array.isArray(classes)) continue;
+      for (const cls of classes) {
+        if (typeof cls?.id === 'string' && keys.has(`${label}:${cls.id}`)) count++;
+      }
+    }
+    return count;
+  }
+
+  /**
    * Updates all modules using modern Neo4j v5 transaction patterns.
    * @param modules Map of module names to DTModule instances
    * @param options Operation options
    */
-  /** The embedder a computed content hash covers: the model and dimensions the class vectors are made with, or off. */
+  /** The embedder this platform's class vectors are made with (see embedderFingerprint). */
   private embedderFingerprint(): string {
-    const on = this.embeddingService.isEnabled() || this.embeddingService.isPending?.();
-    return on ? `${this.embeddingService.getModel()}/${this.embeddingService.getDimensions()}` : 'off';
+    return embedderFingerprint(this.embeddingService);
   }
 
   async updateAllModules(
-    modules: Map<string, DTModule>, 
-    options: ModuleOperationOptions = {}
+    modules: Map<string, DTModule>,
+    options: ModuleOperationOptions = {},
   ): Promise<void> {
-    // The HTTP embedder's start-up check is bounded; waiting for it lets a reachable endpoint embed this install
-    // rather than leaving every module partial.
+    return this.serialised(() => this.runUpdateAllModules(modules, options));
+  }
+
+  /**
+   * A catch-up (`catchUp`) only installs again the modules that need it: it runs no obsolescence sweep, since a
+   * module missing from its set may only be unhealthy right now, and it runs afterInstall only for the modules it
+   * installed, since the platform is already serving.
+   */
+  private async runUpdateAllModules(
+    modules: Map<string, DTModule>, 
+    options: ModuleOperationOptions = {},
+    { catchUp = false }: { catchUp?: boolean } = {},
+  ): Promise<void> {
+    // The embedder's start-up wait is bounded (see whenStartupChecked); waiting lets a ready embedder embed this
+    // install rather than leaving every module partial. A module still left partial is caught up (enableCatchUp).
     await this.embeddingService.whenStartupChecked();
+    this.installLeftPending = false;
     const startTime = Date.now();
     const session = this.neo4jDriver.session({
       database: this.configService.get('database.name'),
     });
     const modulesInstalled: string[] = [];
+    // The modules this run actually installed (not skipped by the gate).
+    const installedNow: string[] = [];
     let processedCount = 0;
     let errorCount = 0;
 
@@ -1393,27 +1529,38 @@ export class ModuleManagementService {
         { metadata: DTMetadata; vectors: ResolvedVectors }
       >();
 
-      // Content-hash skip gate — read each :Module node's stored contentHash +
-      // lastInstallStatus once (single read, outside the write tx). A module
-      // whose shipped contentHash matches the node's and whose last install was
-      // authoritative is unchanged: skip its embedding resolution AND graph
-      // write. Fails safe — unknown/partial/legacy/forced ⇒ full install.
+      // Content-hash skip gate — read each :Module node's stored contentHash,
+      // lastInstallStatus and embeddingProfile once (single read, outside the
+      // write tx). A module whose contentHash matches the node's, whose last
+      // install was authoritative and whose class vectors were made by the
+      // active embedder is unchanged: skip its embedding resolution AND graph
+      // write. Fails safe — unknown/partial/legacy/another embedder/forced ⇒
+      // full install (a node from before the profile was stamped has none, so
+      // every module reinstalls once). The recorded embedder is not trusted
+      // alone: a module whose declared searchable classes hold vectors of
+      // another embedder, or none, is installed too (see readStaleClassKeys).
       const installed = new Map<
         string,
-        { contentHash: string | null; lastInstallStatus: string | null }
+        { contentHash: string | null; lastInstallStatus: string | null; embeddingProfile: string | null }
       >();
       const installState = await session.executeRead(async (tx: DatabaseTransaction) =>
         tx.run(
           `MATCH (m:Module)
-           RETURN m.name AS name, m.contentHash AS contentHash, m.lastInstallStatus AS lastInstallStatus`,
+           RETURN m.name AS name, m.contentHash AS contentHash, m.lastInstallStatus AS lastInstallStatus,
+                  m.embeddingProfile AS embeddingProfile`,
         ),
       );
       for (const rec of installState.records) {
         installed.set(rec.get('name'), {
           contentHash: rec.get('contentHash') ?? null,
           lastInstallStatus: rec.get('lastInstallStatus') ?? null,
+          embeddingProfile: rec.get('embeddingProfile') ?? null,
         });
       }
+      const profile = this.embedderFingerprint();
+      // No class read where no gate runs (forced) or no vectors are made (embedding off).
+      const staleClassKeys =
+        options.force || profile === 'off' ? new Map<string, Set<string>>() : await this.readStaleClassKeys(session);
       let skippedCount = 0;
 
       for (const [moduleName, moduleInstance] of modules) {
@@ -1426,17 +1573,31 @@ export class ModuleManagementService {
           }
           // A module that ships no content hash gets one computed from what its install writes (see
           // computedContentHash). It is stored on the Module node like a shipped one, so the next start can skip it.
-          const computed = shipped.contentHash ? null : computedContentHash(shipped, moduleInstance, this.embedderFingerprint(), PLATFORM_VERSION);
+          const computed = shipped.contentHash ? null : computedContentHash(shipped, moduleInstance, PLATFORM_VERSION);
           const metadata = computed ? { ...shipped, contentHash: computed } : shipped;
 
           // Skip unchanged, authoritatively-installed modules (unless forced).
           if (!options.force && metadata.contentHash) {
             const db = installed.get(moduleName);
-            if (
-              db &&
-              db.contentHash === metadata.contentHash &&
-              db.lastInstallStatus === 'authoritative'
-            ) {
+            const unchanged = !!db && db.contentHash === metadata.contentHash && db.lastInstallStatus === 'authoritative';
+            if (unchanged && db!.embeddingProfile !== profile) {
+              this.logger.log(
+                db!.embeddingProfile
+                  ? 'Embedding model changed — reinstalling the module so its classes are embedded with the active model'
+                  : 'Embedding model not recorded for this module yet — reinstalling it once to record it',
+                { moduleName, from: db!.embeddingProfile ?? 'unrecorded', to: profile },
+              );
+            }
+            const staleClasses = unchanged && db!.embeddingProfile === profile
+              ? this.staleDeclaredClasses(moduleName, metadata, staleClassKeys)
+              : 0;
+            if (typeof staleClasses === 'number' && staleClasses > 0) {
+              this.logger.log(
+                'Class vectors do not match the recorded embedding model — reinstalling the module so its classes are embedded with the active model',
+                { moduleName, staleClasses, profile },
+              );
+            }
+            if (unchanged && db!.embeddingProfile === profile && staleClasses === 0) {
               this.logger.log('Module unchanged — skipping embedding + write', {
                 moduleName,
                 contentHash: metadata.contentHash,
@@ -1460,7 +1621,7 @@ export class ModuleManagementService {
         }
       }
 
-      // Phase B — one write tx PER MODULE (pre-resolved vectors; no HTTP inside).
+      // Phase B — one write tx PER MODULE (pre-resolved vectors; no embedding inside).
       // A shared tx made the per-module try/catch illusory: a DB-level abort in
       // any module (e.g. a same-label id collision) poisons the whole Bolt tx,
       // so every subsequent tx.run — including deleteOldModules' — throws and
@@ -1473,6 +1634,7 @@ export class ModuleManagementService {
             this.upsertModule(tx, metadata, options, vectors),
           );
           modulesInstalled.push(result.moduleName);
+          installedNow.push(result.moduleName);
           processedCount++;
 
           this.logger.debug('Module processed successfully', {
@@ -1499,7 +1661,7 @@ export class ModuleManagementService {
       // (getMetadata/resolveVectors/upsert threw) stays in `attempted` and is
       // never treated as obsolete and DETACH DELETE-d along with its classes.
       const attempted = Array.from(new Set(modules.keys()));
-      if (attempted.length > 0) {
+      if (attempted.length > 0 && !catchUp) {
         // A failed obsolescence sweep must NOT crash boot: every module has
         // already committed, so a DB error here should degrade to "an obsolete
         // module lingers one more boot" (self-heals next sweep), not take the
@@ -1523,7 +1685,7 @@ export class ModuleManagementService {
       // module (iterate `modulesInstalled`, NOT `resolved` — a skipped module
       // must still re-run its hook; a failure self-heals via the partial
       // downgrade next boot). Isolated + timeout-bounded.
-      for (const name of modulesInstalled) {
+      for (const name of catchUp ? installedNow : modulesInstalled) {
         await this.runAfterInstall(session, name, modules.get(name));
       }
 

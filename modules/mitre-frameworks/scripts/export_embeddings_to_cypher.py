@@ -13,8 +13,12 @@ the `embeddingModel` property on each MITRE node to gate the model-coherence pre
 the `embedding` property as the source vector for HNSW similarity search.
 
 Provider selection lives in embedding_provider.py:
-  - default: Ollama + embeddinggemma (768-dim), skipped gracefully when unreachable
+  - --profile <id>: a built-in onnx embedding profile through the platform's embedder
+    package (any failure is fatal); the file records the profile in a // Profile: line
+  - default: the profile manifest.json's embeddingProfile names, as with --profile; a
+    manifest naming the legacy profile (Ollama's embeddinggemma) needs EMBEDDING_PROVIDER
   - override (EMBEDDING_PROVIDER): ollama / sentence-transformers / openai / fixture
+The export never skips: no provider, or any failure, exits non-zero and writes nothing.
 
 All-or-nothing failure mode: partial vector coverage is
 worse than no coverage (the model-coherence precheck would still see total > 0 but
@@ -32,9 +36,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
-
-from neo4j import GraphDatabase  # type: ignore[import-untyped]
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # Local-relative imports (script directory is on sys.path).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -44,7 +46,11 @@ from embedding_text import (  # noqa: E402
     normalize_for_embedding,
     slugify_model_name,
 )
-from embedding_provider import EmbeddingProvider, select_provider  # noqa: E402
+from embedding_provider import EmbeddingProvider, embed_documents, select_provider  # noqa: E402
+
+# The module manifest: its embeddingProfile is the profile the shipped vectors are made with.
+MANIFEST = Path(__file__).resolve().parent.parent / "manifest.json"
+LEGACY_PROFILE = "embeddinggemma"
 
 # Environment variables.
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
@@ -264,17 +270,17 @@ def fetch_corpus(driver, query: str, label: str) -> List[Dict[str, Any]]:
 
 
 def embed_batch_with_provider(
-    provider: EmbeddingProvider, texts: List[str]
+    provider: EmbeddingProvider, documents: List[Tuple[str, str]]
 ) -> List[List[float]]:
     """
-    Embed a batch and validate dimensions. The provider's own retry/backoff
-    runs internally where applicable (HTTP providers); local providers raise
-    immediately. The script aborts on RuntimeError per all-or-nothing policy.
+    Embed a batch of (title, text) documents and validate dimensions. The provider's
+    own retry/backoff runs internally where applicable (HTTP providers); local providers
+    raise immediately. The script aborts on RuntimeError per all-or-nothing policy.
     """
-    vectors = provider.embed(texts)
-    if len(vectors) != len(texts):
+    vectors = embed_documents(provider, documents)
+    if len(vectors) != len(documents):
         raise RuntimeError(
-            f"provider returned {len(vectors)} vectors for {len(texts)} inputs"
+            f"provider returned {len(vectors)} vectors for {len(documents)} inputs"
         )
     for i, v in enumerate(vectors):
         if len(v) != provider.dimensions:
@@ -297,7 +303,8 @@ def embed_with_cache(
     """
     fingerprints: List[str] = []
     cached: List[Optional[List[float]]] = []
-    miss_texts: List[str] = []
+    # (title, text): the title is the item's name, for a document prompt that uses it.
+    miss_texts: List[Tuple[str, str]] = []
     miss_indices: List[int] = []
 
     for idx, item in enumerate(items):
@@ -311,7 +318,7 @@ def embed_with_cache(
             cached.append(hit)
         else:
             cached.append(None)
-            miss_texts.append(text)
+            miss_texts.append((item["name"], text))
             miss_indices.append(idx)
 
     print(
@@ -426,6 +433,8 @@ def write_cypher_file(
             f.write(
                 f"// Model: {provider.model_name}  Dimensions: {provider.dimensions}\n"
             )
+            for line in getattr(provider, "header_lines", lambda: [])():
+                f.write(line + "\n")
             f.write("// Source: mitre-frameworks build\n\n")
 
             for label, id_field, items, vectors in sections:
@@ -476,6 +485,16 @@ def prepare_items_with_text(
             )
 
 
+def document_texts_sha256(items: List[Dict[str, Any]]) -> str:
+    """
+    sha256 over the sorted "id<TAB>title<TAB>text" lines of every document embedded: a
+    fingerprint of exactly what was embedded, which a review compares with the same lines
+    computed from the committed node files by another route.
+    """
+    lines = sorted(f"{i['mitre_id']}\t{i['name']}\t{i['embedding_text']}" for i in items)
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+
 # (output file, selection, label, id field, query, kind, display name). Within a file the
 # sections are written in this order.
 CORPUS = [
@@ -508,31 +527,88 @@ def main() -> int:
         default="all",
         help="Files to write: all, or atlas (09 only, leaving 05 untouched).",
     )
+    parser.add_argument(
+        "--profile",
+        default=None,
+        help="Embed with this built-in onnx embedding profile (e.g. embeddinggemma-300m-retrieval-v1) "
+        "through the platform's embedder package. Excludes EMBEDDING_PROVIDER; any failure is fatal. "
+        "Default, without EMBEDDING_PROVIDER: manifest.json's embeddingProfile.",
+    )
+    parser.add_argument(
+        "--models-dir",
+        default=os.getenv("EMBEDDING_MODEL_DIR"),
+        help="The profile's weights directory (default: EMBEDDING_MODEL_DIR).",
+    )
+    parser.add_argument("--embed-threads", type=int, default=None, help="onnxruntime threads for --profile.")
+    parser.add_argument(
+        "--download-weights",
+        action="store_true",
+        help="With --profile: download the profile's missing weights into --models-dir first.",
+    )
     args = parser.parse_args()
     selected = [row for row in CORPUS if row[1] in FRAMEWORK_SELECTIONS[args.frameworks]]
 
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Provider selection. None → graceful skip with warning + zero exit.
+    # Provider selection: --profile, else EMBEDDING_PROVIDER, else the manifest's profile. Never a skip.
+    profile = args.profile
     try:
-        provider = select_provider()
-    except ValueError as err:
+        if profile is None and not os.getenv("EMBEDDING_PROVIDER"):
+            profile = manifest_profile()
+            if profile == LEGACY_PROFILE:
+                raise ValueError(
+                    f"manifest.json names the legacy profile {LEGACY_PROFILE}, which embeds through Ollama: "
+                    "set EMBEDDING_PROVIDER=ollama to embed with it"
+                )
+        provider = select_provider(
+            profile=profile,
+            models_dir=args.models_dir,
+            threads=args.embed_threads,
+            download=args.download_weights,
+        )
+    except (ValueError, RuntimeError, OSError) as err:
         print(f"[error] {err}", file=sys.stderr)
         return 1
 
     if provider is None:
-        print(
-            "[warn] MITRE Memgraph embeddings not generated — the committed "
-            "05-mitre-embeddings.cypher and 09-atlas-embeddings.cypher (if present) stay "
-            "authoritative, else the picker falls back to text matching at runtime. The "
-            "default provider is Ollama + embeddinggemma; start Ollama and `ollama pull "
-            "embeddinggemma`, or set EMBEDDING_PROVIDER (ollama, sentence-transformers, "
-            "openai, fixture).",
-            file=sys.stderr,
-        )
-        return 0
+        print("[error] no embedding provider could be started; nothing was written", file=sys.stderr)
+        return 1
 
+    try:
+        return export(provider, selected, output_dir)
+    finally:
+        close = getattr(provider, "close", None)
+        if close is not None:
+            close()
+
+
+def manifest_profile() -> str:
+    """manifest.json's embeddingProfile: the profile the shipped vectors are made with."""
+    profile = json.loads(MANIFEST.read_text(encoding="utf-8")).get("embeddingProfile")
+    if not isinstance(profile, str) or not profile:
+        raise ValueError(f"{MANIFEST} names no embeddingProfile")
+    return profile
+
+
+def fetch_from_memgraph(selected: List[Tuple]) -> List[List[Dict[str, Any]]]:
+    """Each selected corpus row's nodes, from the database at NEO4J_URI."""
+    from neo4j import GraphDatabase  # type: ignore[import-untyped]
+
+    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASS))
+    try:
+        return [fetch_corpus(driver, row[4], row[6]) for row in selected]
+    finally:
+        driver.close()
+
+
+def export(
+    provider: EmbeddingProvider,
+    selected: List[Tuple],
+    output_dir: Path,
+    fetch: Optional[Callable[[List[Tuple]], List[List[Dict[str, Any]]]]] = None,
+) -> int:
+    """Fetch (default: from Memgraph), embed and write the selected corpus with `provider`; returns the exit code."""
     print(
         f"[info] using provider={type(provider).__name__} "
         f"model_name={provider.model_name!r} dimensions={provider.dimensions}"
@@ -544,11 +620,7 @@ def main() -> int:
     print(f"[info] cache: {cache_path} ({cache.size()} entries on startup)")
 
     start = time.time()
-    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASS))
-    try:
-        corpora = [fetch_corpus(driver, row[4], row[6]) for row in selected]
-    finally:
-        driver.close()
+    corpora = (fetch or fetch_from_memgraph)(selected)
 
     # A selected kind with no nodes would ship a file that silently covers less than
     # the graph the picker checks it against.
@@ -593,6 +665,7 @@ def main() -> int:
 
     elapsed = time.time() - start
     print("=== Export complete ===")
+    print(f"  Document texts sha256: {document_texts_sha256([i for _, items, _, _, _ in results for i in items])}")
     for row, items, _, hits, misses in results:
         print(f"  {row[6]}: {len(items)} ({hits} cache-hit, {misses} embedded) -> {row[0]}")
     total = sum(len(items) for _, items, _, _, _ in results)

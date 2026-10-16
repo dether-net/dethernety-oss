@@ -7,6 +7,7 @@ import { classLabelToNodeLabel } from './shared/class-label-map';
 import { safeErrorMessage } from '../../common/utils/safe-error-message';
 import { VectorSearchService } from '../services/vector-search.service';
 import { CLASS_LABELS, vectorDefect, type ClassLabel } from '@dethernety/dt-module/embedding';
+import { embedderFingerprint } from '../module-management-services/module-content-hash';
 
 // --- Constants ---
 
@@ -511,6 +512,8 @@ export class MatchClassesResolverService {
     try {
       let reindexedCount = 0;
       const moduleNameSet = new Set<string>();
+      // Modules with a class left without a new vector: their Module node keeps its embedding profile.
+      const incomplete = new Set<string>();
 
       for (const nodeLabel of CLASS_LABELS) {
         // Fetch all classes of this label (optionally filtered by moduleIds).
@@ -555,7 +558,10 @@ export class MatchClassesResolverService {
           classes.map((cls: any) => cls.name),
         );
 
-        if (!vectors) continue;
+        if (!vectors) {
+          for (const cls of classes) incomplete.add(cls.moduleName);
+          continue;
+        }
 
         // Write vectors back
         const embeddingModel = this.embeddingService.getModel();
@@ -567,6 +573,7 @@ export class MatchClassesResolverService {
             const defect = vectorDefect(vectors[i], dimensions);
             if (defect) {
               this.logger.warn('Skipping a class vector that cannot be stored', { classId: classes[i].classId, defect });
+              incomplete.add(classes[i].moduleName);
               continue;
             }
             await tx.run(
@@ -586,6 +593,19 @@ export class MatchClassesResolverService {
         for (const cls of classes) {
           moduleNameSet.add(cls.moduleName);
         }
+      }
+
+      // Every class of these modules that the vector search reads (CLASS_LABELS) now has a vector from the active
+      // embedder: record it on the Module node, as an install does, so the next start's skip gate does not reinstall
+      // them only to embed them again. Analysis and issue classes, which no search reads, keep their vectors.
+      const stamped = Array.from(moduleNameSet).filter((name) => !incomplete.has(name));
+      if (stamped.length > 0) {
+        await session.executeWrite(async (tx: any) =>
+          tx.run(`MATCH (m:Module) WHERE m.name IN $names SET m.embeddingProfile = $profile`, {
+            names: stamped,
+            profile: embedderFingerprint(this.embeddingService),
+          }),
+        );
       }
 
       return {

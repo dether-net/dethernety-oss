@@ -30,7 +30,7 @@ interface HealthCheckResult {
     };
     embedder?: {
       state: EmbedderState;
-      runtime: 'onnx' | 'http';
+      runtime: 'onnx';
       profile: string;
       error?: string;
     };

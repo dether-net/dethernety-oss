@@ -4,6 +4,9 @@
   "private": true,
   "description": "In-process text embedder for the built-in embedding profiles: weight acquisition with sha256 verification and an onnxruntime session on the text graph.",
   "main": "dist/index.js",
+  "engines": {
+    "node": ">=20.3"
+  },
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -b tsconfig.build.json",

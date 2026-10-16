@@ -41,11 +41,13 @@ if [[ "$missing" -ne 0 ]]; then
     log_error "Committed MITRE data is incomplete. Run 'pnpm build:data' to regenerate it."
     exit 1
 fi
-for f in 05-mitre-embeddings.cypher 09-atlas-embeddings.cypher; do
-    if [[ ! -f "$MODULE_DIR/data/$f" ]]; then
-        log_warn "data/$f absent — packaging without those precomputed embeddings."
-    fi
-done
+# The precomputed vectors are part of the data: without them the picker's vector tier is
+# off. Both files must exist and match manifest.json's embeddingProfile (model, rows,
+# dimensions), so a file from another model or a half regeneration never ships.
+if ! python3 "$SCRIPT_DIR/check_embeddings_files.py" "$MODULE_DIR"; then
+    log_error "The embeddings files do not match manifest.json's embeddingProfile. Regenerate them with 'pnpm build:data'."
+    exit 1
+fi
 # The MITRE terms require their notices in every copy of the data.
 if [[ ! -f "$MODULE_DIR/NOTICE" ]]; then
     log_error "Missing NOTICE: the MITRE data may not be packaged without it."

@@ -33,4 +33,26 @@ describe('onnxruntime telemetry opt-out', () => {
 
     expect(seenAtLoad).toBe('1');
   });
+
+  it('is on when onnxruntime loads under the document helper, whatever the environment says', async () => {
+    process.env.ORT_DISABLE_TELEMETRY = '0';
+    let seenAtLoad: string | undefined = 'onnxruntime never loaded';
+    vi.resetModules();
+    vi.doMock('onnxruntime-node', () => {
+      seenAtLoad = process.env.ORT_DISABLE_TELEMETRY;
+      return { InferenceSession: { create: vi.fn() }, Tensor: class {} };
+    });
+
+    await import('../embed-documents');
+
+    expect(seenAtLoad).toBe('1');
+  });
+
+  it('is set on this thread by the worker embedder alone, before its worker can load onnxruntime', async () => {
+    // A worker thread's process.env is a copy native code does not read: the opt-out must be on the starting thread.
+    delete process.env.ORT_DISABLE_TELEMETRY;
+    vi.resetModules();
+    await import('../worker-embedder');
+    expect(process.env.ORT_DISABLE_TELEMETRY).toBe('1');
+  });
 });

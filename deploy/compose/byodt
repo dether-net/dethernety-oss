@@ -11,7 +11,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-readonly BYODT_VERSION="1.1.0"
+readonly BYODT_VERSION="1.2.0"
 readonly ENV_FILE=".env"
 readonly SECRETS_FILE=".env.secrets"
 readonly MODE_FILE="mode/mode.env"
@@ -237,6 +237,27 @@ ensure_engine() {
 # need not match the operator's), and the pure open-source mode layer. It is idempotent and silent when
 # nothing is missing, so `up` runs it every time — a deployment that lost any of this (a fresh copy, a
 # removed dir) self-heals here rather than failing inside compose on a missing env_file or bind mount.
+# path_owner PATH prints the uid owning PATH itself (a symlink is not followed): GNU stat, else BSD stat.
+path_owner() {
+  stat -c %u "$1" 2>/dev/null || stat -f %u "$1"
+}
+# owned_by_operator PATH: PATH belongs to the user running byodt, to the user who ran it through sudo, or to root.
+owned_by_operator() {
+  local owner; owner="$(path_owner "$1")" || return 1
+  [ "$owner" = "$(id -u)" ] || [ "$owner" = "${SUDO_UID:-}" ] || [ "$owner" = 0 ]
+}
+# refuse_foreign_entry PATH stops when PATH exists but another local account made it (see ensure_layout): chmod would
+# widen whatever a link points at, and the owner of a directory under the sticky data/ can still swap it for a link,
+# or rename what is in it, after any check.
+refuse_foreign_entry() {
+  { [ -e "$1" ] || [ -L "$1" ]; } || return 0
+  owned_by_operator "$1" && return 0
+  if [ -L "$1" ]; then
+    die "$1 is a symbolic link owned by uid $(path_owner "$1"), not by you: byodt will not follow it. Check where it points (ls -l $1), remove the link, and run the command again."
+  fi
+  die "$1 is owned by uid $(path_owner "$1"), not by you: another account could replace it, or what is in it. Check what it holds (ls -la $1). If it is this deployment's own (the bundle moved to your account), give it to you: sudo chown -R \"\$(id -u):\$(id -g)\" $1. Otherwise move it aside. Then run the command again."
+}
+
 ensure_layout() {
   if [ ! -f "$ENV_FILE" ]; then
     cp .env.example "$ENV_FILE"
@@ -255,29 +276,42 @@ ensure_layout() {
   # mode the container runs as the operator instead. World-writable here covers both, and covers them
   # without this script having to know which mode is in play.
   #
-  # data/ carries the STICKY BIT and its children do not, and the asymmetry is the point. Every path
-  # widened below is chmod'ed by name, and chmod follows a symlink — so an entry replaced by a link
-  # before this runs gets the link's TARGET widened instead, under the operator's identity. Only the
-  # children of data/ are replaceable that way: every other widened dir is an entry in the bundle
-  # root, which is 0755 and the operator's. Sticky on data/ stops a non-owner unlinking those entries
-  # at all, and costs nothing, because this function creates them and no container renames them. It
-  # is deliberately NOT applied to modules/, schema/ or mode/, whose entries ARE created and replaced
-  # by containers: sticky there would refuse a replacement written under a different uid than the one
-  # that installed it, which is what a module install becomes after the engine changes. The bit is set
+  # data/ carries the STICKY BIT, and of its children only data/models does (below); the others do not, and
+  # the asymmetry is the point. Every path widened below is chmod'ed by name, and chmod follows a symlink —
+  # so an entry replaced by a link before this runs gets the link's TARGET widened instead, under the
+  # operator's identity. Only the children of data/ are replaceable that way: every other widened dir is an
+  # entry in the bundle root, which is 0755 and the operator's. Sticky on data/ stops a non-owner unlinking
+  # those entries at all, and costs nothing, because this function creates them and no container renames
+  # them. It is deliberately NOT applied to modules/, schema/ or mode/, whose entries ARE created and
+  # replaced by containers: sticky there would refuse a replacement written under a different uid than the
+  # one that installed it, which is what a module install becomes after the engine changes. The bit is set
   # before anything below is widened, so the ordering opens no window of its own.
   #
-  # Not closed by this: a link planted BEFORE the first run that sets the bit is still followed on
-  # that one run, and a runtime dir added in a future version is plantable until the upgrade that
-  # creates it. Closing either needs a chmod-through-a-path check, which would also refuse the symlink
-  # an operator legitimately uses to move a multi-gigabyte cache onto another disk — compose.yaml
-  # hardcodes these paths and only the database has an env var for it. The end state is not a wider
-  # guard here but narrower permissions: give each service a uid that matches its directory's owner
-  # and none of this has to be world-writable at all.
+  # An entry planted BEFORE the run that creates it (the first run, or the upgrade that adds a runtime dir
+  # such as data/models) would still be followed, so every widened child of data/ must be the operator's own
+  # (refuse_foreign_entry), a link or not: the link an operator uses to move a multi-gigabyte cache onto
+  # another disk passes, while a link or a directory another local account planted is refused before anything
+  # follows or widens it. Its owner could swap a directory of its own for a link after any check. The end
+  # state is not a wider guard here but narrower permissions: give each service a uid that matches its
+  # directory's owner and none of this has to be world-writable at all.
+  #
+  # The check runs again after the entries exist and before anything is widened: an entry planted between the first
+  # check and the mkdir (the run that creates it) is caught there, and once the operator's entry of the sticky data/
+  # exists no other account can replace it, so the second check still holds when the chmod runs.
+  #
+  # data/models gets the sticky bit too: the platform loads what is in it as a model, after checking it by path, so
+  # no account but an entry's owner may rename or delete one there. The platform refuses an entry below it that
+  # another account owns or every account can write.
   mkdir -p data && chmod 1777 data
-  mkdir -p modules schema data/ollama data/content-cache data/memgraph-log mode
-  chmod 0777 modules schema data/ollama data/content-cache data/memgraph-log mode
+  local d
+  for d in data/content-cache data/memgraph-log data/models data/memgraph; do refuse_foreign_entry "$d"; done
+  mkdir -p modules schema data/content-cache data/memgraph-log data/models mode
+  if db_is_bind; then mkdir -p data/memgraph; fi
+  for d in data/content-cache data/memgraph-log data/models data/memgraph; do refuse_foreign_entry "$d"; done
+  chmod 0777 modules schema data/content-cache data/memgraph-log mode
+  chmod 1777 data/models
   mkdir -p tls && chmod 0700 tls
-  if db_is_bind; then mkdir -p data/memgraph && chmod 0777 data/memgraph; fi
+  if db_is_bind; then chmod 0777 data/memgraph; fi
 
   # compose.yaml bind-mounts this as a FILE. A container engine handed a bind source that does not
   # exist invents a DIRECTORY there — and then console-init, whose whole job is to write the file,
@@ -378,6 +412,117 @@ check_db_image() {
   fi
 }
 
+# env_setting KEY prints KEY's value in .env as compose reads it ('' when unset): the last assignment wins, an `export `
+# prefix and spaces around the name are allowed, an unquoted value ends at ' #', and one pair of surrounding quotes
+# goes. env_value is left as it is for its other callers; this one decides a refusal, so it reads what the platform gets.
+env_setting() {
+  local key="$1" line val
+  [ -f "$ENV_FILE" ] || return 0
+  line="$(grep -E "^[[:space:]]*(export[[:space:]]+)?${key}[[:space:]]*=" "$ENV_FILE" 2>/dev/null | tail -1 || true)"
+  [ -n "$line" ] || return 0
+  val="$(printf '%s' "${line#*=}" | sed -E 's/^[[:space:]]+//')"
+  case "$val" in
+    \"*) val="$(printf '%s' "$val" | sed -E 's/^"([^"]*)".*$/\1/')" ;;
+    \'*) val="$(printf '%s' "$val" | sed -E "s/^'([^']*)'.*\$/\\1/")" ;;
+    *)   val="${val%%[[:space:]]#*}"; val="$(printf '%s' "$val" | sed -E 's/[[:space:]]+$//')" ;;
+  esac
+  printf '%s' "$val"
+}
+
+# The platform embeds in process now: this bundle has no ollama service, and the model is the one the release's MITRE
+# data was made with. An .env carried across the upgrade can still name the old server's model — refuse that here,
+# before anything starts, rather than after images are pulled and console-init refuses it. Everything else is a notice.
+# data/ollama is never removed: it is the operator's, and it can hold gigabytes.
+check_embedding_env() {
+  local model k size src="$ENV_FILE" fix="Remove the EMBEDDING_MODEL line from $ENV_FILE"
+  # Compose takes a variable from the shell's environment before .env, so an exported one is what the platform gets.
+  if [ -n "${EMBEDDING_MODEL+set}" ]; then
+    model="$EMBEDDING_MODEL"; src="your shell's environment (it overrides $ENV_FILE)"; fix="Unset EMBEDDING_MODEL in your shell"
+  else
+    model="$(env_setting EMBEDDING_MODEL)"
+  fi
+  if [ "$model" = embeddinggemma ]; then
+    die "EMBEDDING_MODEL=embeddinggemma in $src names the old embedding server's model, which this release no longer runs. $fix: the platform embeds in process with its default model."
+  elif [ -n "$model" ]; then
+    info "EMBEDDING_MODEL in $src is ${BOLD}${model}${RST}; console-init checks it against this release's MITRE data before the start (removing it selects the default)."
+  fi
+  for k in EMBEDDING_URL EMBEDDING_SIMILARITY_THRESHOLD; do
+    [ -z "$(env_setting "$k")" ] || info "$k in $ENV_FILE is no longer used (the platform embeds in process); you can remove the line."
+  done
+  if [ -f "$ENV_FILE" ]; then
+    for k in $(grep -oE '^[[:space:]]*(export[[:space:]]+)?OLLAMA_[A-Z0-9_]+[[:space:]]*=' "$ENV_FILE" 2>/dev/null \
+               | sed -E 's/^[[:space:]]*(export[[:space:]]+)?//; s/[[:space:]]*=$//' | sort -u); do
+      info "$k in $ENV_FILE is no longer used (this bundle has no Ollama service); you can remove the line."
+    done
+  fi
+  if [ -L data/ollama ]; then
+    # Not followed and not named: data/ is writable by every local account, so the link may not be the operator's.
+    info "data/ollama is a symbolic link to the old embedding server's model, which is no longer used. byodt does not follow it: check where it points (ls -l data/ollama) before you remove anything."
+  elif [ -d data/ollama ] && ! owned_by_operator data/ollama; then
+    info "data/ollama is owned by uid $(path_owner data/ollama), not by you or root; byodt leaves it alone."
+  elif [ -d data/ollama ]; then
+    size="$(du -sh data/ollama 2>/dev/null | cut -f1 || true)"
+    info "data/ollama (${size:-size unknown}) holds the old embedding server's model and is no longer used. Once the new start has worked: sudo rm -rf data/ollama"
+  fi
+}
+
+# project_containers SERVICE prints the ids of this project's containers of SERVICE, found by the project AND service
+# labels in both providers' namespaces (Docker Compose: com.docker.compose.*, podman-compose: io.podman.compose.*),
+# never by name or image, so no other project's container is ever selected.
+project_containers() {
+  local ns
+  resolve_engine
+  for ns in com.docker.compose io.podman.compose; do
+    "$ENGINE" ps -aq --filter "label=$ns.project=dethernety" --filter "label=$ns.service=$1" 2>/dev/null || true
+  done | sort -u | grep -v '^$' || true
+}
+
+# remove_old_ollama removes the ollama container an older bundle ran. Compose leaves a service's container running once
+# the service leaves the file, and podman-compose's --remove-orphans removes every container of the project or none, so
+# it is removed here, by its labels. It goes before `down` too, which cannot remove the network while it holds an
+# endpoint. Its image and data/ollama stay.
+remove_old_ollama() {
+  local ids id
+  ids="$(project_containers ollama)"
+  [ -n "$ids" ] || return 0
+  info "Removing the old embedding server's container (the platform embeds in process now; data/ollama is kept)…"
+  for id in $ids; do
+    "$ENGINE" rm -f "$id" >/dev/null || warn "Could not remove container $id; remove it with: $ENGINE rm -f $id"
+  done
+}
+
+# check_console_init reads console-init's last run from the engine, by its labels: a refusal there fails the command
+# with the pointer under either provider (podman-compose's `up -d` exits 0 when a dependency failed). The newest
+# container counts, never a one-off `compose run` of it (Docker Compose labels one oneoff; podman-compose names it
+# <project>_<service>_tmp<n>); one still running, or none, is left alone.
+check_console_init() {
+  local id state
+  id="$(for c in $(project_containers console-init); do
+          [ "$("$ENGINE" inspect -f '{{index .Config.Labels "com.docker.compose.oneoff"}}' "$c" 2>/dev/null || true)" = True ] && continue
+          "$ENGINE" inspect -f '{{.Name}}' "$c" 2>/dev/null | grep -q '_tmp[0-9]' && continue
+          printf '%s %s\n' "$("$ENGINE" inspect -f '{{.Created}}' "$c" 2>/dev/null || true)" "$c"
+        done | sort | tail -1 | awk '{ print $NF }')"
+  [ -n "$id" ] || return 0
+  state="$("$ENGINE" inspect -f '{{.State.Status}} {{.State.ExitCode}}' "$id" 2>/dev/null || true)"
+  case "$state" in
+    "exited 0") return 0 ;;
+    exited\ *) die "console-init stopped the start (exit ${state#exited }): '$SELF logs console-init' says why." ;;
+  esac
+}
+
+# start_stack runs `compose up -d` and says where to look when the start is refused or fails.
+start_stack() {
+  if ! compose up -d "$@"; then
+    die "The start was refused or failed: '$SELF status' shows which service; if console-init stopped it, '$SELF logs console-init' says why."
+  fi
+  # console-init runs for a full start and for every service but the console (which depends on nothing), so a start
+  # of the console alone says nothing about console-init's last run.
+  local s
+  for s in "${@:-all}"; do
+    [ "$s" = console ] || { check_console_init; return; }
+  done
+}
+
 cmd_up() {
   # Always repair the layout (idempotent, silent when complete) so a bundle missing the mode layer or a
   # runtime dir is fixed here instead of failing inside compose; the one-time password stays gated.
@@ -385,10 +530,12 @@ cmd_up() {
   ensure_password
   check_console_pin
   check_db_image
+  check_embedding_env
+  remove_old_ollama
   info "Starting the stack…"
-  compose up -d "$@"
+  start_stack "$@"
   info "Up. Console: ${BOLD}$(front_door_url)${RST}"
-  info "First start pulls the embedding model and ingests reference data — '$SELF logs console-init' to follow."
+  info "First start downloads the embedding model once (about 1.26 GB; '$SELF models pull' does it ahead) and ingests reference data — '$SELF logs platform' and '$SELF logs console-init' to follow."
 }
 
 # compose down flags that delete data/images this command promises to keep. Refuse them explicitly
@@ -404,10 +551,13 @@ refuse_volume_flags() {
   done
 }
 
-cmd_down() { ensure_ready; refuse_volume_flags "$@"; info "Stopping (data kept)…"; compose down "$@"; }
+cmd_down() { ensure_ready; refuse_volume_flags "$@"; remove_old_ollama; info "Stopping (data kept)…"; compose down "$@"; }
 
 cmd_restart() {
   ensure_ready
+  # A recreate binds every runtime dir; one a newer bundle added (data/models) must exist first.
+  ensure_layout
+  remove_old_ollama
   if [ "$#" -gt 0 ]; then
     # Named services recreate exactly those, not their dependency chain: a `restart proxy`
     # re-reads the proxy's config without bouncing the database underneath it (--force-recreate
@@ -426,9 +576,15 @@ cmd_logs() { ensure_ready; compose logs -f "$@"; }
 
 cmd_update() {
   ensure_ready
+  # The new bundle may mount a runtime dir the old one did not (data/models): without it, Docker creates it
+  # root-owned and the platform cannot write its weights there, and Podman refuses the missing bind source.
+  ensure_layout
   check_db_image
+  check_embedding_env
   info "Pulling the pinned images…"; compose pull
-  info "Applying…"; compose up -d
+  # After the pull: a failed pull must not leave the running platform without its old embedding server.
+  remove_old_ollama
+  info "Applying…"; start_stack
   info "Updated."
 }
 
@@ -539,6 +695,7 @@ cmd_destroy() {
   # .env.secrets: it holds the DB password, and the database's auth was created with it — delete it
   # while the graph exists and the operator is locked out of their own data.
   refuse_volume_flags "$@"
+  remove_old_ollama
   info "Removing the stack — containers and network. Your data and config are kept."
   compose down "$@"
   info "Stack removed; nothing was deleted. '$SELF up' brings it back as it was."
@@ -565,11 +722,24 @@ cmd_version() {
   printf '%sbyodt%s %s\n' "$BOLD" "$RST" "$BYODT_VERSION"
   if [ -f "$ENV_FILE" ]; then
     printf 'Pinned release (from %s):\n' "$ENV_FILE"
-    grep -E '^(PLATFORM_VERSION|[A-Z_]*_IMAGE)=' "$ENV_FILE" | sed 's/^/  /' || true
+    grep -E '^(PLATFORM_VERSION|[A-Z_]*_IMAGE)=' "$ENV_FILE" | grep -v '^OLLAMA_IMAGE=' | sed 's/^/  /' || true
   fi
 }
 
 cmd_compose() { ensure_ready; compose "$@"; }
+
+# cmd_models pull downloads and verifies the embedding model's weights into data/models ahead of the first start,
+# with the platform's own code in a one-off platform container: its environment, its models mount, no database.
+# --no-deps is required, not a nicety: without it podman-compose starts the dependencies with remove-orphans on.
+cmd_models() {
+  [ "${1:-}" = pull ] || die "Usage: $SELF models pull"
+  do_bootstrap
+  check_embedding_env
+  local tty=()
+  [ -t 0 ] || tty=(-T)
+  info "Downloading and verifying the embedding model into data/models (once; the platform's first start then skips it)…"
+  compose run --rm --no-deps ${tty[@]+"${tty[@]}"} platform node dist/scripts/models-pull.js
+}
 
 # Front-door TLS certificate management. The proxy terminates TLS for the whole stack when cert.pem +
 # key.pem are present in tls/; these helpers create or inspect them. Apply a change with
@@ -629,6 +799,7 @@ ${BOLD}Usage:${RST} $SELF <command> [args]
   status             Show service state
   logs [service]     Follow logs (all, or one service)
   update             Pull the pinned images and apply
+  models pull        Download and verify the embedding model ahead of the first start
   backup [dir]       Snapshot the graph and copy it out (default: backups/)
   restore <file>     Replace the graph from a backup snapshot (asks to confirm)
   bootstrap          First-run setup (dirs, database password, mode seed)
@@ -639,7 +810,7 @@ ${BOLD}Usage:${RST} $SELF <command> [args]
   compose [args]     Run the engine's compose with this bundle's env files
   help               Show this help
 
-Services: db, ollama, console-init, platform, proxy, console
+Services: db, console-init, platform, proxy, console
 EOF
 }
 
@@ -660,6 +831,7 @@ case "$cmd" in
   tls)                 cmd_tls "$@" ;;
   version|--version)   cmd_version "$@" ;;
   compose)             require_engine; cmd_compose "$@" ;;
+  models)              require_engine; cmd_models "$@" ;;
   help|-h|--help)      usage ;;
   *) printf '%serror:%s unknown command: %s\n\n' "$RED" "$RST" "$cmd" >&2; usage >&2; exit 2 ;;
 esac

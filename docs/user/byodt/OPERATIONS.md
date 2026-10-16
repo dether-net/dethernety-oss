@@ -29,6 +29,7 @@ Run it from the bundle directory. It always operates on the bundle it lives in, 
 | `./byodt status` | Show the state of every service. |
 | `./byodt logs [service]` | Follow the logs — all services, or one. |
 | `./byodt update` | Pull the pinned images and apply them. |
+| `./byodt models pull` | Download and verify the embedding model's weights into `data/models` ahead of the first start. |
 | `./byodt backup [dir]` | Snapshot the graph and copy it out. Defaults to `backups/`. |
 | `./byodt restore <file>` | Replace the graph from a backup snapshot. Asks you to confirm. |
 | `./byodt bootstrap` | First-run setup only: directories, database password, mode layer. `up` does this for you. |
@@ -44,7 +45,7 @@ Several commands accept a familiar alias: `start`, `stop`, `ps`, `pull`, `upgrad
 **Service names**, for the commands that take one:
 
 ```
-db   ollama   console-init   platform   proxy   console
+db   console-init   platform   proxy   console
 ```
 
 ---
@@ -84,7 +85,7 @@ Naming a service recreates only that service, not its dependencies — `./byodt 
 ./byodt status
 ```
 
-Shows every service with its state and health. A healthy deployment shows `db`, `ollama`, `platform`, `proxy`, and `console` running, and `console-init` exited with code `0` — it is a one-shot, and exiting is what success looks like.
+Shows every service with its state and health. A healthy deployment shows `db`, `platform`, `proxy`, and `console` running, and `console-init` exited with code `0` — it is a one-shot, and exiting is what success looks like.
 
 ### Logs
 
@@ -104,17 +105,16 @@ Logs are followed. `Ctrl-C` stops the stream and nothing else.
 ```
 
 ```
-byodt 1.0.0
+byodt 1.2.0
 Pinned release (from .env):
   PLATFORM_VERSION=X.Y.Z
   DB_IMAGE=…
-  OLLAMA_IMAGE=…
   PROXY_IMAGE=…
 ```
 
 The first line is the control script's own version, which is independent of the platform release. The rest is exactly what this deployment is pinned to.
 
-The console image is not listed, because it follows `PLATFORM_VERSION` rather than being pinned separately. It appears here only if you have uncommented `CONSOLE_IMAGE` to point at a mirror.
+The console image is not listed, because it follows `PLATFORM_VERSION` rather than being pinned separately. It appears here only if you have uncommented `CONSOLE_IMAGE` to point at a mirror. A leftover `OLLAMA_IMAGE` line from an older release is not listed: this bundle no longer uses it.
 
 ### The console
 
@@ -123,6 +123,22 @@ The console image is not listed, because it follows `PLATFORM_VERSION` rather th
 ```
 
 Prints the console address and opens it where the platform supports that. The console reports the deployment's health, what the one-shot placed, whether the platform registered it, and whether any change is waiting to be applied. It runs outside the request path and has no dependency on the rest of the deployment, so it can still report while the platform is down.
+
+---
+
+## The embedding model
+
+The platform embeds in process with its built-in model, EmbeddingGemma 300m (`embeddinggemma-300m-retrieval-v1`). Its weights (about 1.26 GB) live in `data/models`. The platform downloads them once from Hugging Face, on its first start, and verifies each file's sha256; every later start loads them from disk.
+
+To download them ahead of a start — on a fresh install, or before an upgrade — run:
+
+```sh
+./byodt models pull
+```
+
+It runs the platform's own download code in a one-off platform container, with no database, so the stack can be up or down. It prints the model's size and its licence (the [Gemma Terms of Use](https://ai.google.dev/gemma/terms)), downloads only what is missing or fails verification, and ends with `Ready` once the weights are in place. `Ctrl-C` stops it without keeping a partial file; run it again to continue. If `.env` still sets `EMBEDDING_MODEL=embeddinggemma`, `byodt` stops it first with its own check, the one `./byodt up` and `./byodt update` run, and tells you to remove the line; any other value the platform would not run is refused by the download code, with the platform's message. It exits `0` once the weights are in place, `1` on a refusal or failure, and `130` when stopped.
+
+While the platform is downloading or loading the model, `/health` reports `degraded` and class and technique matching uses names; see [Troubleshooting → Matching uses names after a start](./TROUBLESHOOTING.md#matching-uses-names-after-a-start).
 
 ---
 
@@ -277,7 +293,7 @@ Your `.env`, `.env.secrets`, `mode/`, `tls/`, `data/`, and `backups/` are untouc
 diff .env .env.example
 ```
 
-**Set `PLATFORM_VERSION` to the new version.** That is the whole version change — the platform image, the console image, and the module payloads all follow it. Also take any changes to `OLLAMA_IMAGE` or `PROXY_IMAGE`, and read the new file's comments for settings that were added. Keep your current `DB_IMAGE`, even if the new file names a newer database, unless you decide to move the database (below).
+**Set `PLATFORM_VERSION` to the new version.** That is the whole version change — the platform image, the console image, and the module payloads all follow it. Also take any changes to `PROXY_IMAGE`, and read the new file's comments for settings that were added or retired. `./byodt update` never edits `.env` for you. Keep your current `DB_IMAGE`, even if the new file names a newer database, unless you decide to move the database (below).
 
 > **Moving the database to a newer image is your choice, and it is one-way.** A newer database writes data that an older one cannot open, so there is no downgrade. `./byodt up` and `./byodt update` warn when `DB_IMAGE` differs from the image this bundle was tested with; the warning never blocks the start. To move: back up first — `./byodt backup`, or a copy of `data/memgraph` taken with the deployment down — then set `DB_IMAGE` to the tested image and run `./byodt update`.
 
@@ -289,7 +305,9 @@ diff .env .env.example
 ./byodt update
 ```
 
-This pulls the newly pinned images and recreates the deployment. The one-shot runs again and installs the new release's signed modules; the reference-data ingest is skipped if the corpus has not changed.
+This first checks `.env` (see [Upgrading from a release with the `ollama` service](#upgrading-from-a-release-with-the-ollama-service) for what it refuses and what it only notes), then pulls the newly pinned images and recreates the deployment. The one-shot runs again and installs the new release's signed modules; the reference-data ingest is skipped if the corpus has not changed.
+
+If the one-shot refuses the start, `./byodt update` fails with an error that ends `'byodt logs console-init' says why.` Read that log, fix what it names, and run `./byodt update` again.
 
 ### 6. Verify
 
@@ -298,6 +316,63 @@ This pulls the newly pinned images and recreates the deployment. The one-shot ru
 ```
 
 Then open the console and confirm: a **Healthy** verdict, every module `placed` or `skipped`, and the init tag under the page heading showing the new version. If anything is off, see [Troubleshooting](./TROUBLESHOOTING.md).
+
+### Upgrading from a release with the `ollama` service
+
+From control script **1.2.0** on, the bundle no longer runs the old `ollama` service: the platform embeds in process. Upgrading a deployment that ran the `ollama` service follows the steps above, with these additions.
+
+1. **Back up, and keep what a rollback needs**, as in step 1: `./byodt backup`, and copy the file off the machine. Also save your current `.env`, and keep the previous release's bundle tarball:
+
+   ```sh
+   cp .env .env.before-<version>    # <version>: the release you are moving to
+   ```
+
+2. **Make room on disk, take the new bundle and set `PLATFORM_VERSION`**, as in steps 2 to 4. The new release needs free disk for the model's weights (about 1.26 GB in `data/models`) plus the new images. Do not count on the space `data/ollama` takes: it can only go after the upgrade has worked (step 7).
+3. **In `.env`, remove (or comment out) three lines:**
+
+   ```
+   EMBEDDING_MODEL=embeddinggemma
+   EMBEDDING_SIMILARITY_THRESHOLD=…
+   OLLAMA_IMAGE=…
+   ```
+
+   `./byodt up`, `./byodt update` and `./byodt models pull` **refuse** to run while `EMBEDDING_MODEL=embeddinggemma` is set — however it is quoted, exported, or followed by a comment — and tell you to remove the line. Any `OLLAMA_*` line, `EMBEDDING_URL`, and `EMBEDDING_SIMILARITY_THRESHOLD` only get a notice that they are no longer used. Leave `EMBEDDING_MODEL` unset: the platform's default is the model this release's reference data was embedded with.
+4. **Optionally, download the model ahead:** `./byodt models pull` (see [The embedding model](#the-embedding-model)). Otherwise the platform downloads it on its first start.
+5. **Apply:** `./byodt update`. It removes the old `ollama` container for you (found by its compose labels; its image and `data/ollama` are kept) and starts the new release.
+6. **Verify**, as in step 6.
+7. **Once the new start has worked, optionally reclaim the disk.** `./byodt up`, `./byodt update` and `./byodt models pull` report a leftover `data/ollama` with its size (typically 0.6–1 GB); `byodt` never deletes it. The old `ollama` service wrote it as root, so `sudo` is usually needed (rootful Docker on Linux):
+
+   ```sh
+   sudo rm -rf data/ollama
+   ```
+
+   If `data/ollama` is a symbolic link (you had moved the directory elsewhere), `byodt` reports only that it is one, without naming or measuring its target. Check where it points yourself (`ls -l data/ollama`) before you remove anything. The old Ollama image can be removed with your engine's own image commands.
+
+**What the first start after the upgrade does.** It takes longer than a normal start, once:
+
+- The one-shot **re-ingests the MITRE reference data**, because its vectors changed. This takes about a minute, and the platform is not up meanwhile.
+- The platform **downloads the model once** (about 1.26 GB), unless `./byodt models pull` placed it.
+- It then **embeds every class once, at about 0.2 s per class on a 4-vCPU host: seconds for the bundled modules (about 80 classes, 15–20 s), a few minutes with cloud content packages (about 1,200 classes). Matching uses names meanwhile.** This covers the classes of mounted cloud modules too. `/health` reports `degraded` until the embedder is ready, and turns `healthy` while the classes may still be embedding; see [Troubleshooting → Matching uses names after a start](./TROUBLESHOOTING.md#matching-uses-names-after-a-start).
+
+**Resources.** The platform uses roughly 0.8–0.9 GiB more memory, because it holds the model itself; the `ollama` container it replaces used about as much, so the host's total stays about the same. On disk, `data/models` adds about 1.26 GB, and removing `data/ollama` gives back 0.6–1 GB.
+
+**Rolling back.** This needs what you kept in step 1: the backup, the saved `.env`, and the previous release's bundle tarball. **Anything created since the upgrade is lost**: the restore puts the graph back as it was when you took the backup.
+
+1. Unpack the previous tarball over the bundle directory, as in step 3 of the upgrade.
+2. Restore the saved `.env`, with its `EMBEDDING_MODEL` and `OLLAMA_IMAGE` lines: `cp .env.before-<version> .env`.
+3. Apply, restore the graph, and recreate the platform:
+
+   ```sh
+   ./byodt update
+   ./byodt restore backups/<your backup>.snapshot
+   ./byodt restart platform
+   ```
+
+Keep `data/ollama` until you are sure you will not roll back: the previous release's `ollama` service reads its model from there, and downloads it again without it. After a rollback, `data/models` (1.26 GB) is no longer used and can be removed. Its files are owned by the platform's user (uid 1001) on rootful Docker, so `sudo` is usually needed:
+
+```sh
+sudo rm -rf data/models
+```
 
 ---
 

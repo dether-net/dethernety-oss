@@ -6,12 +6,25 @@
 # 2. Runs the MITRE ATT&CK, ATLAS and D3FEND ingest
 # 3. Exports the data to Cypher files with MERGE statements
 # 4. Generates vector embeddings and exports to SQL files (requires OPENAI_API_KEY)
-# 5. Packages everything into a tarball
-# 6. Cleans up the container
+# 5. Generates the Memgraph vector files (05, 09) with the manifest's embedding profile
+# 6. Packages everything into a tarball
+# 7. Cleans up the container
 #
 # FRAMEWORKS=atlas regenerates only the ATLAS files (06-09) and leaves the ATT&CK and
 # D3FEND files (01-03, 05) untouched; the ingest still loads everything, because the
 # ATLAS crosswalk links to ATT&CK nodes. The default, FRAMEWORKS=all, regenerates all.
+#
+# EMBEDDINGS_ONLY=1 regenerates only the vector files: instead of steps 2-4 it loads the
+# committed 01, 02, 06, 03 and 07 (scripts/load_committed_data.py), so the vectors describe
+# the node text that ships and no other file changes.
+#
+# manifest.json's embeddingProfile is the profile the vectors are embedded with and every
+# node records as embeddingModel; a new profile goes into the manifest before the build,
+# and the packaging step checks the files against it. The legacy profile embeddinggemma
+# embeds through Ollama (scripts/embedding_provider.py; EMBEDDING_PROVIDER may only be
+# unset or ollama). Any other id is a built-in onnx profile, embedded through the
+# platform's embedder package: it needs EMBEDDING_MODEL_DIR (the profile's weights), node,
+# and the package built (pnpm --filter @dethernety/embedder... build).
 
 set -euo pipefail
 
@@ -28,6 +41,7 @@ log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+EMBEDDER_DIST="$MODULE_DIR/../../packages/embedder/dist/embed-documents.js"
 
 CONTAINER_NAME="memgraph-mitre-build-$$"
 MEMGRAPH_PORT=17687
@@ -37,6 +51,54 @@ case "$FRAMEWORKS" in
     all|atlas) ;;
     *) echo "FRAMEWORKS must be 'all' or 'atlas', got '$FRAMEWORKS'" >&2; exit 2 ;;
 esac
+EMBEDDINGS_ONLY="${EMBEDDINGS_ONLY:-}"
+case "$EMBEDDINGS_ONLY" in
+    ""|1) ;;
+    *) echo "EMBEDDINGS_ONLY must be unset or 1, got '$EMBEDDINGS_ONLY'" >&2; exit 2 ;;
+esac
+EMBEDDING_PROFILE="$(jq -r '.embeddingProfile // empty' "$MODULE_DIR/manifest.json")"
+LEGACY_PROFILE="embeddinggemma"
+
+# The build must produce the manifest's profile, or the packaging step refuses the files
+# after they were already replaced. Everything that decides the vectors is checked here,
+# before the container starts, so a wrong setting costs nothing.
+EMBED_ARGS=()
+if [[ -z "$EMBEDDING_PROFILE" ]]; then
+    echo "manifest.json names no embeddingProfile" >&2
+    exit 2
+elif [[ "$EMBEDDING_PROFILE" == "$LEGACY_PROFILE" ]]; then
+    # The legacy profile is Ollama's embeddinggemma; any other provider or model writes
+    # vectors the manifest does not name.
+    case "${EMBEDDING_PROVIDER:-}" in
+        ""|ollama) ;;
+        *) echo "manifest.json's profile $LEGACY_PROFILE is Ollama's: EMBEDDING_PROVIDER=$EMBEDDING_PROVIDER would write other vectors" >&2; exit 2 ;;
+    esac
+    if [[ -n "${EMBEDDING_MODEL:-}" && "$EMBEDDING_MODEL" != "$LEGACY_PROFILE" ]]; then
+        echo "manifest.json's profile is $LEGACY_PROFILE: EMBEDDING_MODEL=$EMBEDDING_MODEL would write other vectors" >&2
+        exit 2
+    fi
+    # The exporter embeds the legacy profile only through an explicit provider (it never
+    # skips): Ollama, so an unreachable one fails the build.
+    export EMBEDDING_PROVIDER=ollama
+else
+    if [[ -n "${EMBEDDING_PROVIDER:-}" ]]; then
+        echo "EMBEDDING_PROVIDER and the onnx profile $EMBEDDING_PROFILE are exclusive: unset EMBEDDING_PROVIDER" >&2
+        exit 2
+    fi
+    if [[ -z "${EMBEDDING_MODEL_DIR:-}" ]]; then
+        echo "The profile $EMBEDDING_PROFILE needs EMBEDDING_MODEL_DIR: the directory that holds its weights" >&2
+        exit 2
+    fi
+    if ! command -v node >/dev/null; then
+        echo "The profile $EMBEDDING_PROFILE embeds through Node: node is not on PATH" >&2
+        exit 2
+    fi
+    if [[ ! -f "$EMBEDDER_DIST" ]]; then
+        echo "The embedder package is not built: pnpm --filter @dethernety/embedder... build" >&2
+        exit 2
+    fi
+    EMBED_ARGS=(--profile "$EMBEDDING_PROFILE" --models-dir "$EMBEDDING_MODEL_DIR")
+fi
 
 # Cleanup function - runs on exit (success or failure)
 cleanup() {
@@ -123,80 +185,82 @@ main() {
         (cd "$MODULE_DIR" && .venv/bin/pip install -r requirements.txt)
     fi
 
-    # Run ingest with custom port
-    log_info "Running MITRE ATT&CK, ATLAS and D3FEND ingest..."
-    (
-        cd "$MODULE_DIR"
-        export NEO4J_URI="bolt://localhost:$MEMGRAPH_PORT"
-        export NEO4J_USERNAME="neo4j"
-        export NEO4J_PASSWORD="password"
-        .venv/bin/python ingest.py
-    )
+    if [[ "$EMBEDDINGS_ONLY" == 1 ]]; then
+        log_info "EMBEDDINGS_ONLY=1: loading the committed node and relationship files..."
+        "$MODULE_DIR/.venv/bin/python" "$SCRIPT_DIR/load_committed_data.py" \
+            "bolt://localhost:$MEMGRAPH_PORT" "$MODULE_DIR/data"
+    else
+        # Run ingest with custom port
+        log_info "Running MITRE ATT&CK, ATLAS and D3FEND ingest..."
+        (
+            cd "$MODULE_DIR"
+            export NEO4J_URI="bolt://localhost:$MEMGRAPH_PORT"
+            export NEO4J_USERNAME="neo4j"
+            export NEO4J_PASSWORD="password"
+            .venv/bin/python ingest.py
+        )
 
-    # Export to Cypher
-    log_info "Exporting data to Cypher files..."
-    (
-        cd "$MODULE_DIR"
-        export NEO4J_URI="bolt://localhost:$MEMGRAPH_PORT"
-        export NEO4J_USERNAME="neo4j"
-        export NEO4J_PASSWORD="password"
-
-        .venv/bin/python "$SCRIPT_DIR/export_to_cypher.py" \
-            --output-dir "$MODULE_DIR/data" \
-            --frameworks "$FRAMEWORKS"
-    )
-
-    # Verify Cypher export
-    log_info "Verifying exported Cypher data..."
-    for file in "$MODULE_DIR/data"/*.cypher; do
-        if [[ -f "$file" ]]; then
-            lines=$(wc -l < "$file")
-            log_info "  $(basename "$file"): $lines lines"
-        fi
-    done
-
-    # Generate vector embeddings (optional - requires OPENAI_API_KEY)
-    if [[ "$FRAMEWORKS" != "all" ]]; then
-        log_info "FRAMEWORKS=$FRAMEWORKS: skipping the ATT&CK/D3FEND pgvector SQL export"
-    elif [[ -n "${OPENAI_API_KEY:-}" ]]; then
-        log_info "Generating vector embeddings..."
+        # Export to Cypher
+        log_info "Exporting data to Cypher files..."
         (
             cd "$MODULE_DIR"
             export NEO4J_URI="bolt://localhost:$MEMGRAPH_PORT"
             export NEO4J_USERNAME="neo4j"
             export NEO4J_PASSWORD="password"
 
-            .venv/bin/python "$SCRIPT_DIR/export_embeddings_to_sql.py" \
-                --output-dir "$MODULE_DIR/data"
+            .venv/bin/python "$SCRIPT_DIR/export_to_cypher.py" \
+                --output-dir "$MODULE_DIR/data" \
+                --frameworks "$FRAMEWORKS"
         )
 
-        # Verify SQL export
-        log_info "Verifying exported SQL data..."
-        for file in "$MODULE_DIR/data"/*.sql; do
+        # Verify Cypher export
+        log_info "Verifying exported Cypher data..."
+        for file in "$MODULE_DIR/data"/*.cypher; do
             if [[ -f "$file" ]]; then
                 lines=$(wc -l < "$file")
                 log_info "  $(basename "$file"): $lines lines"
             fi
         done
-    else
-        log_warn "OPENAI_API_KEY not set - skipping vector embedding generation"
-        log_warn "Set OPENAI_API_KEY to generate SQL files for pgvector"
+
+        # Generate vector embeddings (optional - requires OPENAI_API_KEY)
+        if [[ "$FRAMEWORKS" != "all" ]]; then
+            log_info "FRAMEWORKS=$FRAMEWORKS: skipping the ATT&CK/D3FEND pgvector SQL export"
+        elif [[ -n "${OPENAI_API_KEY:-}" ]]; then
+            log_info "Generating vector embeddings..."
+            (
+                cd "$MODULE_DIR"
+                export NEO4J_URI="bolt://localhost:$MEMGRAPH_PORT"
+                export NEO4J_USERNAME="neo4j"
+                export NEO4J_PASSWORD="password"
+
+                .venv/bin/python "$SCRIPT_DIR/export_embeddings_to_sql.py" \
+                    --output-dir "$MODULE_DIR/data"
+            )
+
+            # Verify SQL export
+            log_info "Verifying exported SQL data..."
+            for file in "$MODULE_DIR/data"/*.sql; do
+                if [[ -f "$file" ]]; then
+                    lines=$(wc -l < "$file")
+                    log_info "  $(basename "$file"): $lines lines"
+                fi
+            done
+        else
+            log_warn "OPENAI_API_KEY not set - skipping vector embedding generation"
+            log_warn "Set OPENAI_API_KEY to generate SQL files for pgvector"
+        fi
     fi
 
     # Generate Memgraph HNSW embeddings (05-mitre-embeddings.cypher, 09-atlas-embeddings.cypher).
-    # Provider selection happens inside the Python script. With no EMBEDDING_PROVIDER
-    # set it DEFAULTS to Ollama + embeddinggemma (matching the dt-ws runtime default),
-    # probing reachability first; if Ollama is unreachable or the model isn't pulled,
-    # the script logs a warning and exits zero, leaving the committed
-    # 05-mitre-embeddings.cypher authoritative. EMBEDDING_PROVIDER overrides the
-    # default (sentence-transformers/nomic, openai, fixture).
+    # An onnx EMBEDDING_PROFILE embeds through the platform's embedder package; the legacy
+    # profile through Ollama (EMBEDDING_PROVIDER=ollama, set above). Any failure fails the
+    # build: the exporter never skips.
     #
     # NOTE on step 4 vs step 5 asymmetry: step 4 (pgvector SQL) is shell-gated on
     # OPENAI_API_KEY and uses OpenAI text-embedding-3-small; step 5 (Memgraph cypher)
-    # defaults to Ollama + embeddinggemma — two model families, two embedding spaces,
-    # two consumers. Set EMBEDDING_PROVIDER=openai to align step 5 with step 4 if
-    # that's the intent.
-    log_info "Generating MITRE Memgraph embeddings (05 and/or 09, per FRAMEWORKS)..."
+    # uses the embedding profile — two model families, two embedding spaces, two
+    # consumers.
+    log_info "Generating MITRE Memgraph embeddings (05 and/or 09, per FRAMEWORKS) with profile $EMBEDDING_PROFILE..."
     (
         cd "$MODULE_DIR"
         export NEO4J_URI="bolt://localhost:$MEMGRAPH_PORT"
@@ -205,7 +269,8 @@ main() {
 
         .venv/bin/python "$SCRIPT_DIR/export_embeddings_to_cypher.py" \
             --output-dir "$MODULE_DIR/data" \
-            --frameworks "$FRAMEWORKS"
+            --frameworks "$FRAMEWORKS" \
+            ${EMBED_ARGS[@]+"${EMBED_ARGS[@]}"}
     ) || {
         log_error "MITRE Memgraph embedding export failed"
         exit 1
@@ -216,7 +281,9 @@ main() {
             lines=$(wc -l < "$MODULE_DIR/data/$f")
             log_info "  $f: $lines lines"
         else
-            log_warn "  $f absent — operator did not configure an embedding provider"
+            # The exporter writes every file it selects or fails, so only a file it did not
+            # select can be absent: 05 under FRAMEWORKS=atlas, missing before this run.
+            log_warn "  $f absent — FRAMEWORKS=$FRAMEWORKS does not write it and it was not here before; packaging will refuse it"
         fi
     done
 

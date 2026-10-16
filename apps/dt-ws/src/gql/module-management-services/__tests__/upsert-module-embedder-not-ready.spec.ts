@@ -21,7 +21,7 @@ describe('ModuleManagementService.upsertModule — embedder not ready', () => {
       providers: [
         ModuleManagementService,
         { provide: ConfigService, useValue: { get: () => undefined } },
-        { provide: EmbeddingService, useValue: { getModel: () => 'embeddinggemma' } },
+        { provide: EmbeddingService, useValue: { getModel: () => 'embeddinggemma', getDimensions: () => 768, isEnabled: () => true } },
         { provide: 'NEO4J_DRIVER', useValue: { session: () => ({ close: async () => {}, run: async () => ({ records: [] }) }) } },
         { provide: ClassReconciler, useValue: reconciler },
         { provide: ClassIdentityEventLog, useValue: eventLog },
@@ -60,7 +60,8 @@ describe('ModuleManagementService.upsertModule — embedder not ready', () => {
     await svc.upsertModule(tx as any, metadata, { skipValidation: true }, vectors);
     const classSet = calls.find((c) => c.cypher.includes('SET c += $nodeProperties'));
     const status = calls.find((c) => c.cypher.includes('lastInstallStatus = $status'));
-    return { classSet, status: status?.params.status };
+    const moduleSet = calls.find((c) => c.cypher.includes('MERGE (p:Module'));
+    return { classSet, status: status?.params.status, moduleSet };
   }
 
   it('keeps the stored vectors and marks the install partial while the embedder is not ready', async () => {
@@ -74,6 +75,16 @@ describe('ModuleManagementService.upsertModule — embedder not ready', () => {
     const { classSet, status } = await install(null);
     expect(classSet?.cypher).toContain('REMOVE c.embedding, c.embeddingModel');
     expect(status).toBe('authoritative');
+  });
+
+  it('records on the Module node the embedder its class vectors are made with', async () => {
+    const { moduleSet } = await install(new Map([['ClassA', [0.1, 0.2]]]));
+    expect(moduleSet?.params.nodeProperties.embeddingProfile).toBe('embeddinggemma/768');
+  });
+
+  it('records no embedder while it is pending, since the stored vectors were kept', async () => {
+    const { moduleSet } = await install('pending');
+    expect(moduleSet?.params.nodeProperties).not.toHaveProperty('embeddingProfile');
   });
 
   it('writes the vector and stays authoritative when the embedder is ready', async () => {

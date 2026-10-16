@@ -56,13 +56,11 @@ export class ModuleRegistryService implements OnModuleInit {
       this.logger.log('Starting module initialization...');
       await this.loadModules();
       
-      // Convert ModuleEntry map to DTModule map for backward compatibility
-      const moduleInstances = new Map<string, DTModule>();
-      for (const [name, entry] of this.customModules) {
-        if (entry.isHealthy) {
-          moduleInstances.set(name, entry.instance);
-        }
-      }
+      const moduleInstances = this.healthyModules();
+
+      // When the embedder becomes ready after this install (its model still downloading or loading), the modules
+      // installed without vectors are installed again.
+      this.moduleManagementService.enableCatchUp(() => this.healthyModules());
       
       // MODULE_LOAD_FORCE=1 is an incident-recovery escape hatch that bypasses
       // the content-hash skip gate and reinstalls every module unconditionally.
@@ -86,6 +84,15 @@ export class ModuleRegistryService implements OnModuleInit {
       });
       throw error;
     }
+  }
+
+  /** The loaded modules that are healthy, by name. */
+  private healthyModules(): Map<string, DTModule> {
+    const modules = new Map<string, DTModule>();
+    for (const [name, entry] of this.customModules) {
+      if (entry.isHealthy) modules.set(name, entry.instance);
+    }
+    return modules;
   }
 
   /**

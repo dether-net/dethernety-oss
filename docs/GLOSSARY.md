@@ -110,11 +110,13 @@ Domain terminology used throughout the Dethernety platform and documentation.
 
 **Policy engine** -- The evaluator that runs a module's Rego policies for exposure detection and countermeasure computation. It runs **in process** (Regorus, compiled to WebAssembly, in `packages/regorus-wasm`) — a deployment does not run a separate policy service.
 
+**Embedding profile** -- A built-in definition of how the platform turns text into vectors for class and MITRE technique matching. It pins the model's weights (Hugging Face repository, revision, and each file's size and sha256), how the model runs (ONNX, pooling, normalisation, dimensions), the query and document prompts, and a calibrated similarity threshold per corpus. `EMBEDDING_MODEL` selects one by id; the default is `embeddinggemma-300m-retrieval-v1`, run **in process**. The profile id is what every embedded node stores as `embeddingModel`, so vectors of different profiles are never compared. See [ADR-013](architecture/decisions/013-in-process-embedding.md).
+
 **Rego** -- The policy language the engine evaluates. Modules define security rules as Rego policies.
 
 ## Deployment
 
-**BYODt deployment** -- A self-hosted Dethernety deployment: the graph database, embedding server, platform, operator console, and front-door proxy, run from published images on your own machine or server. Delivered as a versioned bundle. See the [deployment guide](user/byodt/README.md) and its [architecture](architecture/byodt/README.md).
+**BYODt deployment** -- A self-hosted Dethernety deployment: the graph database, platform, operator console, and front-door proxy, run from published images on your own machine or server. Delivered as a versioned bundle. See the [deployment guide](user/byodt/README.md) and its [architecture](architecture/byodt/README.md).
 
 **Front door** -- The proxy that fronts a deployment on a single published port, serving the platform UI and API, and the operator console under `/console/`. It terminates TLS when a certificate is installed.
 

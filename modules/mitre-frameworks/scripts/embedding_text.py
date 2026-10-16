@@ -4,11 +4,12 @@ Python mirror of oss/packages/dt-module/src/embedding-text.ts.
 Format is pinned: changing it invalidates all stored MITRE vectors and forces a
 mitre-frameworks module rebuild + republish.
 
-Task-prefix discipline: build-side prepends 'search_document: '
-in the embedding call-site (embedding_provider.py), NOT here, so fixtures stay
-prefix-free and remain byte-equal to the TS composer output. Runtime side
-prepends 'search_query: ' before embedBatch — see the runtime resolver's
-VECTOR_SEARCH_PREFIX constant.
+Prompts are not applied here, so fixtures stay prompt-free and remain byte-equal
+to the TS composer output. An embedding profile's document and query prompts are
+applied by the embedder that runs the profile (the platform's embedder package, through
+embedding_provider.OnnxProfileProvider at build time); the legacy embeddinggemma
+profile has none. Only the sentence-transformers provider adds a prefix of its own
+('search_document: ', for the nomic model it is pinned to).
 
 If you edit this, edit oss/packages/dt-module/src/embedding-text.ts in the same
 PR — byte-equality is asserted by parallel tests on a

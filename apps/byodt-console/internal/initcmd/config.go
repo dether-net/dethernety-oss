@@ -54,6 +54,8 @@ type Config struct {
 	Neo4jUsername string
 	Neo4jPassword string
 	Neo4jDatabase string
+
+	EmbeddingModel string // EMBEDDING_MODEL as the platform gets it; blank selects the platform's default
 }
 
 // LoadConfig resolves configuration from the environment, applying defaults. version is
@@ -73,6 +75,7 @@ func LoadConfig(version string) Config {
 		Neo4jUsername:    os.Getenv("NEO4J_USERNAME"),
 		Neo4jPassword:    os.Getenv("NEO4J_PASSWORD"),
 		Neo4jDatabase:    os.Getenv("NEO4J_DATABASE"),
+		EmbeddingModel:   os.Getenv("EMBEDDING_MODEL"),
 	}
 	return c
 }

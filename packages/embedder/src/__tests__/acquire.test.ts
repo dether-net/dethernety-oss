@@ -9,7 +9,7 @@ import { createReadStream, existsSync } from 'fs';
 import * as fsp from 'fs/promises';
 import { chmod, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, symlink, utimes, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { dirname, join } from 'path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -22,7 +22,7 @@ vi.mock('fs', async (importOriginal) => {
 // Pass-through, so a test can make one call fail at a chosen moment.
 vi.mock('fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs/promises')>();
-  return { ...actual, lstat: vi.fn(actual.lstat), open: vi.fn(actual.open) };
+  return { ...actual, lstat: vi.fn(actual.lstat), open: vi.fn(actual.open), stat: vi.fn(actual.stat), mkdir: vi.fn(actual.mkdir) };
 });
 
 import type { EmbeddingProfile } from '@dethernety/dt-module/embedding';
@@ -34,8 +34,13 @@ import {
   profileRoot,
   removeStaleTemporaries,
   type FetchLike,
+  causeOf,
+  RETRY_DELAYS_MS,
+  seedVerifiedFiles,
+  verifiedRecordsFor,
   verifyWeights,
   WeightFileError,
+  weightsPlaced,
 } from '../acquire';
 
 const REVISION = 'a'.repeat(40);
@@ -100,6 +105,8 @@ beforeEach(async () => {
 afterEach(async () => {
   vi.mocked(fsp.lstat).mockReset();
   vi.mocked(fsp.open).mockReset();
+  vi.mocked(fsp.stat).mockReset();
+  vi.mocked(fsp.mkdir).mockReset();
   await rm(dir, { recursive: true, force: true });
 });
 
@@ -351,6 +358,111 @@ describe('ensureWeights', () => {
   });
 });
 
+// The weights are checked, then opened again by path: an entry below the models directory that another local account
+// could replace would let it swap what is loaded after the check.
+describe('entries another account could replace', () => {
+  const real = () => vi.importActual<typeof import('fs/promises')>('fs/promises');
+  const uid = process.getuid!();
+  /** lstat answers as the real one, with the owner of every path ending in `suffix` replaced by `owner`. */
+  const ownedBy = async (suffix: string, owner: number) => {
+    const fs = await real();
+    vi.mocked(fsp.lstat).mockImplementation((async (path: string) => {
+      const st = await fs.lstat(path);
+      return String(path).endsWith(suffix) ? Object.assign(Object.create(Object.getPrototypeOf(st)), st, { uid: owner }) : st;
+    }) as typeof fsp.lstat);
+  };
+
+  it('refuses a directory another account owns, naming it and what to run', async () => {
+    await mkdir(join(dir, 'org'), { recursive: true });
+    await ownedBy(`${join(dir, 'org')}`, uid + 4242);
+    const err = await ensureWeights(profile(), dir, { fetch: fakeHub().fetch }).catch((e) => e);
+    expect(err).toBeInstanceOf(WeightFileError);
+    expect(err.message).toMatch(/org in the models directory is owned by uid \d+, which is not the platform's/);
+    expect(err.message).toMatch(/\.\/byodt models pull/);
+    expect(await listFiles(dir)).toEqual([]);
+  });
+
+  it('refuses a weight file another account owns before it is loaded', async () => {
+    await ensureWeights(profile(), dir, { fetch: fakeHub().fetch });
+    forgetVerifiedFiles();
+    await ownedBy('config.json', uid + 4242);
+    await expect(verifyWeights(profile(), dir)).rejects.toThrow(/config\.json in the models directory is owned by uid/);
+  });
+
+  it("accepts entries owned by root or by the models directory's owner", async () => {
+    await ensureWeights(profile(), dir, { fetch: fakeHub().fetch });
+    forgetVerifiedFiles();
+    await ownedBy('config.json', 0);
+    await expect(verifyWeights(profile(), dir)).resolves.toBeUndefined();
+
+    // The operator copied the weights in under their own account, the models directory's owner, not the platform's.
+    const fs = await real();
+    const operator = uid + 7;
+    vi.mocked(fsp.stat).mockImplementation((async (path: string) => {
+      const st = await fs.stat(path);
+      return String(path) === dir ? Object.assign(Object.create(Object.getPrototypeOf(st)), st, { uid: operator }) : st;
+    }) as typeof fsp.stat);
+    vi.mocked(fsp.lstat).mockImplementation((async (path: string) => {
+      const st = await fs.lstat(path);
+      return String(path).startsWith(dir + '/') ? Object.assign(Object.create(Object.getPrototypeOf(st)), st, { uid: operator }) : st;
+    }) as typeof fsp.lstat);
+    forgetVerifiedFiles();
+    await expect(verifyWeights(profile(), dir)).resolves.toBeUndefined();
+  });
+
+  it('refuses a directory every account can write, and accepts one with the sticky bit', async () => {
+    await mkdir(join(dir, 'org'), { recursive: true });
+    await chmod(join(dir, 'org'), 0o777);
+    await expect(ensureWeights(profile(), dir, { fetch: fakeHub().fetch })).rejects.toThrow(/org in the models directory is writable by accounts other than its owner/);
+    await chmod(join(dir, 'org'), 0o1777);
+    await ensureWeights(profile(), dir, { fetch: fakeHub().fetch });
+    await expect(verifyWeights(profile(), dir)).resolves.toBeUndefined();
+  });
+
+  it('refuses a models directory every account can write without the sticky bit, and accepts it sticky', async () => {
+    await chmod(dir, 0o777);
+    await expect(ensureWeights(profile(), dir, { fetch: fakeHub().fetch })).rejects.toThrow(
+      /the models directory is writable by accounts other than its owner without the sticky bit; make it sticky/,
+    );
+    expect(await listFiles(dir)).toEqual([]);
+    await chmod(dir, 0o1777);
+    await ensureWeights(profile(), dir, { fetch: fakeHub().fetch });
+    await expect(verifyWeights(profile(), dir)).resolves.toBeUndefined();
+  });
+
+  it.each([0o666, 0o664])('refuses a weight file another account can write (mode %o)', async (mode) => {
+    await ensureWeights(profile(), dir, { fetch: fakeHub().fetch });
+    forgetVerifiedFiles();
+    await chmod(join(profileRoot(profile(), dir), 'config.json'), mode);
+    await expect(verifyWeights(profile(), dir)).rejects.toThrow(/config\.json in the models directory is writable by accounts other than its owner/);
+  });
+
+  it('refuses a directory another account plants between the check and the mkdir, before writing in it', async () => {
+    const fs = await real();
+    // The first mkdir of a weight's directories is when another account gets its own org/ in first.
+    vi.mocked(fsp.mkdir).mockImplementationOnce((async (path: string, opts: any) => {
+      await fs.mkdir(join(dir, 'org'));
+      return fs.mkdir(path, opts);
+    }) as typeof fsp.mkdir);
+    await ownedBy(join(dir, 'org'), uid + 4242);
+    await expect(ensureWeights(profile(), dir, { fetch: fakeHub().fetch })).rejects.toThrow(/org in the models directory is owned by uid/);
+    expect(await listFiles(dir)).toEqual([]);
+  });
+
+  it('writes its directories and files so no other account can change them, whatever the umask', async () => {
+    const before = process.umask(0);
+    try {
+      await ensureWeights(profile(), dir, { fetch: fakeHub().fetch });
+    } finally {
+      process.umask(before);
+    }
+    const root = profileRoot(profile(), dir);
+    for (const d of [join(dir, 'org'), join(dir, 'org', 'tiny'), root]) expect((await stat(d)).mode & 0o7777).toBe(0o755);
+    for (const f of Object.keys(CONTENT)) expect((await stat(join(root, f))).mode & 0o7777).toBe(0o644);
+    await expect(verifyWeights(profile(), dir)).resolves.toBeUndefined();
+  });
+});
+
 const never = <T>() => new Promise<T>(() => undefined);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** A 200 response whose body yields the file in pieces, waiting `gaps[i]` ms before piece i; `Infinity` never yields it. */
@@ -578,6 +690,20 @@ describe('the lock on a target file', () => {
   });
 });
 
+describe('weightsPlaced', () => {
+  it('is true when every listed file is in place with its listed size, and false otherwise', async () => {
+    expect(await weightsPlaced(profile(), dir)).toBe(false);
+    await ensureWeights(profile(), dir, { fetch: fakeHub().fetch });
+    expect(await weightsPlaced(profile(), dir)).toBe(true);
+    // Same size, other bytes: still "placed" — the check is cheap and proves nothing about content.
+    const target = join(profileRoot(profile(), dir), 'config.json');
+    await writeFile(target, 'X'.repeat(Buffer.byteLength(CONTENT['config.json'])));
+    expect(await weightsPlaced(profile(), dir)).toBe(true);
+    await writeFile(target, 'short');
+    expect(await weightsPlaced(profile(), dir)).toBe(false);
+  });
+});
+
 describe('verifyWeights', () => {
   it('names the first missing or wrong file', async () => {
     await expect(verifyWeights(profile(), dir)).rejects.toThrow(/config\.json: missing or does not match/);
@@ -603,6 +729,31 @@ describe('verifyWeights', () => {
     await verifyWeights(profile(), dir);
     await verifyWeights(profile(), dir);
     expect(reads(target)).toBe(1);
+  });
+
+  it('hands its verification records to another thread, which then reads nothing the stat still matches', async () => {
+    const target = await placed();
+    await verifyWeights(profile(), dir);
+    const records = await verifiedRecordsFor(profile(), dir);
+    expect(records.map(([p]) => p).sort()).toEqual(
+      Object.keys(CONTENT).map((f) => join(profileRoot(profile(), dir), f)).sort(),
+    );
+    // A worker thread starts with no records of its own.
+    forgetVerifiedFiles();
+    seedVerifiedFiles(records);
+    await verifyWeights(profile(), dir);
+    expect(reads(target)).toBe(0);
+    // A file changed after the records were taken is read again.
+    forgetVerifiedFiles();
+    await tick();
+    await utimes(target, T, T);
+    seedVerifiedFiles(records);
+    await verifyWeights(profile(), dir);
+    expect(reads(target)).toBe(1);
+  });
+
+  it('has no records for files it has not verified', async () => {
+    expect(await verifiedRecordsFor(profile(), dir)).toEqual([]);
   });
 
   it('reads again a file whose mtime changed since it was verified', async () => {
@@ -676,5 +827,229 @@ describe('ensureWeightsWithRetry', () => {
     const slept: number[] = [];
     await ensureWeightsWithRetry(profile(['config.json']), dir, { fetch, delaysMs: [1, 2], sleep: async (ms) => void slept.push(ms) });
     expect(slept).toEqual([1]);
+  });
+
+  it('retries first after 10 s, and logs the cause behind a bare "fetch failed"', async () => {
+    // What a resolver or connection that stalls past the client's connect timeout gives: undici's TypeError, with the
+    // reason only in its cause.
+    let n = 0;
+    const ok = fakeHub();
+    const fetch: FetchLike = async (url, init) => {
+      if (n++ === 0) {
+        throw Object.assign(new TypeError('fetch failed'), {
+          cause: Object.assign(new Error('Connect Timeout Error (attempted address: cdn.example:443, timeout: 10000ms)'), { code: 'UND_ERR_CONNECT_TIMEOUT' }),
+        });
+      }
+      return ok.fetch(url, init);
+    };
+    const slept: number[] = [];
+    const logged: Array<[string, Record<string, unknown> | undefined]> = [];
+    await ensureWeightsWithRetry(profile(['config.json']), dir, {
+      fetch,
+      sleep: async (ms) => void slept.push(ms),
+      log: (message, detail) => void logged.push([message, detail]),
+    });
+    expect(RETRY_DELAYS_MS[0]).toBe(10_000);
+    expect(slept).toEqual([10_000]);
+    expect(logged.find(([m]) => m === 'weight acquisition failed, retrying')?.[1]).toMatchObject({
+      attempt: 1,
+      retryInMs: 10_000,
+      error: 'fetch failed',
+      cause: 'UND_ERR_CONNECT_TIMEOUT: Connect Timeout Error (attempted address: cdn.example:443, timeout: 10000ms)',
+    });
+  });
+
+  it('logs no cause for an error without one', async () => {
+    const logged: Array<Record<string, unknown> | undefined> = [];
+    await expect(
+      ensureWeightsWithRetry(profile(['config.json']), dir, {
+        fetch: fakeHub({ fail: true }).fetch,
+        delaysMs: [1],
+        sleep: async () => undefined,
+        log: (m, detail) => void (m === 'weight acquisition failed, retrying' && logged.push(detail)),
+      }),
+    ).rejects.toThrow();
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).not.toHaveProperty('cause');
+  });
+});
+
+describe('causeOf', () => {
+  it('reads a code and a message, either alone, a string, or nothing', () => {
+    expect(causeOf(Object.assign(new Error('x'), { cause: Object.assign(new Error('getaddrinfo EAI_AGAIN cdn'), { code: 'EAI_AGAIN' }) }))).toBe(
+      'EAI_AGAIN: getaddrinfo EAI_AGAIN cdn',
+    );
+    expect(causeOf({ cause: { code: 'ECONNRESET' } })).toBe('ECONNRESET');
+    expect(causeOf({ cause: 'plain' })).toBe('plain');
+    expect(causeOf({ cause: {} })).toBeUndefined();
+    expect(causeOf(new Error('no cause'))).toBeUndefined();
+    expect(causeOf(null)).toBeUndefined();
+  });
+});
+
+describe('an abort (a shutdown during the acquisition)', () => {
+  const abortedWith = () => {
+    const controller = new AbortController();
+    const reason = new Error('shutting down');
+    return { controller, reason, abort: () => controller.abort(reason) };
+  };
+
+  it('ends a request that has not answered, with the signal reason, and leaves nothing behind', async () => {
+    const { controller, reason, abort } = abortedWith();
+    const signals: AbortSignal[] = [];
+    const fetch: FetchLike = (_url, init) => {
+      signals.push(init.signal);
+      setTimeout(abort, 10);
+      return never();
+    };
+    const root = profileRoot(profile(), dir);
+    await expect(ensureWeights(profile(['config.json']), dir, { fetch, signal: controller.signal })).rejects.toBe(reason);
+    expect(signals[0].aborted).toBe(true);
+    expect(await listFiles(root)).toEqual([]);
+  });
+
+  it('ends a body in the middle, removes its temporary and releases its lock', async () => {
+    const { controller, reason, abort } = abortedWith();
+    let signal: AbortSignal | undefined;
+    const fetch: FetchLike = async (_url, init) => {
+      signal = init.signal;
+      setTimeout(abort, 20);
+      return pieces('config.json', [0, Infinity]);
+    };
+    const root = profileRoot(profile(), dir);
+    await expect(ensureWeights(profile(['config.json']), dir, { fetch, signal: controller.signal })).rejects.toBe(reason);
+    expect(signal?.aborted).toBe(true);
+    expect(await listFiles(root)).toEqual([]);
+  });
+
+  it('stops waiting for another process\'s lock, and leaves that lock alone', async () => {
+    const { controller, reason, abort } = abortedWith();
+    const lock = join(profileRoot(profile(), dir), 'config.json.lock');
+    await mkdir(dirname(lock), { recursive: true });
+    await writeFile(lock, JSON.stringify({ pid: 1, token: 'theirs' }));
+    const hub = fakeHub();
+    setTimeout(abort, 30);
+    await expect(
+      ensureWeights(profile(['config.json']), dir, { fetch: hub.fetch, lockPollMs: 5, lockStaleMs: 60_000, signal: controller.signal }),
+    ).rejects.toBe(reason);
+    expect(hub.calls).toHaveLength(0);
+    expect(JSON.parse(await readFile(lock, 'utf-8')).token).toBe('theirs');
+  });
+
+  // A body or a fetch that ends on the same abort rejects too; that rejection must never go unhandled (it would end
+  // the process during a shutdown).
+  const unhandledDuring = async (run: () => Promise<unknown>) => {
+    const seen: unknown[] = [];
+    const onUnhandled = (reason: unknown) => seen.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      await run().catch(() => undefined);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+    return seen;
+  };
+
+  it('leaves no unhandled rejection when the abort lands between two chunks of the body', async () => {
+    const { controller, reason, abort } = abortedWith();
+    let reads = 0;
+    const fetch: FetchLike = async (_url, init) => ({
+      status: 200,
+      headers: { get: () => null },
+      body: {
+        [Symbol.asyncIterator]: () => ({
+          next: async () => {
+            reads++;
+            if (init.signal.aborted) throw new Error('body aborted');
+            // The abort lands while the loop handles this chunk (after its read has resolved), so the loop must not
+            // ask for the next one: that read would reject on the same abort.
+            return {
+              done: false,
+              get value() {
+                abort();
+                return Buffer.from('{');
+              },
+            };
+          },
+          return: async () => ({ done: true, value: undefined }),
+        }),
+      },
+    });
+    let result: unknown;
+    const seen = await unhandledDuring(async () => {
+      result = await ensureWeights(profile(['config.json']), dir, { fetch, signal: controller.signal }).catch((err) => err);
+    });
+    expect(result).toBe(reason);
+    expect(seen).toEqual([]);
+    expect(reads).toBe(1);
+    expect(await listFiles(profileRoot(profile(), dir))).toEqual([]);
+  });
+
+  it('leaves no unhandled rejection, and starts no request, when the abort lands between two hops', async () => {
+    const { controller, reason, abort } = abortedWith();
+    const urls: string[] = [];
+    const fetch: FetchLike = (url, init) => {
+      urls.push(url);
+      if (init.signal.aborted) return Promise.reject(new Error('fetch aborted'));
+      // The abort lands while the redirect is handled (after this hop has answered), so the next hop must not start: its
+      // request would reject on the same abort.
+      return Promise.resolve({
+        status: 302,
+        headers: {
+          get: () => {
+            abort();
+            return 'https://cdn.example/next';
+          },
+        },
+        body: null,
+      });
+    };
+    let result: unknown;
+    const seen = await unhandledDuring(async () => {
+      result = await ensureWeights(profile(['config.json']), dir, { fetch, signal: controller.signal }).catch((err) => err);
+    });
+    expect(result).toBe(reason);
+    expect(seen).toEqual([]);
+    expect(urls).toHaveLength(1);
+  });
+
+  it('fetches nothing when the signal is already aborted', async () => {
+    const { controller, reason, abort } = abortedWith();
+    abort();
+    const hub = fakeHub();
+    await expect(ensureWeights(profile(['config.json']), dir, { fetch: hub.fetch, signal: controller.signal })).rejects.toBe(reason);
+    expect(hub.calls).toHaveLength(0);
+  });
+
+  it('ends the retry wait at once, and makes no further attempt', async () => {
+    const { controller, reason, abort } = abortedWith();
+    const hub = fakeHub({ fail: true });
+    const started = Date.now();
+    const sleeping = vi.fn(() => {
+      setTimeout(abort, 10);
+      return never<void>();
+    });
+    await expect(
+      ensureWeightsWithRetry(profile(['config.json']), dir, { fetch: hub.fetch, delaysMs: [60_000, 60_000], sleep: sleeping, signal: controller.signal }),
+    ).rejects.toBe(reason);
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(hub.calls).toHaveLength(1);
+    expect(sleeping).toHaveBeenCalledTimes(1);
+  });
+
+  it('is not retried when it lands during an attempt', async () => {
+    const { controller, reason, abort } = abortedWith();
+    let calls = 0;
+    const fetch: FetchLike = () => {
+      calls++;
+      setTimeout(abort, 10);
+      return never();
+    };
+    const slept: number[] = [];
+    await expect(
+      ensureWeightsWithRetry(profile(['config.json']), dir, { fetch, delaysMs: [1, 1], sleep: async (ms) => void slept.push(ms), signal: controller.signal }),
+    ).rejects.toBe(reason);
+    expect([calls, slept]).toEqual([1, []]);
   });
 });

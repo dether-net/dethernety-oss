@@ -174,7 +174,7 @@ export interface DTModule {
   // Optional - Custom GraphQL resolvers for fields declared in getSchemaExtension()
   getResolvers?(context: ModuleResolverContext): ResolverMap | Promise<ResolverMap>;
 
-  // Optional - Pre-computed class embeddings (offline-install support)
+  // Optional - Pre-computed class embeddings (install without running the embedder)
   getEmbedding?(className: string, embeddingModel: string): number[] | null;
 
   // Optional - Lifecycle hooks (see Lifecycle Hooks section below)
@@ -198,9 +198,12 @@ export interface DTModule {
 ### `getEmbedding?(className, embeddingModel)`
 
 Returns a pre-computed embedding vector for `className` under the slugified
-`embeddingModel`, or `null` if no vector is available. When present, the
-platform uses it instead of calling the embedding endpoint — enabling
-offline install.
+`embeddingModel`, or `null` if no vector is available. The platform asks
+under the slug of its active embedding profile's id and uses a vector of
+the profile's dimensions that can be stored (finite values, a non-zero
+norm) instead of embedding the class itself. The vector
+must have been made with that profile (its document prompt, with the class
+name as the title); the platform cannot tell otherwise.
 
 - `embeddingModel` is the **slugified** model identifier (produced by
   `slugifyModelName()` in `@dethernety/dt-module/embedding`), so it is
@@ -210,7 +213,8 @@ offline install.
 - The base class `DtFileOpaModule` implements this by reading
   `{classDir}/embeddings/{slug}.json`. See
   [Pre-Computed Embeddings Spec](./PRE_COMPUTED_EMBEDDINGS_SPEC.md).
-- Generate vectors with the `module-manager embed` CLI; see
+- The `module-manager embed` CLI embeds over an HTTP endpoint without a
+  profile's prompts, so its vectors do not suit the platform's profile; see
   [Development Guide → Pre-computed Embeddings](./DEVELOPMENT_GUIDE.md#pre-computed-embeddings-optional).
 
 ---

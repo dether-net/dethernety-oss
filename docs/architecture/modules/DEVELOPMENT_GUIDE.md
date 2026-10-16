@@ -169,10 +169,10 @@ export default MyModule;
 At startup the platform skips installing a module whose content hash matches the one stored from its last complete install. What you need to do depends on the pattern:
 
 - **File-based module.** Ship the hash in `module.json` as `contentHash`. `scripts/hash-module.mjs` computes it from `data/<name>/` and writes it (`node ../../scripts/hash-module.mjs .`; add `--check` to verify a committed hash in CI). Re-run it whenever the module's data changes. Without it the module is installed on every start.
-- **Module written in code (Pattern 2).** Nothing — leave `contentHash` out of `getMetadata()`. The platform computes a hash from your `getMetadata()` result, the active embedding model and the platform version, and reinstalls the module when any of them changes: any class, any class field, the module `version`, or the embedder. A platform upgrade also reinstalls it once, since the hash covers the platform version too. Templates, exposures, countermeasures, guides and policies are not part of the install — the platform asks your module for them when they are used — so changing only those needs no reinstall.
+- **Module written in code (Pattern 2).** Nothing — leave `contentHash` out of `getMetadata()`. The platform computes a hash from your `getMetadata()` result and the platform version, and reinstalls the module when either changes: any class, any class field, or the module `version`. A platform upgrade also reinstalls it once, since the hash covers the platform version too. Templates, exposures, countermeasures, guides and policies are not part of the install — the platform asks your module for them when they are used — so changing only those needs no reinstall.
 - **Module written in code that implements `getEmbedding()`.** Pre-computed vectors come from somewhere the metadata does not show, so the platform computes no hash for such a module and installs it on every start. Ship your own `contentHash` in `getMetadata()` if you want it skipped, and change that hash whenever the vectors or the metadata change.
 
-`MODULE_LOAD_FORCE=1` reinstalls every module regardless of its hash. For the mechanism, see [ModuleManagementService → Content-hash skip gate](../backend/LLD/MODULE_MANAGEMENT_SERVICE.md#content-hash-skip-gate).
+Whatever the pattern, a change of the embedding model or its dimensions, or switching embedding on or off, reinstalls every module at the next start so its classes are embedded again; the platform records the embedder on each install, so this needs nothing from you. `MODULE_LOAD_FORCE=1` reinstalls every module regardless of its hash. For the mechanism, see [ModuleManagementService → Content-hash skip gate](../backend/LLD/MODULE_MANAGEMENT_SERVICE.md#content-hash-skip-gate).
 
 ### Constructor Signature
 
@@ -721,21 +721,39 @@ For the full architecture and security model, see [MODULE_CUSTOM_RESOLVERS.md](.
 
 Modules can ship pre-computed embedding vectors alongside their class
 definitions. At install time, the platform prefers a shipped vector over
-calling the embedding endpoint — allowing offline install and eliminating a
-network dependency for the vast majority of classes.
+embedding the class itself, when the vector is filed under the platform's
+active **embedding profile**, has its dimensions and can be stored (finite
+values, a non-zero norm).
+
+> **The CLI below does not embed with a profile.** The platform embeds in
+> process with an embedding profile (by default
+> `embeddinggemma-300m-retrieval-v1`), which wraps each class text in its
+> document prompt with the class name as the title. `module-manager embed`
+> POSTs the bare class text to an HTTP endpoint, so its vectors do not match
+> the platform's query vectors. Do not file them under a profile id. Without
+> profile-made vectors, ship none: the platform embeds your classes at
+> install, on the deployment's own machine.
 
 **Authoritative spec:** [PRE_COMPUTED_EMBEDDINGS_SPEC.md](./PRE_COMPUTED_EMBEDDINGS_SPEC.md).
 
 ### When to use
 
-- The deployment target has no reachable embedding endpoint (air-gapped,
-  enterprise network without egress).
-- The module is large (hundreds of classes) and you want install to be
-  fast and deterministic.
-- You want to pin the exact text-and-model used for vector generation,
-  so similarity scores remain reproducible across installs.
+Ship vectors only when you have vectors made with the platform's active
+embedding profile (each class text wrapped in the profile's document prompt,
+the class name as the title). Then:
 
-### End-to-end author workflow
+- A large module (hundreds of classes) installs fast, without running the
+  embedder for those classes.
+- The vectors are pinned to the exact text and profile they were made from,
+  so similarity scores stay reproducible across installs.
+
+Without profile-made vectors, ship none.
+
+### CLI author workflow (vectors the current platform does not use)
+
+The `module-manager embed` workflow below produces vectors the current
+platform does not use: they are embedded without the profile's document
+prompt (see the note above). Do not file its output under a profile id.
 
 Modules can wire the CLI into their `package.json` so authors get a short
 command (`pnpm embed`) that reads `EMBEDDING_MODEL` and `EMBEDDING_URL`
@@ -766,7 +784,7 @@ EMBEDDING_API_KEY=... pnpm embed
 # 3. Repackage so the embeddings/ directories end up in the tarball
 pnpm build
 
-# 4. Install (offline-capable now)
+# 4. Install
 ./scripts/module-manager.sh install dist/my-module-1.0.0.tar.gz
 ```
 
@@ -788,9 +806,11 @@ Calling the shell wrapper directly works too when you need ad-hoc flags:
    (`ComponentClasses/` etc. with `metadata.json`).
 3. For each class, composes embedding text using the **same** shared helper
    (`classEmbeddingText`, wrapping `composeClassText` + `normalizeClassType`)
-   the runtime cache uses — same formula, same type-normalization — so
-   pre-computed vectors score identically to on-the-fly vectors *and* the
-   content hash the writer stamps matches the one the cache recomputes.
+   the runtime cache uses — same formula, same type-normalization — so the
+   composed class text, and the content hash the writer stamps, match the
+   ones the runtime recomputes. The vectors themselves do not match the
+   platform's profile: the CLI embeds the bare text, without the profile's
+   document prompt (see the note at the top of this section).
 4. POSTs chunked batches (`--batch-size`, default 128) to the configured
    endpoint. Supports OpenAI, Ollama `/api/embed`, and Ollama legacy
    `/api/embeddings` response formats; the response is validated (each entry
@@ -824,8 +844,9 @@ start clean.
 The filename slug is derived from the model name, so
 `embeddings/nomic-embed-text.json` and
 `embeddings/text-embedding-3-small.json` can coexist for different model
-targets. The platform loads only the file matching `EMBEDDING_MODEL` at
-install time; classes without a matching file fall back to on-the-fly.
+targets. The platform loads only the file matching its active embedding
+profile's id at install time; classes without a matching file fall back to
+on-the-fly.
 
 ### Packager support
 
@@ -834,11 +855,14 @@ recursively, so `embeddings/` directories are included automatically in
 the resulting tarball. Legacy cypher/csv modules are **not** supported
 (see [Packaging](./PRE_COMPUTED_EMBEDDINGS_SPEC.md#packaging)).
 
-### Offline install
+### Install without running the embedder
 
-With every class embedded, installation issues zero HTTP calls to the
-embedding endpoint. Partial coverage is fully supported: classes without
-a pre-computed vector are embedded on the fly during install.
+With every class embedded for the active profile, installation does not run
+the embedder. Partial coverage is fully supported: classes without a
+pre-computed vector are embedded on the fly during install. While the
+platform's embedder is still downloading or loading its model, shipped
+vectors are not used either: the module installs with the vectors it already
+has, and is reinstalled when the embedder is ready.
 
 ## Testing and Debugging
 

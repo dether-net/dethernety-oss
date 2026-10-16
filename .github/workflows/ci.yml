@@ -96,6 +96,10 @@ jobs:
       - name: dt-core
         run: pnpm --filter @dethernety/dt-core test
 
+      # The embedder's own suite: its worker thread, its download and verification, and the built worker.js.
+      - name: embedder
+        run: pnpm --filter @dethernety/embedder test
+
       - name: dt-ui
         run: pnpm --filter dt-ui test
 
@@ -348,6 +352,14 @@ jobs:
       - name: Module references against the pinned MITRE data
         run: python3 modules/mitre-frameworks/scripts/check_module_refs.py --min-references 1000 modules/*/
 
+      # The MITRE vector build's tooling, stdlib-only: the onnx profile provider and the
+      # exporter's profile path (a fake helper stands in for the embedder), the vector-file
+      # check on the committed files, and the loader's statement split.
+      - name: MITRE embeddings tooling
+        run: |
+          python3 modules/mitre-frameworks/scripts/test_embedding_profile.py
+          python3 modules/mitre-frameworks/scripts/test_embeddings_files.py
+
   # The Go module rooted here: the console binary and the shared packages it builds on
   # (payload digest, Cypher parsing, archive extraction, signature verification). Its own
   # job — the Node jobs above never build Go — pinned to the toolchain the module declares.
@@ -521,6 +533,18 @@ jobs:
             done <<EOF
           $images
           EOF
+          done
+
+      # The platform embeds in process: the bundle runs no embedding server, under either provider.
+      - name: The bundle has no ollama service
+        run: |
+          set -euo pipefail
+          for engine in docker podman; do
+            services=$(CONTAINER_ENGINE="$engine" ./byodt compose config --services 2>/dev/null) \
+              || { echo "::error::$engine: compose config --services failed"; exit 1; }
+            if [ -z "$services" ]; then echo "::error::$engine: compose config listed no services"; exit 1; fi
+            if printf '%s\n' "$services" | grep -qx ollama; then echo "::error::$engine: the bundle still has an ollama service"; exit 1; fi
+            echo "ok   $engine: $(printf '%s ' $services)"
           done
 
       # In bind mode the database container must be given a user, because Memgraph refuses a data

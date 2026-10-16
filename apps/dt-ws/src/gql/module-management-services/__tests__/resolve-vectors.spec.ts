@@ -142,26 +142,6 @@ describe('ModuleManagementService.resolveVectors', () => {
     expect(embedding.embedBatch).toHaveBeenCalledWith(['TEXT:A'], 'document', ['A']);
   });
 
-  it('treats all classes as missing when EMBEDDING_MODEL is empty', async () => {
-    const getEmbedding = jest.fn().mockReturnValue([1, 2, 3]);
-    const module = { getMetadata: () => ({}), getEmbedding };
-    const { svc, embedding } = await buildService({
-      embedding: {
-        isEnabled: jest.fn(() => true),
-        getDimensions: jest.fn(() => 3),
-        getModel: jest.fn(() => ''),
-      },
-    });
-    const result = await svc.resolveVectors(
-      metadataWithClasses([{ name: 'A' }]),
-      module as any,
-    );
-    // getEmbedding must NOT be called with empty slug.
-    expect(getEmbedding).not.toHaveBeenCalled();
-    expect((result as Map<string, number[]>).get('A')).toEqual([9, 9, 9]);
-    expect(embedding.embedBatch).toHaveBeenCalled();
-  });
-
   it('writes no vectors (null) should embedBatch return null after the enabled check', async () => {
     const module = { getMetadata: () => ({}), getEmbedding: () => null };
     const { svc } = await buildService({
@@ -201,5 +181,43 @@ describe('ModuleManagementService.resolveVectors', () => {
     const result = await svc.resolveVectors(metadataWithClasses([]));
     expect(result).toEqual(new Map());
     expect(embedding.embedBatch).not.toHaveBeenCalled();
+  });
+
+  // An install writes every class it declares a vector or fails: a class left without one would have the skip gate
+  // install its module again at every start.
+  it('fails when the embedder returns fewer vectors than classes', async () => {
+    const { svc } = await buildService({
+      embedding: { embedBatch: jest.fn(async () => [[9, 9, 9]]) },
+    });
+    await expect(svc.resolveVectors(metadataWithClasses([{ name: 'A' }, { name: 'B' }]))).rejects.toThrow(
+      'The embedder returned 1 vectors for 2 classes',
+    );
+  });
+
+  it.each([
+    ['a non-finite value', [9, Number.NaN, 9]],
+    ['a zero norm', [0, 0, 0]],
+    ['length 2, expected 3', [9, 9]],
+  ])('fails when the embedder returns a vector with %s', async (defect, vector) => {
+    const { svc } = await buildService({
+      embedding: { embedBatch: jest.fn(async (texts: string[]) => texts.map(() => vector)) },
+    });
+    await expect(svc.resolveVectors(metadataWithClasses([{ name: 'A' }]))).rejects.toThrow(
+      `The embedder returned a vector that cannot be stored for class "A": ${defect}`,
+    );
+  });
+
+  it('embeds on the fly a class whose pre-computed vector has the right length but cannot be stored', async () => {
+    const { svc, embedding } = await buildService({});
+    const warn = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => {});
+    const module = { getEmbedding: () => [1, Number.NaN, 0] } as any;
+    const result = await svc.resolveVectors(metadataWithClasses([{ name: 'A' }]), module);
+    expect((result as Map<string, number[]>).get('A')).toEqual([9, 9, 9]);
+    expect(embedding.embedBatch).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith('Pre-computed embedding cannot be stored; falling through to on-the-fly', {
+      moduleName: 'test-module',
+      className: 'A',
+      defect: 'a non-finite value',
+    });
   });
 });
