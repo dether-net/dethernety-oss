@@ -3,11 +3,11 @@
 > The self-hosted Dethernety deployment: what it is, what runs, and where the design is documented.
 
 A **BYODt deployment** is Dethernety running as a self-contained container stack on a machine you
-control — a graph database, an embedding server, the platform (API + SPA), an operator console, and a
-front-door proxy, started by one control script. It needs no source checkout and no build toolchain:
+control — a graph database, the platform (API + SPA, which embeds in process), an operator console,
+and a front-door proxy, started by one control script. It needs no source checkout and no build toolchain:
 every image is published and pinned, and the graph lives on your own disk. With its default
-configuration the deployment reaches the network only to pull its images, the embedding model, and the
-signed module payloads for the release it is pinned to.
+configuration the deployment reaches the network only to pull its images, the embedding model's weights
+(from the Hugging Face Hub, on the first start), and the signed module payloads for the release it is pinned to.
 
 This is the supported way to run Dethernety on your own infrastructure. The alternative paths — a
 development checkout, or a hand-assembled production install against your own database and identity
@@ -34,7 +34,7 @@ guide](../../user/byodt/README.md).
 
 ## The shape of a deployment
 
-Six services on one private bridge network, of which exactly one publishes a host port.
+Five services on one private bridge network, of which exactly one publishes a host port.
 
 ```
                      host
@@ -51,10 +51,7 @@ Six services on one private bridge network, of which exactly one publishes a hos
                        ▼
                   ┌──────────┐        ┌────┐
                   │ platform │ ─────▶ │ db │
-                  └────┬─────┘        └────┘
-                       │              ┌────────┐
-                       └────────────▶ │ ollama │
-                                      └────────┘
+                  └──────────┘        └────┘
 
             console-init ── one-shot, runs and exits before the platform starts
 ```
@@ -62,13 +59,12 @@ Six services on one private bridge network, of which exactly one publishes a hos
 | Service | Role | Published |
 |---|---|---|
 | `db` | Graph database, reached over Bolt | no |
-| `ollama` | Embedding server used for class matching | no |
 | `console-init` | One-shot: places the schema, installs the code modules, ingests the reference corpus, then exits | no |
-| `platform` | API, SPA, and the runtime `/config` document | no |
+| `platform` | API, SPA, and the runtime `/config` document; embeds in process for class and technique matching | no |
 | `console` | Operator console daemon | no — served through the proxy at `/console/` |
 | `proxy` | The single entry point; terminates TLS for the whole stack | **yes** |
 
-The database and the embedding server never leave the stack network. The console shares the front
+The database never leaves the stack network. The console shares the front
 door's origin rather than taking a port of its own, which keeps the deployment to one endpoint and
 puts both sign-in callbacks on the same host. Details in [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
@@ -93,9 +89,12 @@ puts both sign-in callbacks on the same host. Details in [`ARCHITECTURE.md`](./A
 - You need multi-tenant separation inside one deployment. A deployment serves one team; access
   control is at its edge, not between users inside it.
 
-The stack runs a graph database and an embedding server alongside the platform, so it wants several
-gigabytes of memory and disk. The first run additionally pulls the embedding model and ingests the
-reference corpus, and is therefore markedly slower than subsequent starts.
+The stack runs a graph database alongside the platform, whose in-process embedding model adds about
+0.8–0.9 GiB to its memory, so it wants several gigabytes of memory and disk. The first run additionally
+downloads the embedding model (about 1.26 GB), ingests the reference corpus and embeds every class once
+(about 0.2 s per class on a 4-vCPU host: seconds for the bundled modules, about 80 classes; a few minutes
+with cloud content packages, about 1,200 classes; matching uses names meanwhile), and is therefore
+markedly slower than subsequent starts.
 
 ---
 
@@ -110,7 +109,7 @@ reference corpus, and is therefore markedly slower than subsequent starts.
 | [`pkg/payloaddigest/`](../../../pkg/payloaddigest/) | Re-derivation of a packaged module's payload identity from its installed tree |
 | [`pkg/cypher/`](../../../pkg/cypher/) | The statement splitter used to execute the reference corpus |
 
-Third-party image references (database, embedding server, proxy) and their licenses are listed in the
+Third-party image references (database, proxy) and their licenses are listed in the
 bundle's [`NOTICE`](../../../deploy/compose/NOTICE). The bundle references those images; your
 container runtime pulls each from its publisher.
 

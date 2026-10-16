@@ -1,8 +1,9 @@
 # Dethernety — Docker Compose deployment
 
-A complete, self-contained Dethernety stack: graph database, embedding server,
-platform (API + SPA), and a front-door proxy. Everything runs locally; nothing
-calls out beyond pulling the images.
+A complete, self-contained Dethernety stack: graph database, platform (API + SPA,
+with an in-process embedder), and a front-door proxy. Everything runs locally;
+nothing calls out beyond pulling the images, the signed module payloads, and the
+embedding model's weights.
 
 ## Prerequisites
 
@@ -11,8 +12,10 @@ calls out beyond pulling the images.
   (it probes `docker compose` then `podman compose`); set `CONTAINER_ENGINE` in
   `.env` to force one
 - Several gigabytes of free disk and memory — the stack runs a graph database
-  and an embedding server alongside the platform
-- A network connection for the first run (image pulls + the embedding model)
+  alongside the platform, which holds the embedding model in memory; the model's
+  weights take about 1.26 GB in `data/models`
+- A network connection for the first run (image pulls, module payloads, and the
+  embedding model's weights from Hugging Face)
 
 ## Quickstart
 
@@ -34,27 +37,35 @@ stays out of the readable layer. Run `./byodt help` for all commands.
 | Service        | Role                                              | Published |
 |----------------|---------------------------------------------------|-----------|
 | `db`           | graph database (Bolt)                             | no        |
-| `ollama`       | embedding server for class matching               | no        |
 | `console-init` | one-shot: places the schema, installs modules, ingests the reference data, then exits | no |
-| `platform`     | API + SPA + runtime `/config`                     | no        |
+| `platform`     | API + SPA + runtime `/config`; embeds in process  | no        |
 | `console`      | operator console: deployment status, TLS, and (optional) cloud connect — no sign-in in this bundle (OIDC once cloud-connected) | via proxy |
 | `proxy`        | the single entry point                            | **3000**  |
 
 Only the proxy publishes a port (loopback by default); the console is served
-through it at `/console/`, so there is a single endpoint. The database and
-embedding server never leave the stack network.
+through it at `/console/`, so there is a single endpoint. The database never
+leaves the stack network.
 
 `console-init` runs before the platform and must finish first — the platform is
-held back until it has completed. A version or schema problem stops the whole
-start; a module or data-ingest problem is recorded and the stack still comes up,
+held back until it has completed. A version, schema, or embedding-model problem
+stops the whole start; a module or data-ingest problem is recorded and the stack still comes up,
 so you can read the diagnosis rather than facing a silent empty deployment.
 
 ## First run takes a while
 
-The embedding model is pulled inside the `ollama` container on first start, and
-the reference-data ingest runs once in `console-init`. The health checks are
-sized to wait for a slow connection; `./byodt logs console-init` shows ingest
-progress. Subsequent starts reuse the `data/` volume and are fast.
+The reference-data ingest runs once in `console-init`. The platform then
+downloads its embedding model, EmbeddingGemma 300m (about 1.26 GB), once from
+Hugging Face into `data/models` and verifies it, and embeds every class once, at
+about 0.2 s per class on a 4-vCPU host: seconds for the bundled modules (about 80
+classes, 15–20 s), a few minutes with cloud content packages (about 1,200
+classes). Matching uses names meanwhile. `./byodt models pull` downloads the model
+ahead of the first start; the download does not hold the platform's health check.
+`./byodt logs console-init` shows ingest progress and
+`./byodt logs platform` the model. Subsequent starts reuse `data/` and are fast.
+
+The embedding model is licensed under the
+[Gemma Terms of Use](https://ai.google.dev/gemma/terms); the platform logs the
+licence before it downloads, and `./byodt models pull` prints it.
 
 ## Configuration
 
@@ -62,8 +73,14 @@ Edit `.env`. The image/version keys at the top name the tested release set.
 `PLATFORM_VERSION` is the release version: it selects both the platform image and
 the console image, so upgrading is a one-line change and the two cannot drift apart
 (the console refuses to start against a `PLATFORM_VERSION` it was not built for).
-The three third-party images are pinned separately so they can be repointed at a
+The two third-party images are pinned separately so they can be repointed at a
 mirror.
+
+Leave `EMBEDDING_MODEL` unset: the platform embeds with the model the release's
+MITRE data was made with, and refuses any other. `./byodt up` and `./byodt update`
+refuse an `.env` that still sets `EMBEDDING_MODEL=embeddinggemma` (the old
+`ollama` service's model) and note `OLLAMA_*`, `EMBEDDING_URL` and
+`EMBEDDING_SIMILARITY_THRESHOLD` lines as no longer used; they never edit `.env`.
 
 `DB_IMAGE` is copied into `.env` on the first run and kept across upgrades;
 `./byodt up` and `./byodt update` warn when it differs from the tested image. Moving
@@ -91,6 +108,7 @@ enable authentication (see below). Either change is applied on the next `./byodt
 ./byodt logs platform       # follow a service's logs
 ./byodt restart console     # recreate a service (re-reads config + the mode layer)
 ./byodt update              # pull the pinned images and apply
+./byodt models pull         # download + verify the embedding model ahead of the first start
 ./byodt down                # stop (data kept)
 ./byodt destroy             # remove the stack; data on disk is kept (rm it yourself to wipe)
 ./byodt backup              # snapshot the graph into backups/ (copy it off-box)
@@ -99,6 +117,19 @@ enable authentication (see below). Either change is applied on the next `./byodt
 
 `./byodt help` lists every command. Each wraps your container engine's `compose` with
 the bundle's env files; `./byodt compose …` is the escape hatch for anything not covered.
+
+## Upgrading from a bundle with the `ollama` service
+
+From `byodt` 1.2.0 the bundle no longer runs the old `ollama` service. Back up
+(`./byodt backup`), save `.env` and keep the previous bundle tarball (a rollback
+needs both), take the new bundle and set `PLATFORM_VERSION`, remove or comment out
+the `EMBEDDING_MODEL=embeddinggemma`, `EMBEDDING_SIMILARITY_THRESHOLD` and
+`OLLAMA_IMAGE` lines in `.env`, optionally `./byodt models pull`, then
+`./byodt update`. It removes the old `ollama` container; `data/ollama` is kept and
+reported with its size — once the new start has worked, `sudo rm -rf data/ollama`.
+The first start re-ingests the MITRE data once (about a minute) and embeds every
+class once. The full procedure, and rolling back, are in the
+[Operations guide](https://github.com/dether-net/dethernety-oss/blob/main/docs/user/byodt/OPERATIONS.md#upgrading-from-a-release-with-the-ollama-service).
 
 ## Backups
 
@@ -180,8 +211,8 @@ If sign-in is rejected at the provider, the console shows the exact value to reg
 The Dethernety platform and console are licensed under the GNU AGPL v3 — see
 [LICENSE](./LICENSE).
 
-The stack also *references* third-party images (graph database, embedding server,
-proxy) that your runtime pulls directly from their publishers; this bundle does not
+The stack also *references* third-party images (graph database, proxy) that your
+runtime pulls directly from their publishers; this bundle does not
 redistribute them. See [NOTICE](./NOTICE) for their licenses and provenance — note
 that Memgraph (the graph database) is **BSL 1.1**, whose production-use terms are
 yours to satisfy.

@@ -36,10 +36,19 @@ for mod in "${DATA_MODULES[@]}"; do
     echo "ERROR: data module '$mod' has no NOTICE; its data may not ship without one" >&2
     exit 1
   fi
+  # The module's manifest travels with its data too: its embeddingProfile names the model the data's vectors were
+  # embedded with, which console-init holds the platform's model to before it ingests. No profile, no image.
+  manifest="$OSS_ROOT/modules/$mod/manifest.json"
+  profile="$(node -e 'const m = require(process.argv[1]); process.stdout.write(typeof m.embeddingProfile === "string" ? m.embeddingProfile : "")' "$manifest" 2>/dev/null || true)"
+  if [ -z "$profile" ]; then
+    echo "ERROR: data module '$mod' has no manifest.json naming an embeddingProfile; console-init checks the platform's model against it" >&2
+    exit 1
+  fi
   if compgen -G "$src/*.cypher" > /dev/null; then
     mkdir -p "$EMBED/data-modules/$mod/data"
     cp "$src"/*.cypher "$EMBED/data-modules/$mod/data/"
     cp "$OSS_ROOT/modules/$mod/NOTICE" "$EMBED/data-modules/$mod/NOTICE"
+    cp "$manifest" "$EMBED/data-modules/$mod/manifest.json"
   else
     # A declared data module with no .cypher is a build error, not a warning: the schema
     # embed guard would still let the image build with an empty corpus. Fail loudly.

@@ -70,4 +70,4 @@ The vector tier no longer searches HNSW indexes. It is an **exact cosine search*
 - **Neo4j is supported.** The vector tier runs on Memgraph and Neo4j.
 - **`NO_INDEX_MODULE` is removed** from `VectorDisabledReason`. `EMBEDDING_DISABLED` now also covers an embedder that is not ready and a database that fails the vector self-test.
 
-A later ADR will record the full embedding-profile design.
+A later ADR will record the full embedding-profile design. It is [ADR-013: In-process embedding replaces the Ollama embedding server](013-in-process-embedding.md).

@@ -1,6 +1,7 @@
 import { plainToClass, Transform } from 'class-transformer';
 import { IsString, IsNumber, IsBoolean, IsOptional, IsIn, IsUrl, Min, Max, validateSync } from 'class-validator';
 import { optionalNumber } from './optional-number';
+import { embeddingProfileRefusal } from './embedding-profile-selection';
 
 // Case-insensitive boolean env parsing, matching database.config.ts's convention
 // (so OIDC_SHARED_POOL=TRUE / NEO4J_ENCRYPTED=TRUE are honoured, not silently
@@ -302,34 +303,17 @@ export class EnvironmentVariables {
   @Transform(({ value }) => value ? parseInt(value, 10) : undefined)
   STATISTICS_RETENTION_HOURS?: number = 24;
 
-  // Embedding Configuration (optional — vector similarity for class matching)
+  // Embedding Configuration (optional — vector similarity for class matching). EMBEDDING_MODEL is checked against the
+  // profiles this release offers after this pass (embeddingProfileRefusal). The HTTP embedder's settings
+  // (EMBEDDING_URL, EMBEDDING_API_KEY, EMBEDDING_DIMENSIONS, EMBEDDING_SIMILARITY_THRESHOLD) are not checked here: the
+  // platform ignores them, so a stale value never stops a start.
   @IsOptional()
   @IsString()
   EMBEDDING_ENABLED?: string;
 
   @IsOptional()
   @IsString()
-  EMBEDDING_URL?: string;
-
-  @IsOptional()
-  @IsString()
-  EMBEDDING_API_KEY?: string;
-
-  @IsOptional()
-  @IsString()
   EMBEDDING_MODEL?: string;
-
-  @IsOptional()
-  @IsString()
-  EMBEDDING_DIMENSIONS?: string;
-
-  // The HTTP embedder's single floor for classes and MITRE (cosine), checked like the per-corpus ones below.
-  @IsOptional()
-  @IsNumber({ allowNaN: false, allowInfinity: false })
-  @Min(-1)
-  @Max(1)
-  @Transform(optionalNumberEnv)
-  EMBEDDING_SIMILARITY_THRESHOLD?: number;
 
   // Where an in-process embedding profile's weights live (<dir>/<repo>/<revision>/<file>).
   @IsOptional()
@@ -387,6 +371,12 @@ export function validateEnvironment(config: Record<string, unknown>): Environmen
     }).join('\n');
 
     throw new Error(`Environment validation failed:\n${errorMessages}`);
+  }
+
+  // The embedding profile: a refused one stops the start here, before the database or the modules.
+  const embeddingRefusal = embeddingProfileRefusal({ enabled: config.EMBEDDING_ENABLED, model: config.EMBEDDING_MODEL });
+  if (embeddingRefusal) {
+    throw new Error(`Environment validation failed:\nEMBEDDING_MODEL: ${embeddingRefusal}`);
   }
 
   // Production-specific validations

@@ -13,7 +13,10 @@ graph database. The conversion changes the format and the selection only:
   - ATLAS techniques are linked to the ATT&CK techniques they cite, following
     ATT&CK's revocations;
   - the *-embeddings.cypher files add vector embeddings computed from the names
-    and descriptions.
+    and descriptions with Google's EmbeddingGemma model (the
+    embeddinggemma-300m-retrieval-v1 profile), whose use is governed by the Gemma
+    Terms of Use (https://ai.google.dev/gemma/terms). The files hold the vectors
+    only; the model's weights are not included.
 
 Each framework stays governed by its own terms, reproduced in full below. Nothing
 in this notice grants rights beyond those terms.

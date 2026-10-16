@@ -7,6 +7,87 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**Upgrading:** this release removes the bundle's `ollama` service; the platform embeds in process.
+Back up (`./byodt backup`), save `.env` (`cp .env .env.before-<version>`), keep the previous bundle
+tarball, and make room on disk for the model (about 1.26 GB) and the new images: `data/ollama` can
+only go once the upgrade has worked. Take the new bundle and set `PLATFORM_VERSION`. **In `.env`,
+remove (or comment out) the `EMBEDDING_MODEL=embeddinggemma`, `EMBEDDING_SIMILARITY_THRESHOLD` and
+`OLLAMA_IMAGE` lines:** `byodt` refuses the first and notes the others. Optionally run
+`./byodt models pull` to download the model ahead, then `./byodt update`. Once the new start works,
+`sudo rm -rf data/ollama` reclaims 0.6–1 GB; `byodt` never deletes it. **The first start after the
+upgrade** re-ingests the MITRE data once (about a minute, with the platform down meanwhile),
+downloads the model once (about 1.26 GB, unless `models pull` placed it), and **embeds every class
+once, at about 0.2 s per class on a 4-vCPU host: seconds for the bundled modules (about 80 classes,
+15–20 s), a few minutes with cloud content packages (about 1,200 classes); matching uses names
+meanwhile.** **Memory:** the platform uses about 0.8–0.9 GiB more, which the removed `ollama`
+container used before, so the host's total is about the same. To roll back, unpack the previous
+bundle tarball over the bundle, restore the saved `.env`, then run `./byodt update`,
+`./byodt restore <backup>` and `./byodt restart platform`; anything created since the upgrade is
+lost. See the operator guide's Operations, *Upgrading from a release with the `ollama` service*.
+
+### Added
+
+- **`byodt models pull`** (byodt 1.2.0) downloads and verifies the embedding model's weights into
+  `data/models` ahead of the first start. It runs the platform's own code in a one-off platform
+  container, with no database, selects the model with the platform's rule (a refused
+  `EMBEDDING_MODEL` is refused there too), and states the model's licence. `Ctrl-C` stops it without
+  keeping a partial file. The platform image carries it as `dist/scripts/models-pull.js`, which exits
+  0 when the weights are in place, 1 on a refusal or failure, 130 when stopped.
+- **`byodt up`, `byodt update` and `byodt models pull` check `.env` before anything starts.**
+  `EMBEDDING_MODEL=embeddinggemma`, however it is quoted, exported or followed by a comment, is refused
+  with an instruction to remove the line. `OLLAMA_*`, `EMBEDDING_URL` and
+  `EMBEDDING_SIMILARITY_THRESHOLD` lines get a "no longer used, you can remove the line" notice. A
+  leftover `data/ollama` is reported with its size and `sudo rm -rf data/ollama` once the new start
+  has worked; a `data/ollama` that is a symbolic link is reported as one, without naming or measuring
+  its target. `byodt` never edits `.env` and never deletes `data/ollama`.
+- **`console-init` checks the platform's embedding model.** Before the schema and the ingest, it
+  refuses a platform model (`EMBEDDING_MODEL`, else the platform's default) other than the one the
+  release's MITRE data was embedded with, and the platform then does not start. `byodt up` and
+  `byodt update` report a start that `console-init` stopped with `'byodt logs console-init' says
+  why`, under podman-compose too, whose `up -d` exits 0 when a dependency failed.
+- **The platform logs the model's licence before a download.** EmbeddingGemma is licensed under the
+  [Gemma Terms of Use](https://ai.google.dev/gemma/terms); the platform logs what it downloads, how big
+  it is and under which licence, once, before the download.
+
+### Changed
+
+- **Breaking: the platform embeds in process by default.** `EMBEDDING_MODEL` now defaults to
+  `embeddinggemma-300m-retrieval-v1` (EmbeddingGemma 300m, Google), which runs inside the platform:
+  its weights, about 1.26 GB, are downloaded once from Hugging Face into `EMBEDDING_MODEL_DIR` and
+  verified by sha256. Leave `EMBEDDING_MODEL` unset.
+- **Breaking: refused embedding models.** With `EMBEDDING_ENABLED=true` the platform refuses to start,
+  before it connects to the database, on `EMBEDDING_MODEL=embeddinggemma` (the old HTTP model: remove
+  the line), on `embeddinggemma-2-text-retrieval-v1` (not available in this release: its MITRE vectors
+  are not published yet), and on any unknown id. With embedding off nothing is refused.
+  `EMBEDDING_URL`, `EMBEDDING_API_KEY`, `EMBEDDING_DIMENSIONS` and `EMBEDDING_SIMILARITY_THRESHOLD`
+  are ignored, with one warning each; they never stop a start. `EMBEDDING_THRESHOLD_CLASSES`,
+  `_MITRE` and `_COMPONENTS`, `EMBEDDING_MODEL_DIR` and `HF_TOKEN` are unchanged.
+- **The bundle keeps the model's weights on the host.** The platform gets `EMBEDDING_MODEL_DIR=/models`,
+  bound to `./data/models`, so a recreate does not download them again. `byodt` creates `data/models`
+  on `up`, `update` and `restart`, with the sticky bit, and refuses a `data/*` runtime directory that
+  another local account owns, a link or a plain directory. The platform refuses a weight file when
+  anything on its path below the models directory is a symbolic link, is owned by an account other
+  than its own, root or the models directory's owner, or is writable by accounts other than its owner
+  (a sticky directory excepted). No other local account can then swap the model between its sha256
+  check and its load, or plant a directory before a download, except root and, under rootful Docker,
+  a host account with the platform's uid (1001). Weights copied in for an offline host are copied as
+  the account that runs `./byodt`: files copied as root pass only under rootful Docker, and rootless
+  Podman refuses them. The bundle also passes `EMBEDDING_THREADS` (default 4) to the platform.
+- **A shutdown during the model download stops at once.** The platform aborts a download in flight,
+  or its retry wait, removes the partial file, and loads nothing once the shutdown has begun.
+- **The shipped MITRE vectors are made with the platform's built-in profile.** The MITRE ATT&CK,
+  D3FEND and ATLAS vectors are now embedded with `embeddinggemma-300m-retrieval-v1`, and the
+  `mitre-frameworks` module is now version 1.2.0. Its embeddings exporter defaults to the manifest's
+  profile and never skips: without a provider, or on any failure, it exits non-zero and writes nothing.
+
+### Removed
+
+- **Breaking: the HTTP (Ollama- or OpenAI-compatible) embedder.** The platform no longer calls an
+  external embedding endpoint.
+- **Breaking: the bundle's `ollama` service.** `byodt` 1.2.0 removes the old `ollama` container on
+  `up`, `update`, `restart`, `down` and `destroy`, found by its compose project and service labels;
+  its image and `data/ollama` are kept. `byodt version` no longer lists `OLLAMA_IMAGE`.
+
 ### Fixed
 
 - **A control reference no longer attaches a control by part of its name.** Import and model update
@@ -45,6 +126,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A module's own finding description is the issue's description.** An issue raised from a module
   finding that carries a description was described as "Exposure: <description>". The description
   is now used as given; a finding passed by name only is still described as "Exposure: <name>".
+- **Changing the embedding model re-embeds the installed classes.** At start the platform skipped a
+  module whose content hash matched its last complete install. Only modules written in code, which
+  ship no hash, noticed a change of embedding model; every file module and every published package
+  module was skipped, its classes kept vectors from the old model, and the class vector tier stayed
+  off. Each install now records the embedding model its class vectors are made with, and a change of
+  model, of dimensions, or switching embedding on or off reinstalls every module at the next start
+  so its classes are embedded again. The start also checks the classes' own vectors: a module whose
+  searchable classes hold vectors of another model, or none, is installed again even when its record
+  matches, for example after an older platform version installed it again. **The first start after
+  the upgrade reinstalls every module once**, because no module has that record yet; later starts
+  skip them again while they are unchanged. With the embedding model unchanged, that reinstall
+  reuses the vectors the modules ship for it and embeds only classes that have none; it takes as
+  long as a full install of the modules. A manual `reindexClassEmbeddings` records the model too, so
+  the next start does not reinstall those modules.
+- **Classes are embedded when the embedder becomes ready, without a restart.** A module installed
+  before the embedder was ready kept its stored class vectors and was marked partial, and only the
+  next start installed it again. That happened when an in-process model finished its download or load
+  after the module install. When the embedder becomes ready, the platform now installs the waiting
+  modules again, with vectors; modules already embedded with the active model are skipped. The module
+  install at start also waits up to 60 seconds for an in-process model whose files are already in
+  place; a download is never waited for. Module installs and module resets now run one at a time.
 
 ## [0.11.1] - 2026-10-13
 

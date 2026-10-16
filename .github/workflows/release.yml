@@ -107,6 +107,18 @@ jobs:
             echo "::error::${ENVF}: DB_IMAGE=${DBIMG} != TESTED_DB_IMAGE=${TESTED} in deploy/compose/byodt"
             exit 1
           fi
+          # The platform embeds in process and the bundle runs no Ollama: a fresh install must not start from an
+          # .env that names the old embedding model (byodt refuses it) or still pins an Ollama image.
+          # The only model a fresh install may run is the default, so the template sets none, and no setting the
+          # platform no longer reads (each would print a notice on every fresh install).
+          if grep -Eq '^[[:space:]]*(export[[:space:]]+)?(EMBEDDING_MODEL|EMBEDDING_URL|EMBEDDING_SIMILARITY_THRESHOLD)[[:space:]]*=' "$ENVF"; then
+            echo "::error::${ENVF}: sets EMBEDDING_MODEL, EMBEDDING_URL or EMBEDDING_SIMILARITY_THRESHOLD; the template must leave them unset"
+            exit 1
+          fi
+          if grep -Eq '^[[:space:]]*(export[[:space:]]+)?OLLAMA_[A-Z0-9_]+[[:space:]]*=' "$ENVF"; then
+            echo "::error::${ENVF}: still sets an OLLAMA_* variable; the bundle has no Ollama service"
+            exit 1
+          fi
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6

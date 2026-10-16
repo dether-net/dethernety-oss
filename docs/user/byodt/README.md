@@ -9,7 +9,7 @@ tags: ['byodt', 'deployment', 'operations', 'index', 'overview']
 
 # BYODt Deployment
 
-The **BYODt deployment** runs the whole Dethernety platform on a machine you control. It ships as a small bundle — a compose file, a control script, and a configuration template — that starts a graph database, an embedding server, the platform, an operator console, and a front-door proxy from published, signed container images.
+The **BYODt deployment** runs the whole Dethernety platform on a machine you control. It ships as a small bundle — a compose file, a control script, and a configuration template — that starts a graph database, the platform, an operator console, and a front-door proxy from published, signed container images. The platform embeds in process, with a model it downloads once.
 
 There is no source checkout and no build toolchain. A container engine is the only prerequisite.
 
@@ -17,7 +17,7 @@ There is no source checkout and no build toolchain. A container engine is the on
 ./byodt up
 ```
 
-That one command sets the deployment up on first run and starts it every time after. Everything runs locally; the deployment reaches the network only to pull its images, the embedding model, and the signed module payloads for the release it is pinned to.
+That one command sets the deployment up on first run and starts it every time after. Everything runs locally; the deployment reaches the network only to pull its images, the embedding model's weights, and the signed module payloads for the release it is pinned to.
 
 New here? Go to **[Installation](./INSTALLATION.md)**.
 
@@ -25,14 +25,13 @@ New here? Go to **[Installation](./INSTALLATION.md)**.
 
 ## What it runs
 
-Six services, of which exactly one publishes a port.
+Five services, of which exactly one publishes a port.
 
 | Service | What it does | Published |
 |---|---|---|
 | `db` | The graph database. Every model, finding, and control lives here. | no |
-| `ollama` | The embedding server used for class matching. | no |
 | `console-init` | A one-shot that runs before the platform: places the schema, installs the signed modules, ingests the reference data, then exits. | no |
-| `platform` | The product — the API, the web application, and its runtime configuration. | no |
+| `platform` | The product — the API, the web application, and its runtime configuration. It also embeds in process for class and technique matching. | no |
 | `console` | The operator console: deployment status, cloud connect, content packages. | via the proxy |
 | `proxy` | The front door. The single entry point, and the TLS terminator. | **yes** |
 
@@ -45,7 +44,6 @@ graph LR
     PL[platform]
     C[console]
     DB[(db)]
-    OL[ollama]
     I[console-init<br/>one-shot]
   end
 
@@ -53,12 +51,11 @@ graph LR
   P --> PL
   P -->|/console/| C
   PL --> DB
-  PL --> OL
   I --> DB
   I -.->|must finish first| PL
 ```
 
-The database and the embedding server never leave the stack network. The console is served through the front door at `/console/`, on the same address as the platform — one endpoint, not two.
+The database never leaves the stack network. The console is served through the front door at `/console/`, on the same address as the platform — one endpoint, not two.
 
 `console-init` must complete before the platform starts. That ordering is declared, not hoped for: a schema problem stops the whole start, while a module or data problem is recorded and the stack still comes up, so you can read the diagnosis instead of facing a silent empty deployment.
 
@@ -76,8 +73,8 @@ Both move together if you change the port or bind address. See [Configuration](.
 ## What it needs
 
 - **A container engine** — Docker with the Compose plugin, or Podman 4.1+ with a Compose provider. The control script detects which you have and remembers the choice.
-- **Several gigabytes of free disk and memory.** The database container alone is started with a 4096 MiB memory limit, and the embedding server and platform run alongside it.
-- **A network connection for the first run** — to pull the container images, the embedding model, and the signed module payloads.
+- **Several gigabytes of free disk and memory.** The database container alone is started with a 4096 MiB memory limit, and the platform, which holds the embedding model in memory, runs alongside it. The model's weights take about 1.26 GB in `data/models`.
+- **A network connection for the first run** — to pull the container images, the embedding model's weights (from Hugging Face), and the signed module payloads.
 
 Full detail, including Podman specifics, is in [Installation](./INSTALLATION.md).
 
@@ -138,7 +135,9 @@ These guides cover running the deployment. For using the product it serves, see 
 
 The Dethernety platform and the operator console are licensed under the **GNU AGPL v3** (`LICENSE` in the bundle).
 
-The deployment also *references* third-party container images — the graph database, the embedding server, and the proxy — which your container engine pulls directly from their publishers. The bundle does not redistribute them. Read `NOTICE` in the bundle for their licences and provenance; note in particular that **Memgraph is licensed BSL 1.1, whose production-use terms bind you as the operator directly**.
+The deployment also *references* third-party container images — the graph database and the proxy — which your container engine pulls directly from their publishers. The bundle does not redistribute them. Read `NOTICE` in the bundle for their licences and provenance; note in particular that **Memgraph is licensed BSL 1.1, whose production-use terms bind you as the operator directly**.
+
+The platform's embedding model, **EmbeddingGemma 300m** (Google), is not in the bundle or in any image either: the platform downloads its weights from Hugging Face on the first start. The model is licensed under the **[Gemma Terms of Use](https://ai.google.dev/gemma/terms)**; the platform logs the licence before it downloads, and `./byodt models pull` prints it.
 
 ## For developers
 

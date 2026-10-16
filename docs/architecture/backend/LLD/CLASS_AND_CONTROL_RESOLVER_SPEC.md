@@ -226,7 +226,7 @@ LIMIT $k
 
 `<cosine(...)>` is `vector_search.cosine_similarity(a, b)` on Memgraph and `(2 * vector.similarity.cosine(a, b) - 1)` on Neo4j, which returns `(1 + cos) / 2` and is mapped back. The score (`similarityScore`) and the threshold are therefore cosines (-1..1) on both engines. Ties order by class id; `$k` is `topN`, clamped to 1..50 and passed as a Bolt integer. The query is built by `buildRankQuery` in `@dethernety/dt-module/embedding` and run by `VectorSearchService.rank()` in a read transaction.
 
-See Section 7 for the embedding pipeline. The threshold is the class corpus's: `EMBEDDING_THRESHOLD_CLASSES` when set, else `EMBEDDING_SIMILARITY_THRESHOLD` under the HTTP embedder, else the active embedding profile's calibrated value.
+See Section 7 for the embedding pipeline. The threshold is the class corpus's: `EMBEDDING_THRESHOLD_CLASSES` when set, else the active embedding profile's calibrated value.
 
 **Detecting availability:** `VectorSearchService.healthy()` runs a memoized self-test on the configured engine: the cosine of two orthogonal vectors must be 0 and of two opposite vectors -1. A failure keeps the vector tier off and is retried after 60 seconds. The resolver then checks that the scope holds at least one vector of the active model; if not, it logs a warning and skips the vector tier.
 
@@ -787,26 +787,21 @@ Optional enhancement for the `match_classes` vector tier. Runs on Memgraph and N
 
 ### Configuration
 
-The embedding service is a thin HTTP client — it calls any OpenAI-compatible embeddings endpoint. There is no provider distinction in code. Local (Ollama, LocalAI) vs cloud (OpenAI, Bedrock) is a deployment decision, not a code path.
+The embedder runs in process: dt-ws runs an **embedding profile** with onnxruntime on a worker thread. There is no HTTP embedder and no embedding service to deploy. A profile (`packages/dt-module/src/embedding-profile.ts`, built-ins in `src/embedding-profiles/*.json`) pins the weights (Hugging Face repository, revision, per-file size and sha256), the runtime (dimensions, pooling, normalisation), the query and document prompts, and the per-corpus thresholds. This release offers one profile, `embeddinggemma-300m-retrieval-v1` (768 dimensions).
 
 ```typescript
 // Environment variables
 EMBEDDING_ENABLED=true|false        // default: false
-EMBEDDING_URL=http://localhost:11434/api/embeddings  // any OpenAI-compatible endpoint
-EMBEDDING_API_KEY=                  // empty for local (Ollama), set for cloud (OpenAI, Bedrock)
-EMBEDDING_MODEL=embeddinggemma     // model name passed in the request body
-EMBEDDING_DIMENSIONS=768            // must match model output
-EMBEDDING_SIMILARITY_THRESHOLD=0.40 // per model: tuned for embeddinggemma; retune when EMBEDDING_MODEL changes
+EMBEDDING_MODEL=                    // profile id; unset selects embeddinggemma-300m-retrieval-v1
+EMBEDDING_MODEL_DIR=models          // where the weights are downloaded and verified
+EMBEDDING_THREADS=4                 // onnxruntime threads
+EMBEDDING_THRESHOLD_CLASSES=        // optional cosine floor; overrides the profile's value
+EMBEDDING_THRESHOLD_MITRE=          // likewise for MITRE technique search
+EMBEDDING_THRESHOLD_COMPONENTS=     // likewise for components (no floor by default)
+HF_TOKEN=                           // only for a gated weight source; sent to the hub origin only
 ```
 
-**Deployment examples:**
-
-| Stack | `EMBEDDING_URL` | `EMBEDDING_API_KEY` | Notes |
-|-------|----------------|--------------------| ------|
-| Ollama (local) | `http://ollama:11434/api/embeddings` | (empty) | Add Ollama to `docker-compose.yml` |
-| LocalAI (local) | `http://localai:8080/v1/embeddings` | (empty) | OpenAI-compatible API |
-| OpenAI (cloud) | `https://api.openai.com/v1/embeddings` | `sk-...` | Uses `text-embedding-3-small` or similar |
-| AWS Bedrock (cloud) | Bedrock endpoint | AWS credentials | Via OpenAI-compatible proxy or direct SDK |
+With `EMBEDDING_ENABLED=true` the environment validation refuses to start on `EMBEDDING_MODEL=embeddinggemma` (the removed HTTP embedder's model), on a built-in profile this release does not offer, and on any unknown id. `EMBEDDING_URL`, `EMBEDDING_API_KEY`, `EMBEDDING_DIMENSIONS` and `EMBEDDING_SIMILARITY_THRESHOLD` are ignored with a logged warning. See [ADR-013](../../decisions/013-in-process-embedding.md).
 
 ### No vector index for classes
 
@@ -818,110 +813,60 @@ Class vectors need no index: the vector tier scores every candidate class direct
 dt-ws/src/gql/services/embedding.service.ts
 ```
 
+The service selects its profile with the same rule as the environment validation (`config/embedding-profile-selection.ts`). On module init it acquires the weights in the background (`ensureWeightsWithRetry` from `@dethernety/embedder`: sha256-verified, retried after 10 s, 30 s, 2 min, 10 min and 30 min, aborted on shutdown), then starts the worker (`createWorkerEmbedder`, a 120 s load bound) and warms it up. Until then `isEnabled()` is false and `isPending()` is true.
+
 ```typescript
 @Injectable()
-export class EmbeddingService {
-  private readonly logger = new Logger(EmbeddingService.name)
-  private enabled: boolean
-  private url: string
-  private apiKey: string
-  private model: string
+export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
+  isEnabled(): boolean                 // enabled by configuration AND ready
+  isPending(): boolean                 // enabled, but downloading, loading or failed
+  getState(): 'disabled' | 'downloading' | 'loading' | 'ready' | 'failed'
+  getModel(): string                   // the profile id, stored as embeddingModel
+  getDimensions(): number              // the profile's dimensions
+  getThreshold(corpus: 'classes' | 'mitre' | 'components'): number | null
 
-  constructor(private configService: ConfigService) {
-    this.enabled = configService.get('EMBEDDING_ENABLED') === 'true'
-    this.url = configService.get('EMBEDDING_URL') || ''
-    this.apiKey = configService.get('EMBEDDING_API_KEY') || ''
-    this.model = configService.get('EMBEDDING_MODEL') || 'embeddinggemma'
-  }
+  /** Embed as queries or documents; a document's title feeds the profile's title rule.
+   *  Returns null when not enabled; throws on failure (no retry). */
+  embedBatch(texts: string[], kind: 'query' | 'document', titles?: string[]): Promise<number[][] | null>
 
-  isEnabled(): boolean { return this.enabled }
+  /** One batch, then one text at a time if the batch throws or miscounts. */
+  embedEach(texts: string[], kind: 'query' | 'document'): Promise<{ vectors: (number[] | null)[]; failures: { index: number; error: unknown }[] }>
 
-  getModel(): string { return this.model }
+  whenStartupChecked(): Promise<void> // the start-up install's bounded wait (60 s, only when the weights are in place)
+  onReady(listener: () => void): () => void
 
-  /**
-   * Embed a batch of texts via the configured HTTP endpoint.
-   * Returns null if embeddings are disabled.
-   * Retries up to 3 times with exponential backoff (1s, 3s, 9s) on failure.
-   * Throws after all retries are exhausted.
-   */
-  async embedBatch(texts: string[]): Promise<number[][] | null> {
-    if (!this.enabled) return null
-
-    const maxRetries = 3
-    const backoffBase = 1000 // 1s, 3s, 9s
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        // OpenAI-compatible embeddings API (works with Ollama, LocalAI, OpenAI, etc.)
-        const response = await fetch(this.url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(this.apiKey ? { 'Authorization': `Bearer ${this.apiKey}` } : {}),
-          },
-          body: JSON.stringify({ model: this.model, input: texts }),
-        })
-        if (!response.ok) throw new Error(`Embedding API returned ${response.status}`)
-        const data = await response.json()
-        return data.data.map((item: any) => item.embedding)
-      } catch (error) {
-        if (attempt === maxRetries) throw error
-        const delay = backoffBase * Math.pow(3, attempt - 1)
-        this.logger.warn(`Embedding attempt ${attempt}/${maxRetries} failed, retrying in ${delay}ms`)
-        await new Promise(resolve => setTimeout(resolve, delay))
-      }
-    }
-  }
-
-  /**
-   * Compose the embedding text for a class node.
-   */
-  composeClassText(cls: { name: string, description?: string, category?: string, type?: string }): string {
-    return `${cls.name}. ${cls.description || ''}. Category: ${cls.category || 'General'}. Type: ${cls.type || 'Unknown'}.`
-  }
-
-  /**
-   * Compose the embedding text for a query element.
-   */
-  composeElementText(element: { name: string, description?: string, type?: string }): string {
-    return `${element.name}. ${element.description || ''}. Type: ${element.type || 'Unknown'}.`
-  }
+  composeClassText(cls: { name: string, description?: string, category?: string, type?: string }): string
+  composeElementText(element: { name: string, description?: string, type?: string }): string
 }
 ```
+
+The two compose helpers delegate to `@dethernety/dt-module/embedding`, so build-time tooling and the runtime produce byte-equal text.
 
 ### Module ingestion integration
 
 In `ModuleManagementService.upsertModule()` (`module-management.service.ts`), before the class upsert loop. `EmbeddingService` is injected into `ModuleManagementService`.
 
+The vectors are resolved **before** the write transaction, by `ModuleManagementService.resolveVectors(metadata, moduleInstance)`:
+
 ```typescript
-// In module-management.service.ts, inside upsertModule()
-
-// 1. Collect all classes from the module metadata (all class labels)
-const allClasses: { cls: any, label: string }[] = []
-for (const modClass of MODULE_CLASS_CONFIGS) {
-  const classes = metadata[modClass.key]
-  if (classes && Array.isArray(classes)) {
-    for (const cls of classes) {
-      allClasses.push({ cls, label: modClass.label })
-    }
-  }
+// Returns null (embedding off: write none, remove stale ones),
+// 'pending' (embedder not ready: keep the stored vectors, install partial),
+// or a Map className -> vector.
+if (!this.embeddingService.isEnabled()) {
+  return this.embeddingService.isPending() ? 'pending' : null
 }
-
-// 2. Batch-embed all classes (if enabled)
-let vectors: number[][] | null = null
-if (this.embeddingService.isEnabled()) {
-  const texts = allClasses.map(({ cls }) => this.embeddingService.composeClassText(cls))
-  vectors = await this.embeddingService.embedBatch(texts)
-  // embedBatch returns null when disabled; throws after 3 retries when enabled but unreachable
-  // If embedBatch throws, the error propagates and fails the module install
+const slug = slugifyModelName(this.embeddingService.getModel())
+const dims = this.embeddingService.getDimensions()
+for (const { cls } of allClasses) {
+  const pre = moduleInstance?.getEmbedding?.(cls.name, slug) ?? null
+  // Used only when it can be stored: the profile's dimensions, finite values, a non-zero norm.
+  if (pre && !vectorDefect(pre, dims)) resolved.set(cls.name, pre)
+  else missing.push({ className: cls.name, text: this.embeddingService.composeClassText(cls) })
 }
-
-// 3. Upsert each class with its embedding vector (if available)
-for (let i = 0; i < allClasses.length; i++) {
-  const { cls, label } = allClasses[i]
-  const embedding = vectors ? vectors[i] : undefined
-  await this.upsertClass(tx, moduleId, cls, label, embedding)
-}
+// Embedded as documents, each titled with its class name. A throw fails this module's install.
+const fresh = await this.embeddingService.embedBatch(
+  missing.map(m => m.text), 'document', missing.map(m => m.className))
+// Every class gets a vector, or the install fails: a wrong count or a vector that cannot be stored throws.
 ```
 
 The `upsertClass()` method receives the optional embedding and includes it in the MERGE/SET Cypher:
@@ -950,10 +895,11 @@ No separate indexing step is needed: the exact search reads the `embedding` prop
 
 ### Failure behavior
 
-If `EMBEDDING_ENABLED=true` but the embedding model is unreachable during module install:
-- **Retry 3 times with exponential backoff** (1s, 3s, 9s). This handles transient failures: network blips, embedding model cold-starting, temporary service unavailability.
-- If all retries fail, **module install fails** with a clear error: "Embedding model unavailable after 3 retries. Fix the embedding service and retry, or disable embeddings (EMBEDDING_ENABLED=false)."
-- No partial state — either all classes are inserted with embeddings, or nothing is inserted. This prevents a state where the module is installed without embeddings and is never re-processed (since the module registry won't re-ingest an already-registered module).
+If `EMBEDDING_ENABLED=true` but the embedder is **not ready** (downloading, loading or failed) during module install:
+- The install keeps the vectors the classes already have, writes no new ones, and marks the module **partial**.
+- When the embedder becomes ready, the **catch-up** (`enableCatchUp`) reinstalls the modules left partial; a module still partial at the next start is reinstalled then.
+
+If the embedder is ready but a batch **throws**, returns another number of vectors than classes, or returns a vector that cannot be stored (the wrong length, a non-finite value, a zero norm), the module's install fails: either all classes are written with their vectors, or nothing is written. The start-up install logs it and continues with the other modules; a single-module install propagates the error.
 
 ### Model version tracking
 
@@ -963,11 +909,11 @@ Store the embedding model identifier alongside vectors to detect version drift:
 CREATE (c:ComponentClass {
     ...,
     embedding: item.vector,
-    embeddingModel: $model_identifier  // e.g., "embeddinggemma"
+    embeddingModel: $model_identifier  // the profile id, e.g. "embeddinggemma-300m-retrieval-v1"
 })
 ```
 
-At query time, if the configured model differs from `embeddingModel` on class nodes, log a warning: "Embedding model mismatch — re-embed classes with `/module re-embed`." The mismatch produces unreliable similarity scores but does not crash.
+The vector search compares only vectors whose `embeddingModel` is the active profile and whose length is its dimensions, so vectors of another model are never scored. The Module node records the embedder its classes were installed with (`embeddingProfile`: `<profile id>/<dimensions>`, or `off`); the start-up skip gate reinstalls an otherwise unchanged module whose record differs, so a profile change re-embeds every module's classes at the next start. The gate does not trust the record alone: with embedding on, it also reinstalls a module whose declared searchable classes hold a vector of another profile, of another length, or none, as after an older platform version installed the module again under a record that still matches (see [ModuleManagementService → The class vector check](./MODULE_MANAGEMENT_SERVICE.md#the-class-vector-check)).
 
 ### Module update
 
@@ -984,7 +930,7 @@ SET c.name = item.name,
 
 ### Re-indexing (embedding model migration)
 
-When the embedding model changes (e.g., `embeddinggemma` → a newer model), all class vectors must be recomputed before the new model is used for queries. A GraphQL mutation exposes this as a platform operation:
+When the embedding profile changes, all class vectors must be recomputed before the new profile is used for queries. The start-up skip gate does this per module; a GraphQL mutation also exposes it as a platform operation:
 
 ```graphql
 type Mutation {
@@ -999,14 +945,13 @@ type ReindexResult {
 
 **Behavior:**
 - When `moduleIds` is provided, re-embeds classes from those modules only. When absent, re-embeds all classes across all modules.
-- Reads the active class nodes (all 5 labels), composes embedding text, calls the embedding endpoint in batches, writes vectors back with the current `embeddingModel` identifier.
+- Reads the active class nodes (all 5 labels), composes embedding text, embeds it as documents in batches, writes vectors back with the current `embeddingModel` identifier.
 - Skips, with a warning, any returned vector that is not of the configured length, finite and non-zero.
 - This is a **blocking operation** — the mutation does not return until all vectors are updated. Stale vectors during a partial reindex would produce incorrect similarity rankings.
 - Authorization required: same `AuthorizationService` pattern as other custom resolvers.
 
 **When to use:**
 - After changing `EMBEDDING_MODEL` in configuration
-- After upgrading Ollama to a new model version that produces different vectors
 - As a recovery step if class data was manually modified in the graph
 
 The mutation lives in the same resolver as `match_classes` (`match-classes-resolver.service.ts`) since it shares the `EmbeddingService` dependency.
@@ -1081,7 +1026,7 @@ Phase B (independent, parallel with A)
 | `get_control_gaps` | Zero exposures, all mitigated, some unmitigated, unaddressable (no ControlClass), empty model |
 | `findControls` | Filter by class, by element, by module, combined filters, empty results |
 | `assignControlToElements` | Single assign, batch assign, idempotent re-assign |
-| `EmbeddingService` | Disabled mode, local model, batch embedding, retry on failure, model unavailable after retries |
+| `EmbeddingService` | Disabled mode, profile selection and refusal, weight acquisition failure, worker failure after ready, batch embedding, per-text fallback |
 
 ### Integration tests — planned
 
@@ -1095,7 +1040,7 @@ Phase B (independent, parallel with A)
 
 ### As-built coverage
 
-Verified against the tree on 2026-09-01. Each of these files is a targeted regression suite written
+Verified against the tree on 2026-09-01 (the `EmbeddingService` row on 2026-10-15). Each of these files is a targeted regression suite written
 alongside a specific fix, which is why the coverage is deep on one axis and absent on the others.
 
 | Service | Test file | Subject | Planned cases still open |
@@ -1104,11 +1049,12 @@ alongside a specific fix, which is why the coverage is deep on one axis and abse
 | `get_control_gaps` | `oss/apps/dt-ws/src/gql/resolver-services/__tests__/control-gaps-resolver.service.spec.ts` (unit, 4 cases) + `oss/apps/dt-ws/test/integration/control-gaps.e2e-spec.ts` (live Memgraph, 4 cases) | Graph-Integer LIMIT binding, bucket accounting summing to `totalExposures`, `configuredCoverage` feeding the Phase-3 pool, empty-scope short-circuit; live: nested boundary/flow exposures, a boundary-less model, the mitigated path | Unaddressable (no ControlClass) |
 | `findControls` | `oss/packages/dt-core/src/dt-control/__tests__/find-controls-intersect.test.ts` | The `controlId` + `elementIds` intersection — notably that a disjoint pair yields an empty id set rather than everything | Filter by class, by module, combined filters |
 | `assignControlToElements` | `oss/packages/dt-core/src/dt-control/__tests__/assign-control-idempotent.test.ts` | Idempotency across sequential calls (8 cases): the connect delta, the three typed paths, dedup of both the incoming list and the read, no-mutation-when-attached, read-failure propagation | — |
-| `EmbeddingService` | `oss/apps/dt-ws/src/gql/services/__tests__/embedding.service.spec.ts` | The disabled paths only — session disable, `embedBatch` returning `null` once disabled, `composeClassText` delegation, `EMBEDDING_ENABLED=false` | Local model, batch embedding on the enabled path, retry on failure, model unavailable after retries |
+| `EmbeddingService` | `oss/apps/dt-ws/src/gql/services/__tests__/embedding.service.spec.ts` | Against a stubbed in-process embedder: the profile and the ignored HTTP-embedder settings, the start-up wait and the ready signal, the start (verification, warm-up failure, a worker that fails after it was ready, a failed acquisition), a shutdown during a download, the pending state, `embedEach`'s per-text fallback, the disabled paths. The worker thread, the download and the verification are tested in the `@dethernety/embedder` package's own suite | An embed against the real model inside dt-ws |
 
 Of the five planned integration flows, only **gap analysis end-to-end** landed. No integration spec
-exercises `matchClasses`, and the three embedding flows have no coverage at any level —
-`reindexClassEmbeddings` is referenced by no test in the repo.
+exercises `matchClasses`, and the embedding flows have little coverage —
+`reindex-class-embeddings.spec.ts` covers only which modules `reindexClassEmbeddings` records the
+active embedder on.
 
 **Two cautions.** The dt-core suites assert what the writer *emits* against a mocked Apollo client,
 not what a graph ends up holding. And `oss/apps/dt-ws/test/integration/relationship-edge-uniqueness.e2e-spec.ts`

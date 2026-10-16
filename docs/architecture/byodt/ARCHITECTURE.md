@@ -3,7 +3,7 @@
 > The deployment topology: every service, how they depend on each other, what is published, where
 > state lives, and how a request reaches the platform.
 
-A BYODt deployment is a Compose project named `dethernety`: six services on one private bridge
+A BYODt deployment is a Compose project named `dethernety`: five services on one private bridge
 network, one published host port, and host-local storage. This document describes that topology and
 the reasoning behind the parts that are not obvious — the startup ordering, the single published port,
 the split configuration layers, and the front door's request-time upstream resolution.
@@ -23,7 +23,7 @@ The console's own design is in [`CONSOLE.md`](./CONSOLE.md); how modules arrive 
 | **Network** | One bridge network, `dethernety`; services address each other by service name |
 | **Published ports** | Exactly one: the front door, bound to loopback by default |
 | **Persistent state** | Host directories under the bundle (or one named volume for the graph) |
-| **Images** | Pinned by `.env`: `PLATFORM_VERSION` selects both of Dethernety's own images — platform and console — while the three third-party images carry their own references |
+| **Images** | Pinned by `.env`: `PLATFORM_VERSION` selects both of Dethernety's own images — platform and console — while the two third-party images carry their own references |
 | **Control surface** | The `byodt` script — a wrapper over the engine's `compose` that carries both env files |
 
 ---
@@ -49,17 +49,20 @@ The console's own design is in [`CONSOLE.md`](./CONSOLE.md); how modules arrive 
          │   console   │ ────────────▶ │  platform   │  :3003
          │   :8080     │  /config      │  API + SPA  │
          └──────┬──────┘  /graphql     └──┬───────┬──┘
-                │                         │       │
-                │  writes                 │ Bolt  │ HTTP
-                │  mode/ + modules/       ▼       ▼
-                │                     ┌──────┐ ┌────────┐
-                │                     │  db  │ │ ollama │
-                │                     │:7687 │ │ :11434 │
-                │                     └──────┘ └────────┘
+                │                         │       │ HTTPS, first start only
+                │  writes                 │ Bolt  └──────▶ Hugging Face Hub
+                │  mode/ + modules/       ▼                (embedding weights)
+                │                     ┌──────┐
+                │                     │  db  │
+                │                     │:7687 │
+                │                     └──────┘
                 │                         ▲
                 │   reads state file      │ Bolt
                 └──── modules/ ◀───── console-init  (one-shot, exits)
 ```
+
+The stack no longer has the old `ollama` service: the platform embeds in process (see
+[The embedder](#the-embedder)).
 
 `console-init` and `console` run the same image; the one-shot runs its default `init` entrypoint and
 the daemon is started with `command: ["daemon"]`.
@@ -94,38 +97,27 @@ The plain image is used rather than the extended variant: class matching uses th
 search, and the one procedure that would otherwise require the extended build has a built-in fallback.
 Pinning avoids a silent multi-gigabyte difference in the first-run pull.
 
-### `ollama` — embedding server
-
-Serves the embedding model the platform queries when matching model elements to classes. Stack-internal
-at `ollama:11434`.
-
-| | |
-|---|---|
-| Image | `${OLLAMA_IMAGE}` — third-party reference |
-| Model | `EMBEDDING_MODEL` (default `embeddinggemma`) — the same value selects what Ollama serves and what the platform asks for |
-| Storage | `./data/ollama` mounted at `/root/.ollama` |
-| Health | Pulls the model if absent, then asserts it is listed: 15 s interval, 120 s timeout, 40 retries, 30 s start period — sized for a first-run model pull on a slow connection |
-| Restart | `unless-stopped` |
-
-The health check is what performs the first-run model pull, which is why its retry budget is far larger
-than a liveness probe would need.
-
 ### `console-init` — the pre-start one-shot
 
-Runs to completion before the platform starts, and exits. It places the no-auth schema, fetches and
-verifies the signed code modules, and ingests the reference corpus.
+Runs to completion before the platform starts, and exits. It checks the platform's embedding model
+against the reference corpus, places the no-auth schema, fetches and verifies the signed code modules,
+and ingests the reference corpus.
 
 | | |
 |---|---|
 | Image | The console image, derived from `PLATFORM_VERSION` (overridable with `CONSOLE_IMAGE`), run with its default entrypoint (`init`) |
 | Depends on | `db` healthy |
-| Reads | `mode/mode.env` (as `env_file`), `PLATFORM_VERSION`, the Bolt credentials, `CONSOLE_RELEASE_BASE_URL` |
+| Reads | `mode/mode.env` (as `env_file`), `PLATFORM_VERSION`, the Bolt credentials, `CONSOLE_RELEASE_BASE_URL`, `EMBEDDING_MODEL` |
 | Writes | `./modules` (module payloads + the state file), `./schema` (the no-auth schema) |
 | Restart | `no` |
 
 It reads the same mode layer the platform will read, so its decision about which schema to place always
 tracks the mode the platform comes up in. Its exit discipline is the deployment's start/abort contract
 and is documented in [`CONSOLE.md`](./CONSOLE.md#the-two-exit-disciplines).
+
+Before the schema and the ingest, it stops the deployment when the model the platform will run differs
+from the one the MITRE corpus's vectors were embedded with — see
+[the embedding-model check](./CONSOLE.md#the-embedding-model-check).
 
 ### `platform` — API, SPA, and runtime config
 
@@ -136,8 +128,8 @@ subscription stream.
 |---|---|
 | Image | `ghcr.io/dether-net/dethernety:${PLATFORM_VERSION}` |
 | Port | `3003`, stack-internal |
-| Depends on | `db` healthy, `ollama` healthy, `console-init` completed successfully |
-| Health | `GET /health/simple` over the loopback inside the container: 15 s interval, 20 retries, 60 s start period |
+| Depends on | `db` healthy, `console-init` completed successfully |
+| Health | `GET /health/simple` over the loopback inside the container: 15 s interval, 20 retries, 60 s start period. It checks the database only; the embedder's state is on `/health` |
 | Restart | `unless-stopped` |
 
 Its environment is split deliberately: everything fixed by the deployment shape is in the service's
@@ -153,8 +145,38 @@ Its environment is split deliberately: everything fixed by the deployment shape 
 | `CUSTOM_MODULES_PATH` | `custom_modules` | Resolved against the image's working directory, `/app/apps/dt-ws` |
 | `ALLOWED_MODULES` | `*` | The deployment loads what the console placed in the modules mount; provenance is enforced at install time, not by name matching |
 | `ENABLE_MODULE_HOT_RELOAD` | `false` | Module changes take effect on a recreate, never mid-flight |
-| `EMBEDDING_URL` / `EMBEDDING_MODEL` / `EMBEDDING_SIMILARITY_THRESHOLD` | `http://ollama:11434/api/embed`, `.env` values | The threshold is model-dependent; the default is tuned for the default model |
+| `EMBEDDING_ENABLED` / `EMBEDDING_MODEL` / `EMBEDDING_MODEL_DIR` | `true`, the `.env` value (empty selects the platform's default), `/models` | See [The embedder](#the-embedder) |
+| `EMBEDDING_THREADS` | `${EMBEDDING_THREADS:-4}` | The embedder's inference threads; the operator matches it to the host's (or the VM's) core count |
 | `SETTINGS_URL` | `${SETTINGS_URL:-/console/}` | Surfaces a **Settings** link in the platform sidebar pointing at the console on this same origin; set empty to hide it |
+
+#### The embedder
+
+The platform embeds in process: it runs the embedding profile `EMBEDDING_MODEL` selects (empty selects
+the default, `embeddinggemma-300m-retrieval-v1`) with onnxruntime on a worker thread, so a request
+that does not embed never waits behind one that does. Its weights are not in the image or the bundle. On the first start the platform
+downloads them from the Hugging Face Hub (about 1.26 GB) into `/models`, the host's `./data/models`,
+verifies every file against the profile's sha256, and keeps them there, so a recreate does not download
+them again. `byodt models pull` does the same ahead of the first start, with the platform's own code in
+a one-off platform container that needs no database.
+
+| | |
+|---|---|
+| Weights | `./data/models` mounted at `/models` (`EMBEDDING_MODEL_DIR`), read-write |
+| Licence | The default profile's weights are under the Gemma Terms of Use; the operator's platform downloads them, and the platform logs the licence before the download |
+| Memory | About 0.8–0.9 GiB more in the platform container |
+| Until ready | The vector tier is off and class and technique matching answer by name; `/health` reports `degraded`. Its `services.embedder` block (`downloading`, `loading`, `failed`) appears only when `NODE_ENV` is not `production` — the standalone posture; a cloud-connected platform answers `status` and `timestamp` only |
+| Refused models | With embedding on, the platform refuses to start on the legacy `embeddinggemma`, on a profile this release does not offer, and on an unknown id — before it connects to the database |
+
+On the first start the platform also embeds every class once, after the weights are in place: about
+0.2 s per class on a 4-vCPU host, so seconds for the bundled modules (about 80 classes, 15–20 s) and a
+few minutes with cloud content packages (about 1,200 classes); class matching uses names meanwhile.
+`/health` turns `healthy` once the embedder is ready (`Embedder ready` in the log), while the classes may
+still be embedding (`Embeddings resolved` per module when done). Modules installed while the embedder was
+still loading are installed again when it becomes ready. Each install records the embedding profile its
+vectors were made with, so later starts skip modules whose content and profile are unchanged. The
+mechanism is in
+[`CLASS_AND_CONTROL_RESOLVER_ARCHITECTURE.md`](../backend/LLD/CLASS_AND_CONTROL_RESOLVER_ARCHITECTURE.md);
+the decision is [ADR-013](../decisions/013-in-process-embedding.md).
 
 ### `console` — the operator console daemon
 
@@ -198,7 +220,6 @@ identity-provider callback registration. Renumbering it to 80 silently reintrodu
 graph LR
   db[db] -- service_healthy --> init[console-init]
   db -- service_healthy --> platform[platform]
-  ollama[ollama] -- service_healthy --> platform
   init -- service_completed_successfully --> platform
   platform -- service_started --> proxy[proxy]
   console["console (no depends_on — starts immediately)"]
@@ -208,7 +229,7 @@ Three different conditions are used, and each is chosen for a reason:
 
 | Edge | Condition | Why this one |
 |---|---|---|
-| `db` → `console-init`, `db`/`ollama` → `platform` | `service_healthy` | "The container is running" is not enough: the one-shot writes to the graph on its first statement, and the platform queries the embedding server on its first class match. Health here means *answers a query* / *serves the model* |
+| `db` → `console-init`, `db` → `platform` | `service_healthy` | "The container is running" is not enough: the one-shot writes to the graph on its first statement. Health here means *answers a query* |
 | `console-init` → `platform` | `service_completed_successfully` | A declared dependency, not a service that merely tends to finish first. Without it the platform could read a previous boot's schema, or start against an unseeded graph |
 | `platform` → `proxy` | `service_started` | The front door answers its own `/healthz` and resolves the platform at request time, so a platform outage is a `502` from a live front door rather than a proxy that refuses to start. Waiting for platform *health* would make a backend failure present as no front door at all |
 | — | `console` has none | It reports on the deployment, so it must not be gated on the deployment being up |
@@ -227,7 +248,6 @@ The one-shot's own failure semantics decide whether `up` proceeds at all — see
 | `platform` | `3003` | no | API, SPA, `/config`, subscription stream |
 | `console` | `8080` | no | Console API and SPA, reached through the proxy at `/console/` |
 | `db` | `7687` | no | Bolt |
-| `ollama` | `11434` | no | Embedding HTTP API |
 
 `FRONT_DOOR_BIND` defaults to `127.0.0.1`. Binding it to `0.0.0.0` publishes the platform *and the
 console* to your network; the consequences of that are the subject of
@@ -241,7 +261,7 @@ console* to your network; the consequences of that are the subject of
 |---|---|---|---|---|
 | `${DB_DATA}` (default `./data/memgraph`) | `/var/lib/memgraph` | `db` | rw | The graph, plus the database's own in-place snapshots |
 | `./data/memgraph-log` | `/var/log/memgraph` | `db` | rw | The database's own log. Mounted from the host because the image's log directory is writable only by the image's user, and on a bind mount the container runs as whoever owns the data directory instead |
-| `./data/ollama` | `/root/.ollama` | `ollama` | rw | The pulled embedding model |
+| `./data/models` | `/models` | `platform` | rw | The embedding model's weights, downloaded and verified on the first start (or by `byodt models pull`) |
 | `./modules` | `/app/apps/dt-ws/custom_modules` | `console-init`, `console` | rw | Installed module payloads, the console's state file, content-mount stubs |
 | `./modules` | `/app/apps/dt-ws/custom_modules` | `platform` | **ro** | The platform loads what was placed; it never writes here |
 | `./schema` | `/app/apps/dt-ws/schema` | `console-init` | rw | Where the one-shot writes the no-auth schema |
@@ -264,9 +284,11 @@ layer can corrupt a database under a bind mount; setting `DB_DATA=memgraph-data`
 the declared named volume, inside the engine's own storage. The two are separate stores — switching is
 a fresh database, not a migration.
 
-The runtime directories are created world-writable by the control script. That is not incidental: under
-a rootless engine the container's unprivileged uid need not match the operator's, and the one-shot and
-the daemon both write into these mounts. `tls/` is deliberately excluded from that and kept at `0700` —
+The runtime directories are created world-writable by the control script, `data/` and `data/models`
+with the sticky bit, so another local account cannot replace an entry there that it does not own (see
+[Security Model → Host-level considerations](./SECURITY_MODEL.md#host-level-considerations)). That is
+not incidental: under a rootless engine the container's unprivileged uid need not match the
+operator's, and the one-shot and the daemon both write into these mounts. `tls/` is deliberately excluded from that and kept at `0700` —
 a world-writable directory there would let any local user replace the private key and force the
 plaintext fallback.
 
@@ -356,7 +378,7 @@ renaming one breaks the bundle.
 | Key | What it selects |
 |---|---|
 | `PLATFORM_VERSION` | The platform image tag, the console image tag, and the release the console fetches modules from |
-| `DB_IMAGE`, `OLLAMA_IMAGE`, `PROXY_IMAGE` | Third-party image references, pinned separately so each can be repointed at a mirror you operate |
+| `DB_IMAGE`, `PROXY_IMAGE` | Third-party image references, pinned separately so each can be repointed at a mirror you operate |
 | `CONSOLE_IMAGE` | An optional override for the console image, shipped commented out. Set it only to repoint at a mirror, and keep its tag equal to `PLATFORM_VERSION` |
 
 **Upgrading is a one-line change: move `PLATFORM_VERSION` to a published release.** Both of
@@ -386,18 +408,31 @@ map of the mechanism; the guide has the procedures.
 
 | Command | Mechanism |
 |---|---|
-| `up` | Repairs the on-disk layout (idempotent), generates the database password if absent, then `compose up -d` |
+| `up` | Repairs the on-disk layout (idempotent), generates the database password if absent, refuses an `.env` with `EMBEDDING_MODEL=embeddinggemma`, removes an older bundle's `ollama` container, then `compose up -d`; fails when `console-init` stopped the start (see below) |
 | `bootstrap` | The layout + password steps alone |
 | `down` | `compose down`; refuses `-v`/`--volumes`/`--rmi` rather than forwarding them |
 | `restart [service]` | `compose up -d --force-recreate` (with `--no-deps` when services are named) |
 | `status`, `logs [service]` | `compose ps`, `compose logs -f` |
-| `update` | `compose pull` then `compose up -d` — the pinned images, not floating tags |
+| `update` | Repairs the layout, refuses `EMBEDDING_MODEL=embeddinggemma`, `compose pull`, removes an older bundle's `ollama` container, then `compose up -d` — the pinned images, not floating tags |
+| `models pull` | Downloads and verifies the embedding model's weights into `data/models` ahead of the first start: `compose run --rm --no-deps platform node dist/scripts/models-pull.js` |
 | `backup [dir]`, `restore <file>` | See below |
 | `destroy` | `compose down` only. Deliberately deletes no data; prints the exact wipe commands instead |
 | `tls {generate\|status}` | Manages `tls/cert.pem` + `tls/key.pem` |
 | `console` | Prints (and opens) the console URL |
 | `version` | The script's own version plus the pinned release keys read from `.env` |
 | `compose …` | The escape hatch — the engine's compose with this bundle's env files |
+
+**Upgrading from a bundle that ran Ollama.** Compose leaves a container running once its service has
+left the file, so `up`, `update`, `restart`, `down` and `destroy` remove the old `ollama` container
+themselves — selected by its compose project and service labels in both providers' namespaces, never
+by name or image, and never with `--remove-orphans`, which under Podman Compose removes every container
+of the project or none. Its image and `data/ollama` are left to the operator. The legacy model in
+`.env` is refused before anything is pulled or started; the other old embedding lines (`OLLAMA_*`,
+`EMBEDDING_URL`, `EMBEDDING_SIMILARITY_THRESHOLD`) only draw a notice.
+
+**A refused start is reported.** Podman Compose's `up -d` exits 0 even when a dependency failed, so `up` and
+`update` then read the newest `console-init` container's exit state from the engine, by its
+labels, and fail with a pointer to `byodt logs console-init` when the one-shot stopped the start.
 
 The engine is resolved once and recorded: an exported `CONTAINER_ENGINE` wins, then the value in
 `.env`, then auto-detection (Docker first, then Podman). Whatever it lands on, the script validates

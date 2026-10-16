@@ -52,19 +52,18 @@ Two rules of thumb behind that table:
 
 ## The `.env` reference
 
-`.env` is created from `.env.example`, which stays in the bundle as the annotated original. Every setting below appears in it, in this order.
+`.env` is created from `.env.example`, which stays in the bundle as the annotated original. Every setting below appears in it, in this order — some only commented out (`CONTAINER_ENGINE`, `EMBEDDING_THREADS`, `SETTINGS_URL`), and `EMBEDDING_MODEL` only by mention.
 
 Spell boolean values exactly `true` or `false`. Do not rename any of these keys — the deployment reads them by name.
 
 ### The release set
 
-`PLATFORM_VERSION` is the release. Everything cut from that release moves with it. The three third-party images are pinned on their own lines so you can repoint them at a mirror.
+`PLATFORM_VERSION` is the release. Everything cut from that release moves with it. The two third-party images are pinned on their own lines so you can repoint them at a mirror.
 
 | Setting | What it does | Default | Change it when |
 |---|---|---|---|
 | `PLATFORM_VERSION` | **The one version knob.** It selects the platform image *and* the console image, and it selects which release's module payloads the one-shot downloads and which signing identity it requires. | The version of the bundle you downloaded | Upgrading. |
 | `DB_IMAGE` | The graph database image. | The Memgraph version tested with this release | Repointing at a mirror you operate. |
-| `OLLAMA_IMAGE` | The embedding server image. | The Ollama version tested with this release | Repointing at a mirror you operate. |
 | `PROXY_IMAGE` | The front-door proxy image. | The nginx version tested with this release | Repointing at a mirror you operate. |
 
 Upgrading is therefore a one-line change. The platform and the console are cut from the same release and cannot drift apart, because the console image follows `PLATFORM_VERSION` unless you deliberately override it.
@@ -77,7 +76,7 @@ Upgrading is therefore a one-line change. The platform and the console are cut f
 
 Uncomment it only to repoint the console image at a registry you operate. If you do, **keep its tag equal to `PLATFORM_VERSION`** — the console refuses to serve a platform version it was not built for, and a mismatched override aborts the start with a message naming both values.
 
-`DB_IMAGE`, `OLLAMA_IMAGE` and `PROXY_IMAGE` name third-party images that your container engine pulls directly from their publishers. The bundle references them; it does not redistribute them. If you repoint one at a registry you operate, that copy is yours to make under that component's own licence — read `NOTICE` in the bundle first, in particular for the database.
+`DB_IMAGE` and `PROXY_IMAGE` name third-party images that your container engine pulls directly from their publishers. The bundle references them; it does not redistribute them. If you repoint one at a registry you operate, that copy is yours to make under that component's own licence — read `NOTICE` in the bundle first, in particular for the database.
 
 **Always name the registry.** Every image reference in `.env` starts with its registry host (`docker.io/…`, `ghcr.io/…`). Docker will accept a short name and quietly assume Docker Hub, but Podman refuses one unless the host has configured a search registry — which a default installation has not. A short name is therefore a deployment that starts under one engine and fails under the other, so keep the registry on any value you change.
 
@@ -102,7 +101,7 @@ Whatever it resolves to, the script validates that engine's `compose` before doi
 | `FRONT_DOOR_PORT` | The host port the deployment publishes. Both the platform and the console are served through it. | `3000` | The port is taken by something else. |
 | `FRONT_DOOR_BIND` | The host address the port is bound to. | `127.0.0.1` | You need to reach the deployment from another machine. |
 
-This is the **only** published port. Everything else — the database, the embedding server, the platform, the console — stays on the deployment's internal network.
+This is the **only** published port. Everything else — the database, the platform, the console — stays on the deployment's internal network.
 
 > **Port 3000 is not arbitrary.** It is a pre-registered loopback callback address, which is why a laptop deployment needs no identity-provider registration to sign in. Renumbering it — to 80, or anything else — silently reintroduces that step. Change it if you must, but know what it costs.
 
@@ -124,14 +123,37 @@ The **password is not here.** It is generated into `.env.secrets` on the first s
 
 ### Embedding
 
+The platform embeds in process with its built-in model, **`embeddinggemma-300m-retrieval-v1`** (EmbeddingGemma 300m, by Google). There is no separate service to run or configure. The `.env.example` section reads:
+
+```
+# --- Embedding -----------------------------------------------------------------------------------------
+# The platform embeds in process with its built-in model, embeddinggemma-300m-retrieval-v1 (EmbeddingGemma,
+# Google). Its weights (about 1.26 GB) are downloaded from Hugging Face on the first start into data/models and
+# verified; './byodt models pull' does it ahead of time. The model is licensed under the Gemma Terms of Use:
+# https://ai.google.dev/gemma/terms
+# Leave EMBEDDING_MODEL unset: the platform refuses any model other than the one its MITRE data was made with.
+# Inference threads (default 4): set to the host's cores (on Docker Desktop or a Podman machine, the VM's).
+# EMBEDDING_THREADS=4
+```
+
 | Setting | What it does | Default | Change it when |
 |---|---|---|---|
-| `EMBEDDING_MODEL` | The model the embedding server serves **and** the model the platform queries. One value drives both, so they cannot drift apart. | `embeddinggemma` | You have a reason to use a different model. |
-| `EMBEDDING_SIMILARITY_THRESHOLD` | The similarity cut-off for class and MITRE technique matching. | `0.40` | Only alongside a model change — the threshold is model-dependent, and the default is tuned for the default model. |
+| `EMBEDDING_MODEL` | The embedding model the platform runs. Not in `.env` by default, and it should stay that way. | Unset — the built-in model | Never, in this release. Any value other than the built-in model stops the start (see below). |
 
-Changing the model triggers a fresh download inside the `ollama` container on the next start, exactly like the first run.
+**Leave `EMBEDDING_MODEL` unset.** The reference data's MITRE vectors were embedded with the built-in model, and a different model's queries would not match them. So any other value is refused before anything starts:
 
-The embedding server keeps the model loaded for as long as it runs. Ollama's own default unloads a model after 5 minutes without a request, and the next search then waits for it to load again; the bundle's `compose.yaml` sets `OLLAMA_KEEP_ALIVE` to `-1` on the `ollama` service, so the model stays resident instead of unloading after 5 minutes idle. The platform loads it on start, when it checks that the embedding server answers. The cost is memory: the embedding model stays in the `ollama` container's memory the whole time. This is not a `.env` setting.
+- `EMBEDDING_MODEL=embeddinggemma` — the model the old `ollama` service ran — is refused by `./byodt up`, `./byodt update` and `./byodt models pull` with an instruction to remove the line, however it is quoted, exported, or followed by a comment.
+- Any other value is checked by `console-init` against the model this release's MITRE data was embedded with; on a mismatch it stops the start and the platform does not start. `./byodt up` then fails with `'byodt logs console-init' says why`.
+
+Settings of the old `ollama` service — `OLLAMA_IMAGE` and any other `OLLAMA_*` line, `EMBEDDING_URL`, `EMBEDDING_SIMILARITY_THRESHOLD` — are no longer used. `./byodt up`, `./byodt update` and `./byodt models pull` print a notice for each one they find; you can remove the lines. `./byodt update` never edits `.env` for you.
+
+**The model's weights** (about 1.26 GB) live in `data/models` on the host, mounted into the platform. The platform downloads them once from Hugging Face on the first start and verifies each file's sha256; `./byodt models pull` does it ahead of time. A recreate or an upgrade that keeps the same model does not download them again. They are not secret and need no backup: a lost `data/models` is downloaded again on the next start.
+
+**The licence.** The model is licensed under the [Gemma Terms of Use](https://ai.google.dev/gemma/terms). The platform logs the licence once before it downloads, and `./byodt models pull` prints it.
+
+**Memory.** The model is held in the platform's own memory for as long as it runs, which adds roughly 0.8–0.9 GiB to the platform container. This replaces the memory the old `ollama` service used, so the deployment's total is about the same as before.
+
+> **`EMBEDDING_THREADS`** sets the embedder's inference threads (default 4): a positive integer, at most 64. Set it in `.env` to the host's core count if that differs — on Docker Desktop or a Podman machine, the VM's core count. The bundle passes it to the platform; apply a change with `./byodt up`.
 
 ### Snapshots
 

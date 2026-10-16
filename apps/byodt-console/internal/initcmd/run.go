@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/dether-net/dethernety-oss/apps/byodt-console/internal/assets"
 )
 
 // Result classifies an init run so the caller can choose an exit code. The two
@@ -17,8 +19,8 @@ type Result struct {
 	State           State
 }
 
-// Run executes the init subcommand: version check and schema placement (fatal on failure), then
-// module install and data ingest (recorded, never fatal).
+// Run executes the init subcommand: version check, embedding profile check and schema placement (fatal on
+// failure), then module install and data ingest (recorded, never fatal).
 func Run(ctx context.Context, cfg Config, v Verifier, logger *slog.Logger) Result {
 	// Step 1 — version check.
 	if cfg.PlatformVersion == "" {
@@ -28,6 +30,17 @@ func Run(ctx context.Context, cfg Config, v Verifier, logger *slog.Logger) Resul
 		return Result{AbortDeployment: true, Err: fmt.Errorf(
 			"console image version %q does not match PLATFORM_VERSION %q — the operator has pinned a version this image cannot serve",
 			cfg.Version, cfg.PlatformVersion)}
+	}
+
+	// Step 1b — the embedding profile. The platform searches the MITRE vectors this console ingests with the model
+	// EMBEDDING_MODEL selects; a model other than the one they were embedded with stops the deployment here, before the
+	// ingest, and the platform (which waits for this step) never starts.
+	corpusProfile, err := assets.CorpusEmbeddingProfile()
+	if err != nil {
+		return Result{AbortDeployment: true, Err: err}
+	}
+	if err := checkEmbeddingProfile(corpusProfile, cfg.EmbeddingModel); err != nil {
+		return Result{AbortDeployment: true, Err: err}
 	}
 
 	// Step 2 — schema placement. A file write; it goes first because it cannot fail for

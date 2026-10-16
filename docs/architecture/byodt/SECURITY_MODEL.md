@@ -29,7 +29,6 @@ configuration](#console-reachability-is-authority-over-the-deployments-identity-
   │  │   proxy ──┬── B2 console session gate ──▶ console                   │  │
   │  │           │                                                         │  │
   │  │           └── B3 platform authentication ──▶ platform ──▶ db        │  │
-  │  │                                                        └─▶ ollama   │  │
   │  │                                                                     │  │
   │  └─────────────────────────────────────────────────────────────────────┘  │
   └───────────────────────────────────────────────────────────────────────────┘
@@ -49,8 +48,8 @@ configuration](#console-reachability-is-authority-over-the-deployments-identity-
 | **B6** — console to content service | The operator's own OIDC access token, held for the duration of one request | Only exists on a cloud-connected deployment. The calls that carry it are of three kinds, and this row names the kinds rather than counting the calls — a count here was wrong by the next route twice over. Where the **operation** needs it: reading what the subscription includes, which the catalog is marked with; fetching an entitled artifact's bytes; and relaying the team's roster to the card that chooses who may sign in. Where the **admin gate** needs it: every route that changes the deployment asks the content service who is acting before it runs. And where **both** do: the two reads that reveal who may sign in — the roster relay and the deployment's own access list — are admin-gated for what they show rather than for what they change, so the gate spends the token there too. The catalog document itself is read over the same hop with no credential at all. The host comes from the mode layer this console wrote, never from the request |
 
 Inside the stack network, hops are plain HTTP and Bolt is unencrypted. The isolation is the network,
-not encryption of each hop: no service but the proxy publishes a port, and the database and embedding
-server are unreachable from outside it. Encrypting the edge is the proxy's job.
+not encryption of each hop: no service but the proxy publishes a port, and the database is unreachable
+from outside it. Encrypting the edge is the proxy's job.
 
 ---
 
@@ -453,12 +452,65 @@ that only the console can write the mount.
 
 ---
 
+## The embedding model
+
+The platform embeds in process, so the text it embeds — element names and descriptions, technique
+picker queries — never leaves the platform container. What does cross the network is the model's
+weights, once:
+
+| Control | Effect |
+|---|---|
+| Pinned weights | The embedding profile pins the Hugging Face repository, a full commit revision, and every file's size and sha256. Only the listed files are fetched |
+| Verify before use | Each file is downloaded to a temporary name, checked for size and sha256, and only then renamed into place. Files in place are checked again on every start; one that does not match is downloaded again. This protects the download path. Verification and load are separate steps by path; the sticky `data/models` and the platform's ownership check keep another local account (root and an account with the platform's uid aside) from swapping a file between them (see [Host-level considerations](#host-level-considerations)) |
+| Egress | HTTPS to the Hugging Face Hub and the CDN it redirects to, on the first start (or `byodt models pull`) and whenever a file is missing or fails its check. No other embedding egress |
+| Token scope | An optional `HF_TOKEN` (the bundle sets none; the default model is not gated) is sent only to the profile's hub origin, never to a redirect target. URLs and headers are never logged |
+| No telemetry | onnxruntime's usage telemetry is switched off (`ORT_DISABLE_TELEMETRY=1`) before the runtime loads |
+| Offline hosts | Copy the files into `data/models` in the same layout (`<repo>/<revision>/<file>`), as the account that runs `./byodt`; verified files are not fetched again. Files copied as root pass only under rootful Docker: under rootless Podman, host root is the overflow uid (65534) inside the container and is refused. A file or directory another account owns, or that accounts other than its owner can write, is refused |
+
+The weights are not in any image or in the bundle: the operator's own platform downloads them, under
+their licence — the default profile's is the Gemma Terms of Use, which the platform logs before the
+download.
+
+---
+
 ## Host-level considerations
 
 The runtime directories in the bundle — `modules/`, `schema/`, `data/`, `mode/` — are created
 world-writable. Under a rootless engine the container's unprivileged uid need not match the operator's,
 and both console halves must write into these mounts. The trade-off is explicit: **on a shared host,
 any local user can write into the modules mount**, and what is there is loaded at the next recreate.
+`data/models` is world-writable too, but sticky (`1777`), like `data/` itself. That matters because
+the platform checks each weight file's sha256 and then opens it again by path to load it. Two controls
+keep another local account from swapping a file between the two, or planting one before a download:
+
+- **The sticky bit.** In `data/models`, only an entry's owner, the directory's owner or root can
+  rename or delete an entry, so another account cannot move a verified file or directory aside and
+  put its own in its place.
+- **The platform's ownership check.** Every existing entry on the path from `data/models` to a weight
+  file must be owned by the platform's account, root or the owner of `data/models`, and must be
+  writable by no account but its owner (no group or other write bit; a directory may have one if it
+  is sticky); none may be a symbolic link. The platform applies this when it downloads, verifies and
+  loads, and refuses the file otherwise, naming the entry. Before a download it creates the file's
+  directories and checks the path again, so a directory another account creates ahead of it, even
+  between the first check and the creation, is refused before the lock file or the download is
+  written in it; at most the platform has created empty directories in it. What the platform writes
+  there is never writable by other accounts, whatever the umask.
+
+`data/models` itself may be a link or a mount point; the platform refuses it when accounts other than
+its owner can write it without the sticky bit, and `byodt` sets that bit each time it prepares the
+layout (`up`, `restart`, `update`, `models pull`).
+
+`byodt` also refuses a `data/*` runtime directory (`content-cache`, `memgraph-log`, `models`,
+`memgraph`) that exists and is owned by neither the operator (the account running `byodt`, or the one
+that ran it through `sudo`) nor root, whether it is a symbolic link or a plain directory. A link
+another account planted would redirect the directory elsewhere, and the owner of a directory under the
+sticky `data/` can still swap it for a link, or rename what is in it, after any check. `byodt` checks
+before it creates the directory and again before it changes any permission, so an entry planted
+between the first check and the creation is caught as well.
+
+These controls hold against every local account but root and, under rootful Docker, one whose uid is
+the platform's (1001): to the kernel that account is the platform's, so it can change the weights and
+`data/models` trusts it. On a shared host, do not give uid 1001 to another user.
 
 This deployment assumes a single-operator host. If that does not hold, the host itself must be treated
 as a boundary you enforce — not one the deployment enforces for you.
@@ -476,7 +528,7 @@ Stated so they are decisions rather than surprises:
   directory. Nothing inside the stack changes that.
 - **Multi-user separation inside one deployment.** A deployment serves one team; access control is at
   its edge. There is no per-user isolation of models inside it.
-- **The third-party images.** The database, embedding server, and proxy images are pulled by your
+- **The third-party images.** The database and proxy images are pulled by your
   runtime from their publishers. They carry their own provenance and their own licenses — see the
   bundle's [`NOTICE`](../../../deploy/compose/NOTICE) — and verifying them is the operator's decision,
   not something this bundle does on their behalf.

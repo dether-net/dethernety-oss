@@ -8,12 +8,17 @@ after loading them a second time, so the same pins also prove the pack is idempo
 A release bump changes these numbers on purpose; anything else that changes them is a
 regression in the ingest, the export or the pack.
 
-Usage: check_loaded_corpus.py <bolt_uri>
+Every embedded node must name the expected model: manifest.json's embeddingProfile, or
+--expect-model.
+
+Usage: check_loaded_corpus.py <bolt_uri> [--expect-model <id>]
 """
 
 from __future__ import annotations
 
+import json
 import sys
+from pathlib import Path
 
 from neo4j import GraphDatabase
 
@@ -45,7 +50,8 @@ ATLAS_EDGES = {
     ("ATLAS_TECHNIQUE_REFERENCES", "MitreAtlasTechnique", "MitreAttackTechnique"): 44,
 }
 
-# Nodes that carry a precomputed vector, by label, and the model every one must name.
+# Nodes that carry a precomputed vector, by label. The model every one must name is the
+# manifest's embeddingProfile (see manifest_profile).
 EMBEDDED = {
     "MitreAttackTechnique": 697,
     "MitreDefendTechnique": 271,
@@ -55,13 +61,22 @@ EMBEDDED = {
     "MitreAtlasTactic": 0,
     "MitreAtlasCaseStudy": 0,
 }
-EMBEDDING_MODEL = "embeddinggemma"
+
+
+def manifest_profile() -> str:
+    manifest = Path(__file__).resolve().parent.parent / "manifest.json"
+    return json.loads(manifest.read_text(encoding="utf-8"))["embeddingProfile"]
 
 ATLAS_LABELS = ["MitreAtlasTechnique", "MitreAtlasTactic", "MitreAtlasMitigation", "MitreAtlasCaseStudy"]
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
+    args = sys.argv[1:]
+    if len(args) == 3 and args[1] == "--expect-model":
+        model = args[2]
+    elif len(args) == 1:
+        model = manifest_profile()
+    else:
         print(__doc__)
         return 2
     failures = []
@@ -72,7 +87,7 @@ def main() -> int:
         if got != want:
             failures.append(what)
 
-    driver = GraphDatabase.driver(sys.argv[1], auth=None)
+    driver = GraphDatabase.driver(args[0], auth=None)
     try:
         with driver.session() as session:
             def scalar(query: str, **params):
@@ -142,7 +157,7 @@ def main() -> int:
                 "embedded nodes naming another model",
                 scalar(
                     "MATCH (n) WHERE n.embedding IS NOT NULL AND n.embeddingModel <> $model RETURN count(n)",
-                    model=EMBEDDING_MODEL,
+                    model=model,
                 ),
                 0,
             )

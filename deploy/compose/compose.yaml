@@ -1,22 +1,20 @@
 # Dethernety — pure open-source deployment (Docker Compose)
 #
-# Four long-running services plus one pre-start job:
+# Long-running services plus one pre-start job:
 #
-#   db ─────────▶ console-init ──┐
-#                                ├──▶ platform ──▶ proxy
-#   ollama ──────────────────────┘
+#   db ─────────▶ console-init ─────▶ platform ──▶ proxy
 #
 #   db            graph database (Bolt), reachable only inside the stack network
-#   ollama        embedding server used for class matching, stack-internal only
 #   console-init  ONE-SHOT: places the no-auth schema, fetches + verifies the code
 #                 modules, ingests the MITRE data — then exits. The platform is held
 #                 back until it has completed (see depends_on below).
-#   platform      the API + SPA + runtime /config, stack-internal only
+#   platform      the API + SPA + runtime /config, stack-internal only; it embeds
+#                 in process, with weights it downloads once into ./data/models
 #   proxy         the single published entry point (TLS terminator in a later step)
 #
-# Only the proxy publishes a host port. The database and embedding server never
-# leave the stack network — no distribution artifact ships database engine bits;
-# ${DB_IMAGE} and ${OLLAMA_IMAGE} are references the operator's runtime resolves.
+# Only the proxy publishes a host port. The database never leaves the stack
+# network — no distribution artifact ships database engine bits; ${DB_IMAGE} is a
+# reference the operator's runtime resolves.
 #
 # Quickstart — the byodt control script wraps compose and carries the config layer plus the
 # generated secret layer on every command:
@@ -97,28 +95,6 @@ services:
     networks: [dethernety]
     restart: unless-stopped
 
-  # --- Embedding server -------------------------------------------------------
-  # EMBEDDING_MODEL selects the model Ollama serves AND the model the platform
-  # queries; the healthcheck pulls it on first run, so the retry budget is sized
-  # for a slow connection rather than the fast-path default.
-  ollama:
-    image: ${OLLAMA_IMAGE}
-    environment:
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-embeddinggemma}
-      # Keep the model loaded. Ollama's default unloads it after 5 minutes without a request, and the next
-      # search then waits for it to load again; the platform is this server's only client.
-      OLLAMA_KEEP_ALIVE: "-1"
-    volumes:
-      - ./data/ollama:/root/.ollama
-    healthcheck:
-      test: ["CMD-SHELL", "ollama list | grep -q \"$$EMBEDDING_MODEL\" || ollama pull \"$$EMBEDDING_MODEL\"; ollama list | grep -q \"$$EMBEDDING_MODEL\""]
-      interval: 15s
-      timeout: 120s
-      retries: 40
-      start_period: 30s
-    networks: [dethernety]
-    restart: unless-stopped
-
   # --- Pre-start one-shot -----------------------------------------------------
   # Same image as the (future) console daemon, run with its default `init`
   # entrypoint. It writes into the shared modules/ and schema/ mounts, so those
@@ -126,7 +102,8 @@ services:
   # creates them with that in mind.
   #
   # Exit discipline is enforced by the binary, and the two halves differ on
-  # purpose: a version or schema failure exits non-zero and aborts the whole
+  # purpose: a version or schema failure, or an EMBEDDING_MODEL other than the
+  # one its MITRE data was made with, exits non-zero and aborts the whole
   # `up` (a schema that disagrees with the code serving it must not serve); a
   # module-fetch or ingest failure exits zero and records the fault, leaving a
   # running deployment to read the diagnosis on.
@@ -155,6 +132,9 @@ services:
       NEO4J_PASSWORD: ${NEO4J_PASSWORD}
       NEO4J_DATABASE: ${NEO4J_DATABASE:-memgraph}
       CONSOLE_RELEASE_BASE_URL: ${CONSOLE_RELEASE_BASE_URL:-https://github.com/dether-net/dethernety-oss}
+      # The platform's embedding model, as the platform gets it: the one-shot refuses a model other than the one
+      # its MITRE data was embedded with, before it ingests, so the platform never starts on a mismatch.
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
     volumes:
       # Writable: the one-shot creates/removes files here.
       - ./modules:/app/apps/dt-ws/custom_modules
@@ -163,7 +143,7 @@ services:
     restart: "no"
 
   # --- Platform (API + SPA + /config) -----------------------------------------
-  # Starts only once the database and embedding server are healthy AND the
+  # Starts only once the database is healthy AND the
   # one-shot has completed successfully — a declared dependency, not a service
   # that merely tends to finish first. Without it the platform could read a
   # previous boot's schema or run before the graph is seeded.
@@ -171,8 +151,6 @@ services:
     image: ghcr.io/dether-net/dethernety:${PLATFORM_VERSION}
     depends_on:
       db:
-        condition: service_healthy
-      ollama:
         condition: service_healthy
       console-init:
         condition: service_completed_successfully
@@ -205,9 +183,11 @@ services:
       ALLOWED_MODULES: "*"
       ENABLE_MODULE_HOT_RELOAD: "false"
       EMBEDDING_ENABLED: "true"
-      EMBEDDING_URL: http://ollama:11434/api/embed
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-embeddinggemma}
-      EMBEDDING_SIMILARITY_THRESHOLD: ${EMBEDDING_SIMILARITY_THRESHOLD:-0.40}
+      # Unset selects the platform's default profile, which runs in process; its weights live in /models.
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+      EMBEDDING_MODEL_DIR: /models
+      # Inference threads for the embedder; match the host's cores.
+      EMBEDDING_THREADS: ${EMBEDDING_THREADS:-4}
       # Surfaces a "Settings" link at the bottom of the platform sidebar, pointed
       # at the operator console on this same origin. Override to front the console
       # elsewhere, or set empty to hide the link.
@@ -223,6 +203,9 @@ services:
       # Read-write: the durable content cache for mounted cloud modules. The path
       # matches MODULE_CONTENT_CACHE_DIR, which the console emits into the mode layer.
       - ./data/content-cache:/app/apps/dt-ws/.module-content-cache
+      # Read-write: the embedding model's weights, downloaded and verified on first start (about 1.26 GB).
+      # On the host, so a recreate does not download them again.
+      - ./data/models:/models
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3003/health/simple', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 15s

@@ -11,7 +11,7 @@ tags: ['byodt', 'deployment', 'installation', 'getting-started', 'docker', 'podm
 
 This guide takes you from nothing to a running deployment: what the machine needs, how to get the bundle, what the first start does, and how to confirm it worked.
 
-Allow one uninterrupted sitting. The first start does real work — it pulls five container images, downloads an embedding model, installs the signed modules, and ingests the reference data — so it takes noticeably longer than every start after it.
+Allow one uninterrupted sitting. The first start does real work — it pulls four container images, downloads the embedding model's weights (about 1.26 GB), installs the signed modules, ingests the reference data, and embeds every class once (about 0.2 s per class on a 4-vCPU host: seconds for the bundled modules, a few minutes with cloud content packages) — so it takes noticeably longer than every start after it.
 
 ---
 
@@ -64,8 +64,8 @@ Podman works fully, with three things to know:
 
 ### Disk, memory, and CPU
 
-- **Several gigabytes of free disk.** Five container images, the embedding model, the graph database's data directory, and the reference-data corpus.
-- **Several gigabytes of free memory.** The database container is started with a **4096 MiB** memory limit — that is the measured floor for the reference-data ingest, and the ingest is deliberately not retried when it runs out. The embedding server and the platform run alongside it.
+- **Several gigabytes of free disk.** Four container images, the embedding model's weights (about 1.26 GB in `data/models`), the graph database's data directory, and the reference-data corpus.
+- **Several gigabytes of free memory.** The database container is started with a **4096 MiB** memory limit — that is the measured floor for the reference-data ingest, and the ingest is deliberately not retried when it runs out. The platform runs alongside it and holds the embedding model in its own memory, which adds roughly 0.8–0.9 GiB to it.
 
 On a VM-backed runtime (Docker Desktop, Podman machine), the limit that matters is the memory *the virtual machine itself* is allowed, not the memory of the host. If the VM is capped at 4 GB or less, raise it before you start.
 
@@ -73,9 +73,9 @@ On a VM-backed runtime (Docker Desktop, Podman machine), the limit that matters 
 
 The first start needs to reach:
 
-- **The container registries** — `ghcr.io` for the platform and console images, and the publishers' registries for the database, embedding server, and proxy images.
+- **The container registries** — `ghcr.io` for the platform and console images, and the publishers' registries for the database and proxy images.
 - **`github.com` and its release-asset host** — for the signed module payloads belonging to the release you are installing.
-- **The embedding model's publisher** — pulled inside the `ollama` container.
+- **Hugging Face** (`huggingface.co` and the host it redirects downloads to) — the platform downloads the embedding model's weights from there and verifies each file's sha256 before it uses it. To fetch them before the first start, see [Download the embedding model ahead](#optional-download-the-embedding-model-ahead).
 
 Signature verification of the modules is offline: the trusted root is embedded in the console image, so no signing service is contacted.
 
@@ -139,6 +139,24 @@ The control script will not overwrite an `.env` that already exists. Every setti
 
 ---
 
+## Optional: download the embedding model ahead
+
+The platform embeds in process with its built-in model, **EmbeddingGemma 300m** (`embeddinggemma-300m-retrieval-v1`, by Google). Its weights are not in any image: on the first start the platform downloads them once from Hugging Face into `data/models` and verifies them. You can do that step ahead, for example while you still have a fast connection:
+
+```sh
+./byodt models pull
+```
+
+It runs the platform's own download code in a one-off container, needs no database, and prints the model's size and its licence before it starts. Downloading only what is missing or wrong, it is safe to run again; `Ctrl-C` stops it and keeps nothing partial. When it prints `Ready`, the first start loads the model from disk instead of downloading it.
+
+**For a host without internet access**, run `./byodt models pull` on a connected machine with the same release, then copy its `data/models` directory to the offline host's bundle directory, keeping its `<repo>/<revision>/<file>` layout. Copy it as the account that runs `./byodt` on the offline host, not as root (root's files pass only under rootful Docker; rootless Podman refuses them), and keep the files writable only by their owner. The platform refuses a weight file when a file or directory on its path is owned by another account or writable by accounts other than its owner, and names that entry in its error (see [Troubleshooting](./TROUBLESHOOTING.md#in-the-models-directory-is-owned-by-uid-or-is-writable-by-accounts-other-than-its-owner)). It verifies every file's sha256 at start and downloads only what is missing or wrong.
+
+> **No HTTPS proxy.** The download goes to Hugging Face directly: the platform does not read `HTTPS_PROXY` for it. A host that reaches the internet only through a proxy needs the copy above.
+
+> **Licence.** The model is licensed under the [Gemma Terms of Use](https://ai.google.dev/gemma/terms). The platform logs the licence before it downloads, and `./byodt models pull` prints it.
+
+---
+
 ## Start it
 
 ```sh
@@ -157,7 +175,7 @@ Expect output like this:
 ==> Starting the stack…
     …your container engine's pull and start output…
 ==> Up. Console: http://127.0.0.1:3000/console/
-==> First start pulls the embedding model and ingests reference data — 'byodt logs console-init' to follow.
+==> First start downloads the embedding model once (about 1.26 GB; 'byodt models pull' does it ahead) and ingests reference data — 'byodt logs platform' and 'byodt logs console-init' to follow.
 ```
 
 `./byodt up` returning does **not** mean the deployment is ready. It means the containers were started. The work described below is still in progress.
@@ -171,7 +189,7 @@ Expect output like this:
 | Step | What it creates |
 |---|---|
 | Configuration | `.env`, copied from `.env.example`, with the detected container engine appended as `CONTAINER_ENGINE`. |
-| Runtime directories | `modules/`, `schema/`, `data/`, `data/ollama/`, `data/content-cache/`, `data/memgraph-log/`, `mode/`, and `tls/`. |
+| Runtime directories | `modules/`, `schema/`, `data/`, `data/models/`, `data/content-cache/`, `data/memgraph-log/`, `mode/`, and `tls/`. |
 | Database password | A freshly generated password written to `.env.secrets`, mode `0600`. This file is created once and never regenerated. |
 | Mode layer | `mode/mode.env`, seeded with the standalone defaults. |
 
@@ -180,23 +198,22 @@ All of this is idempotent. Every later `./byodt up` repeats the checks silently,
 ### Then the stack starts, in order
 
 1. **`db` starts** and is not considered healthy until it answers a query — not merely until its process is up.
-2. **`ollama` starts** and pulls the embedding model. This is the longest single step on a fresh machine. Its health check is sized for a slow connection: forty attempts, at fifteen-second intervals, each allowed two minutes.
-3. **`console-init` runs** once the database is healthy. It places the schema, downloads the module payloads for this release, verifies every signature against the pinned release identity, checks each download's digest, installs them, and ingests the MITRE ATT&CK, ATLAS and D3FEND reference data. Then it exits.
-4. **`platform` starts** — but only after the database and the embedding server are healthy *and* `console-init` has completed successfully. That dependency is declared, so the platform cannot start against an unseeded graph or a stale schema.
-5. **`proxy` starts** and publishes the front door.
-6. **`console` starts.** It has no dependency on any other service, so it can report on the deployment even while the rest is down.
+2. **`console-init` runs** once the database is healthy. It first checks that the platform's embedding model is the one this release's MITRE data was embedded with, and stops the start if it is not. Then it places the schema, downloads the module payloads for this release, verifies every signature against the pinned release identity, checks each download's digest, installs them, and ingests the MITRE ATT&CK, ATLAS and D3FEND reference data. Then it exits.
+3. **`platform` starts** — but only after the database is healthy *and* `console-init` has completed successfully. That dependency is declared, so the platform cannot start against an unseeded graph or a stale schema. It then downloads the embedding model's weights in the background (unless `./byodt models pull` placed them), which is the longest single step on a fresh machine, and loads the model. It **embeds every class once, at about 0.2 s per class on a 4-vCPU host: seconds for the bundled modules (about 80 classes, 15–20 s), a few minutes with cloud content packages (about 1,200 classes). Matching uses names meanwhile.**
+4. **`proxy` starts** and publishes the front door.
+5. **`console` starts.** It has no dependency on any other service, so it can report on the deployment even while the rest is down.
 
 ### How long it takes
 
-There is no fixed number — it depends on your connection and disk. On a fast link, expect several minutes; on a slow one, considerably more. The health checks are deliberately patient rather than quick to fail, so a slow download is waited out, not aborted.
+There is no fixed number — it depends on your connection and disk. On a fast link, expect several minutes; on a slow one, considerably more. The health checks are deliberately patient rather than quick to fail, so a slow start is waited out, not aborted. The model download does not hold the start at all: the platform serves while it runs, matching by name until the model is ready.
 
-Later starts skip nearly all of it: the images are cached, the model is on disk, module payloads whose digest already matches are skipped, and the ingest is skipped when the reference corpus has not changed. A normal start takes well under a minute.
+Later starts skip nearly all of it: the images are cached, the model's weights are on disk in `data/models`, the classes are already embedded, module payloads whose digest already matches are skipped, and the ingest is skipped when the reference corpus has not changed. A normal start takes well under a minute.
 
 ### Follow the progress
 
 ```sh
 ./byodt logs console-init     # schema, module install, and data ingest
-./byodt logs ollama           # the embedding model download
+./byodt logs platform         # the embedding model download, load, and class embedding
 ./byodt logs                  # everything, interleaved
 ```
 
@@ -206,7 +223,7 @@ Press `Ctrl-C` to stop following. That stops the log stream only — it never st
 
 The two halves of the one-shot fail differently, on purpose:
 
-- **A version or schema problem aborts the start.** A schema that disagrees with the code serving it must not serve, so the platform is not started at all.
+- **A version, schema, or embedding-model problem aborts the start.** A schema that disagrees with the code serving it must not serve, and a model that did not make the reference vectors would not match them, so the platform is not started at all. `./byodt up` then fails with an error that ends `'byodt logs console-init' says why.`
 - **A module or data problem is recorded, and the stack still comes up.** You get a running deployment and a specific diagnosis in the console, instead of a silent empty one.
 
 Either way, go to [Troubleshooting](./TROUBLESHOOTING.md) — every state the one-shot can report is listed there with its fix.
@@ -223,7 +240,7 @@ Do all four checks. They test different things.
 ./byodt status
 ```
 
-Expect `db`, `ollama`, `platform`, `proxy`, and `console` running, with `db`, `ollama`, `platform`, and `proxy` reporting healthy. `console-init` shows as exited — that is correct, it is a one-shot, and its exit code should be `0`.
+Expect `db`, `platform`, `proxy`, and `console` running, with `db`, `platform`, and `proxy` reporting healthy. `console-init` shows as exited — that is correct, it is a one-shot, and its exit code should be `0`.
 
 ### 2. The front door answers
 
@@ -239,7 +256,7 @@ Expect `ok`. This is the proxy answering for itself, so it succeeds even when th
 curl -fsS http://127.0.0.1:3000/health
 ```
 
-Expect a JSON document whose `status` is `ok`, with a `services` section covering the database, GraphQL, and the loaded modules. If the platform is unhealthy this returns an error status and `curl -f` fails — that is honest, not a bug.
+Expect a JSON document whose `status` is `healthy`, with a `services` section covering the database, GraphQL, the loaded modules, and the embedder. While the platform is still downloading or loading the embedding model, `status` is `degraded` and `services.embedder.state` says which step it is at (`downloading`, `loading`); the platform serves meanwhile and matches by name. It turns `healthy` when the embedder is `ready`, while the classes may still be embedding: class matching uses names until `./byodt logs platform` shows `Embeddings resolved`. If the platform is unhealthy this returns an error status and `curl -f` fails — that is honest, not a bug.
 
 The console daemon has its own probe on the same origin:
 

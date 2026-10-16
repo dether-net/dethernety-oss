@@ -1,8 +1,7 @@
 # Pre-computed Class Embeddings
 
 How modules ship embedding vectors alongside class definitions so the
-platform does not have to call an external embedding endpoint at
-install time.
+platform does not have to embed their classes at install time.
 
 - [Overview](#overview)
 - [Interface](#interface)
@@ -24,16 +23,19 @@ Author workflow: see
 
 The `match_classes` vector tier (vector similarity) requires every class node to
 carry an `embedding` property. By default the platform embeds every class
-at install time via `EmbeddingService.embedBatch()` — an HTTP call to the
-configured endpoint (Ollama, OpenAI, or compatible). For large modules
-that call dominates install time; for air-gapped deployments it's a hard
-blocker.
+at install time via `EmbeddingService.embedBatch()`, with its in-process
+embedder: the active embedding profile, each class embedded as a document
+titled with its class name. For large modules that embedding dominates
+install time — on a first start, every class of every module is embedded
+once.
 
 Pre-computed embeddings move vector generation to build time: the module
-author runs `module-manager embed` once, vectors land under each class
-directory as JSON files, and the packager includes them in the tarball.
-At install the platform reads vectors from disk instead of making HTTP
-calls. Mixed modules (some classes embedded, some not) and legacy
+author ships vectors made with the platform's active embedding profile as
+JSON files under each class directory, and the packager includes them in the
+tarball. The `module-manager embed` CLI does not make such vectors (see
+[CLI](#cli--module-manager-embed)).
+At install the platform reads vectors from disk instead of embedding.
+Mixed modules (some classes embedded, some not) and legacy
 modules (no embeddings directory) keep working unchanged.
 
 ## Interface
@@ -61,7 +63,13 @@ Contract:
 - Returns `null` (not throws) when the class or model is unknown.
 - `className` is matched case-sensitively against `getMetadata()` output.
 - The vector's length is **not** validated by the method — the platform
-  validates against `EMBEDDING_DIMENSIONS` at install time.
+  validates it against the active profile's dimensions at install time.
+- The platform asks only for the **active profile's** slug, so a vector is
+  used only when it was filed under that profile's id. It must also have been
+  made the way the profile embeds a class document (its document prompt,
+  with the class name as the title); the platform cannot tell a vector made
+  any other way, and would score it against query vectors it does not
+  match.
 
 The file-based base class implements the method by default (see
 [Base-class Default](#base-class-default)). `DtLgModule` does not — its
@@ -177,17 +185,17 @@ When no `Logger` is provided, the helper falls back to `console.warn`.
 - `className` is only ever used as a `Map` key. It is never joined into
   a filesystem path. Directory names (controlled by the module author
   at pack time) are the only path segments.
-- The model name is always slugified via `slugifyModelName` before being
-  used as a filename segment, so path-traversal via `EMBEDDING_MODEL`
-  env values containing `/` or `\` is not possible.
+- The model name (the active profile id) is always slugified via
+  `slugifyModelName` before being used as a filename segment, so
+  path-traversal via a value containing `/` or `\` is not possible.
 - Values read from JSON (notably `className`) are passed to the logger
   as structured metadata, never interpolated into format strings — no
   log-forging via newlines or ANSI.
 
 ## Platform Integration
 
-Vector resolution runs **before** any write transaction so the embedding
-HTTP fallback never holds Bolt locks across the network.
+Vector resolution runs **before** any write transaction so on-the-fly
+embedding never holds Bolt locks while the embedder works.
 
 ### `ModuleManagementService.resolveVectors()`
 
@@ -195,32 +203,42 @@ HTTP fallback never holds Bolt locks across the network.
 resolveVectors(
   metadata: DTMetadata,
   moduleInstance?: DTModule,
-): Promise<Map<string, number[]> | null>
+): Promise<Map<string, number[]> | null | 'pending'>
 ```
 
 Returns a map keyed by `className`; `null` means "embedding disabled,
-write no embedding property." Runs off the write tx — no DB writes.
+write no embedding property"; `'pending'` means "embedding enabled but the
+embedder not ready yet (downloading, loading or failed): keep the stored
+vectors and mark the install partial." Runs off the write tx — no DB writes.
 
 Algorithm:
 
 1. Snapshot `embeddingService.isEnabled()` into a local. All downstream
    checks within this invocation read the local, so a mid-call flip does
    not affect the current module.
-2. If the snapshot is false, return `null`. Pre-computed vectors shipped
-   by the module are **ignored** in this mode — the platform isn't
-   configured for vector similarity, writing embedding properties would
-   be inconsistent.
-3. Slugify the configured model (`slugifyModelName(getModel())`). If the
-   model string is empty, skip the per-class `getEmbedding(className, "")`
-   calls and treat every class as missing.
+2. If the snapshot is false, return `'pending'` when the embedder is
+   enabled but not ready (`isPending()`), else `null`. Pre-computed vectors
+   shipped by the module are **ignored** in both cases — with embedding off
+   the platform isn't configured for vector similarity, and while the
+   embedder is not ready the install keeps what the nodes hold and the
+   catch-up reinstalls the module once it is ready.
+3. Slugify the active profile id (`slugifyModelName(getModel())`).
 4. For each class, call
    `moduleInstance?.getEmbedding?.(cls.name, modelSlug) ?? null`
    (undefined is coerced to null because optional chaining returns
-   undefined). Dimension-check the returned vector; mismatched vectors
-   are warned-on and treated as missing.
-5. Batch-embed only the missing classes via `embeddingService.embedBatch()`.
+   undefined). Dimension-check the returned vector, then check that it
+   can be stored (`vectorDefect`: finite values, a non-zero norm). Both
+   a vector of the wrong length and one of the right length that cannot
+   be stored are warned-on and treated as missing; the latter is logged
+   as `Pre-computed embedding cannot be stored; falling through to
+   on-the-fly`, with the defect.
+5. Batch-embed only the missing classes via
+   `embeddingService.embedBatch(texts, 'document', classNames)`.
    On failure, throw — the caller's per-module try/catch decides whether
-   to skip the module.
+   to skip the module. The batch must return one storable vector per
+   missing class: another number of vectors, or a vector that cannot be
+   stored, throws too, so an install writes every class it declares a
+   vector or fails.
 6. Return the merged map.
 
 ### `upsertModule` signature
@@ -237,7 +255,10 @@ async upsertModule(
 Vectors are pre-resolved by the caller and keyed by class name. When
 `vectors` is `null` or `undefined`, the per-class upsert writes no
 `embedding` property (equivalent to the pre-feature "embedding disabled"
-behavior).
+behavior). When it is `'pending'`, the classes keep the vectors they have
+and the module is recorded as installed partial; the Module node's
+`embeddingProfile` (the embedder its vectors were made with) is left as it
+was.
 
 **Why keyed, not array-indexed:** `upsertModule` builds `allClasses` by
 flattening the module's class types in a specific order. An index-based
@@ -248,7 +269,16 @@ that coupling.
 
 ### `updateAllModules` — Phase A / Phase B
 
-Bulk install splits into two phases to keep HTTP off the write tx:
+Bulk install splits into two phases to keep embedding off the write tx.
+Phase A first applies the **skip gate**: an unchanged module (same content
+hash, last install authoritative) whose Module node records the active
+embedder (`embeddingProfile`: `<profile id>/<dimensions>`, or `off`) is
+skipped; one recorded with another embedder is reinstalled, so its classes
+are embedded with the active profile. With embedding on, the gate also
+reads the classes' stored vectors: a module whose declared searchable
+classes hold a vector of another profile, of another length, or none, is
+reinstalled even under a matching record (see
+[ModuleManagementService → The class vector check](../backend/LLD/MODULE_MANAGEMENT_SERVICE.md#the-class-vector-check)).
 
 ```typescript
 // Phase A — offline. Per-module try/catch: a failing module is logged
@@ -266,24 +296,22 @@ for (const [name, instance] of modules) {
   }
 }
 
-// Phase B — single write tx, no HTTP. Per-module try/catch retained
-// for symmetry with Phase A.
-await session.executeWrite(async (tx) => {
-  for (const [name, { metadata, vectors }] of resolved) {
-    try {
-      await this.upsertModule(tx, metadata, options, vectors);
-      this.logEmbeddingStats(name, vectors, metadata);
-    } catch (err) { errorCount++; logger.error(…); }
-  }
-  if (modulesInstalled.length > 0) await this.deleteOldModules(tx, modulesInstalled);
-});
+// Phase B — one write tx per module, no embedding inside. A module whose
+// write fails rolls back only its own tx.
+for (const [name, { metadata, vectors }] of resolved) {
+  try {
+    await session.executeWrite((tx) => this.upsertModule(tx, metadata, options, vectors));
+  } catch (err) { errorCount++; logger.error(…); }
+}
+// The obsolescence sweep runs in its own final tx (not in a catch-up).
 ```
 
 Per-module isolation is preserved (this is the same semantic as before
 the feature): a single broken module does not roll back siblings. A
-Phase-A failure for every module leaves Phase B's loop empty and
-`deleteOldModules` is **not** called — the same "nothing to promote,
-don't clean up" behavior as before.
+Phase-A failure for every module leaves Phase B's loop empty. The sweep
+still runs, but it protects every module present on disk this round, not
+only those that installed, so a module that failed to resolve is never
+treated as obsolete.
 
 ### `resetSingleModule`
 
@@ -301,7 +329,8 @@ SET t += $nodeProperties
 RETURN t
 ```
 
-When `vectors?.get(cls.name)` is absent, the `REMOVE` clause is appended
+When `vectors?.get(cls.name)` is absent (and `vectors` is not
+`'pending'`), the `REMOVE` clause is appended
 to the Cypher so the class node's `embedding` / `embeddingModel`
 properties are dropped. Without this, `SET t += $nodeProperties` would
 leave stale vectors from a previous install — after a model switch,
@@ -346,6 +375,14 @@ them.
 Modules ship a `pnpm embed` alias that reads `EMBEDDING_MODEL` and
 `EMBEDDING_URL` from the environment; see
 [DEVELOPMENT_GUIDE](./DEVELOPMENT_GUIDE.md#pre-computed-embeddings-optional).
+
+**The CLI does not embed with an embedding profile.** It POSTs the composed
+class text to an HTTP endpoint as it is, with no prompt and no title. The
+platform's embedder runs in process with a profile whose document prompt
+carries the class name as the title, so vectors from this CLI do not match
+the platform's query vectors, whatever `--model` they are filed under. File
+them under the profile id only if they were made with that profile;
+otherwise ship no vectors and let the platform embed the classes at install.
 
 ### Behavior
 
@@ -437,37 +474,41 @@ data/{moduleName}/component/postgresql-database/embeddings/
 └── bge-large-en.json
 ```
 
-At install time the platform asks for exactly one model (the one
-`EMBEDDING_MODEL` specifies). The cache loads only that model's files;
+At install time the platform asks for exactly one model: the active
+embedding profile, by the slug of its id. The cache loads only that model's files;
 the others stay on disk, ready if the deployment is reconfigured later.
 
 **Changing `EMBEDDING_MODEL` requires a `dt-ws` restart.** The per-process
-cache is keyed by model slug and is not invalidated at runtime.
-Reinstalling the module after a restart re-resolves vectors against the
-new model — classes without a matching file fall back to on-the-fly,
-and `upsertClass`'s REMOVE clause clears stale vectors from the old
-model.
+cache is keyed by model slug and is not invalidated at runtime. At the
+restart the skip gate sees a different embedder recorded on the Module node
+(or, under a matching record, class vectors of another profile)
+and reinstalls the module, which re-resolves vectors against the new
+profile — classes without a matching file fall back to on-the-fly, and
+`upsertClass`'s REMOVE clause clears stale vectors from the old model.
 
 ## Failure Semantics
 
 | Condition | Behavior |
 |-----------|----------|
-| All vectors pre-computed, endpoint unreachable | Install succeeds. Zero HTTP calls. |
-| Some vectors pre-computed, endpoint unreachable | `resolveVectors` throws on the missing-class batch; per-module catch skips the module. |
+| All vectors pre-computed for the active profile, embedder ready | Install succeeds. The embedder is not called. |
+| Embedder not ready (downloading, loading, failed), with or without pre-computed vectors | `'pending'`: stored vectors kept, module installed partial; the catch-up reinstalls it when the embedder becomes ready. |
+| Some vectors pre-computed, the missing-class batch throws | `resolveVectors` throws; per-module catch skips the module. |
 | Pre-computed vector wrong dimension | Warn logged; that class embedded on the fly; others unaffected. |
-| Model mismatch (module ships for A, platform configured for B) | All classes fall through to on-the-fly. No error. |
+| Pre-computed vector of the right dimension that cannot be stored (non-finite value, zero norm) | Warn logged with the defect; that class embedded on the fly; others unaffected. |
+| The on-the-fly batch returns another number of vectors than classes, or a vector that cannot be stored | `resolveVectors` throws; per-module catch skips the module, which is left as it was. |
+| Model mismatch (module ships for A, platform runs profile B) | All classes fall through to on-the-fly. No error. |
 | Embedding disabled in platform, module ships vectors | Vectors ignored; no `embedding` property written. |
-| Reinstall after `EMBEDDING_MODEL` switch | Classes without a vector for the new model have `embedding` / `embeddingModel` **removed** via the REMOVE clause. No stale data. |
+| Reinstall after `EMBEDDING_MODEL` switch (the skip gate forces it at the next start) | Classes without a vector for the new model have `embedding` / `embeddingModel` **removed** via the REMOVE clause. No stale data. |
 | Malformed `{slug}.json` (non-array, non-finite, oversized) | Cache warns with the vector path as metadata and treats the class as missing. |
-| `updateAllModules` — every module's `resolveVectors` throws | All modules skipped; Phase B loop empty; `deleteOldModules` **not** called; `errorCount === modules.size`. |
-| `resetSingleModule` — endpoint unreachable | Throws to caller (not swallowed). Distinct from bulk semantic. |
+| `updateAllModules` — every module's `resolveVectors` throws | All modules skipped; Phase B loop empty; the sweep removes only modules no longer on disk; `errorCount === modules.size`. |
+| `resetSingleModule` — the embedding batch throws | Throws to caller (not swallowed). Distinct from bulk semantic. |
 
 ## Non-goals
 
 - **Replacing the on-the-fly embedding path.** Modules may still ship
   without vectors; legacy modules install unchanged.
 - **Automatic regeneration on `pnpm build`.** Would couple the build to
-  the network and defeat the whole point. Regeneration is an explicit
+  an embedder and defeat the whole point. Regeneration is an explicit
   author action (`pnpm embed`).
 - **`DtLgModule`.** Its analysis classes are derived from the LangGraph
   server rather than from on-disk class definitions; where pre-computed

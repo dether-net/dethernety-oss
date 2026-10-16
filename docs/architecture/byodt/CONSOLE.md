@@ -20,13 +20,14 @@ marker, the mount marker.
 |---|---|
 | **Language / image** | Go, `CGO_ENABLED=0`, cross-compiled per architecture; final image is `FROM scratch` |
 | **Runs as** | Numeric uid/gid `65532:65532` — no root. `scratch` has no user database, so the id must be numeric |
-| **Contents** | The binary, CA certificates, and an embedded asset tree: the no-auth schema, the ingest corpus, and the built console SPA |
+| **Contents** | The binary, CA certificates, and an embedded asset tree: the no-auth schema, the ingest corpus with each data module's manifest, and the built console SPA |
 | **Version** | Stamped at build time with `-ldflags "-X main.version=…"`; empty in an unstamped local build |
 | **Subcommands** | `init` (default `CMD`) and `daemon`; anything else exits `2` with usage |
 
 The embedded asset tree is a build prerequisite, not committed source: `build-assets.sh` generates the
 no-auth schema from the platform's `schema.graphql`, copies each bundled data module's `.cypher`
-corpus, and builds the SPA. A build that skips it fails to compile at the `//go:embed` lines — a loud
+corpus with its `NOTICE` and `manifest.json`, and builds the SPA. A data module whose manifest names no
+`embeddingProfile` fails the build. A build that skips it fails to compile at the `//go:embed` lines — a loud
 guard rather than an image that serves a blank page.
 
 ---
@@ -34,12 +35,14 @@ guard rather than an image that serves a blank page.
 ## `init` — the pre-start one-shot
 
 `init` runs once per `up`, after the database is healthy and before the platform starts. It performs a
-version gate and then three jobs, in a fixed order.
+version gate and an embedding-model check, and then three jobs, in a fixed order.
 
 ```mermaid
 graph TD
   A["version gate<br/>PLATFORM_VERSION set, console image agrees"] -->|fail| X[["exit 1 — abort the deployment"]]
-  A -->|pass| B["1 · place the schema"]
+  A -->|pass| M["embedding-model check<br/>platform model = MITRE data's profile"]
+  M -->|fail| X
+  M -->|pass| B["1 · place the schema"]
   B -->|fail| X
   B --> C["2 · install the code modules"]
   C --> D["3 · ingest the reference corpus"]
@@ -62,6 +65,27 @@ repoint at a mirror, not to select a version.
 `PLATFORM_VERSION` is the only version input the console has. It never picks a version of its own: the
 release it fetches from, the identity it pins signatures to, and the tag it records in its state file
 all derive from this one value.
+
+### The embedding-model check
+
+The MITRE corpus ships precomputed vectors, and the platform searches them with query vectors from its
+own embedding model. Vectors from two models do not compare, so the one-shot holds the platform's model
+to the one the corpus was embedded with, before it places the schema or ingests anything:
+
+- **The corpus profile** is the `embeddingProfile` of the `mitre-frameworks` manifest embedded beside
+  the data (`assets.CorpusEmbeddingProfile`). A missing manifest, one that is not JSON, or one that names
+  no profile is an error, never a skipped check.
+- **The platform's model** is `EMBEDDING_MODEL` as the platform gets it: the trimmed value, or the
+  platform's default profile (`embeddinggemma-300m-retrieval-v1`) when it is unset or blank.
+
+When the two differ, the deployment aborts. If the operator set `EMBEDDING_MODEL`, the message says to
+remove it so the default applies. If they did not, the console and its data do not belong together, and
+the message reports a broken console image.
+
+Build-time tests keep the second case from shipping: the console's default must equal the platform's,
+and the `mitre-frameworks` manifest's profile must equal that default, so a release whose corpus was
+embedded with another model fails its build. The check reads the setting the platform will read, but
+the platform does its own: it refuses, at start, models the release does not offer.
 
 ### Job 1 — place the schema
 
@@ -129,7 +153,7 @@ purpose.
 
 | Outcome | Exit | Effect |
 |---|---|---|
-| Version gate or schema placement failed | `1` | The whole `up` stops. The platform's dependency is `service_completed_successfully`, so it never starts |
+| Version gate, embedding-model check or schema placement failed | `1` | The whole `up` stops. The platform's dependency is `service_completed_successfully`, so it never starts |
 | Anything else — including a total module or ingest failure | `0` | The platform starts. The fault is recorded in the state file for the console to explain |
 
 The asymmetry follows from what each failure means. A schema that disagrees with the code serving it

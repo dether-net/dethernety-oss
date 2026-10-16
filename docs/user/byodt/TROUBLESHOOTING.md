@@ -95,6 +95,44 @@ That repairs the layout and starts the deployment. If `.env.secrets` was deleted
 
 and run the wipe command it prints for your storage setting.
 
+### `EMBEDDING_MODEL=embeddinggemma in .env names the old embedding server's model`
+
+> `error: EMBEDDING_MODEL=embeddinggemma in .env names the old embedding server's model, which this release no longer runs. Remove the EMBEDDING_MODEL line from .env: the platform embeds in process with its default model.`
+
+**Cause.** Your `.env` was carried over from a release that ran the old `ollama` service, and still selects that service's model. This release has no `ollama` service: the platform embeds in process. `./byodt up`, `./byodt update` and `./byodt models pull` refuse the setting before anything starts, however the value is quoted, exported, or followed by a comment.
+
+**Fix.** Delete the `EMBEDDING_MODEL` line from `.env` (or comment it out), then run the command again. Leaving the key unset selects the platform's default model. See [Operations → Upgrading from a release with the `ollama` service](./OPERATIONS.md#upgrading-from-a-release-with-the-ollama-service).
+
+### `… is no longer used` notices, and `data/ollama`
+
+> `==> OLLAMA_IMAGE in .env is no longer used (this bundle has no Ollama service); you can remove the line.`
+>
+> `==> data/ollama (…) holds the old embedding server's model and is no longer used. Once the new start has worked: sudo rm -rf data/ollama`
+
+**Cause.** Notices, not errors. `./byodt up`, `./byodt update` and `./byodt models pull` report every `OLLAMA_*` line, and an `EMBEDDING_URL` or `EMBEDDING_SIMILARITY_THRESHOLD` line, left in `.env` by an older release, and a leftover `data/ollama` directory with its size. None of them stops the start, and `byodt` never edits `.env` or deletes `data/ollama` for you.
+
+**Fix.** Optional. Remove the named lines from `.env` whenever convenient. Once the new release has started and works, reclaim the disk:
+
+```sh
+sudo rm -rf data/ollama
+```
+
+`sudo` is usually needed (rootful Docker on Linux): the old `ollama` service wrote the directory as root. If `data/ollama` is a symbolic link, `byodt` reports only that it is one: it does not name or measure the link's target. Check where it points yourself (`ls -l data/ollama`) before you remove anything. Keep `data/ollama` while you might still roll back to the previous release, which uses it.
+
+### The platform does not start, or keeps restarting, after `./byodt restart`
+
+**Symptom.** One of two, depending on the command:
+
+- After **`./byodt restart`**, `./byodt status` shows the platform not running, and `./byodt logs console-init` ends with a refusal that names `EMBEDDING_MODEL`.
+- After **`./byodt restart platform`**, `./byodt status` shows the platform restarting over and over, and `./byodt logs platform` ends with a refusal that names `EMBEDDING_MODEL`.
+
+**Cause.** `./byodt restart` and `./byodt restart platform` skip the pre-flight checks that `./byodt up` and `./byodt update` run. A stale `.env` — typically one that still sets `EMBEDDING_MODEL=embeddinggemma` after an upgrade — is therefore not caught before the start. What happens next depends on what the command recreates:
+
+- **`./byodt restart`** recreates the whole stack, the one-shot `console-init` included. `console-init` refuses the model, and the platform starts only once `console-init` has completed successfully — so the platform stays down. It does not loop.
+- **`./byodt restart platform`** recreates only the platform, without the services it depends on. The platform refuses the model at every start, and the engine starts it again: a restart loop.
+
+**Fix.** Run `./byodt up`. Its checks stop before anything starts and say what to change in `.env`; change it, then run `./byodt up` again.
+
 ### The port is already in use
 
 **Symptom.** The engine reports that the host port cannot be allocated.
@@ -115,7 +153,9 @@ Note that port 3000 is a pre-registered loopback callback address, so moving off
 
 ### The platform never starts, and `console-init` exited non-zero
 
-**Cause.** The one-shot aborted the start. It does that for exactly two classes of problem: the pinned versions disagree, or the schema could not be placed. In both cases the platform is deliberately held back — a schema that disagrees with the code serving it must not serve.
+**Symptom.** `./byodt up` or `./byodt update` fails with an error that ends `'byodt logs console-init' says why.`
+
+**Cause.** The one-shot aborted the start. It does that for exactly three classes of problem: the pinned versions disagree, the platform's embedding model is not the one the reference data was embedded with, or the schema could not be placed. In each case the platform is deliberately held back — a schema that disagrees with the code serving it must not serve, and a model that did not make the reference vectors would not match them.
 
 **Fix.** Read the reason:
 
@@ -123,7 +163,7 @@ Note that port 3000 is a pre-registered loopback callback address, so moving off
 ./byodt logs console-init
 ```
 
-Then see the next two entries.
+Then see the next three entries.
 
 ### `console image version … does not match PLATFORM_VERSION`
 
@@ -144,6 +184,16 @@ If you need the override because the console image comes from your own mirror, k
 ```
 
 See [Upgrading to a new release](./OPERATIONS.md#upgrading-to-a-new-release).
+
+### `EMBEDDING_MODEL … does not match this release's MITRE data`
+
+> `EMBEDDING_MODEL "…" does not match this release's MITRE data, which was embedded with "embeddinggemma-300m-retrieval-v1". Remove EMBEDDING_MODEL from .env; the default is embeddinggemma-300m-retrieval-v1`
+
+**Cause.** `.env` sets `EMBEDDING_MODEL` to a model other than the one this release's MITRE reference data was embedded with. The platform would search those vectors with another model's queries, which matches nothing reliably, so the one-shot stops the start before it ingests anything, and the platform does not start.
+
+**Fix.** Remove the `EMBEDDING_MODEL` line from `.env`, then `./byodt up`. The platform's default is the right model. See [Configuration → Embedding](./CONFIGURATION.md#embedding).
+
+If the message instead says the platform's **default** embedding profile does not match and that the console image is broken, nothing in your configuration caused it: the release's console image and its data do not belong together. Report it, and stay on your current release.
 
 ### `PLATFORM_VERSION is not set`
 
@@ -179,16 +229,53 @@ This is why `./byodt destroy` prints a warning about `.env.secrets` every time. 
 
 ### It is taking a very long time
 
-**Cause.** Normal, on a fresh machine and especially on a slow connection. The first start pulls five container images, downloads the embedding model inside the `ollama` container, downloads and verifies the module payloads, and ingests the reference corpus. The health checks are deliberately patient — the embedding-server check alone allows forty attempts at fifteen-second intervals — so a slow download is waited out rather than failed.
+**Cause.** Normal, on a fresh machine and especially on a slow connection. The first start pulls four container images, downloads and verifies the module payloads, and ingests the reference corpus. The platform then downloads the embedding model's weights (about 1.26 GB) and **embeds every class once, at about 0.2 s per class on a 4-vCPU host: seconds for the bundled modules (about 80 classes, 15–20 s), a few minutes with cloud content packages (about 1,200 classes). Matching uses names meanwhile.** The health checks are deliberately patient, so a slow start is waited out rather than failed, and the model download does not hold the start at all.
+
+The first start after an upgrade from a release with the `ollama` service does the same model work once, and the one-shot also re-ingests the MITRE reference data, which takes about a minute with the platform down meanwhile.
 
 **Fix.** Watch it rather than restarting it:
 
 ```sh
-./byodt logs ollama           # the model download
+./byodt logs platform         # the model download, load, and class embedding
 ./byodt logs console-init     # modules and the data ingest
 ```
 
-Restarting mid-pull only starts the downloads again.
+Restarting mid-pull only starts the downloads again. Next time, `./byodt models pull` downloads the model ahead of the start.
+
+### Matching uses names after a start
+
+**Symptom.** Class matching and MITRE technique search find entries only by name, not by meaning. In the standalone configuration, `curl -fsS http://127.0.0.1:3000/health` reports `"status": "degraded"`, and its `services.embedder.state` is `downloading`, `loading`, or `failed`. Or `/health` already reports `healthy`, but class matching still finds classes only by name.
+
+**Cause.** The platform serves while it downloads the model's weights and loads the model, and while it embeds the classes; name matching answers meanwhile.
+
+- **The embedder is not ready.** `downloading` and `loading` are normal after a first start or an upgrade. `failed` means the download or the load gave up. The `error` beside the state, and `./byodt logs platform`, give the reason.
+- **The classes are still embedding.** `/health` reports `healthy` once the log says `Embedder ready`, but the classes may still be embedding then, at about 0.2 s per class on a 4-vCPU host. Class matching uses names until they are done; the log shows `Embeddings resolved` for each module as its classes are.
+- **A download that keeps failing looks normal at first.** The state stays `downloading` while the platform retries: after 10 seconds, 30 seconds, 2 minutes, 10 minutes and 30 minutes, about 42 minutes in all. Only then does it turn `failed`, and the embedder stays off until the platform restarts. Meanwhile the platform log shows `weight acquisition failed, retrying`, with the reason.
+
+**Fix.**
+
+- For `downloading` or `loading`, wait, and follow `./byodt logs platform` until it logs `Embedder ready`, then `Embeddings resolved`.
+- If the platform log shows `weight acquisition failed, retrying`, or the state is `failed` after a download, the cause is almost always the network: the platform needs to reach `huggingface.co` and the host it redirects downloads to, directly — it does not use an HTTPS proxy (`HTTPS_PROXY`) for the download. Fix the host's network access, then `./byodt restart platform`. Running `./byodt models pull` first shows whether the download now works.
+- On a host without internet access, run `./byodt models pull` on a connected machine and copy its `data/models` over as the account that runs `./byodt`, keeping its `<repo>/<revision>/<file>` layout; see [Installation → Download the embedding model ahead](./INSTALLATION.md#optional-download-the-embedding-model-ahead). The platform verifies every file's sha256 and downloads only what is missing or wrong.
+
+### `in the models directory is owned by uid` or `is writable by accounts other than its owner`
+
+> `The weights could not be placed: config.json: onnx-community in the models directory is owned by uid 65534, which is not the platform's, root's or the models directory's owner; remove it and place the weights again (the platform downloads them on its start; in the BYODt bundle, ./byodt models pull)`
+>
+> `… onnx-community/embeddinggemma-300m-ONNX in the models directory is writable by accounts other than its owner; remove it and place the weights again (…)`
+
+**Cause.** A file or directory in `data/models`, on the path to one of the model's files, is one another local account could change: it is owned by an account other than the platform's, root or the owner of `data/models`, or accounts other than its owner (its group, or every account) can write to it. The platform checks each weight file and then loads it, so it refuses such a file rather than load a model someone else could have swapped in. The usual source is a `data/models` copied from another machine under a different account or as root, or unpacked with group- or world-writable permissions. `./byodt models pull` prints the message; the platform logs it as `weight acquisition failed, retrying` and, once it gives up, reports it as the embedder's `error`. The named entry is relative to `data/models`. The uid is the one the platform sees inside its container: under rootless Podman, an account other than yours, root included, usually shows as `65534`.
+
+**Fix.** Remove the named entry and place the weights again (`sudo` may be needed when another account owns it):
+
+```sh
+sudo rm -rf data/models/onnx-community
+./byodt models pull
+```
+
+On a host without internet access, copy the weights again as the account that runs `./byodt` instead of running `models pull`; see [Installation → Download the embedding model ahead](./INSTALLATION.md#optional-download-the-embedding-model-ahead). If the entry is your own and only too widely writable, `chmod -R go-w data/models/<entry>` is enough: the platform still checks every file's sha256 before it loads it. Then `./byodt restart platform`.
+
+If the message names the models directory itself (`the models directory is writable by accounts other than its owner without the sticky bit`), run `./byodt up`: it makes `data/models` sticky again.
 
 ### `the data ingest failed` with a memory limit
 

@@ -369,7 +369,7 @@ Two new properties are added to class nodes when embeddings are enabled:
 | Property | Labels | Type | Purpose |
 |----------|--------|------|---------|
 | `embedding` | All 5 class labels | `float[]` (the profile's dimensions; 768 for the built-in profiles) | Vector for exact cosine similarity search |
-| `embeddingModel` | All 5 class labels | `string` | Embedding profile id (the model name under the HTTP embedder with a non-built-in model), for version drift detection |
+| `embeddingModel` | All 5 class labels | `string` | Embedding profile id, for version drift detection |
 
 These properties are **optional**. Class nodes without them are valid and fully functional -- they simply do not participate in the vector tier.
 
@@ -412,11 +412,11 @@ These properties are **optional**. Class nodes without them are valid and fully 
 
 The central design principle is **embed before insert**: vectors are computed before class nodes enter the database. This eliminates eventual consistency -- if a class node exists, it already has its embedding. There is no window where a class is queryable by name but not by vector similarity, no `embeddingReady` flag, no background worker.
 
-### Pre-computed vectors (offline install)
+### Pre-computed vectors (install without running the embedder)
 
-Before the pipeline reaches the embedding endpoint, `ModuleManagementService.resolveVectors()` asks the module itself whether it has a pre-computed vector for each class via `DTModule.getEmbedding(className, slug)`. When present, the shipped vector is used directly; only classes without a shipped vector are embedded on the fly. Fully-embedded modules install with zero HTTP calls to the embedding endpoint.
+Before the pipeline embeds anything, `ModuleManagementService.resolveVectors()` asks the module itself whether it has a pre-computed vector for each class via `DTModule.getEmbedding(className, slug)`, where `slug` is the slug of the active profile's id. A shipped vector is used only when it is keyed by that slug, has the profile's dimensions and can be stored (finite values, a non-zero norm); any other is ignored (a dimension mismatch or a vector that cannot be stored is logged) and the class is embedded on the fly. Fully-embedded modules install without running the embedder.
 
-The shipped vector path, the on-the-fly path, and the CLI (`module-manager embed`) all share a single text-composition helper (`@dethernety/dt-module/embedding::composeClassText`) to guarantee the text embedded at build time is byte-equal to the text embedded at install time. See [PRE_COMPUTED_EMBEDDINGS_SPEC.md](../../modules/PRE_COMPUTED_EMBEDDINGS_SPEC.md) for the full design.
+The shipped vector path, the on-the-fly path, and the CLI (`module-manager embed`) all share a single text-composition helper (`@dethernety/dt-module/embedding::composeClassText`), so the composed class text (and its content hash) is byte-equal across them. The install-time embedder additionally wraps that text in the profile's document prompt, with the class name as the title; the CLI does not, so CLI vectors do not match the platform's profile. See [PRE_COMPUTED_EMBEDDINGS_SPEC.md](../../modules/PRE_COMPUTED_EMBEDDINGS_SPEC.md) for the full design.
 
 ```
   Module metadata (YAML/JSON)
@@ -428,10 +428,10 @@ The shipped vector path, the on-the-fly path, and the CLI (`module-manager embed
          ▼
   Compose embedding text per class:        ─── Embedding Service ───
   "{name}. {description}. Category:       │                         │
-   {category}. Type: {type}."             │  In-process ONNX model, │
-         │                                │  or HTTP POST to an     │
-         ▼                                │  embedding endpoint     │
-  Batch embed all classes ──────────────→ │  (Ollama, OpenAI-style) │
+   {category}. Type: {type}."             │  In-process ONNX model  │
+         │                                │  on a worker thread,    │
+         ▼                                │  document prompt,       │
+  Batch embed all classes ──────────────→ │  title = class name     │
          │                                │                         │
          ▼                                 ─────────────────────────
   vectors[] in memory
@@ -449,10 +449,12 @@ The shipped vector path, the on-the-fly path, and the CLI (`module-manager embed
 
 `EMBEDDING_MODEL` names an **embedding profile**. A profile (`packages/dt-module/src/embedding-profile.ts`, built-ins in `src/embedding-profiles/*.json`) pins everything that shapes a stored vector: where the weights come from (repository, revision, per-file size and sha256), how the model runs (pooling, normalisation, dimensions) and the prompts applied to queries and documents. It also carries the per-corpus similarity thresholds and how they were calibrated. The profile id is what a class node stores as `embeddingModel`, so it changes whenever anything that shapes a stored vector changes.
 
-The service has two runtimes, chosen by the profile:
+The embedder runs **in process**, with one profile in this release: `embeddinggemma-300m-retrieval-v1`, the default when `EMBEDDING_MODEL` is unset. There is no HTTP embedder (see [ADR-013](../../decisions/013-in-process-embedding.md)).
 
-- **In-process (ONNX).** A built-in ONNX profile (`embeddinggemma-300m-retrieval-v1`, `embeddinggemma-2-text-retrieval-v1`) runs inside dt-ws. After start, the weights are fetched into `EMBEDDING_MODEL_DIR` (or found there), verified by sha256 and loaded in the background. Until the model is ready the embedder reports itself as not enabled, so callers fall back to their name tiers.
-- **HTTP.** The `embeddinggemma` profile (the default) and any `EMBEDDING_MODEL` that is not a built-in profile id POST `{ model, input }` to `EMBEDDING_URL` (an Ollama-compatible `/api/embed`; OpenAI-format responses are accepted too). No prompts are applied; the vectors are L2-normalised. A model that is not a built-in profile runs under the `embeddinggemma` profile's thresholds, with a logged warning.
+- **Selection and refusal.** `config/embedding-profile-selection.ts` holds the one rule the environment validation and `EmbeddingService` both apply. With `EMBEDDING_ENABLED=true`, the platform refuses to start — in the environment validation, before the database or the modules — on the legacy `embeddinggemma` id (the HTTP embedder's), on a built-in profile this release does not offer (`embeddinggemma-2-text-retrieval-v1`: its MITRE vectors are not published), and on any unknown id. With embedding off nothing is refused. `EMBEDDING_URL`, `EMBEDDING_API_KEY`, `EMBEDDING_DIMENSIONS` and `EMBEDDING_SIMILARITY_THRESHOLD` are ignored, with a logged warning; a stale value never stops a start.
+- **Weights.** After start, the weights are fetched into `EMBEDDING_MODEL_DIR` (layout `<dir>/<repo>/<revision>/<file>`) or found there, and verified by sha256 in the background (`ensureWeightsWithRetry`, `@dethernety/embedder`). Each file is written to a temporary name and renamed into place only once verified; a per-file lock lets replicas share the directory, with one process downloading while the others wait. A failed acquisition is retried after 10 s, 30 s, 2 min, 10 min and 30 min, then the embedder is `failed`. A shutdown aborts a download in flight and keeps nothing partial. Because a file is verified and then opened again by path, every existing entry on its path below `EMBEDDING_MODEL_DIR` must be one only a trusted account can change (`safeFilePath`): not a symbolic link, writable by no account but its owner (no group or other write bit; a sticky directory excepted), and owned by the process's account, root or the owner of `EMBEDDING_MODEL_DIR`; otherwise the file is refused with a `WeightFileError` naming the entry. Before a download, `ensureWeights` creates the file's directories and runs the check again, so a directory planted between the first check and the creation is refused before the lock file or the download is written in it. The directory itself may be a link or a mount point; it is refused when accounts other than its owner can write it without the sticky bit. What the embedder writes there is never writable by other accounts. Before a download the service logs, once, what it fetches, its size and its licence.
+- **Worker thread.** `createWorkerEmbedder` runs the model on a worker thread: tokenising, the session load and every inference happen off dt-ws's event loop, so a request that does not embed never waits behind one that does. The load is bounded at 120 s (the worker is terminated); a worker that exits or errors after it was ready rejects the calls pending on it and turns the embedder `failed` until the next start — the process keeps serving. onnxruntime's telemetry is switched off (`ORT_DISABLE_TELEMETRY=1`) before the runtime loads.
+- **States.** `downloading` → `loading` → `ready`, or `failed`; `disabled` when `EMBEDDING_ENABLED` is not true. Until the model is ready the embedder reports itself as not enabled, so callers fall back to their name tiers; `/health` reports `degraded` with the state.
 
 ```
   dt-ws/src/gql/services/embedding.service.ts
@@ -463,33 +465,33 @@ The service has two runtimes, chosen by the profile:
   │  Configuration:                                   │
   │    EMBEDDING_ENABLED    (bool, default: false)    │
   │    EMBEDDING_MODEL      (profile id; default:     │
-  │                          embeddinggemma)          │
-  │    EMBEDDING_THRESHOLD_<CORPUS> (per-corpus floor)│
-  │  In-process only:                                 │
+  │                  embeddinggemma-300m-retrieval-v1)│
   │    EMBEDDING_MODEL_DIR  (default: models)         │
   │    EMBEDDING_THREADS    (default: 4)              │
-  │  HTTP only:                                       │
-  │    EMBEDDING_URL        (default: local Ollama)   │
-  │    EMBEDDING_API_KEY    (empty for local)         │
-  │    EMBEDDING_DIMENSIONS (default: the profile's)  │
-  │    EMBEDDING_SIMILARITY_THRESHOLD (legacy floor)  │
+  │    EMBEDDING_THRESHOLD_<CORPUS> (per-corpus floor)│
+  │    HF_TOKEN             (gated weights only)      │
   │                                                   │
   │  Methods:                                         │
-  │    isEnabled()                → boolean           │
-  │    getModel()                 → string            │
+  │    isEnabled()                → boolean (ready)   │
+  │    isPending()                → boolean           │
+  │    getState() / getStatus()   → state, profile    │
+  │    getModel()                 → profile id        │
+  │    getDimensions()            → number            │
   │    getThreshold(corpus)       → number | null     │
-  │    embedBatch(texts, kind)    → number[][] | null │
+  │    embedBatch(texts, kind, titles?)               │
+  │                               → number[][] | null │
   │    embedEach(texts, kind)     → vectors, failures │
+  │    whenStartupChecked()       → bounded wait      │
+  │    onReady(listener)          → unsubscribe       │
   │    composeClassText(cls)      → string            │
   │    composeElementText(elem)   → string            │
   │                                                   │
-  │  HTTP retry: 3x with exponential backoff          │
-  │              (1s, 3s, 9s)                         │
-  │  Failure: throw after exhausting retries          │
+  │  Weight retry: 10s, 30s, 2min, 10min, 30min       │
+  │  Embed failure: throw (no retry)                  │
   └───────────────────────────────────────────────────┘
 ```
 
-`kind` is `query` or `document`: an in-process profile wraps the text in its query or document prompt, so class vectors and element vectors are made the way the model was trained to compare them.
+`kind` is `query` or `document`: the profile wraps the text in its query or document prompt, so class vectors and element vectors are made the way the model was trained to compare them. A document's title is its name (the class name at install), which the default profile's title rule writes into the document prompt.
 
 ### Similarity threshold
 
@@ -497,9 +499,10 @@ The threshold is a cosine floor per **corpus**: `classes` for this resolver, `mi
 
 `EmbeddingService` resolves each corpus's threshold once at startup, and `getThreshold(corpus)` returns it:
 
-1. `EMBEDDING_THRESHOLD_<CORPUS>` (`EMBEDDING_THRESHOLD_CLASSES`, `EMBEDDING_THRESHOLD_MITRE`, `EMBEDDING_THRESHOLD_COMPONENTS`), when set.
-2. Otherwise, under the HTTP embedder only, the legacy `EMBEDDING_SIMILARITY_THRESHOLD` (for `classes` and `mitre`). An in-process profile ignores it with a logged warning.
-3. Otherwise, the profile's value.
+1. `EMBEDDING_THRESHOLD_<CORPUS>` (`EMBEDDING_THRESHOLD_CLASSES`, `EMBEDDING_THRESHOLD_MITRE`, `EMBEDDING_THRESHOLD_COMPONENTS`), when set. A value outside -1..1 stops the start.
+2. Otherwise, the profile's value.
+
+The legacy `EMBEDDING_SIMILARITY_THRESHOLD` is ignored with a logged warning.
 
 ### Vector search
 
@@ -539,16 +542,26 @@ The embedding pipeline integrates into the existing `ModuleManagementService.ups
        │
        ├─ 1. Parse module metadata → extract all classes (all labels)
        │
-       ├─ 2. Batch embed all classes (if EMBEDDING_ENABLED)
-       │      └─ EmbeddingService.embedBatch(texts)
-       │         └─ On failure: retry 3x → fail module install
+       ├─ 2. Resolve vectors (resolveVectors, before the write transaction)
+       │      ├─ embedding off      → null: write none, remove stale ones
+       │      ├─ embedder not ready → 'pending': keep stored vectors,
+       │      │                       install marked partial
+       │      └─ ready → shipped vectors of the active profile, the rest
+       │                 EmbeddingService.embedBatch(texts, 'document', names)
+       │                 └─ On failure, a wrong vector count, or a vector
+       │                    that cannot be stored: throw → this module's
+       │                    install fails
        │
        └─ 3. Upsert each class with embedding vector
               └─ upsertClass(tx, moduleId, cls, label, embedding)
                  └─ MERGE + SET including embedding + embeddingModel
 ```
 
-**Failure behavior:** If embeddings are enabled but unreachable, module install fails after 3 retries. No partial state -- either all classes are inserted with embeddings, or nothing is inserted. This prevents a state where the module is installed without embeddings and is never re-processed (the module registry won't re-ingest an already-registered module).
+**Failure behavior:** If the embedder is ready but a batch fails, returns another number of vectors than classes, or returns a vector that cannot be stored (the wrong length, a non-finite value, a zero norm), the module's install fails: either all classes are written with their vectors, or nothing is written. In the start-up install the other modules continue; a single-module install propagates the error.
+
+**Embedder not ready.** On a first start the embedder is still downloading or loading its weights when the modules install. The start-up install waits for it (`whenStartupChecked`) only when the weights are already in place, and then for at most 60 s; a download is never waited for. A module installed meanwhile keeps the vectors its classes already have and is marked partial, so its classes are matched by name until it is embedded. When the embedder becomes ready, `enableCatchUp` reinstalls the modules that were left waiting (the **catch-up**); the skip gate passes over the rest. On a fresh deployment this is when every class is embedded once, at about 0.2 s per class on a 4-vCPU host: seconds for the bundled modules (about 80 classes, 15–20 s), a few minutes with cloud content packages (about 1,200 classes). Matching uses names meanwhile.
+
+**Skip gate.** An unchanged module (same content hash, last install authoritative) is skipped at start only when its Module node records the same embedder (`embeddingProfile`: the profile id and dimensions, or `off`) and, with embedding on, none of the searchable classes it declares holds a vector of another profile, of another length, or none. A change of profile, of dimensions or of the embedding switch reinstalls the module, so its classes are embedded with the active profile; so does a class whose vector disagrees with a matching record, as after an older platform version installed the module again. A pending install records nothing, since the stored vectors are kept. See [ModuleManagementService → The class vector check](./MODULE_MANAGEMENT_SERVICE.md#the-class-vector-check).
 
 ### Query-time element embedding
 
@@ -558,11 +571,11 @@ When `match_classes` runs the vector tier, the resolver embeds the request's ele
 2. Call `EmbeddingService.embedEach(texts, 'query')` to get every element's query vector in one embedding call
 3. For each element, rank the label's classes against its query vector with the exact cosine search (see [Vector search](#vector-search)), keeping those at or above `getThreshold('classes')`
 
-This is one batch call per request, not one call per element. Every element with a description is embedded, including elements that also have an exact-name hit. If the batch fails with a response (an error status, a malformed body) or returns the wrong number of vectors, `embedEach` embeds each text on its own, in one attempt without the HTTP retries the batch already used, so an element whose text cannot be embedded loses only its own vector tier (logged warning). A batch of one is not tried again, and a failure with no response (the endpoint unreachable, a timeout) fails every element's vector tier at once, since the HTTP embedder has already retried it. If the embedding service is unavailable at query time, the vector tier is skipped (same as when embeddings are disabled): exact-name hits stand alone, and an element without one falls through to name containment and the type-filtered heuristic.
+This is one batch call per request, not one call per element. Every element with a description is embedded, including elements that also have an exact-name hit. If the batch throws or returns the wrong number of vectors, `embedEach` embeds each text on its own, once, so an element whose text cannot be embedded loses only its own vector tier (logged warning). A batch of one is not tried again. If the embedder is not ready at query time, the vector tier is skipped (same as when embeddings are disabled): exact-name hits stand alone, and an element without one falls through to name containment and the type-filtered heuristic.
 
 ### Model version tracking and re-indexing
 
-The `embeddingModel` property on class nodes tracks which model produced the vector. The vector search only compares vectors of the active model, and `vectorAvailable` is false (with a logged warning) when no class in scope has one. A `reindexClassEmbeddings` mutation allows re-computing all vectors after an embedding profile change -- this is a blocking operation to prevent stale vectors from producing incorrect rankings during a partial reindex.
+The `embeddingModel` property on class nodes tracks which profile produced the vector. The vector search only compares vectors of the active profile, and `vectorAvailable` is false (with a logged warning) when no class in scope has one. A profile change is picked up at the next start by the skip gate, which reinstalls every module recorded with another embedder or whose declared searchable classes hold vectors of another profile. A `reindexClassEmbeddings` mutation re-computes all vectors on demand -- this is a blocking operation to prevent stale vectors from producing incorrect rankings during a partial reindex.
 
 ---
 
@@ -637,10 +650,10 @@ The `ClassLabelEnum` GraphQL type provides schema-level validation, but the reso
 
 | Concern | Mitigation |
 |---------|------------|
-| **Embedding endpoint authentication** | `EMBEDDING_API_KEY` sent as Bearer token. Empty for local deployments. |
 | **Module trust** | Module authors control class descriptions (embedding input). Adversarial descriptions could attract unrelated elements. Mitigation: modules are installed by platform administrators, not end users. Module review is the trust boundary. |
-| **Data exposure** | Install-time text is `"{name}. {description}. Category: {category}. Type: {type}."` -- class metadata only. Query-time text is `"{name}. {description}. Type: {type}."` of a model element -- user data. The in-process embedder keeps both inside dt-ws; an HTTP endpoint receives both, so a cloud endpoint sees element names and descriptions. |
-| **Model integrity** | A built-in in-process profile pins the weights' repository revision and each file's size and sha256; the files are verified before the model is loaded. An HTTP endpoint is trusted as configured. |
+| **Data exposure** | Install-time text is `"{name}. {description}. Category: {category}. Type: {type}."` -- class metadata only. Query-time text is `"{name}. {description}. Type: {type}."` of a model element -- user data. The in-process embedder keeps both inside dt-ws; no embedding text leaves the process. |
+| **Model integrity** | The profile pins the weights' repository revision and each file's size and sha256; the files are verified before the model is loaded, and one that fails is downloaded again. |
+| **Egress** | HTTPS to the profile's hub and the CDN it redirects to, only to fetch missing or unverified weights. `HF_TOKEN`, when set, is sent to the hub origin only. No telemetry. |
 
 ---
 
@@ -648,14 +661,14 @@ The `ClassLabelEnum` GraphQL type provides schema-level validation, but the reso
 
 ### Embedding provider deployment
 
-The embedding service is deployment-configured. No code changes between local and cloud:
+The embedder runs inside dt-ws; there is no embedding service to deploy:
 
 | Deployment | Embedding source | Configuration |
 |-----------|-----------------|---------------|
-| Self-hosted (no AI budget) | Disabled | `EMBEDDING_ENABLED=false`. System works without it -- exact name, name containment and the type-filtered heuristic. |
-| Self-hosted (in-process) | Built-in ONNX profile | `EMBEDDING_MODEL=<profile id>`, optionally `EMBEDDING_MODEL_DIR`. No embedding service to run. |
-| Self-hosted (local) | Ollama / LocalAI | `EMBEDDING_URL=http://ollama:11434/api/embed`. Add to `docker-compose.yml`. |
-| Cloud endpoint | OpenAI-compatible API | `EMBEDDING_URL=https://api.openai.com/v1/embeddings`, `EMBEDDING_API_KEY=sk-...`, `EMBEDDING_MODEL=<model>`, `EMBEDDING_DIMENSIONS`. A model that is not a built-in profile gets the `embeddinggemma` thresholds unless `EMBEDDING_THRESHOLD_<CORPUS>` is set. |
+| Without embedding | Disabled | `EMBEDDING_ENABLED=false`. System works without it -- exact name, name containment and the type-filtered heuristic. |
+| With embedding | The built-in ONNX profile, in process | `EMBEDDING_ENABLED=true`; `EMBEDDING_MODEL` unset (or `embeddinggemma-300m-retrieval-v1`). `EMBEDDING_MODEL_DIR` should be persistent storage, so a restart does not download the weights (about 1.26 GB) again. The process needs about 0.8–0.9 GiB more memory. |
+
+Other consumers of the MITRE vectors must embed their queries with the same profile.
 
 ### Database requirements
 
@@ -694,8 +707,9 @@ The embedding service is deployment-configured. No code changes between local an
 
 | Component | Unavailable | System behavior |
 |-----------|-------------|-----------------|
-| Embedding model | Down, or still downloading or loading (in-process) | Vector tier skipped. Deterministic matching continues. Logged warning. |
-| Embedding model at module install | Down | Module install fails after 3 retries. Clear error message. |
+| Embedding model | Still downloading or loading, or failed | Vector tier skipped. Deterministic matching continues. Logged warning. |
+| Embedding model at module install | Not ready (downloading, loading, failed) | Modules install with their stored vectors kept, marked partial; the catch-up reinstalls them when the embedder becomes ready. |
+| Embedding model at module install | Ready, but a batch fails | That module's install fails (logged); the other modules install. |
 | Graph database | Down | All services fail. Existing platform behavior. |
 | Database cosine function | Missing or unexpected scale | Vector tier skipped (the vector self-test fails; retried after 60 s). System functional. |
 
@@ -711,7 +725,7 @@ The embedding service is deployment-configured. No code changes between local an
 | Memgraph polymorphic interface performance | Database limitation (5+ sec on interface queries) | `findControls` and `get_control_gaps` use direct Cypher instead of auto-generated GraphQL for element traversals |
 | Engine-specific cosine function | Memgraph and Neo4j name the function differently, and Neo4j returns `(1 + cos) / 2` | The query builder emits the dialect's expression and maps Neo4j's score back to the cosine; a self-test verifies the scale before the tier is used |
 | Same Bolt driver for Neo4j and Memgraph; no `DATABASE_TYPE` flag | Codebase convention | The dialect comes from the runtime engine probe rather than configuration |
-| Embedding model at module install | No partial state allowed (module registry won't re-ingest) | Embedding failure fails the entire module install -- no "install without embeddings" path |
+| Embedding model at module install | A module must not stay installed without vectors | An embedding failure fails the module's install. A module installed while the embedder is not ready is marked partial, so the catch-up and the next start's skip gate install it again |
 | Authorization pass-through | `AuthorizationService.checkAuthorization()` currently returns `{ allowed: true }` | New resolvers are authenticated (JWT) but not operation-authorized; acceptable until RBAC is introduced |
 
 ### Trade-offs
@@ -719,7 +733,7 @@ The embedding service is deployment-configured. No code changes between local an
 | Trade-off | Chosen | Alternative | Why |
 |-----------|--------|-------------|-----|
 | **Single generalized match service** vs per-class-type services | Single `match_classes` with `classLabel` param | Separate `match_components`, `match_controls`, etc. | DRY. One pipeline, one embedding strategy, one set of priorities. The `classLabel` → node label mapping is trivial. |
-| **Fail module install** vs install without embeddings | Fail after 3 retries | Install without embeddings, log warning | A module installed without embeddings is never re-processed. Frontends that rely on vector search would silently produce degraded results. Explicit failure is honest. |
+| **Fail module install** vs install without embeddings | Fail on an embedding error; install partial only while the embedder is not ready | Install without embeddings, log warning | A module silently installed without embeddings would never be re-processed, and frontends that rely on vector search would produce degraded results. The partial mark is what lets the not-ready case install now and be re-processed: the catch-up reinstalls it once the embedder is ready. |
 | **Application-level partitioning** for unaddressable exposures vs complex Cypher `NOT EXISTS` | Application code | Single Cypher query with `NOT EXISTS` | `NOT EXISTS` semantics differ between Neo4j and Memgraph. Two simple queries (one for unmitigated, one to check addressability) are portable and debuggable. |
 | **Helper query** for element-based control lookup vs interface query | `controlIdsByElements` Cypher helper on dt-ws | Auto-generated `ControlWhere` with interface filter | Memgraph interface queries take 5+ seconds. Direct Cypher takes < 50ms. The helper adds one extra round-trip but eliminates a known performance pathology. |
 | **No fuzzy Levenshtein** in name containment | Whole-word containment only | Levenshtein edit distance | Character-level edit distance on short identifiers produces false positives ("DB" matching "DeBug"). Whole-word containment catches a name that carries a class name ("Orders Relational Database" -> "Relational Database") without matching a word inside a longer word ("Go microservice" does not contain "Service"). Abbreviations and spelling variants ("K8s", "Postgres") are left to the vector tier, which runs before containment, and to agent reasoning (Pass 2). |

@@ -363,7 +363,7 @@ Parse module definition → extract class name, description, category, type
   → Batch embed all classes in one call → [vector_1, vector_2, ..., vector_n]
 ```
 
-The embedding is computed outside the database (by the in-process embedder or an HTTP embedding endpoint, see *Embedding model options*). The module ingestion tool holds both the class data and the vectors in memory before writing anything.
+The embedding is computed outside the database, by dt-ws's in-process embedder (see *Embedding model options*), each class as a document titled with its name. The module ingestion tool holds both the class data and the vectors in memory before writing anything.
 
 **Step 3 — Insert everything at once (UNWIND):**
 
@@ -394,12 +394,13 @@ The embedding model is optional and configurable per deployment. `EMBEDDING_MODE
 | Deployment | Embedding source | Model | Notes |
 |-----------|-----------------|-------|-------|
 | No embeddings | Disabled | — | No embeddings computed. Falls back to priorities 1a, 2 and 3. System works without it. |
-| In-process | A built-in ONNX profile, run inside dt-ws | EmbeddingGemma variants, 768 dimensions | No embedding service to run. Weights are fetched once and verified before use; until they are loaded the vector tier is off. |
-| HTTP endpoint | Ollama `/api/embed` or an endpoint that takes the same request and answers in Ollama or OpenAI format | `embeddinggemma` (the default), or any model the endpoint serves | No prompts. A model that is not a built-in profile runs under the `embeddinggemma` profile's thresholds unless they are overridden. |
+| In-process | The built-in ONNX profile, run inside dt-ws on a worker thread | `embeddinggemma-300m-retrieval-v1` (the default and, in this release, the only profile offered), 768 dimensions | No embedding service to run. Weights are fetched once and verified before use; until they are loaded the vector tier is off, and modules installed meanwhile are embedded once the embedder is ready. |
 
-**Cost profile:** Embeddings are computed once per class on module install/update — not per query. A module with 50 classes costs 50 embedding calls. Queries use the pre-computed vectors.
+There is no HTTP embedder: a legacy `EMBEDDING_MODEL=embeddinggemma`, a profile this release does not offer, or an unknown id stops the platform at start when embedding is on (see [ADR-013](../decisions/013-in-process-embedding.md)).
 
-**Model integrity:** A built-in in-process profile pins the weights' repository revision and each file's size and sha256; the files are verified before the model is loaded. A compromised model would taint every classification decision. An HTTP endpoint is trusted as configured.
+**Cost profile:** Embeddings are computed once per class on module install/update — not per query — in batches. Queries use the stored vectors.
+
+**Model integrity:** A built-in in-process profile pins the weights' repository revision and each file's size and sha256; the files are verified before the model is loaded. A compromised model would taint every classification decision.
 
 ### Query-time flow
 
@@ -407,12 +408,12 @@ At match time, `match_classes` embeds each element that has a description (its n
 
 ```
 match_classes(elements: [...], classLabel: COMPONENT, componentType: PROCESS)
-  → For each element with a description: embed its text as a query (one call per element)
+  → Embed every element with a description as a query (one batch per request)
   → Exact cosine search across PROCESS-typed classes in active modules, at or above the classes threshold
   → Returns ranked candidates with similarity scores
 ```
 
-**Embedding at query time:** Each element with a description is embedded in its own call, including elements that also have an exact-name hit. Elements without a description skip the vector tier.
+**Embedding at query time:** Every element with a description is embedded in one batch per request, including elements that also have an exact-name hit; if the batch fails, each text is embedded on its own, so only an element whose text cannot be embedded loses its vector tier. Elements without a description skip the vector tier.
 
 ```cypher
 // Query (at match time, per element); no vector index, every candidate is scored
@@ -466,7 +467,7 @@ Vector search is scoped by two dimensions. Both are ordinary `WHERE` filters app
 
 The threshold is a cosine floor that depends on the **embedding profile** and on the **corpus**. Different embedding models produce different similarity distributions, so the same cosine means different things under different models. Each built-in profile therefore carries its own thresholds, one for class search and one for MITRE technique search, calibrated per profile on a set of class and ATT&CK technique retrieval queries: the highest threshold at which at least 99% of the queries that find an expected match in their top 3 results with no threshold still find one.
 
-A deployment can override the threshold per corpus (`EMBEDDING_THRESHOLD_CLASSES`, `EMBEDDING_THRESHOLD_MITRE`); the legacy `EMBEDDING_SIMILARITY_THRESHOLD` still applies to the HTTP embedder only. See [Class and control resolver architecture → Similarity threshold](../backend/LLD/CLASS_AND_CONTROL_RESOLVER_ARCHITECTURE.md#similarity-threshold) for the resolution order.
+A deployment can override the threshold per corpus (`EMBEDDING_THRESHOLD_CLASSES`, `EMBEDDING_THRESHOLD_MITRE`); the legacy `EMBEDDING_SIMILARITY_THRESHOLD` is ignored with a warning. See [Class and control resolver architecture → Similarity threshold](../backend/LLD/CLASS_AND_CONTROL_RESOLVER_ARCHITECTURE.md#similarity-threshold) for the resolution order.
 
 ### Generalized matching infrastructure
 
@@ -480,7 +481,7 @@ The vector ingestion pipeline during module install embeds all five class types 
 
 ### Fallback behavior
 
-If embeddings are disabled (no embedding model configured):
+If embeddings are disabled (`EMBEDDING_ENABLED` is not true):
 
 - Module ingestion skips the embedding step — class nodes are created without the `embedding` property
 - `match_classes` skips Priority 1b (no class in scope has a vector of the active profile) and returns only deterministic matches

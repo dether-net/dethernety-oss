@@ -27,7 +27,7 @@ Everything domain-specific -- component types, analysis logic, security controls
 ### Run a deployment (recommended)
 
 The BYODt deployment runs the whole stack from published, signed images — a graph
-database, an embedding server, the platform, an operator console, and a front-door
+database, the platform (which embeds in process), an operator console, and a front-door
 proxy. No source checkout and no build toolchain: a container engine is all you need.
 
 Prerequisites: Docker with the Compose plugin, or Podman 4.1+ with a Compose provider.

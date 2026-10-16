@@ -15,7 +15,7 @@ these images: the compose file names them, and at run time (`byodt up` /
 publisher's own registry to the machine running the stack. Naming an image is a
 pointer, not distribution.
 
-The references live in .env (DB_IMAGE, OLLAMA_IMAGE, PROXY_IMAGE). If you repoint
+The references live in .env (DB_IMAGE, PROXY_IMAGE). If you repoint
 any of them to a registry you operate (for example, an air-gapped mirror), that
 copy is made by you, under your own responsibility and the component's license.
 
@@ -38,14 +38,18 @@ Memgraph — graph database (compose service: db)
   published by Memgraph at https://memgraph.com.
 
 ------------------------------------------------------------------------------
-Ollama — embedding server (compose service: ollama)
-  Image:     ollama/ollama:0.32.6  (Docker Hub, published by the Ollama project)
-  License:   MIT License
-  Homepage:  https://github.com/ollama/ollama
-
-  The embedding MODEL that Ollama serves (see EMBEDDING_MODEL in .env) is a
-  separate artifact, fetched at run time from its own publisher and carrying its
-  own license. It is not part of this bundle or of the Ollama image.
+EmbeddingGemma — embedding model weights (downloaded by the platform; not in this bundle)
+  Model:       onnx-community/embeddinggemma-300m-ONNX, at the revision the platform
+               pins (an ONNX conversion of Google's EmbeddingGemma 300m)
+  License:     Gemma Terms of Use — https://ai.google.dev/gemma/terms
+               and the Gemma Prohibited Use Policy —
+               https://ai.google.dev/gemma/prohibited_use_policy
+  Distributed: no. Dethernety does not redistribute these weights, and neither
+               this bundle nor the platform image contains them. On its first start
+               (or on './byodt models pull') the platform downloads them from
+               Hugging Face into data/models and verifies each file by sha256. Your
+               use of the model is governed by the Gemma Terms of Use, which bind
+               you directly.
 
 ------------------------------------------------------------------------------
 nginx — reverse proxy / TLS terminator (compose service: proxy)
@@ -60,6 +64,8 @@ MITRE ATT&CK, MITRE ATLAS, MITRE D3FEND — reference data (inside the byodt-con
   Versions:  ATT&CK v19.2, ATLAS v2026.09, D3FEND 1.6.0
   Licenses:  ATT&CK: MITRE's ATT&CK license; ATLAS: Apache License 2.0;
              D3FEND: MIT License
+  Vectors:   the precomputed embeddings in this data were computed with
+             EmbeddingGemma (see its entry above); the weights are not included.
   Notice:    the full notice, with each license text, ships in the image at
              /licenses/mitre-frameworks/NOTICE and in the source tree at
              modules/mitre-frameworks/NOTICE
