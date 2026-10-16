@@ -197,6 +197,7 @@ Why the vector tier of matchMitreTechniques is disabled. Drives the picker capti
 | `EMBEDDING_DISABLED` | The embedder is disabled or not ready (EMBEDDING_ENABLED is false, or its model is still loading or failed), or the database cannot run vector search |
 | `NO_VECTORS` | No vectors of the active embedding model, or incomplete coverage of the corpus (partial install) |
 | `MODEL_MISMATCH` | The corpus carries vectors of another embedding model only |
+| `EMBEDDER_BUSY` | The embedder was too busy to embed this request's queries in time; the other tiers answered |
 
 ### ModelingDepth
 
@@ -789,7 +790,7 @@ Top-level result for the matchClasses query.
 |-------|------|-------------|
 | `matches` | `[ElementMatch!]!` | Match results per element, in input order |
 | `unmatched` | `[String!]!` | Element names that nothing matched |
-| `vectorAvailable` | `Boolean!` | Whether the vector tier could serve this request: the embedder is ready, the database runs vector search, and at least one class in scope has a vector of the active embedding model. |
+| `vectorAvailable` | `Boolean!` | Whether the vector tier could serve this request: the embedder is ready, the database runs vector search, and at least one class in scope has a vector of the active embedding model. False too when the embedder was too busy to embed the request's elements in time, and the name tiers answered instead. |
 
 ### ClassFacetEntry
 
@@ -939,6 +940,7 @@ Result of the reindexClassEmbeddings mutation.
 |-------|------|-------------|
 | `reindexedCount` | `Int!` | Number of class nodes that were re-embedded |
 | `moduleNames` | `[String!]!` | Names of modules whose classes were re-embedded |
+| `alreadyRunning` | `Boolean!` | True when another reindex was already running: this call returned at once and re-embedded nothing |
 
 ### ControlAssignedModels
 
@@ -1079,7 +1081,7 @@ the right caption.
 |-------|------|-------------|
 | `matches` | `[TechniqueQueryMatch!]!` |  |
 | `unmatched` | `[String!]!` |  |
-| `vectorAvailable` | `Boolean!` | False when the embedder is disabled or not ready, the database cannot run vector search, or the corpus lacks vectors of the active embedding model. |
+| `vectorAvailable` | `Boolean!` | False when the embedder is disabled or not ready, the database cannot run vector search, the corpus lacks vectors of the active embedding model, or the embedder was too busy to embed the queries in time. |
 | `vectorDisabledReason` | `VectorDisabledReason` | When vectorAvailable is false, names the specific reason — drives the picker caption. Null when vectorAvailable is true. |
 
 ### TechniqueQueryMatch
@@ -1563,7 +1565,7 @@ A single element to match against the class catalog.
 |-------|------|-------------|
 | `name` | `String!` | Element name to match |
 | `type` | `ComponentType` | Element type (for context; the componentType filter on MatchClassesInput controls catalog filtering) |
-| `description` | `String` | Optional free-text description (used by vector matching in a future phase) |
+| `description` | `String` | Optional free-text description. Embedded with the element's name and type as the query of the vector-similarity tier; an element without one skips the vector tier |
 
 ### MatchClassesInput
 

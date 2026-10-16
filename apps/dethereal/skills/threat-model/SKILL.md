@@ -595,7 +595,7 @@ Skip to README generation.
    Link all? (yes / modify / defer)
    ```
 4. If user defers: "Analysis will undercount your defenses — defense coverage analysis will not credit existing controls until exposures are linked to countermeasures."
-5. If user confirms: call `mcp__plugin_dethereal_dethereal__manage_countermeasures` to create the links
+5. If user confirms: call `mcp__plugin_dethereal_dethereal__manage_countermeasures` to create the links. Linking an existing countermeasure is an `update` with `exposure_ids`, and `update` (like `delete`) works only on a USER countermeasure. The tool refuses a SYSTEM one (derived from the control's class); tell the user to supersede it into an editable copy in the platform (**Customize as an editable copy**), then link the copy.
 
 ---
 

@@ -141,7 +141,7 @@ Then run `FRAMEWORKS=atlas pnpm build:data` and the tests below.
 | `pnpm test:memgraph` | Loads every `data/*.cypher` file into an ephemeral Memgraph and checks node, edge and embedding counts pinned to the shipped releases; then loads everything a second time and checks the same counts, which proves the pack is idempotent | Docker; the committed 05 and 09 |
 | `pnpm test:composer-byte-equality` | The text the build composes for each embedding matches the platform's runtime composer byte for byte | The module virtual environment |
 | `pnpm test:module-refs` | The module reference check below, on synthetic policies and data | Python only |
-| `pnpm test:embedding-profile` | The onnx profile provider and the exporter's profile path, with a fake embedder helper: the ready line, titles, order, every failure fatal, the helper ended, the `// Profile:` header, all-or-nothing writes | Python only |
+| `pnpm test:embedding-profile` | The onnx profile provider and the exporter's profile path, with a fake embedder helper: the ready line and its field formats, titles, order, every failure fatal, the helper ended, the `// Profile:` header, a header line that is not printable refused, all-or-nothing writes | Python only |
 | `pnpm test:embeddings-files` | The embeddings file check on generated files and on the committed 05 and 09, and the check's and the loader's statement splits | Python only |
 
 ### Module reference check
@@ -234,6 +234,16 @@ Each generated file records what embedded it:
 
 Only onnx profiles write the `// Profile:` line; legacy files carry the `// Model:` line alone.
 
+The `// Profile:` values come from the embedder helper's ready line, and a header line is a `//`
+comment, so a value holding a line break could end its comment and put a statement into the
+file. The provider therefore refuses a ready line whose `repo`, `revision` or `dtype` does not
+fully match its plain ASCII format (a trailing newline fails it): `repo` and `revision` the
+embedding profile's own patterns (`owner/name`; 40 lowercase hex characters), `dtype`
+`[a-z0-9]+`, which dt-module's profile validation also requires of `runtime.dtype`. The
+exporter builds the whole header first and refuses, before it opens the file, any header line
+that is not printable (a line feed, a carriage return, U+2028, any control character). Either
+refusal fails the build.
+
 ### Embeddings file check
 
 `scripts/check_embeddings_files.py` checks `05` and `09` against the manifest's
@@ -247,12 +257,16 @@ console embeds, and splits statements the same way. A file fails when:
 - it does not split into statements (it ends inside a string or a block comment)
 - a statement is not one `UNWIND` batch of at least one row for one label that sets
   `embeddingModel` exactly once, so an appended statement of any other kind fails
+- a statement, with its comments dropped, does not match the exact shape the exporter
+  writes (the `UNWIND` of the rows, one `MATCH`, one `SET` of `embedding` and
+  `embeddingModel`), so a clause before the `UNWIND`, between the rows and the `MATCH`,
+  or after the `SET` fails
 - any batch sets `embeddingModel` to anything but the profile
 - a label's row count differs from the count pinned to the shipped releases
 - a vector is not 768 finite numbers of unit length
 
-So a file from another model, a half regeneration, a truncated file or one with a statement
-added is never packaged.
+So a file from another model, a half regeneration, a truncated file, or one with a statement
+added or a statement whose lines differ from the exporter's shape is never packaged.
 
 ### Task-prefix discipline
 

@@ -18,7 +18,7 @@ Modules generate findings for you automatically:
 - **Exposures** — security weaknesses detected on a component, security boundary, data flow, or data item.
 - **Countermeasures** — defensive controls derived from a control's class.
 
-These are *system-generated*: the platform re-derives them whenever the element's class or attributes change. Often you'll disagree with a specific finding for a specific situation — an exposure that doesn't apply to an internal-only tool, a control you've consciously decided not to implement, a finding the template raised by mistake. Deleting it doesn't help: the next time the model changes, the platform recreates it.
+These are *system-generated*: the platform re-derives them whenever the element's class or attributes change, and after a module update that changes the class's rules (see [After a module update](#after-a-module-update)). Often you'll disagree with a specific finding for a specific situation — an exposure that doesn't apply to an internal-only tool, a control you've consciously decided not to implement, a finding the template raised by mistake. Deleting it doesn't help: the next time the model changes, the platform recreates it.
 
 A **disposition** records your decision *on* the finding — a kind plus a written reason — so the finding stays visible but clearly marked, the decision survives re-derivation, and your reasoning is captured for the next reviewer.
 
@@ -128,7 +128,10 @@ Disposed rows keep the quiet outlined chip whatever kind they carry — that is 
 
 ## When a disposition goes stale
 
-A disposition reflects the model as it was when you set it. If you later change an **instantiation attribute** of the element — the kind of change that drives what findings the module derives — the platform flags the affected dispositions as **stale**: the row gets a yellow marker and the dispose action becomes a **Review** button.
+A disposition reflects the model as it was when you set it. The platform flags it as **stale** when the model changes underneath it: the row gets a yellow marker and the dispose action becomes a **Review** button. Two changes do this:
+
+- You change an **instantiation attribute** of the element — the kind of change that drives what findings the module derives.
+- A save of the element changes the MITRE techniques or other references linked to a system-generated finding: the class's policy now emits different ones, or the save removes a link someone added to the finding by hand. The platform's own re-evaluation after a module update counts as a save here.
 
 Stale means "the model changed underneath this decision — confirm it still holds." Click **Review** to:
 
@@ -136,11 +139,24 @@ Stale means "the model changed underneath this decision — confirm it still hol
 - **Change** the kind or reason, or
 - **Remove** the disposition entirely.
 
-Adding or removing a MITRE technique on a finding does *not* make its disposition stale — only instantiation-attribute changes do.
+Adding or removing a MITRE technique on a user-authored finding, such as your customized copy, does *not* make any disposition stale.
+
+## After a module update
+
+When a module is updated, the rules that derive an element's findings may change. The platform then re-evaluates, in the background, every element whose class rules changed, as if the element were saved with no changes. You don't need to do anything, and the element's attribute values stay as they are. Once it has run:
+
+- **New findings** the module now derives appear, awaiting review.
+- **Findings the module no longer derives are removed, with their dispositions.** An affirmation, a mute and its reason are removed with the finding.
+- **A dispositioned finding whose techniques or references changed is flagged stale.** Click **Review** on it (see [When a disposition goes stale](#when-a-disposition-goes-stale)).
+- **Your own findings are not touched**, including customized copies, even when the original a copy came from is removed.
+
+The first start after an upgrade to a release with this behaviour re-evaluates every element once, so expect these changes then too. Elements of some modules, such as modules served from a remote service, are not re-evaluated; their findings change when you next save the element.
+
+> **Tip:** to keep your own version of a live finding whatever a module update does to it, **Customize** it (below). Your copy stays when the original is removed.
 
 ## Customizing a finding (editable copy)
 
-When you want your own editable version of a system-generated finding — to adjust its content, references, or techniques — **Customize** it:
+When you want your own editable version of a system-generated finding — to adjust its content, references, or techniques — **Customize** it. Change techniques and references on the copy: the next save of the element resets a system-generated finding's techniques and references to what the class's policy emits.
 
 1. On any **live** system-generated finding, click the **Customize as an editable copy** action (the duplicate icon).
 2. The platform creates a user-authored copy (named `… (custom)`) attached to the same element, and marks the original as **Superseded** with a reason that references your copy.

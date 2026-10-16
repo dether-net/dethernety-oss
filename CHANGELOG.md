@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.12.0] - 2026-10-16
 
 **Upgrading:** this release removes the bundle's `ollama` service; the platform embeds in process.
 Back up (`./byodt backup`), save `.env` (`cp .env .env.before-<version>`), keep the previous bundle
@@ -19,11 +19,16 @@ upgrade** re-ingests the MITRE data once (about a minute, with the platform down
 downloads the model once (about 1.26 GB, unless `models pull` placed it), and **embeds every class
 once, at about 0.2 s per class on a 4-vCPU host: seconds for the bundled modules (about 80 classes,
 15–20 s), a few minutes with cloud content packages (about 1,200 classes); matching uses names
-meanwhile.** **Memory:** the platform uses about 0.8–0.9 GiB more, which the removed `ollama`
-container used before, so the host's total is about the same. To roll back, unpack the previous
-bundle tarball over the bundle, restore the saved `.env`, then run `./byodt update`,
-`./byodt restore <backup>` and `./byodt restart platform`; anything created since the upgrade is
-lost. See the operator guide's Operations, *Upgrading from a release with the `ollama` service*.
+meanwhile.** **It then re-evaluates every element's findings once, in the background while the
+platform serves, because no element records yet which class policy its findings came from:
+findings the current class policies no longer emit are deleted with their dispositions** (see
+*Fixed*, *A module update re-evaluates the findings of the classes it changed*). **Memory:** the
+platform uses about 0.8–0.9 GiB more, which the removed `ollama` container used before, so the
+host's total is about the same. To roll back, unpack the previous bundle tarball over the bundle,
+restore the saved `.env`, then run `./byodt update`, `./byodt restore <backup>` and
+`./byodt restart platform`; anything created since the upgrade is lost. See the operator guide's
+Operations, *Upgrading from a release with the `ollama` service*. **Dethereal:** 0.4.15 is published
+after the platform; it also works with 0.11.1. 0.4.14 was never published: its changes ship in 0.4.15.
 
 ### Added
 
@@ -48,6 +53,20 @@ lost. See the operator guide's Operations, *Upgrading from a release with the `o
 - **The platform logs the model's licence before a download.** EmbeddingGemma is licensed under the
   [Gemma Terms of Use](https://ai.google.dev/gemma/terms); the platform logs what it downloads, how big
   it is and under which licence, once, before the download.
+- **New embedder query settings.** `EMBEDDING_QUERY_BACKLOG` (an integer, 100 to 100000, default 200)
+  caps the query texts that may wait on the embedder. `EMBEDDING_QUERY_TIMEOUT_MS` (1 to 600000,
+  default 10000) and `EMBEDDING_QUERY_TIMEOUT_PER_ITEM_MS` (0 to 60000, default 250) set a match's
+  query-embed time limit: the base plus the per-text allowance for each text. A value outside its
+  range stops the platform from starting. See *Security*, *Query embeds are bounded*.
+- **`VectorDisabledReason` gains `EMBEDDER_BUSY`.** `matchMitreTechniques` reports it when the
+  embedder was too busy to embed the request's queries in time; the deterministic tiers answered. The
+  technique picker's caption for it reads *Semantic search is busy right now — showing name-based
+  matches. Try again in a moment.* dt-core's `VectorDisabledReason` type includes it.
+- **`ReindexResult.alreadyRunning`.** True when another `reindexClassEmbeddings` was already running:
+  the call returned at once and re-embedded nothing.
+- **`/health` counts embedder overloads.** The `embedder` block now carries `queryTimeouts` (query
+  embeds that ran past their time limit) and `queryRefusals` (query embeds refused because the
+  backlog was full), counted since the start. They do not change the overall status.
 
 ### Changed
 
@@ -79,6 +98,15 @@ lost. See the operator guide's Operations, *Upgrading from a release with the `o
   D3FEND and ATLAS vectors are now embedded with `embeddinggemma-300m-retrieval-v1`, and the
   `mitre-frameworks` module is now version 1.2.0. Its embeddings exporter defaults to the manifest's
   profile and never skips: without a provider, or on any failure, it exits non-zero and writes nothing.
+- **Dethereal's `manage_countermeasures` no longer updates or deletes a SYSTEM countermeasure** (Dethereal 0.4.15). A
+  SYSTEM countermeasure (or one with no `createdBy`) is derived from its control's class policy, and
+  the platform rewrites it from that policy on each save of the control. `update` now refuses any
+  update of one: links, `exposure_ids` and plain fields alike. The error names the countermeasure and
+  says to supersede it into a USER copy (in the platform, **Customize as an editable copy** on the
+  countermeasure) and update the copy. `delete` refuses one too, since the next save would re-create
+  it; the error says to change the control's attribute answers so the policy no longer derives it, or
+  to supersede it into a USER copy. USER countermeasures update and delete as before; `create`,
+  `get` and `list` are unchanged.
 
 ### Removed
 
@@ -99,7 +127,7 @@ lost. See the operator guide's Operations, *Upgrading from a release with the `o
   import or update result lists it under `unresolvedControls`, and a warning names it, with the ids
   of the controls a shared name matched so the reference can be pinned to one. Each entry under
   `unresolvedControls` names, as `owner`, the model or element the reference came from. Dethereal
-  users get this fix with Dethereal 0.4.14.
+  users get this fix with Dethereal 0.4.15.
   **Check your model files:** a control that a name-only reference attached only by part of its name
   ("Firewall" for a control called "Perimeter Firewall") is detached from its element on the next
   model update. Dethereal keeps the reference in the model files and warns about it; give it the
@@ -147,6 +175,97 @@ lost. See the operator guide's Operations, *Upgrading from a release with the `o
   modules again, with vectors; modules already embedded with the active model are skipped. The module
   install at start also waits up to 60 seconds for an in-process model whose files are already in
   place; a download is never waited for. Module installs and module resets now run one at a time.
+- **A save keeps a finding's links in line with its class policy.** A SYSTEM exposure or
+  countermeasure that the class policy still emits kept every link an earlier save wrote, so a
+  technique, mitigation or D3FEND reference the policy had dropped stayed linked. A save now deletes
+  every link of the writer's own types (`EXPLOITED_BY` on exposures; `RESPONDS_WITH` and the eight
+  `COUNTERMEASURE_<VERB>` types on countermeasures) to a MITRE or regulatory node that is not among
+  the finding's resolved references in that save. A link added by hand to a SYSTEM finding is
+  removed too. A link the policy keeps stays once: its parallel copies are deleted. An edge to a
+  MITRE or regulatory node that lacks the property it is keyed by is left alone. USER findings,
+  including copies made with **Customize**, are never touched. A `justification` the policy no
+  longer gives is cleared from the edge, where it used to stay. A
+  target named twice under one link type is written once, and the mention with a justification
+  wins. A dispositioned SYSTEM finding whose links change is flagged stale, as an attribute change
+  flags it, and the save's `staleFlippedCount` includes it.
+  **Upgrading:** the first start re-evaluates every element once in the background (see *A module
+  update re-evaluates the findings of the classes it changed*), which brings its links in line. An
+  element of a remote module, or of a class without a `policyHash`, is not re-evaluated and keeps its
+  old links until it is saved again; saving it with no changes (`setInstantiationAttributes` with
+  `{}`) is enough. That first re-evaluation or save can mark as stale any saved result that
+  fingerprints the removed links. USER copies made before this release keep the links they were
+  copied with.
+- **A binding change removes the findings a kept class no longer emits.** `changeElementBinding`
+  deleted only the findings of the classes it removed, so a Control that kept a class while its
+  class set changed also kept that class's countermeasures, even ones the class no longer emits.
+  After the upsert of each class the element is bound to, the binding change now runs that class's
+  obsolete-finding cleanup, the same one a save runs, and counts what it deletes in
+  `deletedDerivedCountermeasures` / `deletedDerivedExposures`.
+- **A module update re-evaluates the findings of the classes it changed.** An element's findings
+  followed the class policy of its last save, so after a module update it kept findings the new
+  policy no longer emits, lacked the ones it now emits, and kept old links until someone saved it.
+  Each class's metadata now carries `policyHash`, the sha256 of the policy source its evaluation
+  compiles (the hash of the empty source for a class with no policy; none for an issue class or a
+  policy that failed to register), and the install writes it on the class node; dt-module's class
+  metadata types declare it. Every save (`setInstantiationAttributes`, and so import) and every
+  `changeElementBinding` records on the element the class's `policyHash` as read before the
+  evaluation, in an internal property that is not in the GraphQL schema or in exports. It records
+  it only when the module that evaluated reports the same hash through the new optional
+  `DTModule.getPolicyHash` (a module without it is taken at the stored hash), so an instance still
+  holding an older policy leaves the binding unrecorded, and a later sweep re-evaluates it. After an
+  install that wrote at least one module (start-up, catch-up or module reset), and once in the
+  background after start, the platform finds the
+  bindings whose record differs from their class's `policyHash`, or that have none, and saves each
+  again with no attribute changes, through the save's own path and under the element's lock. New
+  findings are created, findings the policy no longer emits are deleted with their dispositions,
+  and links are reconciled, with `dispositionStale` set on a link change, exactly as on a save. USER
+  findings, including copies made with **Customize**, and findings from other sources are not
+  touched. One sweep runs at a time; any number of installs during a sweep add one more after it.
+  The sweep and the element lock are per platform instance: run one platform instance (the bundle
+  does). Several instances each sweep, which is safe for the records but repeats the work.
+  An element that fails keeps its findings, is retried once at the end of the sweep, and is tried
+  again by the next sweep; a sweep never fails an install. Bindings of a class without a
+  `policyHash` are skipped and counted; a remote module's classes carry none, so its bindings, which
+  evaluate only with a caller's token, are skipped as such.
+  Each sweep that found anything logs one summary line (`Re-evaluated findings after a class policy
+  change`, a warning when an element failed) with the counts and up to three ids each of the failed
+  and the skipped elements.
+  **Upgrading:** no element has a record yet, so the first start re-evaluates every element once in
+  the background after start. Findings the current class policies no longer emit are deleted then,
+  with their dispositions. A USER copy made with **Customize** is kept, even when its original is
+  deleted. A module whose content did not change is still reinstalled once when its classes'
+  `policyHash` is not recorded on their class nodes, so that re-evaluation covers its elements too.
+
+### Security
+
+- **Query embeds are bounded, so a flood of matches cannot stall the embedder.** The in-process
+  embedder serves one request at a time, and any signed-in client could queue unbounded query work
+  behind it through `matchClasses` and `matchMitreTechniques`, so every match waited on it. The
+  embedder now counts the query texts posted to it and not yet answered, and refuses at once a query
+  embed that would take the count past `EMBEDDING_QUERY_BACKLOG` (default 200). A match's query embed
+  also has a time limit: `EMBEDDING_QUERY_TIMEOUT_MS` (default 10 s) plus
+  `EMBEDDING_QUERY_TIMEOUT_PER_ITEM_MS` (default 250 ms) per text. The model cannot be stopped
+  mid-run, so a timed-out embed keeps its place in the count until the model finishes it, and its
+  result is dropped. On a refusal or a timeout the match answers from the name tiers with
+  `vectorAvailable: false`, and `matchMitreTechniques` reports `vectorDisabledReason: EMBEDDER_BUSY`.
+  Neither is retried text by text, and the text-by-text fallback after a failed batch stops at the
+  first one. Document embeds (module install, catch-up, `reindexClassEmbeddings`) are neither counted
+  nor timed. The warm-up is a query embed of one text: it is counted, has no time limit, and runs
+  before any match can reach the embedder. `matchClasses` cuts each element's composed query text
+  to 2,000 characters. A second `reindexClassEmbeddings` while one runs returns at once with
+  `alreadyRunning: true` and embeds nothing. Each refusal or timeout logs one warning per request,
+  with counts and no query text, and `/health` counts both (see *Added*).
+- **The MITRE embeddings build refuses headers and statements outside the shape it writes.** The
+  `05` and `09` embeddings files open with `//` header comments that carry the weights' repository,
+  revision and dtype from the embedder helper's ready line, so a value holding a line break could
+  end its comment and put a statement into the file. The exporter now refuses a ready line whose
+  `repo`, `revision` or `dtype` does not fully match its plain ASCII format (a trailing newline
+  fails it), and refuses a header line that is not printable before it opens the file. dt-module's
+  `validateProfile` refuses a `runtime.dtype` outside `[a-z0-9]+`. Both embeddings file checks (the
+  module's packaging check and the platform's CI test) now match each statement, with its comments
+  dropped, against the exact shape the exporter writes: the `UNWIND` of the rows, one `MATCH` and
+  one `SET` of `embedding` and `embeddingModel`, so a statement with a clause before its `UNWIND`,
+  between its rows and its `MATCH`, or after its `SET` is refused. The shipped files pass both.
 
 ## [0.11.1] - 2026-10-13
 
@@ -2141,6 +2260,7 @@ greenfield ID rebinding, and append-only audit log (#104).
 - GraphQL API with real-time subscriptions
 - OIDC/JWT authentication support
 
+[0.12.0]: https://github.com/dether-net/dethernety-oss/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/dether-net/dethernety-oss/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/dether-net/dethernety-oss/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/dether-net/dethernety-oss/compare/v0.10.0...v0.10.1

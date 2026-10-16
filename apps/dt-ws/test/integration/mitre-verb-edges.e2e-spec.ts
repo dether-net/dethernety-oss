@@ -7,8 +7,8 @@
 // write transaction and assert the created edges + their `justification` property.
 //
 // Covers: verb-edge creation, edge justification, responds_with stability +
-// attribution, exposure parity, closed-set drop of unknown verbs, idempotency +
-// append-only durability (at edge and property level), and missing-target tolerance.
+// attribution, exposure parity, closed-set drop of unknown verbs, idempotency, the reconcile of
+// dropped references and justifications (edge and property level), and missing-target tolerance.
 
 import { ConfigService } from '@nestjs/config';
 import { startMemgraph, clearGraph, MemgraphHandle } from './memgraph-container';
@@ -274,7 +274,7 @@ describe('Countermeasure → MITRE verb edges (e2e)', () => {
     expect(all.records[0].get('types')).toEqual(['COUNTERMEASURE_MITIGATES']);
   });
 
-  it('is idempotent and append-only: re-run is stable; dropping a ref leaves the old edge', async () => {
+  it('is idempotent and reconciles: re-run is stable; dropping a ref removes its edge', async () => {
     await seedControlAndClass();
     await seedTechnique('T1078');
     await seedTechnique('T1110');
@@ -298,9 +298,9 @@ describe('Countermeasure → MITRE verb edges (e2e)', () => {
       mitigates: [techRef('T1078')],
     });
 
-    // MERGE kept edge counts at 1; the dropped-ref DETECTS edge still survives (no pruning).
+    // MERGE kept edge counts at 1; the dropped-ref DETECTS edge is removed.
     expect(await edges('MFA', 'COUNTERMEASURE_MITIGATES')).toEqual([{ target: 'T1078', justification: null }]);
-    expect(await edges('MFA', 'COUNTERMEASURE_DETECTS')).toEqual([{ target: 'T1110', justification: null }]);
+    expect(await edges('MFA', 'COUNTERMEASURE_DETECTS')).toEqual([]);
   });
 
   it('tolerates a ref to a missing technique: no edge, no throw', async () => {
@@ -319,10 +319,10 @@ describe('Countermeasure → MITRE verb edges (e2e)', () => {
     expect(await edges('MFA', 'COUNTERMEASURE_MITIGATES')).toEqual([]);
   });
 
-  // Append-only at the PROPERTY level (the idempotency test above covers the edge level).
-  // `SET rel += $attributes` merges, it does not replace, so a later run that drops
-  // the justification (empty attribute map) must NOT clobber the earlier value.
-  it('append-only justification: a later bare ref does not clobber an earlier justification', async () => {
+  // Reconciled at the PROPERTY level too (the idempotency test above covers the edge level).
+  // Every allowlisted edge key is set on each save, null when the ref does not carry it, so a
+  // later run that drops the justification clears the earlier value.
+  it('a later bare ref clears an earlier justification', async () => {
     await seedControlAndClass();
     await seedTechnique('T1078');
 
@@ -342,10 +342,8 @@ describe('Countermeasure → MITRE verb edges (e2e)', () => {
       mitigates: [techRef('T1078')],
     });
 
-    // The earlier justification survives the bare re-run.
-    expect(await edges('MFA', 'COUNTERMEASURE_MITIGATES')).toEqual([
-      { target: 'T1078', justification: 'a second factor stops stolen passwords' },
-    ]);
+    // The bare re-run keeps the link and clears the justification.
+    expect(await edges('MFA', 'COUNTERMEASURE_MITIGATES')).toEqual([{ target: 'T1078', justification: null }]);
   });
 
   // Every schema-wired verb routes to its own COUNTERMEASURE_<VERB> edge type.

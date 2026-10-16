@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Logger } from '@nestjs/common';
@@ -29,6 +30,9 @@ const FORCED_TYPES: Record<string, string> = {
   control: 'CONTROL',
   data: 'DATA',
 };
+
+/** `policyHash` of a class with no policy: the hash of the empty source. */
+const NO_POLICY_HASH = createHash('sha256').update('').digest('hex');
 
 /** Fallback template for classes without a schema.json file. */
 const FALLBACK_TEMPLATE = {
@@ -307,6 +311,10 @@ export class DtFileOpaModule implements DTModule {
         // Issue classes carry no exposures/countermeasures, so a stray policies.rego
         // under an issue class is never registered.
         if (classType.dir !== 'issue') {
+          // `policyHash` names what an evaluation of this class compiles, so the platform can
+          // tell which instances were evaluated under an older policy. A class with no policy
+          // gets the hash of the empty source; one whose policy failed to register gets none.
+          classMetadata.policyHash = NO_POLICY_HASH;
           const policiesPath = path.join(classDir, 'policies.rego');
           this.validateModulePath(policiesPath);
           if (fs.existsSync(policiesPath)) {
@@ -318,7 +326,9 @@ export class DtFileOpaModule implements DTModule {
               try {
                 this.regoEngine.register(key, raw);
                 registeredKeys.add(key);
+                classMetadata.policyHash = this.regoEngine.sourceHash(key);
               } catch (err: unknown) {
+                delete classMetadata.policyHash;
                 registerFailures.push({ key, error: err instanceof Error ? err.message : String(err) });
               }
             }
@@ -462,6 +472,24 @@ export class DtFileOpaModule implements DTModule {
     this.stats.evaluations += 1;
     this.stats.findingsServed += findings.length;
     return findings;
+  }
+
+  /**
+   * The hash of the policy `classId` evaluates with now: the source its engine holds, the empty source's hash when the
+   * class has no policy, and undefined when its policy failed to register — the same values `getMetadata` reports.
+   */
+  async getPolicyHash(classId: string): Promise<string | undefined> {
+    try {
+      const classDataPath = await this.dbOps.getAttribute(classId, 'path');
+      const key = RegoEngine.keyFor(classDataPath);
+      if (this.regoEngine.has(key)) return this.regoEngine.sourceHash(key);
+      const policiesPath = path.join(this.moduleDataDir, classDataPath, 'policies.rego');
+      this.validateModulePath(policiesPath);
+      if (!fs.existsSync(policiesPath)) return NO_POLICY_HASH;
+      return this.decodeRegoPolicies(fs.readFileSync(policiesPath, 'utf8').trim()) ? undefined : NO_POLICY_HASH;
+    } catch {
+      return undefined;
+    }
   }
 
   async getExposures(id: string, classId: string, token?: string): Promise<Exposure[]> {

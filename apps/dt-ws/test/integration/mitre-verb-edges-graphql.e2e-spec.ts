@@ -3,7 +3,7 @@
 // Covers: the `mitigates` @relationship field returns the linked ATT&CK techniques;
 // a hand-authored countermeasure that `connect`s a technique under `mitigates` is
 // stamped createdBy=USER and survives a subsequent SYSTEM rebuild (the scoped upsert
-// skips USER findings; verb edges are never pruned); and the writer-map ↔ schema-field
+// skips USER findings; the link reconcile touches SYSTEM findings only); and the writer-map ↔ schema-field
 // round-trip for every wired verb.
 //
 // Mirrors provenance.e2e-spec: a minimal Neo4jGraphQL probe schema exercises the same

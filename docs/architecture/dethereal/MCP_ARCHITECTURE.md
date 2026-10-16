@@ -954,6 +954,8 @@ z.object({
 })
 ```
 
+`update` applies only to USER countermeasures. A SYSTEM countermeasure (or one with no `createdBy`) is rewritten from its control's class policy on each save of the control, so the tool refuses any update of one; supersede it into a USER copy (in the platform, **Customize as an editable copy**) and update the copy. `delete` is refused for the same countermeasures, since the next save re-creates one while its policy still derives it; change the control's attribute answers instead, or supersede it.
+
 > **Temporal dependency (R6/F3):** Countermeasures created before model import will not have `exposure_ids` (no exposures exist yet). The guided workflow handles this in Step 11: after sync, read back platform-computed exposures via `manage_exposures(action: 'list')` and present a batch linking table.
 
 #### `get_control_gaps`

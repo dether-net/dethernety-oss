@@ -40,9 +40,27 @@ const InputSchema = z.object({
 
 type ManageCountermeasuresInput = z.infer<typeof InputSchema>
 
+/** Why an update of a SYSTEM countermeasure is refused, and what to do instead. */
+export function systemCountermeasureRefusal(countermeasureId: string, name?: string): string {
+  const which = name ? `"${name}" (${countermeasureId})` : countermeasureId
+  return `Countermeasure ${which} is derived from its control's class policy (createdBy SYSTEM). ` +
+    'The platform rewrites it from that policy on every save of the control, so an update here would be undone. ' +
+    'To change it, supersede it into a USER copy (in the platform, the countermeasure\'s ' +
+    '"Customize as an editable copy" action), then update the copy with this tool.'
+}
+
+/** Why a delete of a SYSTEM countermeasure is refused, and what to do instead. */
+export function systemCountermeasureDeleteRefusal(countermeasureId: string, name?: string): string {
+  const which = name ? `"${name}" (${countermeasureId})` : countermeasureId
+  return `Countermeasure ${which} is derived from its control's class policy (createdBy SYSTEM). ` +
+    'The platform re-creates it from that policy on the next save of the control, so a delete here would be undone. ' +
+    'To remove it, change the control\'s attribute answers so its policy no longer derives it, or supersede it into a ' +
+    'USER copy (in the platform, the countermeasure\'s "Customize as an editable copy" action) and change that copy.'
+}
+
 export class ManageCountermeasuresTool extends ClientDependentTool<ManageCountermeasuresInput, unknown> {
   readonly name = 'manage_countermeasures'
-  readonly description = 'Create, read, update, and delete countermeasures that link security controls to exposures. Countermeasures document what defenses exist and their effectiveness.'
+  readonly description = 'Create, read, update, and delete countermeasures that link security controls to exposures. Countermeasures document what defenses exist and their effectiveness. Update and delete apply only to USER countermeasures: a SYSTEM countermeasure is derived from its control\'s class policy and rewritten on every save of the control, so an update or delete of one is refused; supersede it into a USER copy and edit that, or change the control\'s attribute answers.'
   readonly inputSchema = InputSchema
 
   private buildCountermeasureInput(input: ManageCountermeasuresInput): Partial<Countermeasure> {
@@ -110,6 +128,12 @@ export class ManageCountermeasuresTool extends ClientDependentTool<ManageCounter
           if (!current) {
             return { success: false, error: `Countermeasure ${input.countermeasure_id} not found` }
           }
+          // A SYSTEM countermeasure (or a legacy one with no createdBy) is exactly what its class
+          // policy says: every save of the control rewrites its fields and links from the policy, so
+          // an edit here would be undone silently. Refuse it and name the supported edit.
+          if (current.createdBy !== 'USER') {
+            return { success: false, error: systemCountermeasureRefusal(input.countermeasure_id!, current.name) }
+          }
           const merged = {
             name: input.name ?? current.name ?? '',
             description: input.description ?? current.description ?? '',
@@ -149,6 +173,11 @@ export class ManageCountermeasuresTool extends ClientDependentTool<ManageCounter
           })
           if (!existing) {
             return { success: false, error: `Countermeasure ${input.countermeasure_id} not found` }
+          }
+          // A SYSTEM (or legacy) countermeasure comes back on the next save of its control while
+          // the policy still derives it, so a delete here would be undone. Refuse it, as update does.
+          if (existing.createdBy !== 'USER') {
+            return { success: false, error: systemCountermeasureDeleteRefusal(input.countermeasure_id!, existing.name) }
           }
 
           // Pass the name captured by the pre-check. dt-core uses it to flip

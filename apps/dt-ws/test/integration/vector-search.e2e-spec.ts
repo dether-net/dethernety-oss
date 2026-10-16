@@ -46,6 +46,9 @@ const embedding: any = {
   embedEach(texts: string[], kind: 'query') {
     return EmbeddingService.prototype.embedEach.call(this, texts, kind);
   },
+  /** The helpers embedEach calls: no query timeout here, and an overload is not counted. */
+  queryEmbedOptions: () => undefined,
+  noteOverload: () => {},
 };
 
 async function run(driver: any, cypher: string, params: Record<string, unknown> = {}) {

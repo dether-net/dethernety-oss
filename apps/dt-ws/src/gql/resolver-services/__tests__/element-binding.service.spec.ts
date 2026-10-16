@@ -37,6 +37,8 @@ interface FixtureOptions {
       labels: string[];
       // The class's own ComponentType (`klass.type`), for ComponentClass rows.
       componentType?: string | null;
+      // The class's policy hash, which the binding stamps on the element.
+      policyHash?: string | null;
     }
   >;
   // `bound` answered by the single-class rewire statement.
@@ -62,6 +64,7 @@ function makeFixture(opts: FixtureOptions) {
               moduleName: status.moduleName,
               klassLabels: status.labels,
               klassComponentType: status.componentType ?? null,
+              policyHash: status.policyHash ?? null,
             }),
           ],
         };
@@ -136,6 +139,10 @@ function makeFixture(opts: FixtureOptions) {
   const setInstantiation = {
     upsertExposuresInTx: jest.fn(async () => ({ instantiated: [], unresolved: [] })),
     upsertCountermeasuresInTx: jest.fn(async () => ({ instantiated: [], unresolved: [] })),
+    deleteObsoleteFindingsInTx: jest.fn(async () => 0),
+    stampPolicyInTx: jest.fn(async () => undefined),
+    // The stored hash, as for a module that evaluates with it (the agreement check is policy-stamp.spec's).
+    policyHashToStamp: jest.fn(async (_module: unknown, _classId: string, storedHash: string | null) => storedHash),
     // The per-element lock the binding call now takes. Passed straight through here: exclusion is not
     // what any case in this file is about, and it is proven against the real lock in element-lock.spec.
     runExclusive: jest.fn(async (_elementId: string, _type: string, operation: () => Promise<any>) =>
@@ -151,7 +158,7 @@ function makeFixture(opts: FixtureOptions) {
     setInstantiation as any,
   );
 
-  return { service, executeWrite, getModuleByName, writeStatements, moduleInstance };
+  return { service, executeWrite, getModuleByName, writeStatements, moduleInstance, setInstantiation };
 }
 
 const CTX = { user: { sub: 'tester' } };
@@ -525,5 +532,172 @@ describe('ElementBindingService — per-request token threading', () => {
 
     expect(result.success).toBe(true);
     expect(moduleInstance.getExposures).toHaveBeenCalledWith('comp-1', 'cls-new', undefined);
+  });
+});
+
+describe('ElementBindingService — every bound class keeps exactly what its module emits', () => {
+  it('a Control that keeps a class has that class\'s obsolete countermeasures removed after the upsert', async () => {
+    const { service, moduleInstance, setInstantiation } = makeFixture({
+      elementLabels: ['Control'],
+      currentClassIds: ['cls-a'],
+      classStatus: {
+        'cls-a': { exists: true, moduleName: 'mod-1', labels: ['ControlClass'] },
+        'cls-b': { exists: true, moduleName: 'mod-1', labels: ['ControlClass'] },
+      },
+      controlsAddBound: 1,
+    });
+    (moduleInstance.getCountermeasures as jest.Mock).mockImplementation(async (_id: string, classId: string) =>
+      (classId === 'cls-a' ? [{ name: 'MFA' }, { name: 'Lockout' }] : [{ name: 'Audit' }]) as any,
+    );
+    (setInstantiation.deleteObsoleteFindingsInTx as jest.Mock).mockImplementation(async (_tx: unknown, req: any) => (req.classId === 'cls-a' ? 2 : 0));
+
+    const result = await service.changeElementBinding(
+      { elementId: 'ctrl-1', target: { kind: 'CLASS', classIds: ['cls-a', 'cls-b'] } },
+      CTX,
+    );
+
+    expect(result.success).toBe(true);
+    expect(setInstantiation.deleteObsoleteFindingsInTx.mock.calls.map(([, req]: any[]) => req)).toEqual([
+      { elementId: 'ctrl-1', relation: 'HAS_COUNTERMEASURE', validNames: ['MFA', 'Lockout'], classId: 'cls-a' },
+      { elementId: 'ctrl-1', relation: 'HAS_COUNTERMEASURE', validNames: ['Audit'], classId: 'cls-b' },
+    ]);
+    // Each class's cleanup runs after that class's upsert.
+    const upsertOrder = setInstantiation.upsertCountermeasuresInTx.mock.invocationCallOrder;
+    const cleanupOrder = setInstantiation.deleteObsoleteFindingsInTx.mock.invocationCallOrder;
+    expect(cleanupOrder[0]).toBeGreaterThan(upsertOrder[0]);
+    expect(cleanupOrder[1]).toBeGreaterThan(upsertOrder[1]);
+    expect(result.deltas.deletedDerivedCountermeasures).toBe(2);
+  });
+
+  it('a component bound to a new class runs the same cleanup for its exposures', async () => {
+    const { service, moduleInstance, setInstantiation } = makeFixture({
+      elementLabels: ['Component'],
+      currentClassIds: ['cls-old'],
+      classStatus: { 'cls-new': { exists: true, moduleName: 'mod-1', labels: ['ComponentClass'] } },
+      singleRewireBound: 1,
+    });
+    moduleInstance.getExposures.mockResolvedValue([{ name: 'Weak auth' }] as any);
+
+    const result = await service.changeElementBinding({ elementId: 'comp-1', target: { kind: 'CLASS', classIds: ['cls-new'] } }, CTX);
+
+    expect(result.success).toBe(true);
+    expect(setInstantiation.deleteObsoleteFindingsInTx).toHaveBeenCalledWith(expect.anything(), {
+      elementId: 'comp-1',
+      relation: 'HAS_EXPOSURE',
+      validNames: ['Weak auth'],
+      classId: 'cls-new',
+    });
+  });
+
+  it('a failed cleanup fails the binding change', async () => {
+    const { service, setInstantiation } = makeFixture({
+      elementLabels: ['Control'],
+      currentClassIds: ['cls-a'],
+      classStatus: {
+        'cls-a': { exists: true, moduleName: 'mod-1', labels: ['ControlClass'] },
+        'cls-b': { exists: true, moduleName: 'mod-1', labels: ['ControlClass'] },
+      },
+      controlsAddBound: 1,
+    });
+    setInstantiation.deleteObsoleteFindingsInTx.mockRejectedValue(new Error('Failed to delete obsolete findings: boom'));
+
+    const result = await service.changeElementBinding({ elementId: 'ctrl-1', target: { kind: 'CLASS', classIds: ['cls-a', 'cls-b'] } }, CTX);
+
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('ElementBindingService — the binding stamps the policy it evaluated', () => {
+  it('stamps each bound class with the hash read with its status, after that class\'s findings', async () => {
+    const { service, setInstantiation } = makeFixture({
+      elementLabels: ['Control'],
+      currentClassIds: ['cls-a'],
+      classStatus: {
+        'cls-a': { exists: true, moduleName: 'mod-1', labels: ['ControlClass'], policyHash: 'ha' },
+        'cls-b': { exists: true, moduleName: 'mod-1', labels: ['ControlClass'], policyHash: 'hb' },
+      },
+      controlsAddBound: 1,
+    });
+
+    const result = await service.changeElementBinding({ elementId: 'ctrl-1', target: { kind: 'CLASS', classIds: ['cls-a', 'cls-b'] } }, CTX);
+
+    expect(result.success).toBe(true);
+    expect(setInstantiation.stampPolicyInTx.mock.calls.map(([, ...rest]: any[]) => rest)).toEqual([
+      ['ctrl-1', 'cls-a', 'ha'],
+      ['ctrl-1', 'cls-b', 'hb'],
+    ]);
+    const cleanupOrder = setInstantiation.deleteObsoleteFindingsInTx.mock.invocationCallOrder;
+    const stampOrder = setInstantiation.stampPolicyInTx.mock.invocationCallOrder;
+    expect(stampOrder[0]).toBeGreaterThan(cleanupOrder[0]);
+    expect(stampOrder[1]).toBeGreaterThan(cleanupOrder[1]);
+  });
+
+  it('does not stamp a class whose module evaluates with another policy than the stored one', async () => {
+    const { service, setInstantiation, moduleInstance } = makeFixture({
+      elementLabels: ['Component'],
+      currentClassIds: ['cls-old'],
+      classStatus: { 'cls-new': { exists: true, moduleName: 'mod-1', labels: ['ComponentClass'], policyHash: 'hn' } },
+      singleRewireBound: 1,
+    });
+    setInstantiation.policyHashToStamp.mockResolvedValue(null);
+
+    const result = await service.changeElementBinding({ elementId: 'comp-1', target: { kind: 'CLASS', classIds: ['cls-new'] } }, CTX);
+
+    expect(result.success).toBe(true);
+    expect(setInstantiation.policyHashToStamp).toHaveBeenCalledWith(moduleInstance, 'cls-new', 'hn');
+    expect(setInstantiation.stampPolicyInTx).not.toHaveBeenCalled();
+  });
+
+  it('does not stamp a class with no policy hash', async () => {
+    const { service, setInstantiation } = makeFixture({
+      elementLabels: ['Component'],
+      currentClassIds: ['cls-old'],
+      classStatus: { 'cls-new': { exists: true, moduleName: 'mod-1', labels: ['ComponentClass'] } },
+      singleRewireBound: 1,
+    });
+
+    const result = await service.changeElementBinding({ elementId: 'comp-1', target: { kind: 'CLASS', classIds: ['cls-new'] } }, CTX);
+
+    expect(result.success).toBe(true);
+    expect(setInstantiation.stampPolicyInTx).not.toHaveBeenCalled();
+  });
+
+  it('a failed stamp fails the binding change, with the rest of its transaction', async () => {
+    const { service, setInstantiation } = makeFixture({
+      elementLabels: ['Component'],
+      currentClassIds: ['cls-old'],
+      classStatus: { 'cls-new': { exists: true, moduleName: 'mod-1', labels: ['ComponentClass'], policyHash: 'hn' } },
+      singleRewireBound: 1,
+    });
+    setInstantiation.stampPolicyInTx.mockRejectedValue(new Error('boom'));
+
+    const result = await service.changeElementBinding({ elementId: 'comp-1', target: { kind: 'CLASS', classIds: ['cls-new'] } }, CTX);
+
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('ElementBindingService — stale flips from link changes', () => {
+  it('logs the dispositions its upserts flagged stale', async () => {
+    const { service, setInstantiation } = makeFixture({
+      elementLabels: ['Control'],
+      currentClassIds: ['cls-a'],
+      classStatus: {
+        'cls-a': { exists: true, moduleName: 'mod-1', labels: ['ControlClass'] },
+        'cls-b': { exists: true, moduleName: 'mod-1', labels: ['ControlClass'] },
+      },
+      controlsAddBound: 1,
+    });
+    (setInstantiation.upsertCountermeasuresInTx as jest.Mock).mockImplementation(async (_tx: unknown, req: any) => ({
+      instantiated: [],
+      unresolved: [],
+      staleFlipped: req.classId === 'cls-a' ? 2 : 1,
+    }));
+    const log = jest.spyOn((service as any).logger, 'log').mockImplementation(() => {});
+
+    const result = await service.changeElementBinding({ elementId: 'ctrl-1', target: { kind: 'CLASS', classIds: ['cls-a', 'cls-b'] } }, CTX);
+
+    expect(result.success).toBe(true);
+    expect(log).toHaveBeenCalledWith('Element binding changed', expect.objectContaining({ linkStaleFlipped: 3 }));
   });
 });

@@ -123,6 +123,9 @@ export interface DTModule {
   getExposures?(id: string, classId: string, token?: string): Promise<Exposure[]>;
   getCountermeasures?(id: string, classId: string, token?: string): Promise<Countermeasure[]>;
 
+  // Optional - The policyHash this instance evaluates classId with right now
+  getPolicyHash?(classId: string): Promise<string | undefined>;
+
   // Optional - Analysis methods (for modules providing analysis capabilities)
   runAnalysis?(
     id: string,
@@ -340,6 +343,7 @@ All class metadata interfaces share a common structure with slight variations fo
 ```typescript
 export interface ComponentClassMetadata {
   id?: string;              // Unique identifier (auto-generated if not provided)
+  policyHash?: string;      // Hash of what the class's evaluation compiles (see Policy hash below)
   name: string;             // Display name
   description?: string;     // Description for tooltips/documentation
   type: string;             // Component type: PROCESS, EXTERNAL_ENTITY, STORE
@@ -361,6 +365,7 @@ export interface ComponentClassMetadata {
 ```typescript
 export interface DataFlowClassMetadata {
   id?: string;
+  policyHash?: string;
   name: string;
   description?: string;
   type: string;                    // Flow type (e.g., "HTTP", "gRPC", "TCP")
@@ -379,6 +384,7 @@ export interface DataFlowClassMetadata {
 ```typescript
 export interface SecurityBoundaryClassMetadata {
   id?: string;
+  policyHash?: string;
   name: string;
   description?: string;
   type: string;             // Boundary type: BOUNDARY, SECURITY_BOUNDARY
@@ -395,6 +401,7 @@ export interface SecurityBoundaryClassMetadata {
 ```typescript
 export interface DataClassMetadata {
   id?: string;
+  policyHash?: string;
   name: string;
   description?: string;
   type: string;             // Data type classification
@@ -411,6 +418,7 @@ export interface DataClassMetadata {
 ```typescript
 export interface ControlClassMetadata {
   id?: string;
+  policyHash?: string;
   name: string;
   description?: string;
   type: string;                    // Control type (e.g., "Authentication", "Encryption")
@@ -453,6 +461,16 @@ export interface IssueClassMetadata {
   properties?: object;
 }
 ```
+
+### Policy hash (`policyHash`)
+
+The component, data flow, security boundary, data and control class metadata types declare an optional `policyHash`: a string naming the policy that evaluations of the class compile; it changes whenever the class's findings could. The install writes it on the class node, and every save of an element records on the element the hash it evaluated. After an install, the platform re-evaluates every element whose recorded hash differs from its class's, so its findings follow the current policy (see [Module Management Service → Class policy hash](../backend/LLD/MODULE_MANAGEMENT_SERVICE.md#class-policy-hash)).
+
+- **`DtFileOpaModule`** sets it for you: the sha256 of the class's registered policy source, the hash of the empty source for a class with no policy, and none for an issue class or a policy that failed to register.
+- **A module written in code** may set it to any string that changes whenever what the class's evaluation answers changes. A class without one is never re-evaluated: its elements' findings change only when they are saved.
+- **A remote module's** classes carry none, so its elements are not re-evaluated; its evaluation needs a caller's token anyway.
+- **`getPolicyHash(classId)`** (optional, [below](#getpolicyhashclassid)) lets the platform check that the instance evaluating a class holds the policy the class node names; a save records the hash only when the two agree. `DtFileOpaModule` implements it; a module written in code that sets `policyHash` should implement it too.
+- **Re-evaluation runs with no caller token.** The sweep after an install and the one at start call `getExposures` / `getCountermeasures` without a `token`. A module that reports a `policyHash` must therefore evaluate without a token, or throw. It must never answer an empty result because the token is missing: the re-evaluation would take that as the policy emitting nothing, and delete the class's SYSTEM findings on those elements along with their dispositions. A thrown error leaves the element's findings as they were.
 
 ---
 
@@ -842,6 +860,25 @@ async getCountermeasures(id: string, classId: string, token?: string): Promise<C
 - `token?` - The raw bearer token to forward upstream; opaque, never decoded for identity, never logged; `undefined` when absent. As with `getExposures`, results persist to the shared graph and must **not** vary by caller.
 
 **Returns:** Array of `Countermeasure` objects
+
+---
+
+### getPolicyHash(classId)
+
+Optional. Reports the `policyHash` of the policy this instance evaluates class `classId` with right now, as its metadata reports it.
+
+```typescript
+async getPolicyHash(classId: string): Promise<string | undefined>
+```
+
+**Parameters:**
+- `classId` - The class ID the module just evaluated
+
+**Returns:** The hash, or `undefined` when the module cannot say.
+
+After a save or a binding change, the platform records on the element the class's stored `policyHash`, read before the evaluation, only when this method returns the same hash. An instance still holding an older policy, on a rolling or multi-instance deployment, therefore never marks an element current, and a later re-evaluation picks the element up. A module without the method is taken at the stored hash; an `undefined` answer, another hash or a throw records nothing (see [SetInstantiationAttributes → The policy stamp](../backend/LLD/SET_INSTANTIATION_ATTRIBUTES.md#the-policy-stamp)). `DtFileOpaModule` implements it (see [Base classes → getPolicyHash()](./BASE_CLASSES.md#getpolicyhash)).
+
+A module that reports a hash is re-evaluated with no caller token: its evaluation must work without one, or throw, and never answer an empty result for a missing token (see [Policy hash](#policy-hash-policyhash)).
 
 ---
 

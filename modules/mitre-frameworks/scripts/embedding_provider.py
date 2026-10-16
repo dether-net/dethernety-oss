@@ -42,6 +42,7 @@ import json
 import math
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -360,6 +361,14 @@ _HELPER_READY_TIMEOUT_S = 600.0
 _HELPER_READY_DOWNLOAD_TIMEOUT_S = 3600.0
 # How long one request may take, from writing its batch to reading the reply.
 _HELPER_REPLY_TIMEOUT_S = 300.0
+# The ready line's fields that a generated file's header records, each held to its format: repo and revision to the
+# profile's own patterns (dt-module, embedding-profile.ts), dtype to a plain token. Matched with fullmatch and ASCII
+# classes: re's $ also accepts a trailing newline, and \w matches any Unicode letter, unlike the JS patterns.
+_READY_FIELD_FORMATS = {
+    "repo": re.compile(r"[A-Za-z0-9][0-9A-Za-z_.-]*/[0-9A-Za-z_.-]+"),
+    "revision": re.compile(r"[0-9a-f]{40}"),
+    "dtype": re.compile(r"[a-z0-9]+"),
+}
 
 
 def _pump_lines(stream, lines: "queue.Queue[Optional[str]]") -> None:
@@ -427,7 +436,9 @@ class OnnxProfileProvider:
             dimensions = spec.get("dimensions")
             if not isinstance(dimensions, int) or dimensions <= 0:
                 raise RuntimeError(f"embedder helper named no usable dimensions: {dimensions!r}")
-            missing = [k for k in ("repo", "revision", "dtype") if not isinstance(spec.get(k), str) or not spec[k]]
+            missing = [
+                k for k, form in _READY_FIELD_FORMATS.items() if not isinstance(spec.get(k), str) or not form.fullmatch(spec[k])
+            ]
             if missing or spec.get("documentTitle") not in ("name", "none"):
                 raise RuntimeError(
                     f"embedder helper's ready line lacks {missing or ['documentTitle']}: "

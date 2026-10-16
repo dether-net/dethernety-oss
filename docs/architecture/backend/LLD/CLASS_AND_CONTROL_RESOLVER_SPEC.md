@@ -182,6 +182,7 @@ enum ConfidenceLevel {
 ### Input validation
 
 - `elements` array: max 100 elements per call. Return error if exceeded.
+- Query text: each element's composed embedding text is cut to 2,000 characters (never between the two halves of a surrogate pair) before it is embedded. Longer text is cut, not refused.
 - `classLabel` maps directly to the graph label: `COMPONENT` → `ComponentClass`, `SECURITY_BOUNDARY` → `SecurityBoundaryClass`, `DATA_FLOW` → `DataFlowClass`, `DATA` → `DataClass`, `CONTROL` → `ControlClass`.
 - `componentType`: optional filter, only applicable when `classLabel = COMPONENT`. Filters `ComponentClass` nodes by their `type` property (`PROCESS`, `STORE`, `EXTERNAL_ENTITY`). Ignored for other class labels.
 - `moduleIds`: when provided, only search classes from these modules. When absent, search all modules.
@@ -206,6 +207,8 @@ Case-insensitive exact match against class names.
 #### Vector tier (optional, requires embeddings)
 
 Only if `vectorAvailable` is true and the element has a description. `vectorAvailable` means: the embedder is ready, the database's vector self-test passed, and at least one active class of the label in scope has a vector of the active embedding model. Both Memgraph and Neo4j run this tier.
+
+When the embedder is too busy to embed the request's elements (its query backlog is full, or the embed runs past its timeout), the elements it left keep the name tiers and the response's `vectorAvailable` is false for that request, though the precheck passed.
 
 The search is **exact**, with no vector index: every candidate class is scored with the database's own cosine function, so the scope filters are ordinary `WHERE` clauses and run before ranking.
 
@@ -795,6 +798,9 @@ EMBEDDING_ENABLED=true|false        // default: false
 EMBEDDING_MODEL=                    // profile id; unset selects embeddinggemma-300m-retrieval-v1
 EMBEDDING_MODEL_DIR=models          // where the weights are downloaded and verified
 EMBEDDING_THREADS=4                 // onnxruntime threads
+EMBEDDING_QUERY_BACKLOG=200         // query texts that may wait on the embedder (100..100000)
+EMBEDDING_QUERY_TIMEOUT_MS=10000    // base time limit of a request's query embed (1..600000)
+EMBEDDING_QUERY_TIMEOUT_PER_ITEM_MS=250 // added per query text (0..60000)
 EMBEDDING_THRESHOLD_CLASSES=        // optional cosine floor; overrides the profile's value
 EMBEDDING_THRESHOLD_MITRE=          // likewise for MITRE technique search
 EMBEDDING_THRESHOLD_COMPONENTS=     // likewise for components (no floor by default)
@@ -826,10 +832,14 @@ export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
   getThreshold(corpus: 'classes' | 'mitre' | 'components'): number | null
 
   /** Embed as queries or documents; a document's title feeds the profile's title rule.
-   *  Returns null when not enabled; throws on failure (no retry). */
-  embedBatch(texts: string[], kind: 'query' | 'document', titles?: string[]): Promise<number[][] | null>
+   *  Returns null when not enabled; throws on failure (no retry). Without options there is no
+   *  timeout, which document embeds (install, catch-up, reindex) rely on. */
+  embedBatch(texts: string[], kind: 'query' | 'document', titles?: string[], options?: { timeoutMs?: number }): Promise<number[][] | null>
 
-  /** One batch, then one text at a time if the batch throws or miscounts. */
+  /** One batch, then one text at a time if the batch throws or miscounts. A query embed carries
+   *  a timeout of EMBEDDING_QUERY_TIMEOUT_MS + EMBEDDING_QUERY_TIMEOUT_PER_ITEM_MS per text. A busy
+   *  refusal (EmbedderBusyError) or a timeout (EmbedTimeoutError) is not retried text by text, and
+   *  in the per-text fallback the first one gives every remaining text null with that error. */
   embedEach(texts: string[], kind: 'query' | 'document'): Promise<{ vectors: (number[] | null)[]; failures: { index: number; error: unknown }[] }>
 
   whenStartupChecked(): Promise<void> // the start-up install's bounded wait (60 s, only when the weights are in place)
@@ -940,6 +950,7 @@ type Mutation {
 type ReindexResult {
   reindexedCount: Int!
   moduleNames: [String!]!
+  alreadyRunning: Boolean!
 }
 ```
 
@@ -948,6 +959,7 @@ type ReindexResult {
 - Reads the active class nodes (all 5 labels), composes embedding text, embeds it as documents in batches, writes vectors back with the current `embeddingModel` identifier.
 - Skips, with a warning, any returned vector that is not of the configured length, finite and non-zero.
 - This is a **blocking operation** — the mutation does not return until all vectors are updated. Stale vectors during a partial reindex would produce incorrect similarity rankings.
+- **One at a time.** A call while a reindex runs returns at once with `alreadyRunning: true`, `reindexedCount: 0` and an empty `moduleNames`, embeds nothing and logs a warning. A reindex's document embeds carry no timeout and are not counted against the query backlog.
 - Authorization required: same `AuthorizationService` pattern as other custom resolvers.
 
 **When to use:**

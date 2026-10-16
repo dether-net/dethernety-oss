@@ -330,6 +330,7 @@ async updateAllModules(
   // Phase B: one write transaction per module
   // Obsolescence sweep (deleteOldModules) in its own final write transaction
   // afterInstall hooks, post-commit
+  // onModulesInstalled listeners, with the modules this install wrote
   // Track success/failure rates; logging and metrics
 }
 ```
@@ -343,23 +344,25 @@ async updateAllModules(
    - **Download due** — no wait. A download can take minutes and is never waited for.
 
    The model loads on the embedder's worker thread (`createWorkerEmbedder`, `@dethernety/embedder`), not on the event loop the install runs on, so the 60 s bound is a real one: when it runs out the install carries on while the load continues, and the worker's own load timeout (120 s) fails a load that hangs. A module this install leaves `partial` for want of an embedder is installed again when the embedder becomes ready (see [Catch-up when the embedder becomes ready](#catch-up-when-the-embedder-becomes-ready)).
-2. **Phase A — resolve vectors, outside any transaction.** One read of every `:Module` node's stored state, and with embedding on one read of the class vectors, feed the [content-hash skip gate](#content-hash-skip-gate). For each module the gate does not skip, `resolveVectors` makes the class vectors. It gives every class the module declares a vector, or fails: an embedder that returns another number of vectors than classes, or a vector that cannot be stored (`vectorDefect`: not a list, the wrong length, a non-finite value or a zero norm), throws. A pre-computed vector from the module's `getEmbedding()` that cannot be stored is not an error: it is logged (`Pre-computed embedding cannot be stored; falling through to on-the-fly`, with the defect) and the class is embedded on the fly, as one of the wrong length is. A module whose metadata or vectors fail is logged and left out of this round, unchanged in the graph; the rest carry on.
+2. **Phase A — resolve vectors, outside any transaction.** One read of every `:Module` node's stored state, with embedding on one read of the class vectors, and one read of the class policy hashes feed the [content-hash skip gate](#content-hash-skip-gate); a forced run makes neither class read. For each module the gate does not skip, `resolveVectors` makes the class vectors. It gives every class the module declares a vector, or fails: an embedder that returns another number of vectors than classes, or a vector that cannot be stored (`vectorDefect`: not a list, the wrong length, a non-finite value or a zero norm), throws. A pre-computed vector from the module's `getEmbedding()` that cannot be stored is not an error: it is logged (`Pre-computed embedding cannot be stored; falling through to on-the-fly`, with the defect) and the class is embedded on the fly, as one of the wrong length is. A module whose metadata or vectors fail is logged and left out of this round, unchanged in the graph; the rest carry on.
 3. **Phase B — one write transaction per module.** Each resolved module's `upsertModule` runs in its **own** `session.executeWrite`, with the vectors from Phase A (no embedding requests inside the transaction). A module whose write fails rolls back only its own transaction; every other module still commits.
 4. **Obsolescence sweep — its own final transaction.** After every module upsert has committed, `deleteOldModules` runs in one more write transaction. It protects every module **present on disk this round**, not only the ones that installed, so a module that failed this time is never taken for a removed one and deleted with its classes. A failed sweep is logged and does not stop start-up; an obsolete module then lingers until the next sweep.
 5. **Post-commit hooks.** Each installed or skipped module's `afterInstall` hook runs (see [below](#afterinstall-post-commit-hook-invocation)).
+6. **Installed-modules notification.** When the install wrote at least one module, its listeners are told which (see [Installed-modules notification](#installed-modules-notification)).
 
 **Why per module.** In one shared transaction, a database-level error in any module (for example, a class id collision) aborts the whole transaction: every later statement, the sweep included, fails and the entire batch rolls back. A per-module `try`/`catch` inside that transaction cannot contain the failure; a transaction per module does.
 
 ### Content-hash skip gate
 
-Before it resolves any class vectors, `updateAllModules` reads every `:Module` node's stored `contentHash`, `lastInstallStatus` and `embeddingProfile` in one read. A module is **skipped** — no vector resolution, no graph write — when all four of these hold:
+Before it resolves any class vectors, `updateAllModules` reads every `:Module` node's stored `contentHash`, `lastInstallStatus` and `embeddingProfile` in one read. A module is **skipped** — no vector resolution, no graph write — when all five of these hold:
 
 - its `contentHash` equals the one stored on its `:Module` node,
 - its last install was `authoritative`,
 - the `embeddingProfile` stored on its `:Module` node equals the active embedder's (see [The recorded embedder](#the-recorded-embedder)), and
-- none of the searchable classes it declares holds a vector the active embedder did not make (see [The class vector check](#the-class-vector-check)).
+- none of the searchable classes it declares holds a vector the active embedder did not make (see [The class vector check](#the-class-vector-check)), and
+- every class it declares that reports a `policyHash` holds that hash on its stored node (see [The class policy hash check](#the-class-policy-hash-check)).
 
-A skipped module still counts as installed: `deleteOldModules` keeps it, and its `afterInstall` hook still runs (see [below](#afterinstall-post-commit-hook-invocation)). Every other case is a full install: no stored node, a different hash, a `partial` last install, a different or missing `embeddingProfile`, a declared searchable class whose vector the active embedder did not make, a failed class vector check, or a forced run (`MODULE_LOAD_FORCE=1`, which `ModuleRegistryService` passes as `options.force`).
+A skipped module still counts as installed: `deleteOldModules` keeps it, and its `afterInstall` hook still runs (see [below](#afterinstall-post-commit-hook-invocation)). Every other case is a full install: no stored node, a different hash, a `partial` last install, a different or missing `embeddingProfile`, a declared searchable class whose vector the active embedder did not make, a failed class vector check, a declared class reporting a `policyHash` its stored node does not hold, a failed class policy hash read, or a forced run (`MODULE_LOAD_FORCE=1`, which `ModuleRegistryService` passes as `options.force`).
 
 **Where the hash comes from.**
 
@@ -376,7 +379,7 @@ A skipped module still counts as installed: `deleteOldModules` keeps it, and its
 
 The install stores the computed hash on the `:Module` node exactly like a shipped one, so the next start skips the module while nothing changed. A change to the metadata — any class, any class field, the module `version`, the `idRebindPolicy` — or to the platform version yields a different hash and a full reinstall. A platform upgrade therefore reinstalls each such module once, then the gate skips it again.
 
-**Why these inputs are complete.** An install writes the `:Module` node and its classes from `getMetadata()` alone. The platform's own install code does the writing, and an upgrade may write the same metadata differently, so the platform version is an input too. The embedder that makes the class vectors is not a hash input: the gate checks it for every module through the recorded `embeddingProfile`. A file module is unaffected: the gate compares its shipped hash as is. Templates, guides, exposures, countermeasures and Rego policies are not install inputs: the platform asks the module for them when they are used, so a skipped install cannot leave a stale one behind. `update-all-modules.skip-gate.spec.ts` pins this — the install reads nothing from a module except `getMetadata`, `getEmbedding` and `afterInstall`. If the install ever reads another input, that input belongs in the computed hash.
+**Why these inputs are complete.** An install writes the `:Module` node and its classes from `getMetadata()` alone. The platform's own install code does the writing, and an upgrade may write the same metadata differently, so the platform version is an input too. The embedder that makes the class vectors is not a hash input: the gate checks it for every module through the recorded `embeddingProfile`. A file module is unaffected: the gate compares its shipped hash as is. Templates, guides, exposures, countermeasures and Rego policies are not install inputs: the platform asks the module for them when they are used, so a skipped install cannot leave a stale one behind. A policy's hash is an input: it is part of the class metadata (see [Class policy hash](#class-policy-hash)), so the computed hash covers it, and a file module's shipped hash covers its `policies.rego` files. `update-all-modules.skip-gate.spec.ts` pins this — the install reads nothing from a module except `getMetadata`, `getEmbedding` and `afterInstall`. If the install ever reads another input, that input belongs in the computed hash.
 
 **The `getEmbedding()` exception.** A module that implements `getEmbedding()` hands the install pre-computed vectors from a source its metadata does not show, so a hash over the metadata cannot vouch for them. Such a module gets no computed hash and is installed on every start unless it ships its own `contentHash`. `DtFileOpaModule` implements `getEmbedding()`, so a file module whose `module.json` carries no `contentHash` is likewise installed on every start.
 
@@ -416,6 +419,18 @@ These are the vectors the class vector search does not score. For a module whose
 
 **When the read fails.** It is logged as `Class vector check failed — installing every module in full` (with `error`), every module is installed in full, and the start goes on: without the read the gate cannot vouch for any module.
 
+### The class policy hash check
+
+A module's content can be unchanged while its class nodes lack the `policyHash` it reports: classes installed before the platform wrote the hash, or written by an install that failed part-way. Its elements would then never be [re-evaluated](./SET_INSTANTIATION_ATTRIBUTES.md#re-evaluation-after-a-class-policy-change), since the sweep skips a class with no hash.
+
+So when the run is not forced, whatever the embedding setting, `updateAllModules` makes one more read before the gate, `readClassPolicyHashes`, for every module at once: the `policyHash` stored on each class reached through `HAS_CLASS` that carries a module class label (`MODULE_CLASS_CONFIGS`), keyed by module name and `<label>:<id>`. For a module that passes the other four conditions, `policyDriftClasses` counts the classes it **declares** whose metadata reports a `policyHash` that its stored node, matched by label and `id`, does not hold (another hash, none, or no node). A count above zero is logged as `Class policy hashes are not recorded or out of date — reinstalling the module so its elements can be re-evaluated` (with `moduleName` and `classes`, the count), and the module is installed in full. The install writes the hashes, and its [notification](#installed-modules-notification) starts a re-evaluation sweep.
+
+- **A class that reports no hash never counts.** A remote module's classes, an issue class, or a class whose policy failed to register report none, so they cannot have their module installed at every start.
+- **Why one install clears it.** The install writes each declared class's reported `policyHash` on its node (see [Class policy hash](#class-policy-hash)), so the next start finds them equal and skips the module again.
+- **Upgrade.** On the first start after the upgrade, a module that passes every other condition but whose classes' hashes are not recorded is reinstalled once, so that start's re-evaluation also covers the elements of modules whose content did not change.
+- **When the read fails.** It is logged as `Class policy hash check failed — installing every module in full` (with `error`), every module is installed in full, and the start goes on.
+- **Forced run.** No read is made: a forced run installs every module anyway.
+
 ### Catch-up when the embedder becomes ready
 
 An install that runs before the embedder is ready leaves modules waiting for it: installed `partial`, their stored vectors kept (see [The recorded embedder](#the-recorded-embedder)). The catch-up installs them again, with vectors, without a restart.
@@ -454,6 +469,21 @@ for (const name of modulesInstalled) {
 ### Class vectors need no index
 
 Install writes each class's `embedding` and `embeddingModel` and nothing more. Class matching by meaning is an exact cosine search in the database, with no vector index (see [Class and control resolver spec → Vector tier](./CLASS_AND_CONTROL_RESOLVER_SPEC.md#vector-tier-optional-requires-embeddings)), so neither `updateAllModules` nor `resetSingleModule` creates, checks or rebuilds a class vector index, and the service does not depend on the class-matching resolver.
+
+### Class policy hash
+
+Each class's metadata may carry `policyHash`: the sha256 of the policy source its evaluation compiles. `DtFileOpaModule` sets it (see [Base classes → getMetadata()](../../modules/BASE_CLASSES.md#getmetadata)): the hash of the empty source for a class with no policy, and none for an issue class or a class whose policy failed to register. `upsertModule` writes it on the class node on every install, and writes `null` when the metadata has none, so a class whose policy no longer registers loses the hash of the one it had.
+
+The hash is what [`FindingReevaluationService`](./SET_INSTANTIATION_ATTRIBUTES.md#re-evaluation-after-a-class-policy-change) compares each element's policy stamp against. A class with no hash has nothing to compare against, so its elements are not re-evaluated. An unchanged module whose class nodes do not hold the hashes it reports is installed again (see [The class policy hash check](#the-class-policy-hash-check)).
+
+### Installed-modules notification
+
+`onModulesInstalled(listener)` registers a listener that is called with the names of the modules an install wrote, after that install has committed and run its `afterInstall` hooks:
+
+- a full install (`updateAllModules`: the start-up install or a catch-up) that wrote at least one module; the modules the [skip gate](#content-hash-skip-gate) skipped are not writes, so an install that skipped every module calls no listener;
+- every `resetSingleModule`, with the reset module.
+
+The call is synchronous and happens inside the install's slot on the [install chain](#installs-run-one-at-a-time), so a listener must hand long work off rather than await it. A listener that throws is logged as `A module-installed listener failed` and never fails the install. `FindingReevaluationService` registers one at application bootstrap, after the start-up install has run, and requests a [re-evaluation sweep](./SET_INSTANTIATION_ATTRIBUTES.md#re-evaluation-after-a-class-policy-change) from it; it sweeps once at bootstrap for the start-up install itself.
 
 ## Health Monitoring
 ```typescript
@@ -495,6 +525,9 @@ async upsertModule(
 // Statistics and monitoring
 getStatistics(): ModuleStatistics
 resetStatistics(): void
+
+// Called with the names of the modules each install wrote (see Installed-modules notification)
+onModulesInstalled(listener: (moduleNames: string[]) => void): void
 
 // Validation
 validateMetadata(metadata: DTMetadata): ModuleValidationResult

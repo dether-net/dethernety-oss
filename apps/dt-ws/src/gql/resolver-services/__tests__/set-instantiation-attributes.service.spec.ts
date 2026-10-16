@@ -223,6 +223,10 @@ describe('SetInstantiationAttributesService — MITRE-link anchor scoping', () =
           // Reference pre-pass — T1078 exists.
           return { records: [toRecord({ pairIndex: 0, value: 'T1078', found: true })] };
         }
+        if (query.includes('findingName') || query.includes('prunedCount')) {
+          // The link reconcile's read and prune — no prior links.
+          return { records: [] };
+        }
         if (query.includes('EXPLOITED_BY')) {
           // Link statement — empty result (target-not-found path) is fine.
           return { records: [] };
@@ -302,7 +306,7 @@ describe('SetInstantiationAttributesService — per-request token threading', ()
 
     const processSpy = jest
       .spyOn(service as any, 'processComponentExposures')
-      .mockResolvedValue(undefined);
+      .mockResolvedValue({ unresolved: [], staleFlipped: 0 });
 
     const result = await (service as any).setAttributes(
       { componentId: 'comp-1', classId: 'cls-1', attributes: { k: 'v' } }, // non-empty attrs required by validation
@@ -340,7 +344,7 @@ describe('SetInstantiationAttributesService — per-request token threading', ()
     }));
     const processSpy = jest
       .spyOn(service as any, 'processComponentExposures')
-      .mockResolvedValue(undefined);
+      .mockResolvedValue({ unresolved: [], staleFlipped: 0 });
 
     await (service as any).setAttributes(
       { componentId: 'comp-1', classId: 'cls-1', attributes: { k: 'v' } },
@@ -411,7 +415,7 @@ describe('SetInstantiationAttributesService — reference pre-pass', () => {
     expect(links(calls)).toEqual(['EXPLOITED_BY->T1078', 'EXPLOITED_BY->AML.T0051', 'EXPLOITED_BY->T1078']);
     const atlasLink = calls.find(c => c.params?.value === 'AML.T0051')!;
     expect(atlasLink.query).toContain('OPTIONAL MATCH (t:MitreAtlasTechnique) WHERE t.atlas_id = $value');
-    expect(atlasLink.params.attributes).toEqual({ justification: 'j' });
+    expect(atlasLink.params.edge).toEqual({ justification: 'j' });
 
     const [a, b] = upserts(calls);
     expect(a.query).toContain('SET e.unresolvedReferences = $unresolvedReferences');
@@ -421,6 +425,7 @@ describe('SetInstantiationAttributesService — reference pre-pass', () => {
     expect(result).toEqual({
       instantiated: ['A', 'B'],
       unresolved: ['T9999', 'MitreAttackTechnique.attack_iexposured=T1078'],
+      staleFlipped: 0,
     });
     expect(errorSpy).toHaveBeenCalledTimes(1);
     expect(errorSpy.mock.calls[0][1]).toMatchObject({
@@ -447,7 +452,7 @@ describe('SetInstantiationAttributesService — reference pre-pass', () => {
 
     expect(calls.some(c => c.query.includes('pairIndex'))).toBe(false);
     expect(upserts(calls)[0].params.unresolvedReferences).toBeNull();
-    expect(result).toEqual({ instantiated: ['A'], unresolved: [] });
+    expect(result).toEqual({ instantiated: ['A'], unresolved: [], staleFlipped: 0 });
   });
 
   it('countermeasures: respondsWith and verbs share the pass; a missing requirement is only warned', async () => {
@@ -512,12 +517,12 @@ describe('SetInstantiationAttributesService — reference pre-pass', () => {
       close: jest.fn(async () => {}),
     }));
     (service as any).moduleRegistry.getModuleByName = jest.fn(() => ({}));
-    jest.spyOn(service as any, 'processComponentExposures').mockResolvedValue(['T9999']);
+    jest.spyOn(service as any, 'processComponentExposures').mockResolvedValue({ unresolved: ['T9999'], staleFlipped: 0 });
 
     const result = await service.setAttributes({ componentId: 'c', classId: 'k', attributes: { k: 'v' } });
     expect(result).toMatchObject({ success: true, unresolvedReferences: ['T9999'] });
 
-    jest.spyOn(service as any, 'processComponentExposures').mockResolvedValue([]);
+    jest.spyOn(service as any, 'processComponentExposures').mockResolvedValue({ unresolved: [], staleFlipped: 0 });
     const clean = await service.setAttributes({ componentId: 'c', classId: 'k', attributes: { k: 'v' } });
     expect(clean.success).toBe(true);
     expect(clean.unresolvedReferences).toBeUndefined();
@@ -582,7 +587,7 @@ describe('SetInstantiationAttributesService — empty attributes evaluate the el
   it('accepts {}: one write that changes nothing, no stale flip, and the exposures are still evaluated', async () => {
     const { service } = makeService();
     const run = withWrite(service, { moduleName: 'mod-1', type: 'Component', valueChanged: false, changedKeys: [] });
-    const evaluate = jest.spyOn(service as any, 'processComponentExposures').mockResolvedValue([]);
+    const evaluate = jest.spyOn(service as any, 'processComponentExposures').mockResolvedValue({ unresolved: [], staleFlipped: 0 });
 
     const result = await service.setAttributes({ componentId: 'comp-1', classId: 'cls-1', attributes: {} });
 

@@ -17,8 +17,9 @@ import (
 // are, so the files on the branch are what an operator's database gets. These checks hold
 // the two vector files to the module manifest's embeddingProfile: the profile every vector
 // was embedded with and every node records as embeddingModel. A file from another model, a
-// half regeneration or a truncated file fails here, before a release can carry it. The
-// module's own scripts/check_embeddings_files.py applies the same rules when it packages.
+// half regeneration, a truncated file or a clause before a batch's UNWIND fails here, before
+// a release can carry it. The module's own scripts/check_embeddings_files.py applies the same
+// rules when it packages.
 //
 // The row counts are pinned to the releases the module ships, as the module's corpus check
 // pins its node counts: a release bump changes them on purpose.
@@ -40,6 +41,10 @@ var (
 	embeddingRow  = regexp.MustCompile(`(?m)^\s*\{ \w+: "[^"]+", embedding: \[([^\]]*)\] \},?$`)
 	matchLabel    = regexp.MustCompile(`(?m)^MATCH \(n:(\w+) \{`)
 	setModel      = regexp.MustCompile(`(?m)^\s*n\.embeddingModel = "([^"]*)"$`)
+	// The whole statement, exactly as the exporter writes it: the others search inside a
+	// statement, so a clause before the UNWIND, or between its rows and the MATCH, would pass them.
+	// A row's id holds no backslash: one before the closing quote would escape it and run the string on.
+	statementShape = regexp.MustCompile(`^UNWIND \[\n(?:  \{ \w+: "[^"\\\n]*", embedding: \[[^\]\n]*\] \},?\n)+\] AS row\nMATCH \(n:\w+ \{\w+: row\.\w+\}\)\nSET n\.embedding = row\.embedding,\n    n\.embeddingModel = "[^"\n]*"$`)
 )
 
 func mitreModuleDir() string {
@@ -100,7 +105,7 @@ func embeddingsFileProblems(content, profile string, want map[string]int) []stri
 		label := matchLabel.FindStringSubmatch(stmt)
 		models := setModel.FindAllStringSubmatch(stmt, -1)
 		rows := embeddingRow.FindAllStringSubmatch(stmt, -1)
-		if label == nil || len(models) != 1 || len(rows) == 0 {
+		if !statementShape.MatchString(stmt) || label == nil || len(models) != 1 || len(rows) == 0 {
 			problems = append(problems, fmt.Sprintf("statement %d is not one UNWIND batch for one label that sets embeddingModel: %.120q", i, stmt))
 			continue
 		}
@@ -214,6 +219,13 @@ func TestEmbeddingsFileProblems(t *testing.T) {
 		{"a short vector", embeddingsFixture(eg1, eg1, eg1, small, unitVector(embeddingDimensions-1)), "a vector with 767 numbers"},
 		{"a vector that is not unit length", embeddingsFixture(eg1, eg1, eg1, small, double), "not unit length"},
 		{"a truncated file", embeddingsFixture(eg1, eg1, eg1, small, unit) + "UNWIND [\n  { atlas_id: \"x", "does not parse"},
+		// A clause before a batch's UNWIND: every other rule still finds its batch.
+		{"a clause before the first UNWIND", strings.Replace(embeddingsFixture(eg1, eg1, eg1, small, unit), "UNWIND [", "MATCH (x) DETACH DELETE x\nWITH count(*) AS gone\nUNWIND [", 1), "statement 0 is not one UNWIND batch"},
+		{"a clause before a later UNWIND", strings.Replace(embeddingsFixture(eg1, eg1, eg1, small, unit), ";\n\nUNWIND [", ";\n\nMATCH (x) DETACH DELETE x\nWITH count(*) AS gone\nUNWIND [", 1), "statement 1 is not one UNWIND batch"},
+		// A clause between a batch's rows and its MATCH: every other rule still finds the batch.
+		{"a clause after the rows", strings.Replace(embeddingsFixture(eg1, eg1, eg1, small, unit), "] AS row\n", "] AS row\nMATCH (x) DETACH DELETE x\nWITH row\n", 1), "statement 0 is not one UNWIND batch"},
+		{"an escaped backslash in a row's id", strings.Replace(embeddingsFixture(eg1, eg1, eg1, small, unit), "-0\", embedding", "-0\\\\\", embedding", 1), "statement 0 is not one UNWIND batch"},
+		{"a clause after the SET", strings.Replace(embeddingsFixture(eg1, eg1, eg1, small, unit), "\";\n\nUNWIND [", "\"\nWITH n MATCH (x) DETACH DELETE x;\n\nUNWIND [", 1), "statement 0 is not one UNWIND batch"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			problems := embeddingsFileProblems(tc.content, eg1, small)

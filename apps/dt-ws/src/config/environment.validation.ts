@@ -1,5 +1,5 @@
 import { plainToClass, Transform } from 'class-transformer';
-import { IsString, IsNumber, IsBoolean, IsOptional, IsIn, IsUrl, Min, Max, validateSync } from 'class-validator';
+import { IsString, IsNumber, IsInt, IsBoolean, IsOptional, IsIn, IsUrl, Min, Max, validateSync } from 'class-validator';
 import { optionalNumber } from './optional-number';
 import { embeddingProfileRefusal } from './embedding-profile-selection';
 
@@ -326,6 +326,31 @@ export class EnvironmentVariables {
   @Max(64)
   @Transform(optionalNumberEnv)
   EMBEDDING_THREADS?: number;
+
+  // How many query texts may wait in the embedder before a query embed is refused (the request then answers from the
+  // name tiers). At least one maximum matchClasses request (100 elements).
+  @IsOptional()
+  @IsInt()
+  @Min(100)
+  @Max(100_000)
+  @Transform(optionalNumberEnv)
+  EMBEDDING_QUERY_BACKLOG?: number;
+
+  // A resolver's query embed may take EMBEDDING_QUERY_TIMEOUT_MS plus EMBEDDING_QUERY_TIMEOUT_PER_ITEM_MS per text;
+  // past it the request answers from the name tiers.
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(600_000)
+  @Transform(optionalNumberEnv)
+  EMBEDDING_QUERY_TIMEOUT_MS?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(60_000)
+  @Transform(optionalNumberEnv)
+  EMBEDDING_QUERY_TIMEOUT_PER_ITEM_MS?: number;
 
   // Per-corpus similarity floors (cosine). They override the embedding profile's values.
   @IsOptional()

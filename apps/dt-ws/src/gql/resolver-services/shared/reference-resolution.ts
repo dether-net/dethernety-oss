@@ -98,6 +98,30 @@ export function referenceKey(pair: ReferencePair, value: string): string {
   return JSON.stringify([pair.label, pair.property, value]);
 }
 
+/** Every label a reference may target, for scoping a statement to the writer's own targets. */
+export const REFERENCE_LABELS: readonly string[] = ALL_REFERENCE_PAIRS.map(pair => pair.label);
+
+/**
+ * Stable key for one link of a finding: its relationship type and its target. The same
+ * string comes out of `linkKeyCypher` for a link read from the graph, so links planned
+ * and links found compare as plain strings.
+ */
+export function linkKey(relationName: string, pair: ReferencePair, value: string): string {
+  return `${relationName}|${pair.label}|${pair.property}|${value}`;
+}
+
+/**
+ * Cypher for the `linkKey` of the edge `rel` to the node `target`: a CASE over the
+ * constant pairs, so no label or key from data reaches the query and no property is read
+ * by a computed name. Null when the target carries none of the pairs' labels.
+ */
+export function linkKeyCypher(rel: string, target: string): string {
+  const branches = ALL_REFERENCE_PAIRS.map(
+    pair => `WHEN ${target}:${pair.label} THEN '${pair.label}|${pair.property}|' + toString(${target}.${pair.property})`,
+  ).join(' ');
+  return `type(${rel}) + '|' + CASE ${branches} END`;
+}
+
 /**
  * One statement that answers, for every pair, which of the given values exist. The
  * labels and keys come from ALL_REFERENCE_PAIRS; the values are parameters `$p0…$pN`.

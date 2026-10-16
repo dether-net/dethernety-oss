@@ -15,7 +15,14 @@ import { getProfile, type EmbeddingProfile } from '@dethernety/dt-module/embeddi
 import { forgetVerifiedFiles, profileRoot, seedVerifiedFiles } from '../acquire';
 import type { Embedder } from '../embedder';
 import { serveEmbedder, type PortLike } from '../worker';
-import { createWorkerEmbedder, type WorkerInit, type WorkerReply, type WorkerRequest } from '../worker-embedder';
+import {
+  createWorkerEmbedder,
+  EmbedderBusyError,
+  EmbedTimeoutError,
+  type WorkerInit,
+  type WorkerReply,
+  type WorkerRequest,
+} from '../worker-embedder';
 
 const PROFILE: EmbeddingProfile = getProfile('embeddinggemma-300m-retrieval-v1');
 const FAKE = join(__dirname, 'fixtures', 'fake-worker.cjs');
@@ -187,6 +194,127 @@ describe('createWorkerEmbedder', () => {
     // Relative, so a loaded machine does not fail it: in the worker the loop waits a fraction of what it waits in-thread.
     expect(inThreadMs).toBeGreaterThan(120);
     expect(inWorkerMs).toBeLessThan(inThreadMs / 2);
+  });
+});
+
+describe('the query backlog and the timeout', () => {
+  const items = (n: number, text = 'q') => Array.from({ length: n }, () => ({ text }));
+  const backlogOf = (embedder: unknown) => (embedder as { queryBacklog: number }).queryBacklog;
+
+  it('a query embed past its timeout rejects with EmbedTimeoutError, and its late result is dropped', async () => {
+    const { spawn } = stand('ok', { busyMs: 300 });
+    const embedder = await createWorkerEmbedder(PROFILE, '/models', { spawn });
+    const t = Date.now();
+    const late = embedder.embed('query', [{ text: 'slow' }], { timeoutMs: 50 });
+    await expect(late).rejects.toBeInstanceOf(EmbedTimeoutError);
+    await expect(late).rejects.toThrow('the embedder did not answer within 0.1 s');
+    // dt-ws tells the two overload errors apart by name, without loading this package.
+    await expect(late).rejects.toMatchObject({ name: 'EmbedTimeoutError' });
+    expect(Date.now() - t).toBeLessThan(250);
+    // The worker's answer to it comes later and settles nothing; the next call gets its own vectors.
+    await expect(embedder.embed('query', [{ text: 'next' }])).resolves.toEqual([[4, 0]]);
+    expect(backlogOf(embedder)).toBe(0);
+    await embedder.release();
+  });
+
+  it('an embed without a timeout waits for the worker, however long it takes', async () => {
+    const { spawn } = stand('ok', { busyMs: 300 });
+    const embedder = await createWorkerEmbedder(PROFILE, '/models', { spawn });
+    await expect(embedder.embed('query', [{ text: 'slow' }])).resolves.toEqual([[4, 0]]);
+    await expect(embedder.embed('document', [{ text: 'slow' }], {})).resolves.toEqual([[4, 0]]);
+    await embedder.release();
+  });
+
+  it('keeps a timed-out call in the backlog until the worker answers it', async () => {
+    const { spawn } = stand('ok', { busyMs: 300 });
+    const embedder = await createWorkerEmbedder(PROFILE, '/models', { spawn, queryBacklogItems: 3 });
+    const first = embedder.embed('query', items(3), { timeoutMs: 30 });
+    await expect(first).rejects.toBeInstanceOf(EmbedTimeoutError);
+    // The worker still holds those three items: a new query embed is refused, not queued behind them.
+    expect(backlogOf(embedder)).toBe(3);
+    await expect(embedder.embed('query', items(1), { timeoutMs: 30 })).rejects.toBeInstanceOf(EmbedderBusyError);
+    await vi.waitFor(() => expect(backlogOf(embedder)).toBe(0), { timeout: 2_000 });
+    await expect(embedder.embed('query', items(3))).resolves.toHaveLength(3);
+    await embedder.release();
+  });
+
+  it('refuses a query embed over the limit at once, counting items, and still accepts a document embed', async () => {
+    const { spawn } = stand('ok', { busyMs: 200 });
+    const embedder = await createWorkerEmbedder(PROFILE, '/models', { spawn, queryBacklogItems: 3 });
+    const held = embedder.embed('query', items(2));
+    // Two items are waiting: one more fits, two more do not.
+    const t = Date.now();
+    const refused = embedder.embed('query', items(2));
+    await expect(refused).rejects.toBeInstanceOf(EmbedderBusyError);
+    await expect(refused).rejects.toThrow('the embedder is busy: 2 query items are waiting, and 2 more would pass the limit of 3');
+    await expect(refused).rejects.toMatchObject({ name: 'EmbedderBusyError' });
+    expect(Date.now() - t).toBeLessThan(100);
+    const fits = embedder.embed('query', items(1));
+    // The backlog is full; a document embed is neither counted nor refused.
+    await expect(embedder.embed('query', items(1))).rejects.toBeInstanceOf(EmbedderBusyError);
+    const documents = embedder.embed('document', items(5));
+    expect(backlogOf(embedder)).toBe(3);
+    await expect(held).resolves.toHaveLength(2);
+    await expect(fits).resolves.toHaveLength(1);
+    await expect(documents).resolves.toHaveLength(5);
+    await embedder.release();
+  });
+
+  it('accepts one maximum request (100 items) on an idle worker by default, and refuses what passes 200', async () => {
+    const { spawn } = stand('ok', { busyMs: 100 });
+    const embedder = await createWorkerEmbedder(PROFILE, '/models', { spawn });
+    const a = embedder.embed('query', items(100));
+    const b = embedder.embed('query', items(100));
+    await expect(embedder.embed('query', items(1))).rejects.toBeInstanceOf(EmbedderBusyError);
+    await expect(a).resolves.toHaveLength(100);
+    await expect(b).resolves.toHaveLength(100);
+    await embedder.release();
+  });
+
+  it('the backlog drops on a reply and on an error', async () => {
+    const { spawn } = stand('ok');
+    const embedder = await createWorkerEmbedder(PROFILE, '/models', { spawn, queryBacklogItems: 2 });
+    await expect(embedder.embed('query', items(2))).resolves.toHaveLength(2);
+    expect(backlogOf(embedder)).toBe(0);
+    await expect(embedder.embed('query', [{ text: 'throw' }, { text: 'x' }])).rejects.toThrow('cannot embed that');
+    expect(backlogOf(embedder)).toBe(0);
+    await expect(embedder.embed('query', items(2))).resolves.toHaveLength(2);
+    await embedder.release();
+  });
+
+  it('the backlog drops when the worker fails, and every call then gets the failure', async () => {
+    const { spawn } = stand('ok', { busyMs: 50 });
+    const embedder = await createWorkerEmbedder(PROFILE, '/models', { spawn, queryBacklogItems: 5 });
+    const waiting = embedder.embed('query', items(3), { timeoutMs: 5_000 });
+    const crash = embedder.embed('query', [{ text: 'crash' }]);
+    crash.catch(() => undefined);
+    expect(backlogOf(embedder)).toBe(4);
+    await expect(waiting).resolves.toHaveLength(3);
+    await expect(crash).rejects.toThrow('embedder worker exited (code 3)');
+    expect(backlogOf(embedder)).toBe(0);
+    await expect(embedder.embed('query', items(1))).rejects.toThrow('embedder worker exited (code 3)');
+  });
+
+  it('a release still rejects whatever is pending, timed or not', async () => {
+    const { spawn } = stand('ok', { busyMs: 2_000 });
+    const embedder = await createWorkerEmbedder(PROFILE, '/models', { spawn, releaseTimeoutMs: 100 });
+    const calls = Promise.allSettled([
+      embedder.embed('query', [{ text: 'busy' }]),
+      embedder.embed('query', [{ text: 'timed' }], { timeoutMs: 60_000 }),
+      embedder.embed('document', [{ text: 'doc' }]),
+    ]);
+    await embedder.release();
+    const reasons = (await calls).map((c) => (c.status === 'rejected' ? (c.reason as Error).message : c.status));
+    expect(reasons).toEqual(['the embedder was released', 'the embedder was released', 'the embedder was released']);
+    expect(backlogOf(embedder)).toBe(0);
+  });
+
+  it('keeps its own option out of the worker\'s session options', async () => {
+    let seen: WorkerInit | undefined;
+    const { spawn } = stand('ok');
+    const embedder = await createWorkerEmbedder(PROFILE, '/models', { threads: 2, queryBacklogItems: 7, spawn: (init) => ((seen = init), spawn(init)) });
+    expect(seen?.options).toEqual({ threads: 2 });
+    await embedder.release();
   });
 });
 

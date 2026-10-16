@@ -93,6 +93,15 @@ describe('finding writes start from the element', () => {
     for (const q of sweeps) expect(q).toContain('->(e)-[:IS_EXPOSURE_OF|IS_COUNTERMEASURE_OF]->(class)');
   });
 
+  it('reads and prunes a finding\'s links only over the writer\'s own typed link edges', async () => {
+    const statements = (await findingStatements()).filter((q) => q.includes('findingName') || q.includes('prunedCount'));
+    expect(statements).toHaveLength(4);
+    for (const q of statements) {
+      expect(q).not.toMatch(/\(e\)-\[r\]->/);
+      expect(q).toMatch(/\(e\)-\[r:(EXPLOITED_BY|RESPONDS_WITH\|COUNTERMEASURE_[A-Z_|]+)\]->\(t\)/);
+    }
+  });
+
   it('never expands into a class node bound by id, nor binds one inside a pattern with an edge', async () => {
     for (const q of await findingStatements()) {
       // Only what a MATCH walks matters; a CREATE writes an edge to the class without reading its edge list.

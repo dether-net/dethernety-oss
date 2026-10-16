@@ -23,11 +23,19 @@ export interface EmbedItem {
   title?: string;
 }
 
+export interface EmbedOptions {
+  /**
+   * How long the caller waits for the vectors, in ms. Past it the call rejects with an `EmbedTimeoutError`; the work
+   * already handed to the worker still runs, and its result is dropped. Only the worker embedder honours it.
+   */
+  timeoutMs?: number;
+}
+
 export interface Embedder {
   readonly profileId: string;
   readonly dimensions: number;
   /** One unit-length vector per item, in input order. */
-  embed(kind: ProfileKind, items: EmbedItem[]): Promise<number[][]>;
+  embed(kind: ProfileKind, items: EmbedItem[], options?: EmbedOptions): Promise<number[][]>;
   release(): Promise<void>;
 }
 

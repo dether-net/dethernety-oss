@@ -6,6 +6,22 @@ import {
 import { EmbeddingService } from '../../services/embedding.service';
 
 /**
+ * The service's own embedEach, run on a fake embedding service: the fake's embedBatch (and embedOnce, when it has
+ * one) answer, and the query timeout and the overload note are the service's, with its defaults.
+ */
+function embedEachOn(fake: any, texts: string[], kind: 'query', logger: { warn: (...args: unknown[]) => void } = { warn: () => undefined }) {
+  const proto = EmbeddingService.prototype as any;
+  const service = Object.assign(Object.create(fake), {
+    queryTimeout: { baseMs: 10_000, perItemMs: 250 },
+    overloads: { timeout: 0, busy: 0 },
+    logger,
+    queryEmbedOptions: proto.queryEmbedOptions,
+    noteOverload: proto.noteOverload,
+  });
+  return proto.embedEach.call(service, texts, kind);
+}
+
+/**
  * The MITRE vector tier: availability is strict on the active embedding profile, and the exact
  * query ranks before it hops to tactics, so the tactic hop never changes which k techniques return.
  */
@@ -54,7 +70,7 @@ describe('renderVectorCypher', () => {
 
 describe('the vector tier embeds a request in one call', () => {
   /** An embedder whose vector for a text is fixed by the text, so batched and one-at-a-time give the same vectors. */
-  function setup(failOn?: string) {
+  function setup(failOn?: string, failWith: (message: string) => Error = (message) => new Error(message)) {
     const embedCalls: string[][] = [];
     const vectorOf = (t: string) => [t.length / 100, 1 - t.length / 100];
     const embedding = {
@@ -62,7 +78,7 @@ describe('the vector tier embeds a request in one call', () => {
       getThreshold: () => 0.3,
       embedBatch: async (texts: string[]) => {
         embedCalls.push(texts);
-        if (failOn && texts.some((t) => t.includes(failOn))) throw new Error('cannot embed');
+        if (failOn && texts.some((t) => t.includes(failOn))) throw failWith('cannot embed');
         return texts.map(vectorOf);
       },
       /** The service's per-text fallback: one text, through the same recorded call. */
@@ -70,7 +86,7 @@ describe('the vector tier embeds a request in one call', () => {
         return (await this.embedBatch([text]))[0];
       },
       embedEach(texts: string[], kind: 'query') {
-        return EmbeddingService.prototype.embedEach.call(this, texts, kind);
+        return embedEachOn(this, texts, kind);
       },
     };
     const searched: number[][] = [];
@@ -110,6 +126,28 @@ describe('the vector tier embeds a request in one call', () => {
     expect(result.unmatched).toEqual(['paste my secret token']);
     expect(s.warn.mock.calls).toEqual([['Embedding failed for vector tier, skipping', { kind: 'ATTACK_TECHNIQUE', queryLength: 21, error: 'cannot embed' }]]);
     expect(JSON.stringify(s.warn.mock.calls)).not.toContain('secret');
+  });
+
+  it.each(['EmbedderBusyError', 'EmbedTimeoutError'])(
+    'on a %s the deterministic tiers answer, and the envelope says EMBEDDER_BUSY',
+    async (name) => {
+      const s = setup(' ', (message) => Object.assign(new Error(message), { name }));
+      const { result } = await s.match(['T1003', 'steal cached passwords', 'move to another host']);
+      // One embed call, not retried query by query, and no vector search.
+      expect(s.embedCalls).toEqual([['steal cached passwords', 'move to another host']]);
+      expect(s.searched).toEqual([]);
+      expect(result.matches.map((m: any) => [m.query, m.candidates[0].matchType])).toEqual([['T1003', 'EXACT_ID']]);
+      expect(result.unmatched).toEqual(['steal cached passwords', 'move to another host']);
+      expect([result.vectorAvailable, result.vectorDisabledReason]).toEqual([false, 'EMBEDDER_BUSY']);
+      // The embedding service logs it once; the resolver adds no line per query.
+      expect(s.warn).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps the envelope as the precheck left it after a plain embed failure', async () => {
+    const s = setup('secret');
+    const { result } = await s.match(['paste my secret token']);
+    expect([result.vectorAvailable, result.vectorDisabledReason]).toEqual([true, null]);
   });
 
   it('embeds nothing when the deterministic tiers answer every query', async () => {

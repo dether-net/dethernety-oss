@@ -192,6 +192,8 @@ enum VectorDisabledReason {
   NO_VECTORS
   "The corpus carries vectors of another embedding model only"
   MODEL_MISMATCH
+  "The embedder was too busy to embed this request's queries in time; the other tiers answered"
+  EMBEDDER_BUSY
 }
 
 """Modeling depth the author asserts the model reaches."""
@@ -2053,7 +2055,7 @@ type MatchClassesResult {
   matches: [ElementMatch!]!
   "Element names that nothing matched"
   unmatched: [String!]!
-  "Whether the vector tier could serve this request: the embedder is ready, the database runs vector search, and at least one class in scope has a vector of the active embedding model."
+  "Whether the vector tier could serve this request: the embedder is ready, the database runs vector search, and at least one class in scope has a vector of the active embedding model. False too when the embedder was too busy to embed the request's elements in time, and the name tiers answered instead."
   vectorAvailable: Boolean!
 }
 
@@ -2219,6 +2221,8 @@ type ReindexResult {
   reindexedCount: Int!
   "Names of modules whose classes were re-embedded"
   moduleNames: [String!]!
+  "True when another reindex was already running: this call returned at once and re-embedded nothing"
+  alreadyRunning: Boolean!
 }
 
 """
@@ -2688,7 +2692,7 @@ the right caption.
 type MatchMitreTechniquesResult {
   matches: [TechniqueQueryMatch!]!
   unmatched: [String!]!
-  "False when the embedder is disabled or not ready, the database cannot run vector search, or the corpus lacks vectors of the active embedding model."
+  "False when the embedder is disabled or not ready, the database cannot run vector search, the corpus lacks vectors of the active embedding model, or the embedder was too busy to embed the queries in time."
   vectorAvailable: Boolean!
   "When vectorAvailable is false, names the specific reason — drives the picker caption. Null when vectorAvailable is true."
   vectorDisabledReason: VectorDisabledReason

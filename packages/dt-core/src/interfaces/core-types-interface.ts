@@ -752,6 +752,7 @@ export type VectorDisabledReason =
   | 'EMBEDDING_DISABLED'
   | 'NO_VECTORS'
   | 'MODEL_MISMATCH'
+  | 'EMBEDDER_BUSY'
 
 /** Single query as part of a MatchMitreTechniquesInput.queries batch. */
 export interface TechniqueQueryInput {

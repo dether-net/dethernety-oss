@@ -64,6 +64,13 @@ export interface DTModule {
   getCountermeasures?(id: string, classId: string, token?: string): Promise<Countermeasure[]>;
 
   /**
+   * Optional. The `policyHash` of the policy this instance evaluates class `classId` with right now, as its metadata
+   * reports it; undefined when it cannot say. The platform records an evaluation as following the class's stored hash
+   * only when this agrees with it, so an instance still holding an older policy never marks an element current.
+   */
+  getPolicyHash?(classId: string): Promise<string | undefined>;
+
+  /**
    * Optional. Return true if this module's template/guide content may depend on
    * the calling user (the `token` passed to getClassTemplate/getClassGuide).
    * Default (absent) = false = caller-independent, cacheable.

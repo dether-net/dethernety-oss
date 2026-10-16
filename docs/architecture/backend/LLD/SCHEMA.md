@@ -675,7 +675,7 @@ The [`matchMitreTechniques`](#queries) query resolves user-typed text to candida
 ```graphql
 enum MitreKind { ATTACK_TECHNIQUE, DEFEND_TECHNIQUE, ATTACK_MITIGATION, ATLAS_TECHNIQUE, ATLAS_MITIGATION }
 enum MitreMatchType { EXACT_ID, PREFIX_ID, NAME_MATCH, DESCRIPTION_MATCH, VECTOR_SIMILARITY }
-enum VectorDisabledReason { EMBEDDING_DISABLED, NO_VECTORS, MODEL_MISMATCH }
+enum VectorDisabledReason { EMBEDDING_DISABLED, NO_VECTORS, MODEL_MISMATCH, EMBEDDER_BUSY }
 ```
 
 `MitreMatchType` is a distinct vocabulary from the `MatchType` enum used by `matchClasses`.
@@ -694,7 +694,7 @@ enum VectorDisabledReason { EMBEDDING_DISABLED, NO_VECTORS, MODEL_MISMATCH }
 |-------|------|-------------|
 | `matches` | `[TechniqueQueryMatch!]!` | Parallel to `queries` (same order, same length). Each carries the echoed `query` and a `[MitreCandidate!]!` list. |
 | `unmatched` | `[String!]!` | Queries that produced no candidates. |
-| `vectorAvailable` | `Boolean!` | False when the embedder is disabled or not ready, the database cannot run vector search, or the corpus lacks vectors of the active embedding model. Also false (`NO_VECTORS`) for a kind whose framework is not loaded, while the other kinds keep the vector tier. |
+| `vectorAvailable` | `Boolean!` | False when the embedder is disabled or not ready, the database cannot run vector search, the corpus lacks vectors of the active embedding model, or the embedder was too busy to embed the queries in time (`EMBEDDER_BUSY`). Also false (`NO_VECTORS`) for a kind whose framework is not loaded, while the other kinds keep the vector tier. |
 | `vectorDisabledReason` | `VectorDisabledReason` | Set when `vectorAvailable` is false; null otherwise. |
 
 `MitreCandidate` carries `mitreId`, `name`, `description`, `tactic`, `tacticOrder`, `kind`, `matchType`, and `similarityScore` (`Float`, a cosine in -1..1, populated only for `VECTOR_SIMILARITY` matches; null for the deterministic tiers). `mitreId` reads from `attack_id` (ATT&CK), `d3fendId` (D3FEND) or `atlas_id` (ATLAS). `tactic` is the tactic name in the candidate's own framework — for a multi-tactic technique, the earliest in matrix order — and null for mitigations. `tacticOrder` is that tactic's 0-based matrix position (ATT&CK and ATLAS); it is null for D3FEND tactics, for mitigations, and for a corpus ingested without matrix positions. Order tactic facets by `tacticOrder`, never by name.

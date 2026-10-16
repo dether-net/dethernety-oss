@@ -7,6 +7,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
+import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -234,6 +235,112 @@ describe('getMetadata — registration', () => {
     expect(engineOf(mod).size).toBe(1);
     // Its policy is gone from disk, so the class short-circuits before evaluation.
     expect(await mod.getCountermeasures('inst', 'class')).toEqual([]);
+    mod.dispose();
+  });
+});
+
+describe('getMetadata — policyHash', () => {
+  const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
+  const hashOf = (metadata: any, key: string, slug: string) =>
+    (metadata[key] as any[]).find(c => c.name === slug).policyHash;
+
+  it('is the hash of the registered source for each class with a policy, and absent for an issue class', async () => {
+    const { dataDir } = makeModule([COMPONENT, CONTROL, ISSUE]);
+    const mod = buildModule(dataDir, { classPath: '', attributes: {} });
+
+    const metadata = await mod.getMetadata();
+
+    expect(hashOf(metadata, 'componentClasses', 'web')).toBe(sha256(EXPOSURE_REGO.trim()));
+    expect(hashOf(metadata, 'controlClasses', 'mfa')).toBe(sha256(COUNTERMEASURE_REGO.trim()));
+    expect(hashOf(metadata, 'issueClasses', 'sqli')).toBeUndefined();
+    mod.dispose();
+  });
+
+  it('changes when the policy changes, and only then', async () => {
+    const { dataDir } = makeModule([COMPONENT]);
+    const mod = buildModule(dataDir, { classPath: '', attributes: {} });
+    const before = hashOf(await mod.getMetadata(), 'componentClasses', 'web');
+    expect(hashOf(await mod.getMetadata(), 'componentClasses', 'web')).toBe(before);
+
+    fs.writeFileSync(
+      path.join(dataDir, MODULE_NAME, 'component', 'web', 'policies.rego'),
+      EXPOSURE_REGO.replace('input.public == true', 'input.public == false'),
+    );
+
+    expect(hashOf(await mod.getMetadata(), 'componentClasses', 'web')).not.toBe(before);
+    mod.dispose();
+  });
+
+  it('is the hash of the empty source for a class with no policy', async () => {
+    const { dataDir } = makeModule([{ classType: 'component', slug: 'bare', type: 'PROCESS' }]);
+    const mod = buildModule(dataDir, { classPath: '', attributes: {} });
+
+    expect(hashOf(await mod.getMetadata(), 'componentClasses', 'bare')).toBe(sha256(''));
+    mod.dispose();
+  });
+
+  it('is absent for a class whose policy failed to register', async () => {
+    const { dataDir } = makeModule([{ classType: 'component', slug: 'broken', type: 'PROCESS', rego: NO_PACKAGE_REGO }]);
+    const mod = buildModule(dataDir, { classPath: '', attributes: {} });
+
+    expect(hashOf(await mod.getMetadata(), 'componentClasses', 'broken')).toBeUndefined();
+    mod.dispose();
+  });
+
+  it('is cleared when a registered policy is replaced by one that cannot register', async () => {
+    const { dataDir } = makeModule([COMPONENT]);
+    const mod = buildModule(dataDir, { classPath: '', attributes: {} });
+    expect(hashOf(await mod.getMetadata(), 'componentClasses', 'web')).toBeDefined();
+
+    fs.writeFileSync(path.join(dataDir, MODULE_NAME, 'component', 'web', 'policies.rego'), NO_PACKAGE_REGO);
+
+    expect(hashOf(await mod.getMetadata(), 'componentClasses', 'web')).toBeUndefined();
+    mod.dispose();
+  });
+});
+
+describe('getPolicyHash', () => {
+  const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
+
+  it('answers what getMetadata reports for the class', async () => {
+    const { dataDir, paths } = makeModule([COMPONENT]);
+    const mod = buildModule(dataDir, { classPath: paths.web, attributes: {} });
+    const metadata = await mod.getMetadata();
+
+    expect(await mod.getPolicyHash('class')).toBe((metadata.componentClasses as any[])[0].policyHash);
+    mod.dispose();
+  });
+
+  it('follows a reload to the new policy', async () => {
+    const { dataDir, paths } = makeModule([COMPONENT]);
+    const mod = buildModule(dataDir, { classPath: paths.web, attributes: {} });
+    await mod.getMetadata();
+    const changed = EXPOSURE_REGO.replace('input.public == true', 'input.public == false');
+    fs.writeFileSync(path.join(dataDir, MODULE_NAME, 'component', 'web', 'policies.rego'), changed);
+
+    // Not until the module loads it: the engine still holds the old source.
+    expect(await mod.getPolicyHash('class')).toBe(sha256(EXPOSURE_REGO.trim()));
+    await mod.getMetadata();
+    expect(await mod.getPolicyHash('class')).toBe(sha256(changed.trim()));
+    mod.dispose();
+  });
+
+  it('is the empty source hash for a class with no policy', async () => {
+    const { dataDir, paths } = makeModule([{ classType: 'component', slug: 'bare', type: 'PROCESS' }]);
+    const mod = buildModule(dataDir, { classPath: paths.bare, attributes: {} });
+    await mod.getMetadata();
+    expect(await mod.getPolicyHash('class')).toBe(sha256(''));
+    mod.dispose();
+  });
+
+  it('is undefined for a policy that failed to register, and when the class cannot be read', async () => {
+    const { dataDir, paths } = makeModule([{ classType: 'component', slug: 'broken', type: 'PROCESS', rego: NO_PACKAGE_REGO }]);
+    const mod = buildModule(dataDir, { classPath: paths.broken, attributes: {} });
+    await mod.getMetadata();
+    expect(await mod.getPolicyHash('class')).toBeUndefined();
+
+    (mod as any).dbOps.getAttribute = vi.fn().mockRejectedValue(new Error('db down'));
+    expect(await mod.getPolicyHash('class')).toBeUndefined();
     mod.dispose();
   });
 });

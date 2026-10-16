@@ -2,6 +2,22 @@ import { MatchClassesResolverService } from '../match-classes-resolver.service';
 import { EmbeddingService } from '../../services/embedding.service';
 
 /**
+ * The service's own embedEach, run on a fake embedding service: the fake's embedBatch (and embedOnce, when it has
+ * one) answer, and the query timeout and the overload note are the service's, with its defaults.
+ */
+function embedEachOn(fake: any, texts: string[], kind: 'query', logger: { warn: (...args: unknown[]) => void } = { warn: () => undefined }) {
+  const proto = EmbeddingService.prototype as any;
+  const service = Object.assign(Object.create(fake), {
+    queryTimeout: { baseMs: 10_000, perItemMs: 250 },
+    overloads: { timeout: 0, busy: 0 },
+    logger,
+    queryEmbedOptions: proto.queryEmbedOptions,
+    noteOverload: proto.noteOverload,
+  });
+  return proto.embedEach.call(service, texts, kind);
+}
+
+/**
  * Unit pins for the matchClasses componentType filter.
  *
  * A ComponentClass carries exactly one ComponentType, and changeElementBinding
@@ -189,7 +205,7 @@ describe('matchClasses — the vector tier', () => {
     composeElementText: (e: any) => `${e.name}. ${e.description}.`,
     embedBatch: async () => [[0.6, 0.8]],
     embedEach(texts: string[], kind: 'query') {
-      return EmbeddingService.prototype.embedEach.call(this, texts, kind);
+      return embedEachOn(this, texts, kind);
     },
   };
 
@@ -270,7 +286,7 @@ describe('matchClasses — the vector tier', () => {
           return (await this.embedBatch([text]))[0];
         },
         embedEach(texts: string[], kind: 'query') {
-          return EmbeddingService.prototype.embedEach.call(this, texts, kind);
+          return embedEachOn(this, texts, kind);
         },
       },
       vectorOf,
@@ -324,7 +340,7 @@ describe('matchClasses — the vector availability check is cached', () => {
     composeElementText: (e: any) => `${e.name}. ${e.description}.`,
     embedBatch: async () => [[0.6, 0.8]],
     embedEach(texts: string[], kind: 'query') {
-      return EmbeddingService.prototype.embedEach.call(this, texts, kind);
+      return embedEachOn(this, texts, kind);
     },
   };
   const presence = (answers: Array<boolean | Error>) => {
@@ -424,7 +440,7 @@ describe('matchClasses — exact name merged with the vector tier', () => {
     composeElementText: (e: any) => `${e.name}. ${e.description}.`,
     embedBatch: async () => [[0.6, 0.8]],
     embedEach(texts: string[], kind: 'query') {
-      return EmbeddingService.prototype.embedEach.call(this, texts, kind);
+      return embedEachOn(this, texts, kind);
     },
   };
   const row = (id: string, name: string, score: number) => ({
@@ -484,5 +500,156 @@ describe('matchClasses — exact name merged with the vector tier', () => {
       topN: 2,
     });
     expect(idsOf(result)).toEqual(['p1', 'p9']);
+  });
+});
+
+describe('matchClasses — a busy embedder and long text', () => {
+  const overload = (name: string) => Object.assign(new Error('the embedder is busy'), { name });
+
+  function setup(embedBatch: (texts: string[], kind: string, titles?: string[], options?: any) => Promise<number[][]>) {
+    const calls: Array<{ texts: string[]; options?: any }> = [];
+    const ranks: any[] = [];
+    const embedding = {
+      isEnabled: () => true,
+      getModel: () => 'embeddinggemma-300m-retrieval-v1',
+      getThreshold: () => 0.35,
+      composeElementText: (e: any) => `${e.name}. ${e.description}.`,
+      embedBatch: async (texts: string[], kind: string, titles?: string[], options?: any) => {
+        calls.push({ texts, options });
+        return embedBatch(texts, kind, titles, options);
+      },
+      embedEach(texts: string[], kind: 'query') {
+        return embedEachOn(this, texts, kind);
+      },
+    };
+    const vectorSearch = {
+      healthy: async () => true,
+      read: async () => [rec({ present: true })],
+      rank: async (request: any) => {
+        ranks.push(request);
+        return [];
+      },
+    };
+    const svc = makeService(CLASSES, { embedding, vectorSearch });
+    const warn = jest.fn();
+    (svc as any).logger.warn = warn;
+    return { svc, calls, ranks, warn };
+  }
+
+  it('cuts each composed text to 2,000 characters before it is embedded, and leaves a shorter one as it is', async () => {
+    const s = setup(async (texts) => texts.map(() => [0.6, 0.8]));
+    await run(s.svc, {
+      elements: [
+        { name: 'Long', description: 'x'.repeat(5_000) },
+        { name: 'Short', description: 'serves pages' },
+        { name: 'Exact', description: 'y'.repeat(2_000 - 'Exact. .'.length) },
+      ],
+      classLabel: 'COMPONENT',
+    });
+    const [long, short, exact] = s.calls[0].texts;
+    expect(long).toBe(`Long. ${'x'.repeat(5_000)}.`.slice(0, 2_000));
+    expect(short).toBe('Short. serves pages.');
+    expect(exact.length).toBe(2_000);
+    expect(exact.endsWith('y.')).toBe(true);
+  });
+
+  it('does not cut between the two halves of a surrogate pair', async () => {
+    const s = setup(async (texts) => texts.map(() => [0.6, 0.8]));
+    // 'A. ' is 3 characters: the emoji's high surrogate lands on character 2,000.
+    await run(s.svc, { elements: [{ name: 'A', description: `${'z'.repeat(1_996)}\u{1F600}tail` }], classLabel: 'COMPONENT' });
+    const [text] = s.calls[0].texts;
+    expect(text.length).toBe(1_999);
+    expect(text.endsWith('z')).toBe(true);
+  });
+
+  it.each(['EmbedTimeoutError', 'EmbedderBusyError'])('on a %s the name tiers answer, and vectorAvailable is false', async (name) => {
+    const s = setup(async () => {
+      throw overload(name);
+    });
+    const result = await run(s.svc, {
+      elements: [{ name: 'Data Processor', description: 'transforms records' }, { name: 'Payment', description: 'takes cards' }],
+      classLabel: 'COMPONENT',
+    });
+    expect(result.vectorAvailable).toBe(false);
+    expect(result.matches.map((m: any) => [m.elementName, m.candidates[0].matchType])).toEqual([
+      ['Data Processor', 'exact_name'],
+      ['Payment', 'fuzzy_name'],
+    ]);
+    // One embed call with the request's timeout, no text-by-text retry, no vector search.
+    expect(s.calls).toEqual([{ texts: ['Data Processor. transforms records.', 'Payment. takes cards.'], options: { timeoutMs: 10_500 } }]);
+    expect(s.ranks).toEqual([]);
+    // The embedding service says so once; the resolver adds no line per element.
+    expect(s.warn.mock.calls.filter(([m]) => /Embedding failed/.test(m))).toEqual([]);
+  });
+
+  it('keeps vectorAvailable true after a plain embed failure, which costs only that element its vector', async () => {
+    const s = setup(async () => {
+      throw new Error('cannot embed');
+    });
+    const result = await run(s.svc, { elements: [{ name: 'Data Processor', description: 'transforms records' }], classLabel: 'COMPONENT' });
+    expect(result.vectorAvailable).toBe(true);
+  });
+});
+
+describe('reindexClassEmbeddings — one at a time', () => {
+  function setup() {
+    let releaseRead: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => (releaseRead = resolve));
+    const reads: number[] = [];
+    const session = {
+      executeRead: async (cb: any) => {
+        reads.push(reads.length);
+        // The first label's read waits until the test lets it go; the others find no class.
+        if (reads.length === 1) {
+          await held;
+          return cb({ run: async () => ({ records: [rec({ classId: 'c1', name: 'Web', description: 'd', category: null, type: 'PROCESS', moduleName: 'mod' })] }) });
+        }
+        return cb({ run: async () => ({ records: [] }) });
+      },
+      executeWrite: async (cb: any) => cb({ run: async () => ({ records: [] }) }),
+      close: async () => undefined,
+    };
+    const embedBatch = jest.fn(async (texts: string[]) => texts.map(() => [0.6, 0.8]));
+    const embedding = {
+      isEnabled: () => true,
+      getModel: () => 'embeddinggemma-300m-retrieval-v1',
+      getDimensions: () => 2,
+      composeClassText: (c: any) => c.name,
+      embedBatch,
+    };
+    const svc = new MatchClassesResolverService(
+      { session: () => session } as any,
+      { get: () => 'neo4j' } as any,
+      { extractAuthContext: () => ({}), checkAuthorization: async () => ({ allowed: true }) } as any,
+      { recordOperation: () => undefined } as any,
+      embedding as any,
+      {} as any,
+    );
+    const reindex = (svc.getResolvers() as any).Mutation.reindexClassEmbeddings;
+    return { reindex: () => reindex(null, {}, {}), releaseRead: () => releaseRead(), embedBatch, svc };
+  }
+
+  it('answers a second call at once with alreadyRunning while one runs, and embeds nothing for it', async () => {
+    const s = setup();
+    (s.svc as any).logger.warn = jest.fn();
+    const first = s.reindex();
+    const second = await s.reindex();
+    expect(second).toEqual({ reindexedCount: 0, moduleNames: [], alreadyRunning: true });
+    expect(s.embedBatch).not.toHaveBeenCalled();
+    s.releaseRead();
+    await expect(first).resolves.toEqual({ reindexedCount: 1, moduleNames: ['mod'], alreadyRunning: false });
+    expect(s.embedBatch).toHaveBeenCalledTimes(1);
+    // Once it has finished, the next call runs.
+    await expect(s.reindex()).resolves.toMatchObject({ alreadyRunning: false });
+  });
+
+  it('lets the next call run after one that failed', async () => {
+    const s = setup();
+    s.embedBatch.mockRejectedValueOnce(new Error('cannot embed'));
+    (s.svc as any).logger.error = jest.fn();
+    const first = s.reindex();
+    s.releaseRead();
+    await expect(first).rejects.toThrow('cannot embed');
+    await expect(s.reindex()).resolves.toMatchObject({ alreadyRunning: false });
   });
 });

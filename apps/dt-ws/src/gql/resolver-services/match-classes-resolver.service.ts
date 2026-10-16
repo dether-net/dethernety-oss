@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuthorizationService } from '../services/authorization.service';
 import { MonitoringService } from '../services/monitoring.service';
-import { EmbeddingService } from '../services/embedding.service';
+import { EmbeddingService, embedderOverload } from '../services/embedding.service';
 import { classLabelToNodeLabel } from './shared/class-label-map';
 import { safeErrorMessage } from '../../common/utils/safe-error-message';
 import { VectorSearchService } from '../services/vector-search.service';
@@ -14,8 +14,19 @@ import { embedderFingerprint } from '../module-management-services/module-conten
 const MAX_ELEMENTS = 100;
 const DEFAULT_TOP_N = 3;
 const MIN_SUBSTRING_LENGTH = 3;
+// The most characters of an element's composed text that go to the embedder. Longer text is cut, not refused: a
+// description from a code scan can be long, and the match must still answer. The profile's maxTokens still bounds
+// the model's work per text.
+const MAX_QUERY_TEXT_LENGTH = 2_000;
 // How long a "does any class in scope have a vector of the active profile" answer is reused.
 const VECTOR_CHECK_TTL_MS = 10 * 60 * 1000;
+
+/** `text` cut to MAX_QUERY_TEXT_LENGTH characters, never between the two halves of a surrogate pair. */
+function capQueryText(text: string): string {
+  if (text.length <= MAX_QUERY_TEXT_LENGTH) return text;
+  const end = /[\uD800-\uDBFF]/.test(text[MAX_QUERY_TEXT_LENGTH - 1]) ? MAX_QUERY_TEXT_LENGTH - 1 : MAX_QUERY_TEXT_LENGTH;
+  return text.slice(0, end);
+}
 
 /** A name's words: lower-cased, split on anything that is not a letter or digit. */
 function nameWords(name: string): string[] {
@@ -82,6 +93,12 @@ interface MatchClassesResult {
   vectorAvailable: boolean;
 }
 
+interface ReindexResult {
+  reindexedCount: number;
+  moduleNames: string[];
+  alreadyRunning: boolean;
+}
+
 // --- Service ---
 
 @Injectable()
@@ -91,6 +108,8 @@ export class MatchClassesResolverService {
   private readonly vectorPresence = new Map<string, { present: boolean; checkedAt: number } | Promise<boolean>>();
   // Keys whose "no vector" or "check failed" warning has been logged.
   private readonly vectorPresenceWarned = new Set<string>();
+  // Set while a reindex runs: a second one returns at once instead of queueing more document embeds.
+  private reindexRunning = false;
 
   constructor(
     @Inject('NEO4J_DRIVER') private readonly neo4jDriver: any,
@@ -309,24 +328,34 @@ export class MatchClassesResolverService {
 
   /**
    * The query vectors of a request's elements, in one embed call: one per element with a description, null for the
-   * others and for an element whose text could not be embedded (logged; that element keeps the name tiers).
+   * others and for an element whose text could not be embedded (logged; that element keeps the name tiers). Each
+   * text is cut to MAX_QUERY_TEXT_LENGTH. `overloaded` is true when the embedder was too busy to answer (a timeout or
+   * a busy refusal, which the embedding service logs once): the elements it left keep the name tiers.
    */
-  private async elementVectors(elements: MatchElementInput[], nodeLabel: string): Promise<Array<number[] | null>> {
+  private async elementVectors(
+    elements: MatchElementInput[],
+    nodeLabel: string,
+  ): Promise<{ vectors: Array<number[] | null>; overloaded: boolean }> {
     const out: Array<number[] | null> = elements.map(() => null);
-    if (!(CLASS_LABELS as readonly string[]).includes(nodeLabel)) return out;
+    if (!(CLASS_LABELS as readonly string[]).includes(nodeLabel)) return { vectors: out, overloaded: false };
     const wanted = elements.flatMap((e, i) => (e.description ? [i] : []));
     const { vectors, failures } = await this.embeddingService.embedEach(
-      wanted.map((i) => this.embeddingService.composeElementText(elements[i])),
+      wanted.map((i) => capQueryText(this.embeddingService.composeElementText(elements[i]))),
       'query',
     );
     wanted.forEach((i, k) => (out[i] = vectors[k] ?? null));
+    let overloaded = false;
     for (const f of failures) {
+      if (embedderOverload(f.error)) {
+        overloaded = true;
+        continue;
+      }
       this.logger.warn('Embedding failed for vector search, skipping the vector tier', {
         elementName: elements[wanted[f.index]].name,
         error: f.error instanceof Error ? f.error.message : 'unknown',
       });
     }
-    return out;
+    return { vectors: out, overloaded };
   }
 
   /**
@@ -400,13 +429,17 @@ export class MatchClassesResolverService {
 
     // Resolved once per request, so callers (UI, MCP tool) see the signal even when an element has
     // no description and only the name tiers answer.
-    const vectorAvailable = await this.vectorTierAvailable(nodeLabel, input.moduleIds);
+    const tierUp = await this.vectorTierAvailable(nodeLabel, input.moduleIds);
 
     // Single DB fetch — all classes of this label, optionally scoped to modules
     const allClasses = await this.fetchClasses(nodeLabel, input.moduleIds);
 
-    // Every element's query vector in one embed call, before the per-element tiers.
-    const vectors = vectorAvailable ? await this.elementVectors(input.elements, nodeLabel) : input.elements.map(() => null);
+    // Every element's query vector in one embed call, before the per-element tiers. An embedder too busy to answer
+    // turns the signal off for this request: the name tiers answered instead.
+    const { vectors, overloaded } = tierUp
+      ? await this.elementVectors(input.elements, nodeLabel)
+      : { vectors: input.elements.map(() => null), overloaded: false };
+    const vectorAvailable = tierUp && !overloaded;
 
     const matches: ElementMatch[] = [];
     const unmatched: string[] = [];
@@ -491,6 +524,17 @@ export class MatchClassesResolverService {
   }
 
   // --- Reindex ---
+
+  /** One reindex at a time: a call while one runs returns at once, embeds nothing and says so. */
+  private async reindexSingleFlight(moduleIds?: string[]): Promise<ReindexResult> {
+    if (this.reindexRunning) return { reindexedCount: 0, moduleNames: [], alreadyRunning: true };
+    this.reindexRunning = true;
+    try {
+      return { ...(await this.executeReindexClassEmbeddings(moduleIds)), alreadyRunning: false };
+    } finally {
+      this.reindexRunning = false;
+    }
+  }
 
   /**
    * Re-embed all class nodes (optionally filtered by moduleIds).
@@ -720,10 +764,12 @@ export class MatchClassesResolverService {
           }
 
           try {
-            const result = await this.executeReindexClassEmbeddings(
-              args.moduleIds,
-            );
+            const result = await this.reindexSingleFlight(args.moduleIds);
             const duration = Date.now() - startTime;
+            if (result.alreadyRunning) {
+              this.logger.warn('reindexClassEmbeddings is already running; this call did nothing');
+              return result;
+            }
 
             this.monitoringService.recordOperation({
               operationName: 'reindexClassEmbeddings',
