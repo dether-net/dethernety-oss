@@ -8,7 +8,7 @@ platform does not have to embed their classes at install time.
 - [File Layout](#file-layout)
 - [Base-class Default](#base-class-default)
 - [Platform Integration](#platform-integration)
-- [CLI — `module-manager embed`](#cli--module-manager-embed)
+- [Producer — `module-manager embed`](#producer--module-manager-embed)
 - [Packaging](#packaging)
 - [Multi-model Support](#multi-model-support)
 - [Failure Semantics](#failure-semantics)
@@ -32,8 +32,9 @@ once.
 Pre-computed embeddings move vector generation to build time: the module
 author ships vectors made with the platform's active embedding profile as
 JSON files under each class directory, and the packager includes them in the
-tarball. The `module-manager embed` CLI does not make such vectors (see
-[CLI](#cli--module-manager-embed)).
+tarball. The `module-manager embed` producer makes them with the platform's
+own embedder, and a CI check keeps them current (see
+[Producer](#producer--module-manager-embed)).
 At install the platform reads vectors from disk instead of embedding.
 Mixed modules (some classes embedded, some not) and legacy
 modules (no embeddings directory) keep working unchanged.
@@ -84,12 +85,12 @@ Vectors live inside each class directory. One file per model:
 **V2 / OPA layout (`DtFileOpaModule`):**
 ```
 data/{moduleName}/
-└── {classType}/                  # component | dataFlow | securityBoundary | control | data
+└── {classType}/                  # component | dataFlow | securityBoundary | control | data | issue
     └── {classDir}/
         ├── class.json            # existing class definition
         ├── policies.rego         # existing
         └── embeddings/           # this feature
-            └── {modelSlug}.json  # { "vector": [0.01, …], "contentHash": "<sha256>" }
+            └── {modelSlug}.json  # e.g. embeddinggemma-300m-retrieval-v1.json
 ```
 
 **JSON layout:**
@@ -106,6 +107,9 @@ File contents are a `{ vector, contentHash }` object: `vector` is the array
 of floats, `contentHash` is the SHA-256 of the class's composed embedding
 text, stamped so the runtime cache can detect a vector left stale by an
 un-regenerated text edit (see [Content-hash binding](#content-hash-binding)).
+The producer also writes `profile` and `revision` (the profile's weights
+revision) for the CI check; the platform reads only `vector` and
+`contentHash`.
 The reader also accepts a **legacy bare-array** file (a top-level JSON array,
 the pre-hash format) and serves it unverified — so old caches keep working
 with no mass recompute. The filename carries the model identity (slugified so
@@ -362,89 +366,70 @@ vector index dimension: class vectors are searched without a vector
 index, so there is no index to create, check or repair before writing
 them.
 
-## CLI — `module-manager embed`
+## Producer — `module-manager embed`
 
 ```bash
-./scripts/module-manager.sh embed <module-path> \
-  --model <model-name> \
-  --url <embedding-endpoint> \
-  [--api-key <key>] \
-  [--batch-size <n>]
+./scripts/module-manager.sh embed <module-path> [--models-dir <dir>] [--profile <id>] [--download] [--batch-size <n>]
+./scripts/module-manager.sh embed-all <modules-root>... [--exclude <module-path>]... [options]
 ```
 
-Modules ship a `pnpm embed` alias that reads `EMBEDDING_MODEL` and
-`EMBEDDING_URL` from the environment; see
-[DEVELOPMENT_GUIDE](./DEVELOPMENT_GUIDE.md#pre-computed-embeddings-optional).
+Modules ship a `pnpm embed` alias for the first form; see
+[DEVELOPMENT_GUIDE](./DEVELOPMENT_GUIDE.md#pre-computed-embeddings-optional)
+for the flags and the author workflow. The embedder package must be built
+first (`pnpm --filter @dethernety/embedder... build`).
 
-**The CLI does not embed with an embedding profile.** It POSTs the composed
-class text to an HTTP endpoint as it is, with no prompt and no title. The
-platform's embedder runs in process with a profile whose document prompt
-carries the class name as the title, so vectors from this CLI do not match
-the platform's query vectors, whatever `--model` they are filed under. File
-them under the profile id only if they were made with that profile;
-otherwise ship no vectors and let the platform embed the classes at install.
+**The producer embeds with the platform's profile.** It runs the platform's
+own in-process embedder through `packages/embedder/bin/embed-documents.mjs`:
+the profile (default: the platform's default,
+`embeddinggemma-300m-retrieval-v1`), its document prompt with the class name
+as the title, truncation and normalisation. It has no HTTP endpoint option:
+an endpoint cannot reproduce the profile's prompt or model, so its vectors
+would rank wrongly against the platform's query vectors.
 
 ### Behavior
 
-1. Reads `manifest.json` for the module `name`, then walks
-   `<module-path>/data/<name>/` — always the **source tree**, never
-   `dist/` or installed `custom_modules/`.
-2. Auto-detects layout (OPA `component/class.json` vs JSON
-   `ComponentClasses/metadata.json`). Errors out if both are present.
-3. For each class, reads `{ name, description, category, type }` from
-   the class-definition file.
-4. Normalizes `type` via `normalizeClassType` (OPA layout only — the
-   JSON layout is not normalized).
-5. Composes embedding text via the shared `classEmbeddingText`
-   (`composeClassText` + `normalizeClassType`) — byte-equal to what the
-   runtime cache produces, so the stamped content hash matches on read.
-6. Batches the texts at `--batch-size` (default 128) and POSTs to the
-   endpoint. Chunking is mandatory, not optional: OpenAI caps around 2048
-   inputs, Ollama is RAM-bounded, and the motivating scenario is 1000-
-   class modules.
-7. Parses the response via the shared `parseEmbeddingResponse` —
-   supports OpenAI (`{data: [{index, embedding}]}`), Ollama `/api/embed`
-   (`{embeddings: [...]}`), and Ollama legacy `/api/embeddings`
-   (`{embedding: [...]}`) formats. Results are ordered by each item's `index`
-   (OpenAI) and validated (every entry a non-empty numeric array, count equal
-   to the request) — a reordered or malformed response throws rather than
-   pairing a class to the wrong vector.
-8. Writes each vector as `{ vector, contentHash }` to
-   `{classDir}/embeddings/{modelSlug}.json`, where
-   `contentHash = hashEmbeddingText(text)` for the same text embedded in
-   step 5, creating the `embeddings/` directory if needed.
+1. Reads `manifest.json` for the module `name`, then walks the
+   **source tree** `<module-path>/data/<name>/` (never `dist/` or installed
+   `custom_modules/`): `component/`, `dataFlow/`, `securityBoundary/`,
+   `control/`, `data/` and `issue/`, each class with a `class.json`.
+2. Composes each class's text with the shared `classEmbeddingText`
+   (`composeClassText` + `normalizeClassType`) and hashes it with
+   `hashEmbeddingText`, byte-equal to what the runtime cache recomputes.
+3. Skips a class whose file already holds the profile, its weights revision
+   and the current hash. When none is left, the embedder is not started.
+4. Embeds the rest in batches (`--batch-size`, default 16), after checking
+   that the embedder runs the profile's id, weights revision, dimensions and
+   title rule.
+5. Writes `{ profile, revision, contentHash, vector }` to
+   `{classDir}/embeddings/{profile id}.json`, creating `embeddings/` if
+   needed. The platform reads `vector` and `contentHash`.
 
-### What the CLI does NOT do
+It does not instantiate the compiled module (the `DtFileOpaModule`
+constructor needs a live Bolt driver, and `getMetadata()` registers every
+policy in the Rego engine), and does not delete files for removed classes.
 
-- No retries on HTTP errors. Build-time tools fail loudly; rerun after
-  fixing the endpoint. (Response *shape and count* are validated — a
-  malformed batch throws — but that is not a retry.)
-- No dimension validation against an expected value. The platform
-  validates at install time.
-- No stale-file cleanup for removed classes. `rm -rf` the module's
-  `embeddings/` directories before regenerating if class names churn.
-  (A vector left stale by a *text* edit no longer needs cleanup: the
-  content hash makes the runtime cache detect it and recompute.)
-- Does not instantiate the compiled module. The CLI reads JSON files
-  directly — the `DtFileOpaModule` constructor needs a live Bolt
-  driver, and `getMetadata()` eagerly registers every policy in the
-  in-process Rego engine. The CLI must run with no services available
-  and should not pay for engines it never evaluates.
+### CI check
+
+`scripts/check-module-embeddings.mjs <modules-root>... [--exclude <path>]...`
+applies the same rules as step 3, from the same source
+(`scripts/lib/class-vectors.ts`). It fails when a class lacks its file, the
+file is for another profile or weights revision, the vector is not the
+profile's length of finite unit-norm values, the `contentHash` no longer
+matches the class text, or any other embeddings file exists. A change to the
+composer, the profile or the default profile id therefore fails the check
+until the vectors are made again.
 
 ### Shared helpers
 
 [`packages/dt-module/src/embedding-text.ts`](../../../packages/dt-module/src/embedding-text.ts)
 exports `composeClassText`, `classEmbeddingText`, `hashEmbeddingText`,
-`parseEmbeddingResponse`, `slugifyModelName`, and `normalizeClassType`.
-Both `EmbeddingService` (in dt-ws) and the CLI (in scripts) import from this
-one file, and the CLI writer and the cache reader both go through
-`classEmbeddingText`/`hashEmbeddingText` so the stamped and recomputed hashes
-are byte-identical. The sub-path export `@dethernety/dt-module/embedding`
-keeps the HTTP response parser out of the `dt-ui` bundle.
+`slugifyModelName`, and `normalizeClassType`. `EmbeddingService` (in dt-ws),
+the producer and the CI check all use this one file, so the stamped and
+recomputed hashes are byte-identical.
 
 **Layering:** `oss/scripts/` cannot depend on `dt-ws`; it depends on
-`@dethernety/dt-module`. The shared-helper extraction is what makes the
-CLI feasible without duplicating text composition logic.
+`@dethernety/dt-module` and `@dethernety/embedder`. The producer and the CI
+check read the default profile id from its one definition in dt-ws's source.
 
 ## Packaging
 
@@ -465,14 +450,16 @@ File-based modules must be packaged via the recursive-subdir branch.
 
 ## Multi-model Support
 
-A module can ship vectors for multiple models at once:
+The reader accepts vectors for several profiles at once, one file each:
 
 ```
 data/{moduleName}/component/postgresql-database/embeddings/
-├── nomic-embed-text.json
-├── text-embedding-3-small.json
-└── bge-large-en.json
+├── embeddinggemma-300m-retrieval-v1.json
+└── {other-profile-id}.json
 ```
+
+The modules in this repository ship only the default profile's file; the CI
+check rejects any other until a second profile ships vectors.
 
 At install time the platform asks for exactly one model: the active
 embedding profile, by the slug of its id. The cache loads only that model's files;

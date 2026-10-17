@@ -724,48 +724,31 @@ For the full architecture and security model, see [MODULE_CUSTOM_RESOLVERS.md](.
 Modules can ship pre-computed embedding vectors alongside their class
 definitions. At install time, the platform prefers a shipped vector over
 embedding the class itself, when the vector is filed under the platform's
-active **embedding profile**, has its dimensions and can be stored (finite
-values, a non-zero norm).
-
-> **The CLI below does not embed with a profile.** The platform embeds in
-> process with an embedding profile (by default
-> `embeddinggemma-300m-retrieval-v1`), which wraps each class text in its
-> document prompt with the class name as the title. `module-manager embed`
-> POSTs the bare class text to an HTTP endpoint, so its vectors do not match
-> the platform's query vectors. Do not file them under a profile id. Without
-> profile-made vectors, ship none: the platform embeds your classes at
-> install, on the deployment's own machine.
+active **embedding profile** (by default `embeddinggemma-300m-retrieval-v1`),
+has its dimensions and can be stored (finite values, a non-zero norm).
+Without shipped vectors, the platform embeds your classes at install, on the
+deployment's own machine.
 
 **Authoritative spec:** [PRE_COMPUTED_EMBEDDINGS_SPEC.md](./PRE_COMPUTED_EMBEDDINGS_SPEC.md).
 
 ### When to use
-
-Ship vectors only when you have vectors made with the platform's active
-embedding profile (each class text wrapped in the profile's document prompt,
-the class name as the title). Then:
 
 - A large module (hundreds of classes) installs fast, without running the
   embedder for those classes.
 - The vectors are pinned to the exact text and profile they were made from,
   so similarity scores stay reproducible across installs.
 
-Without profile-made vectors, ship none.
+### Making the vectors
 
-### CLI author workflow (vectors the current platform does not use)
-
-The `module-manager embed` workflow below produces vectors the current
-platform does not use: they are embedded without the profile's document
-prompt (see the note above). Do not file its output under a profile id.
-
-Modules can wire the CLI into their `package.json` so authors get a short
-command (`pnpm embed`) that reads `EMBEDDING_MODEL` and `EMBEDDING_URL`
-from the environment with sensible defaults. `modules/dethernety-general`
-does this; mirror it in your own module:
+`module-manager embed` embeds each class in process with the platform's own
+embedder: the same profile, document prompt (the class name as the title),
+truncation and normalisation as the platform's install. Wire it into your
+module's `package.json`, as `modules/dethernety-general` does:
 
 ```json
 {
   "scripts": {
-    "embed": "../../scripts/module-manager.sh embed . --model ${EMBEDDING_MODEL:-nomic-embed-text} --url ${EMBEDDING_URL:-http://localhost:11434/api/embed}"
+    "embed": "../../scripts/module-manager.sh embed ."
   }
 }
 ```
@@ -773,82 +756,73 @@ does this; mirror it in your own module:
 Full round-trip:
 
 ```bash
-# 1. Build the module
-cd modules/my-module && pnpm build
+# 0. Once: build the embedder package the producer runs
+pnpm --filter @dethernety/embedder... build
 
-# 2. Generate vectors (writes embeddings/<slug>.json under each class dir)
-pnpm embed
-# or with overrides:
-EMBEDDING_MODEL=text-embedding-3-small \
-EMBEDDING_URL=https://api.openai.com/v1/embeddings \
-EMBEDDING_API_KEY=... pnpm embed
+# 1. Make the vectors (writes embeddings/<profile id>.json under each class dir);
+#    --download fetches the profile's weights into the directory when they are missing
+cd modules/my-module
+pnpm embed --models-dir ~/models --download
 
-# 3. Repackage so the embeddings/ directories end up in the tarball
+# 2. Package, so the embeddings/ directories end up in the tarball
 pnpm build
 
-# 4. Install
-./scripts/module-manager.sh install dist/my-module-1.0.0.tar.gz
+# 3. Install
+../../scripts/module-manager.sh install dist/my-module-1.0.0.tar.gz
 ```
 
-Calling the shell wrapper directly works too when you need ad-hoc flags:
+To do every module under one or more roots in one embedder session:
 
 ```bash
-./scripts/module-manager.sh embed modules/my-module \
-  --model nomic-embed-text \
-  --url http://localhost:11434/api/embed \
-  --batch-size 64
+./scripts/module-manager.sh embed-all modules --models-dir ~/models
 ```
 
 ### What `module-manager embed` does
 
-1. Reads `manifest.json` for the module name, then walks
-   `<module-path>/data/<name>/`.
-2. Auto-detects the layout — V2 OPA (`component/`, `dataFlow/`,
-   `securityBoundary/`, `control/`, `data/` with `class.json`) or JSON
-   (`ComponentClasses/` etc. with `metadata.json`).
-3. For each class, composes embedding text using the **same** shared helper
-   (`classEmbeddingText`, wrapping `composeClassText` + `normalizeClassType`)
-   the runtime cache uses — same formula, same type-normalization — so the
-   composed class text, and the content hash the writer stamps, match the
-   ones the runtime recomputes. The vectors themselves do not match the
-   platform's profile: the CLI embeds the bare text, without the profile's
-   document prompt (see the note at the top of this section).
-4. POSTs chunked batches (`--batch-size`, default 128) to the configured
-   endpoint. Supports OpenAI, Ollama `/api/embed`, and Ollama legacy
-   `/api/embeddings` response formats; the response is validated (each entry
-   a non-empty numeric array, count matches the request) and, for OpenAI,
-   ordered by each item's `index` before being paired to its class.
-5. Writes each vector to `{classDir}/embeddings/{modelSlug}.json` as a
-   `{ "vector": [...], "contentHash": "<sha256>" }` object. The hash binds the
-   vector to the class text it was computed from, so the runtime cache can
-   detect (and recompute) a vector left stale by an un-regenerated text edit.
-   Older bare-array files remain readable (served unverified).
+1. Reads `manifest.json` for the module name, then walks the class
+   directories under `<module-path>/data/<name>/`: `component/`, `dataFlow/`,
+   `securityBoundary/`, `control/`, `data/` and `issue/`, each class with a
+   `class.json`.
+2. Composes each class's text with the **same** helper the platform uses at
+   install (`classEmbeddingText` in `@dethernety/dt-module/embedding`) and
+   hashes it (sha256) as the `contentHash`.
+3. Leaves alone a class whose file already holds the profile, its weights
+   revision and the current text hash; only new or edited classes are
+   embedded. Delete a file to make it again. When nothing needs a vector,
+   the embedder is not started and no weights are needed.
+4. Embeds the rest as documents through
+   `packages/embedder/bin/embed-documents.mjs`, and refuses to write when the
+   embedder runs another profile, weights revision or dimensions.
+5. Writes each vector to `{classDir}/embeddings/{profile id}.json` as
+   `{ "profile", "revision", "contentHash", "vector" }`. The platform reads
+   `vector` and `contentHash`; the hash lets it detect, and re-embed, a
+   vector left stale by a text edit.
 
 ### CLI flags
 
-| Flag | Required | Description |
-|------|----------|-------------|
-| `--model` | yes | Embedding model name (sent in the request body). |
-| `--url` | yes | Embedding endpoint URL. |
-| `--api-key` | no | Bearer token for the endpoint. |
-| `--batch-size` | no (default 128) | Classes per POST. Endpoints cap input list size — 128 works for Ollama and stays well under OpenAI's 2048 limit. |
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--models-dir <dir>` | `EMBEDDING_MODEL_DIR` | Directory holding the profile's weights. Required when a class needs a vector. |
+| `--profile <id>` | the platform's default | Embedding profile to make vectors for. |
+| `--download` | off | Fetch missing weights at the profile's pinned revision, verified by sha256. |
+| `--batch-size <n>` | 16 | Classes per embedder request. |
+| `--exclude <path>` | none | `embed-all` only, repeatable: a module to leave out. |
 
-The CLI deliberately does not retry on API failure and does not validate
-vector dimensions against the model (the platform does that at install
-time). It does validate response shape and count, and it does not delete
-stale vectors — but a stale vector no longer poisons search: the content
-hash lets the runtime cache detect the mismatch and recompute on the fly.
-Rerun after fixing the endpoint; `rm -rf data/<name>/*/*/embeddings/` to
-start clean.
+An HTTP embedding endpoint cannot reproduce the profile's prompt or model, so
+the producer has no `--url`, `--model` or `--api-key`.
 
-### Model switching
+### The CI check
 
-The filename slug is derived from the model name, so
-`embeddings/nomic-embed-text.json` and
-`embeddings/text-embedding-3-small.json` can coexist for different model
-targets. The platform loads only the file matching its active embedding
-profile's id at install time; classes without a matching file fall back to
-on-the-fly.
+`scripts/check-module-embeddings.mjs <modules-root>... [--exclude <path>]...`
+fails when a class has no vector file, the file is for another profile or
+weights revision, the vector is not the profile's length (768) of finite,
+unit-norm values, its `contentHash` no longer matches the class text (the
+class was edited without running `pnpm embed`), or any other embeddings file
+exists. It needs Node's type stripping (Node 22.18 or later):
+
+```bash
+node scripts/check-module-embeddings.mjs modules
+```
 
 ### Packager support
 
