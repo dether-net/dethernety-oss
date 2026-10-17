@@ -327,6 +327,12 @@ jobs:
       - name: Packaging and module-hash unit tests
         run: node --test scripts/*.test.mjs
 
+      # Every class a module ships carries its vector for the default embedding profile, made from the class text as
+      # it is now; otherwise the platform embeds it at install. The composer is loaded from dt-module's source by type
+      # stripping (on by default from Node 22.18).
+      - name: Class vectors are current
+        run: node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-module-embeddings.mjs modules
+
   # Every MITRE reference a shipped module's policies declare must exist in the pinned
   # MITRE data. The platform links only references it can resolve and marks the rest on
   # the finding as unlinked, so a missing id is a content defect that would otherwise

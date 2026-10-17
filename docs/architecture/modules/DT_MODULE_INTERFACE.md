@@ -216,8 +216,9 @@ name as the title); the platform cannot tell otherwise.
 - The base class `DtFileOpaModule` implements this by reading
   `{classDir}/embeddings/{slug}.json`. See
   [Pre-Computed Embeddings Spec](./PRE_COMPUTED_EMBEDDINGS_SPEC.md).
-- The `module-manager embed` CLI embeds over an HTTP endpoint without a
-  profile's prompts, so its vectors do not suit the platform's profile; see
+- The `module-manager embed` CLI makes these files with the platform's own
+  embedder and default profile, as
+  `{classDir}/embeddings/embeddinggemma-300m-retrieval-v1.json`; see
   [Development Guide → Pre-computed Embeddings](./DEVELOPMENT_GUIDE.md#pre-computed-embeddings-optional).
 
 ---

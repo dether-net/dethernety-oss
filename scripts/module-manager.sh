@@ -112,16 +112,26 @@ cmd_export() {
   "${TSX}" "${TS_CORE}" export "${module_path}" "$@"
 }
 
-# ── command: embed ───────────────────────────────────────────────────────
-# Generate pre-computed class embeddings for a module.
+# ── command: embed / embed-all ───────────────────────────────────────────
+# Pre-computed class vectors, made with the platform's own embedder (the
+# embedder package must be built: pnpm --filter @dethernety/embedder... build).
 cmd_embed() {
   check_prerequisites
 
-  local module_path="${1:?Usage: module-manager.sh embed <module-path> --model <name> --url <endpoint> [--api-key <key>] [--batch-size <n>]}"
+  local module_path="${1:?Usage: module-manager.sh embed <module-path> [--models-dir <dir>] [--profile <id>]}"
   shift
 
-  log "Generating embeddings for module at ${module_path}…"
+  log "Making class vectors for the module at ${module_path}…"
   "${TSX}" "${TS_CORE}" embed "${module_path}" "$@"
+}
+
+cmd_embed_all() {
+  check_prerequisites
+
+  [ $# -gt 0 ] || die "Usage: module-manager.sh embed-all <modules-root>... [--exclude <module-path>]... [--models-dir <dir>]"
+
+  log "Making class vectors for every module under: $*…"
+  "${TSX}" "${TS_CORE}" embed-all "$@"
 }
 
 # ── usage ────────────────────────────────────────────────────────────────
@@ -134,7 +144,8 @@ Usage:
   $(basename "$0") install <module.tar.gz> [options]    Install a packaged module
   $(basename "$0") ingest  <cypher-file-or-dir> [opts]  Run Cypher files against Memgraph
   $(basename "$0") list    [options]                     List installed modules
-  $(basename "$0") embed   <module-path> [opts]         Generate pre-computed class embeddings
+  $(basename "$0") embed   <module-path> [opts]         Make a module's pre-computed class vectors
+  $(basename "$0") embed-all <modules-root>... [opts]   Make them for every module under the roots
   $(basename "$0") export  <module-path> [opts]         Package module for Studio import
 
 Options:
@@ -144,10 +155,11 @@ Options:
   --db-user <user>       Database user  (default: dethernety)
   --db-pass <pass>       Database password
   --state-file <path>    Path to installed-modules.json
-  --model <name>         Embedding model (embed only, required)
-  --url <endpoint>       Embedding endpoint URL (embed only, required)
-  --api-key <key>        Bearer token for the embedding endpoint (embed only)
-  --batch-size <n>       Classes per POST (embed only, default: 128)
+  --models-dir <dir>     The profile's weights (embed; or set EMBEDDING_MODEL_DIR)
+  --profile <id>         Embedding profile (embed; default: the platform's default)
+  --download             Fetch missing weights at the profile's pinned revision (embed)
+  --exclude <path>       A module to leave out (embed-all; repeatable)
+  --batch-size <n>       Classes per embedder request (embed; default: 16)
   --output <path>        Output archive path (export only)
   --include-embeddings   Keep embeddings/ subdirs in archive (export only)
   --help                 Show this message
@@ -161,6 +173,7 @@ case "${1:-}" in
   ingest)  shift; cmd_ingest "$@" ;;
   list)    shift; cmd_list "$@" ;;
   embed)   shift; cmd_embed "$@" ;;
+  embed-all) shift; cmd_embed_all "$@" ;;
   export)  shift; cmd_export "$@" ;;
   --help|-h|help) usage ;;
   *)

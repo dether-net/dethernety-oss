@@ -1,6 +1,6 @@
 {
   "name": "@dethernety/embedder",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "private": true,
   "description": "In-process text embedder for the built-in embedding profiles: weight acquisition with sha256 verification and an onnxruntime session on the text graph.",
   "main": "dist/index.js",

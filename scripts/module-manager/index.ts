@@ -10,6 +10,8 @@
  *   install <archive> [options]   Extract, validate, copy, ingest
  *   ingest  <path>    [options]   Execute Cypher files against Memgraph
  *   list               [options]  Show installed modules
+ *   embed     <module-path>      Pre-computed class vectors for one module
+ *   embed-all <modules-root>...  Pre-computed class vectors for every module under the roots
  */
 
 import { parseArgs } from 'node:util';
@@ -18,6 +20,7 @@ import { Installer } from './installer';
 import { DatabaseClient } from './database';
 import { StateManager } from './state';
 import { runEmbed } from './embed';
+import { findClassModules } from '../lib/class-vectors';
 import { runExport } from './export';
 
 // ── argument parsing ────────────────────────────────────────────────────
@@ -31,10 +34,11 @@ const { values, positionals } = parseArgs({
     'db-user':     { type: 'string', default: 'dethernety' },
     'db-pass':     { type: 'string', default: process.env.NEO4J_PASSWORD || '' },
     'state-file':  { type: 'string', default: '' },
-    'model':       { type: 'string', default: '' },
-    'url':         { type: 'string', default: '' },
-    'api-key':     { type: 'string', default: '' },
-    'batch-size':  { type: 'string', default: '128' },
+    'profile':     { type: 'string', default: '' },
+    'models-dir':  { type: 'string', default: '' },
+    'download':    { type: 'boolean', default: false },
+    'exclude':     { type: 'string', multiple: true, default: [] },
+    'batch-size':  { type: 'string', default: '16' },
     'output':      { type: 'string', default: '' },
     'include-embeddings': { type: 'boolean', default: false },
     'help':        { type: 'boolean', default: false },
@@ -47,7 +51,8 @@ Usage:
   module-manager install <archive.tar.gz> [options]
   module-manager ingest  <cypher-file-or-dir> [options]
   module-manager list    [options]
-  module-manager embed   <module-path> --model <name> --url <endpoint> [options]
+  module-manager embed     <module-path> [--models-dir <dir>] [options]
+  module-manager embed-all <modules-root>... [--exclude <module-path>]... [--models-dir <dir>] [options]
   module-manager export  <module-path> [--output <path>] [--include-embeddings]
 
 Options:
@@ -57,10 +62,11 @@ Options:
   --db-user <user>       DB user  (default: neo4j)
   --db-pass <pass>       DB password (or set NEO4J_PASSWORD)
   --state-file <path>    installed-modules.json path
-  --model <name>         Embedding model (embed only, required)
-  --url <endpoint>       Embedding endpoint URL (embed only, required)
-  --api-key <key>        Bearer token for the embedding endpoint (embed only)
-  --batch-size <n>       Classes per POST (embed only, default: 128)
+  --profile <id>         Embedding profile (embed only, default: the platform's default)
+  --models-dir <dir>     The profile's weights (embed only; or set EMBEDDING_MODEL_DIR)
+  --download             Fetch missing weights at the profile's pinned revision (embed only)
+  --exclude <path>       A module to leave out (embed-all only; repeatable)
+  --batch-size <n>       Classes per embedder request (embed only, default: 16)
   --output <path>        Output archive path (export only)
   --include-embeddings   Keep embeddings/ subdirs in archive (export only)
 `);
@@ -126,32 +132,32 @@ async function main() {
       break;
     }
 
-    case 'embed': {
-      const modulePath = rest[0];
-      if (!modulePath) {
+    case 'embed':
+    case 'embed-all': {
+      if (rest.length === 0) {
         console.error(
-          'Usage: module-manager embed <module-path> --model <name> --url <endpoint> [--api-key <key>] [--batch-size <n>]',
+          command === 'embed'
+            ? 'Usage: module-manager embed <module-path> [--models-dir <dir>] [--profile <id>]'
+            : 'Usage: module-manager embed-all <modules-root>... [--exclude <module-path>]... [--models-dir <dir>]',
         );
         process.exit(1);
       }
-      if (!values.model) {
-        console.error('embed: --model is required');
+      if (command === 'embed' && rest.length > 1) {
+        console.error('embed: one module path; use embed-all for several');
         process.exit(1);
       }
-      if (!values.url) {
-        console.error('embed: --url is required');
-        process.exit(1);
-      }
-      const batchSize = parseInt(values['batch-size'] || '128', 10);
+      const batchSize = parseInt(values['batch-size'] || '16', 10);
       if (!Number.isFinite(batchSize) || batchSize <= 0) {
         console.error(`embed: --batch-size must be a positive integer (got "${values['batch-size']}")`);
         process.exit(1);
       }
+      const modulePaths =
+        command === 'embed' ? [resolve(rest[0])] : findClassModules(rest.map((r) => resolve(r)), values.exclude ?? []);
       await runEmbed({
-        modulePath: resolve(modulePath),
-        model: values.model!,
-        url: values.url!,
-        apiKey: values['api-key'] || undefined,
+        modulePaths,
+        profileId: values.profile || undefined,
+        modelsDir: values['models-dir'] || undefined,
+        download: values.download === true,
         batchSize,
       });
       break;

@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-10-16
+
+Modules ship their class vectors for the platform's default embedding profile, so a module install no
+longer embeds its classes. This is a patch release: no API, schema or `.env` change beyond
+`PLATFORM_VERSION`.
+
+**Upgrading:** set `PLATFORM_VERSION` and run `./byodt update`; nothing else is needed. The first
+start installs the bundled `dethernety-general` module once more (its files changed) and takes its
+shipped vectors: no class is embedded, and the finding re-evaluation that follows the install finds
+nothing to redo, since no class policy changed. A fresh deployment still downloads the model on its
+first start (the platform embeds queries with it); the bundled module's install completes once the
+model is ready. Dethereal, `byodt` (1.2.0), `mitre-frameworks` (1.2.0) and `@dethernety/dt-module`
+(0.12.0) are unchanged.
+
+### Changed
+
+- **Modules ship class vectors for `embeddinggemma-300m-retrieval-v1`.** Each class carries
+  `embeddings/embeddinggemma-300m-retrieval-v1.json` with `{profile, revision, contentHash, vector}`;
+  the platform reads `vector` and `contentHash`. `dethernety-general` ships 81 (75 classes and 6 issue
+  classes), so its install embeds nothing. In 0.12.0 every class was embedded at install, because the
+  shipped files were for the old model names.
+- **`module-manager embed` embeds with the platform's own embedder.** `pnpm embed` in a module (or
+  `scripts/module-manager.sh embed <module-path>`) embeds in process with the same profile, document
+  prompt, title, truncation and normalisation as the platform's install. It takes `--models-dir`
+  (or `EMBEDDING_MODEL_DIR`), `--profile` (default: the platform's default), `--download` (fetch
+  missing weights at the profile's pinned revision, verified by sha256) and `--batch-size`. A class
+  whose file is already current is left alone. The new `module-manager.sh embed-all <modules-root>...
+  [--exclude <module-path>]...` does every module in one embedder session. Build the embedder package
+  first: `pnpm --filter @dethernety/embedder... build`. See the module development guide's
+  *Pre-computed Embeddings*.
+- **CI checks the shipped class vectors.** `scripts/check-module-embeddings.mjs` fails when a class
+  has no vector file, the file is for another profile or weights revision, the vector is not 768
+  finite unit-norm values, its `contentHash` no longer matches the class text (the class was edited
+  without running `pnpm embed`), or another embeddings file exists.
+
+### Removed
+
+- **Breaking (module authors): `module-manager embed --model`, `--url` and `--api-key`.** An HTTP
+  endpoint cannot reproduce the profile's prompt or model, so its vectors would rank wrongly. The
+  producer no longer reads the retired JSON (`metadata.json`) class layout.
+- **The `embeddings/embeddinggemma.json` and `embeddings/nomic-embed-text.json` files**, from every
+  module: no supported profile reads them.
+
 ## [0.12.0] - 2026-10-16
 
 **Upgrading:** this release removes the bundle's `ollama` service; the platform embeds in process.
@@ -2260,6 +2303,7 @@ greenfield ID rebinding, and append-only audit log (#104).
 - GraphQL API with real-time subscriptions
 - OIDC/JWT authentication support
 
+[0.12.1]: https://github.com/dether-net/dethernety-oss/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/dether-net/dethernety-oss/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/dether-net/dethernety-oss/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/dether-net/dethernety-oss/compare/v0.10.1...v0.11.0
