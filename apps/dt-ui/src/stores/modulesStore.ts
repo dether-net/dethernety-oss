@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import {
   DtModule,
   DtClassIdentity,
+  FrontendModuleManifest,
   Module,
   IdentityMigrationReport,
   MigrateClassIdArgs,
@@ -22,8 +23,6 @@ export const useModulesStore = defineStore('modules', () => {
     resetModule: false,
     getModuleById: false,
     getModuleByName: false,
-    getAvailableFrontendModules: false,
-    getModuleFrontendBundle: false,
     migrateClassId: false,
     reviveOrphanedClass: false,
     deleteOrphanedClass: false,
@@ -102,9 +101,7 @@ export const useModulesStore = defineStore('modules', () => {
       saveModule: false,
       resetModule: false,
       getModuleById: false,
-      getModuleByName: false,
-      getAvailableFrontendModules: false,
-      getModuleFrontendBundle: false
+      getModuleByName: false
     }
     error.value = ''
     successMessage.value = ''
@@ -287,36 +284,9 @@ export const useModulesStore = defineStore('modules', () => {
     }
   }
 
-  const getAvailableFrontendModules = async (): Promise<string[]> => {
-    try {
-      isLoading.value.getAvailableFrontendModules = true
-      error.value = ''
-      return await dtModule.getAvailableFrontendModules()
-    } catch (err) {
-      error.value = handleApiError(err as Error, 'get available frontend modules')
-      throw err
-    } finally {
-      isLoading.value.getAvailableFrontendModules = false
-    }
-  }
-
-  const getModuleFrontendBundle = async ({ moduleName }: { moduleName: string }): Promise<string> => {
-    if (!moduleName) {
-      error.value = 'Module name is required'
-      throw new Error('Module name is required')
-    }
-
-    try {
-      isLoading.value.getModuleFrontendBundle = true
-      error.value = ''
-      return await dtModule.getModuleFrontendBundle({ moduleName })
-    } catch (err) {
-      error.value = handleApiError(err as Error, 'get module frontend bundle')
-      throw err
-    } finally {
-      isLoading.value.getModuleFrontendBundle = false
-    }
-  }
+  // No error.value: the module loader reports a failure in the view that needed the manifest,
+  // not as a store-wide module error.
+  const getFrontendModuleManifest = (): Promise<FrontendModuleManifest[]> => dtModule.getFrontendModuleManifest()
 
   // ---- Admin mutations -------------------------------------------------
   // Each wraps the corresponding DtClassIdentity method with the established
@@ -410,8 +380,7 @@ export const useModulesStore = defineStore('modules', () => {
     fetchModulesWithIdentity,
     resetModule,
     saveModule,
-    getAvailableFrontendModules,
-    getModuleFrontendBundle,
+    getFrontendModuleManifest,
     migrateClassId,
     reviveOrphanedClass,
     deleteOrphanedClass,

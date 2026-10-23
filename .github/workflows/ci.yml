@@ -106,6 +106,10 @@ jobs:
       - name: dt-ws (unit)
         run: pnpm --filter dt-ws test
 
+      # The threat report module's suite, its frontend manifest contract test among them.
+      - name: dethernety-threat-report
+        run: pnpm --filter dethernety-threat-report test
+
       # The suites start their databases in testcontainers inside a beforeAll hook with a bounded
       # timeout. On a runner that does not have an image cached, a cold pull (the MAGE image is about
       # 1.5 GB) can outlast that hook, and every suite starting in parallel fails at once. Pulling

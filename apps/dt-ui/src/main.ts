@@ -5,8 +5,9 @@ import { registerPlugins } from '@/plugins'
 import { DefaultApolloClient } from '@/plugins/apolloComposable'
 import apolloClient, { initializeApolloClient } from '@/plugins/apolloClient'
 import * as VueRuntime from 'vue'
-import { moduleLoader, ModuleLoader } from './services/ModuleLoader'
+import { ModuleLoader } from './services/ModuleLoader'
 import { useAuthStore } from '@/stores/authStore'
+import { timingMark, timingMeasure } from '@/utils/userTiming'
 
 // CSS imports
 import '@vue-flow/core/dist/style.css'
@@ -24,7 +25,14 @@ const app = createApp({
 
 registerPlugins(app)
 
+// User Timing: dt:boot → dt:mounted, measured as dt:mount.
+const markMounted = (ok: boolean) => {
+  timingMark('dt:mounted')
+  timingMeasure('dt:mount', 'dt:boot', ok)
+}
+
 const initializeApp = async () => {
+  timingMark('dt:boot')
   try {
     if (import.meta.env.DEV) {
       console.log('Creating Vue app...')
@@ -35,13 +43,12 @@ const initializeApp = async () => {
     }
     await initializeApolloClient()
 
-    // Resolve auth mode (incl. no-auth) BEFORE loading modules. Module
-    // loading issues authenticated GraphQL queries via the Apollo authLink, which
-    // skips token handling only once authStore.authDisabled is set. The router
-    // guard also initialises auth mode, but that runs after mount() — too late for
-    // the startup module load, which would otherwise fail with a spurious
-    // "Invalid authentication token" and never retry. initializeAuthMode is
-    // idempotent (config is cached), so the later guard call is a no-op.
+    // Resolve auth mode (incl. no-auth) BEFORE mount. Authenticated requests —
+    // GraphQL via the Apollo authLink, and module frontend bundles — skip token
+    // handling only once authStore.authDisabled is set; without it the first
+    // request after mount would fail with a spurious "Invalid authentication
+    // token". initializeAuthMode is idempotent (config is cached), so the router
+    // guard's later call is a no-op.
     if (import.meta.env.DEV) {
       console.log('Initializing auth mode...')
     }
@@ -50,24 +57,22 @@ const initializeApp = async () => {
     if (import.meta.env.DEV) {
       console.log('Exposing host dependencies...')
     }
-    // Use the static method to expose dependencies
+    // Module frontends load on first use (moduleLoader.ensure), never before mount;
+    // they find the host's dependencies here.
     ModuleLoader.exposeHostDependencies(VueRuntime, app._context)
-
-    if (import.meta.env.DEV) {
-      console.log('Loading dynamic modules...')
-    }
-    await moduleLoader.loadAvailableModules()
 
     if (import.meta.env.DEV) {
       console.log('Mounting app...')
     }
     app.mount('#app')
+    markMounted(true)
 
   } catch (error) {
     if (import.meta.env.DEV) {
       console.error('Failed to initialize app:', error)
     }
     app.mount('#app')
+    markMounted(false)
   }
 }
 

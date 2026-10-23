@@ -713,8 +713,7 @@ enum VectorDisabledReason { EMBEDDING_DISABLED, NO_VECTORS, MODEL_MISMATCH, EMBE
 | `getNotRepreseningModels` | `modelId` | `[Model!]` | Get models not already represented by components in the given model |
 | `getAnalysisValues` | `analysisId`, `valueKey` | `JSON!` | Get analysis result values by key |
 | `getDocument` | `analysisId`, `filter` | `JSON!` | Get a document from an analysis |
-| `getAvailableFrontendModules` | — | `[String!]!` | List modules with frontend bundles |
-| `getModuleFrontendBundle` | `moduleName` | `String!` | Get a module's frontend JavaScript bundle |
+| `getFrontendModuleManifest` | — | `[FrontendModuleManifest!]!` | The module frontends the UI can load: one entry per module on the module allow-list with a frontend, sorted by name — `name`, `version`, `available`, `hash`, `size`, `url`, `components`, `hostApi { min, max }`. No bundle text; the bundle is served at `GET /module-bundles/:name/:hash/bundle.js` (REST, see [Dynamic Module System](../../frontend/LLD/MODULE_SYSTEM.md#the-bundle-route)). |
 | `matchMitreTechniques` | `input: MatchMitreTechniquesInput` | `MatchMitreTechniquesResult!` | Resolve user text to MITRE technique / mitigation candidates via a five-tier cascade. See [Technique matching](#technique-matching). |
 | `classIdentityEvents` | `kind?`, `moduleName?`, `since?` | `[ClassIdentityEvent!]!` | Admin: read the in-memory class-identity event ring buffer (max 1000 events, process-local) |
 

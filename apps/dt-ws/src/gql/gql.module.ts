@@ -8,6 +8,7 @@ import { DatabaseModule } from '../database/database.module';
 import { SchemaModule } from './schema.module';
 import { GqlHealthService } from './health/gql-health.service';
 import { GraphQLSseController } from './sse/graphql-sse.controller';
+import { ModuleBundleController } from '../modules/module-bundle.controller';
 import gqlConfig, { GqlConfig } from './gql.config';
 import { Logger } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -132,6 +133,7 @@ import {
   ],
   controllers: [
     GraphQLSseController, // SSE endpoint for GraphQL subscriptions
+    ModuleBundleController, // Module frontend bundles at /module-bundles
   ],
   providers: [
     GqlHealthService,

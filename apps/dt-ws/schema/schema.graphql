@@ -2253,6 +2253,34 @@ type ControlInstantiationAttribute {
   attributes: JSON
 }
 
+"""A module frontend the UI can load."""
+type FrontendModuleManifest {
+  "Module name"
+  name: String!
+  "Module version"
+  version: String
+  "False while the module is unhealthy; its bundle then answers 503"
+  available: Boolean!
+  "sha256 of the bundle, lowercase hex"
+  hash: String!
+  "Bundle size in bytes, uncompressed"
+  size: Int!
+  "The bundle's path on this server: /module-bundles/<name>/<hash>/bundle.js"
+  url: String!
+  "The component keys the bundle registers"
+  components: [String!]!
+  "The host dependency versions the bundle works with"
+  hostApi: FrontendHostApiRange!
+}
+
+"""An inclusive range of host dependency versions."""
+type FrontendHostApiRange {
+  "Lowest supported version"
+  min: Int!
+  "Highest supported version"
+  max: Int!
+}
+
 type Query {
   "Get all exposures attached to a specific element"
   getExposuresForElement(elementId: String!): [Exposure!]!
@@ -2331,12 +2359,8 @@ type Query {
   ): JSON!
     @authentication
 
-  "List module names that have frontend bundles available"
-  getAvailableFrontendModules: [String!]!
-    @authentication
-
-  "Get the compiled frontend bundle for a module"
-  getModuleFrontendBundle(moduleName: String!): String!
+  "List the module frontends the UI can load: allowed modules with a frontend, sorted by name"
+  getFrontendModuleManifest: [FrontendModuleManifest!]!
     @authentication
 
   "Match elements against class catalog nodes: exact-name hits first, merged with vector-similarity hits; name containment, then a type heuristic, only when neither answers"

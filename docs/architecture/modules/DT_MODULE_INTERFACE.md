@@ -11,6 +11,7 @@
 - [Asset-context fields exposed to modules](#asset-context-fields-exposed-to-modules)
 - [Method Details](#method-details)
 - [Lifecycle Hooks (Optional)](#lifecycle-hooks-optional)
+- [Module frontend](#module-frontend)
 
 ## Overview
 
@@ -1344,6 +1345,85 @@ Which implementation a deployment gets follows `MODULE_KG_BASE_URL` and `MODULE_
 
 ---
 
+## Module frontend
+
+A module can ship Vue components for dt-ui. The frontend is not part of the `DTModule` class: it is two files in the module directory, `frontend/bundle.js` and `frontend/frontend-manifest.json`. The host loads a module frontend **only through its manifest**; a bundle without a valid manifest is not loaded, and dt-ws logs the refusal by module name. dt-ws also refuses a `frontend/` that is not a directory, one file without the other, a file that is not a regular file (a symlink is not followed), and a manifest over 64 KiB or a bundle over 32 MiB; the module itself still loads.
+
+**Source file:** `packages/dt-module/src/frontend-manifest.ts`; the JSON schema is `packages/dt-module/src/frontend-manifest.schema.json`.
+
+### The manifest
+
+```json
+{
+  "manifestVersion": 1,
+  "components": ["my_report_view"],
+  "hostApi": { "min": 1, "max": 1 }
+}
+```
+
+| Field | Rule |
+|-------|------|
+| `manifestVersion` | `1` |
+| `components` | The component keys `install()` registers, **exactly**. 1–256 unique strings, each matching `^[A-Za-z][A-Za-z0-9_-]{0,127}$` |
+| `hostApi` | `{ min, max }`: the inclusive range of host dependency versions the bundle works with. Integers from 1 to 1000, `min` ≤ `max` |
+| `$schema` | Optional string, for editors |
+
+No other field is allowed, at the top level or in `hostApi`.
+
+### The host API range
+
+dt-ui gives `install()` a set of host dependencies (the host's Vue runtime, its JSONForms engine, `useHostContext`, the component registry, the app context) and versions that shape as `HOST_API_VERSION`, currently **1**. The host raises it when the shape changes incompatibly. A module whose `hostApi` range does not include the host's version is refused before its bundle is fetched, and the view that needed it reports that the app and the module do not match. A frontend built against today's host declares `{ "min": 1, "max": 1 }`.
+
+### What `install()` may register
+
+`install(hostDependencies)` receives `services.componentRegistry` **scoped to the keys this module owns**: the keys its manifest declares that no other module frontend on the deployment also declares.
+
+- `register()` of any other key is refused, logged, and ignored.
+- A key two modules declare belongs to neither; a view that needs it fails with a visible error.
+- `install()` must register every declared key. A declared key left unregistered fails the view that needs it.
+
+The scoping prevents accidental collisions. It is not isolation: a module frontend runs with full page privilege. See [Dynamic Module System → Scoped registry](../frontend/LLD/MODULE_SYSTEM.md#scoped-registry).
+
+### Validation API
+
+`@dethernety/dt-module` exports:
+
+| Export | Purpose |
+|--------|---------|
+| `validateFrontendManifest(value)` | Validates a parsed manifest and returns a fresh, frozen copy holding only the declared fields. Throws `FrontendManifestError` naming the problems (the first 20) |
+| `parseFrontendManifest(text)` | Parses the file's text (a UTF-8 BOM is ignored) and validates it. A JSON syntax error is a `FrontendManifestError` too |
+| `FrontendManifestError` | `problems: string[]` |
+| `FRONTEND_MANIFEST_FILE`, `FRONTEND_MANIFEST_VERSION` | `'frontend-manifest.json'`, `1` |
+| `FrontendManifest`, `HostApiRange` | Types |
+
+The JSON schema is exported as `@dethernety/dt-module/frontend-manifest.schema.json`. The schema cannot express `min` ≤ `max`; the validator enforces it.
+
+### Contract test
+
+`assertFrontendManifest(frontend, manifest)`, on the `@dethernety/dt-module/frontend-manifest` subpath only, validates the manifest, runs the frontend's `install()` against a recording registry, and throws unless `install()` registered exactly the declared keys, each once. It reports keys registered twice, declared but not registered, and registered but not declared. The recording registry refuses a non-string key or a missing component, as the host's does. It throws on any mismatch, so it works under any test runner, and returns the validated manifest.
+
+```javascript
+// frontend/__tests__/frontendManifest.test.js
+import { describe, it } from 'vitest'
+import { assertFrontendManifest } from '@dethernety/dt-module/frontend-manifest'
+import frontend from '../index.js'
+import manifest from '../frontend-manifest.json'
+
+describe('frontend-manifest.json', () => {
+  it('declares exactly the components install() registers', async () => {
+    await assertFrontendManifest(frontend, manifest)
+  })
+})
+```
+
+`dethernety-threat-report` runs this test over its real `install()`.
+
+### Packaging and loading
+
+The packager copies both files into the package and refuses a `frontend/` missing either; see [Module Package Design → Module frontend](./MODULE_PACKAGE_DESIGN.md#module-frontend). dt-ws reads them when it loads or reloads the module, and dt-ui fetches the bundle the first time one of its keys is needed; see [Dynamic Module System](../frontend/LLD/MODULE_SYSTEM.md).
+
+---
+
 ## Related Documentation
 
 | Document | Description |
@@ -1353,3 +1433,4 @@ Which implementation a deployment gets follows `MODULE_KG_BASE_URL` and `MODULE_
 | [DEVELOPMENT_GUIDE.md](./DEVELOPMENT_GUIDE.md) | Step-by-step development guide |
 | [MODULE_CUSTOM_RESOLVERS.md](../backend/LLD/MODULE_CUSTOM_RESOLVERS.md) | Custom resolver architecture (LLD) |
 | [MODULE_MANAGEMENT_SERVICE.md](../backend/LLD/MODULE_MANAGEMENT_SERVICE.md) | Module upsert + `afterInstall` invocation mechanism (LLD) |
+| [MODULE_SYSTEM.md](../frontend/LLD/MODULE_SYSTEM.md) | How dt-ui loads module frontends (LLD) |

@@ -10,6 +10,13 @@ import { ModuleManagementService } from './module-management.service';
 import { GqlConfig } from '../gql.config';
 import { extractDeclaredFields } from '../utils/sdl-parser';
 import {
+  BundleLookup,
+  FrontendModuleManifest,
+  listFrontendManifests,
+  loadModuleFrontend,
+  lookupBundle,
+} from './module-frontend';
+import {
   ModuleEntry,
   ModuleHealthStatus,
   ModuleHealth,
@@ -569,6 +576,29 @@ export class ModuleRegistryService implements OnModuleInit {
   }
 
   /**
+   * Reads the module's frontend into the entry. A frontend that cannot be loaded is logged by
+   * module name and left out; the module itself stays loaded.
+   */
+  private async attachFrontend(entry: ModuleEntry, moduleName: string): Promise<void> {
+    try {
+      const load = await loadModuleFrontend(path.dirname(entry.filePath));
+      if (load.kind === 'loaded') {
+        entry.frontend = load.asset;
+        this.logger.log('Module frontend loaded', {
+          moduleName,
+          hash: load.asset.hash,
+          size: load.asset.size,
+          components: load.asset.manifest.components.length,
+        });
+      } else if (load.kind === 'refused') {
+        this.logger.error('Module frontend not loaded', { moduleName, reason: load.reason });
+      }
+    } catch (error) {
+      this.logger.error('Module frontend not loaded', { moduleName, error: safeErrorMessage(error) });
+    }
+  }
+
+  /**
    * Release a module instance the registry is about to drop. Best-effort: a module that
    * throws from `dispose()` must not fail the load or reload that is discarding it.
    */
@@ -713,6 +743,7 @@ export class ModuleRegistryService implements OnModuleInit {
                 }
               }
 
+              await this.attachFrontend(moduleEntry, moduleName);
               this.customModules.set(moduleName, moduleEntry);
               loadedCount++;
 
@@ -828,6 +859,10 @@ export class ModuleRegistryService implements OnModuleInit {
                 isHealthy: true,
                 ...(loadResult.metadataUnavailable ? { metadataUnavailable: true } : {}),
               };
+
+              // The bundle, its hash and the compressed copies are replaced together with the
+              // instance, so no URL carrying the old hash is ever answered with new bytes.
+              await this.attachFrontend(moduleEntry, moduleName);
 
               // The new instance is live and about to replace the old one. Only now — a
               // failed reload above keeps the old instance serving, so disposing earlier
@@ -950,6 +985,16 @@ export class ModuleRegistryService implements OnModuleInit {
    */
   getAllModuleEntries(): Map<string, ModuleEntry> {
     return new Map(this.customModules);
+  }
+
+  /** The frontends the UI can load: allowed modules with a frontend. */
+  getFrontendManifests(): FrontendModuleManifest[] {
+    return listFrontendManifests(this.customModules, (name) => this.isModuleAllowed(name));
+  }
+
+  /** The current bundle of `moduleName`, if `hash` names it. */
+  findFrontendBundle(moduleName: string, hash: string): BundleLookup {
+    return lookupBundle(this.customModules, (name) => this.isModuleAllowed(name), moduleName, hash);
   }
 
   /**

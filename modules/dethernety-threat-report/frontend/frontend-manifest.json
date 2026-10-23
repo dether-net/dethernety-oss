@@ -1,0 +1,5 @@
+{
+  "manifestVersion": 1,
+  "components": ["threat_report_dashboard"],
+  "hostApi": { "min": 1, "max": 1 }
+}

@@ -133,6 +133,24 @@ export interface Module extends Element {
   orphanedIssueClasses?: OrphanedClass[]
 }
 
+/** A module frontend the UI can load: its bundle's hash-addressed URL and the component keys it registers. */
+export interface FrontendModuleManifest {
+  name: string
+  version?: string | null
+  /** False while the module is unhealthy; its bundle then answers 503. */
+  available: boolean
+  /** sha256 of the bundle, lowercase hex */
+  hash: string
+  /** Bundle size in bytes, uncompressed */
+  size: number
+  /** The bundle's path on the API server */
+  url: string
+  /** The component keys the bundle registers */
+  components: string[]
+  /** The host dependency versions the bundle works with, inclusive */
+  hostApi: { min: number; max: number }
+}
+
 export interface OrphanedClass {
   id: string
   name: string
@@ -644,6 +662,8 @@ export interface AnalysisClass extends Element {
   description?: string
   type?: string
   category?: string
+  /** The module that provides the class, where the query selects it */
+  module?: Module
 }
 
 export interface IssueElement extends Element {

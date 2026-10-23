@@ -148,7 +148,7 @@ export default defineConfig(({ mode }) => {
           target: 'http://localhost:3003/graphql',
           ws: true,
         },
-        '/modules': {
+        '/module-bundles': {
           target: 'http://localhost:3003',
           changeOrigin: true,
           secure: false

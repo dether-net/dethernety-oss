@@ -406,7 +406,7 @@ async getDocument(
 
 1. **Index document** - Uses graph config's `index_document` function:
 ```typescript
-await documentOps.getDocument(modelId, analysisId, 'attack_scenario_analysis', {
+await documentOps.getDocument(modelId, analysisId, 'example_analysis', {
   document: 'index'
 });
 // Uses: graphConfig.index_document(scope, analysisId) to get namespace/key
@@ -414,10 +414,10 @@ await documentOps.getDocument(modelId, analysisId, 'attack_scenario_analysis', {
 
 2. **Direct lookup** - Specifies namespace and key directly:
 ```typescript
-await documentOps.getDocument(modelId, analysisId, 'attack_scenario_analysis', {
-  namespace: ['attack_scenarios', modelId],
-  key: 'scenario_index',
-  attribute: 'scenarios'  // Optional: extract specific attribute
+await documentOps.getDocument(modelId, analysisId, 'example_analysis', {
+  namespace: ['example_findings', modelId],
+  key: 'findings_index',
+  attribute: 'findings'  // Optional: extract specific attribute
 });
 ```
 
@@ -438,8 +438,8 @@ async getFromStore(namespace: string[], key: string): Promise<Record<string, any
 **Example:**
 ```typescript
 const doc = await documentOps.getFromStore(
-  ['attack_scenarios', 'model-123'],
-  'scenario_index'
+  ['example_findings', 'model-123'],
+  'findings_index'
 );
 ```
 

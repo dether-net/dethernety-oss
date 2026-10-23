@@ -1,8 +1,8 @@
 import { DtUtils } from '../dt-utils/dt-utils.js'
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
-import { GET_AVAILABLE_FRONTEND_MODULES, GET_MODULE_BY_ID, GET_MODULE_BY_NAME, GET_MODULE_FRONTEND_BUNDLE, GET_MODULES, RESET_MODULE, SAVE_MODULE } from './dt-module-gql.js'
-import { Module } from '../interfaces/core-types-interface.js'
+import { GET_FRONTEND_MODULE_MANIFEST, GET_MODULE_BY_ID, GET_MODULE_BY_NAME, GET_MODULES, RESET_MODULE, SAVE_MODULE } from './dt-module-gql.js'
+import { FrontendModuleManifest, Module } from '../interfaces/core-types-interface.js'
 
 export class DtModule {
   private dtUtils: DtUtils
@@ -123,43 +123,15 @@ export class DtModule {
   }
 
   /**
-   * Get the available frontend modules
-   * @returns The available frontend modules
+   * Get the module frontends the UI can load, without their bundles
+   * @returns One entry per allowed module with a frontend
    */
-  getAvailableFrontendModules = async (): Promise<string[]> => {
-    try {
-      const response = await this.dtUtils.performQuery<{ getAvailableFrontendModules: string[] }>({
-        query: GET_AVAILABLE_FRONTEND_MODULES,
-        action: 'getAvailableFrontendModules',
-        fetchPolicy: 'network-only'
-      })
-      return response.getAvailableFrontendModules || []
-    } catch (error) {
-      throw error
-    }
-  }
-  
-  /**
-   * Get the frontend bundle for a module
-   * @param moduleName - The name of the module to get the frontend bundle for
-   * @returns The frontend bundle for the module
-   */
-  getModuleFrontendBundle = async ({moduleName}: {moduleName: string}): Promise<string> => {
-    if (!moduleName) {
-      throw new Error('Module name is required')
-    }
-    
-    try {
-      const response = await this.dtUtils.performQuery<{ getModuleFrontendBundle: string }>({
-        query: GET_MODULE_FRONTEND_BUNDLE,
-        variables: { moduleName },  
-        action: 'getModuleFrontendBundle',
-        fetchPolicy: 'network-only'
-      })
-      
-      return response.getModuleFrontendBundle || ''
-    } catch (error) {
-      throw error
-    }
+  getFrontendModuleManifest = async (): Promise<FrontendModuleManifest[]> => {
+    const response = await this.dtUtils.performQuery<{ getFrontendModuleManifest: FrontendModuleManifest[] }>({
+      query: GET_FRONTEND_MODULE_MANIFEST,
+      action: 'getFrontendModuleManifest',
+      fetchPolicy: 'network-only'
+    })
+    return response.getFrontendModuleManifest || []
   }
 }

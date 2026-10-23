@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Module frontend manifest",
+  "description": "frontend/frontend-manifest.json, beside a module's frontend/bundle.js. The host loads a module frontend only through this file. One rule is not expressible here and is enforced by the validator: hostApi.min <= hostApi.max.",
+  "type": "object",
+  "required": ["manifestVersion", "components", "hostApi"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "manifestVersion": {
+      "description": "Format version of this file.",
+      "const": 1
+    },
+    "components": {
+      "description": "The component keys the bundle's install() registers, exactly.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,127}$" }
+    },
+    "hostApi": {
+      "description": "The range of host dependency versions the bundle works with, inclusive.",
+      "type": "object",
+      "required": ["min", "max"],
+      "additionalProperties": false,
+      "properties": {
+        "min": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "max": { "type": "integer", "minimum": 1, "maximum": 1000 }
+      }
+    }
+  }
+}

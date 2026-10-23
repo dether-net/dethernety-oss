@@ -52,7 +52,8 @@ function toNum(v: any): number | null {
  *   5. Opening "Results" routes to /analysisresults, which calls
  *      getDocument({ filter: { document: 'index' } }); we return the snapshot
  *      keyed by the frontend component key (REPORT_COMPONENT_KEY), which the
- *      page resolves via componentRegistry.getComponent(key) and renders.
+ *      page resolves from the component registry (loading this module's
+ *      frontend on first use) and renders.
  *
  * The driver handed to the constructor is the secure, session-scoping driver;
  * resolvers and interface methods must NOT implement their own authz — the JWT

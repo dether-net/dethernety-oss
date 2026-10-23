@@ -2,6 +2,6 @@
 dist/
 frontend/dist/
 # Flattened bundle copied next to source so the shared packager places it at
-# frontend/bundle.js (the path the backend's getModuleFrontendBundle reads).
+# frontend/bundle.js (the path the backend reads the bundle from, beside frontend-manifest.json).
 frontend/bundle.js
 node_modules/

@@ -1,4 +1,5 @@
 import { DTModule, DTMetadata, ResolverMap } from '@dethernety/dt-module';
+import type { ModuleFrontendAsset } from '../module-management-services/module-frontend';
 
 export interface ModuleEntry {
   instance: DTModule;
@@ -15,6 +16,8 @@ export interface ModuleEntry {
   schemaFragment?: string;
   /** Custom resolvers from the module's getResolvers() method */
   resolverMap?: ResolverMap;
+  /** The module's frontend, read when the module was loaded or reloaded */
+  frontend?: ModuleFrontendAsset;
 }
 
 export interface ModuleHealthStatus {
