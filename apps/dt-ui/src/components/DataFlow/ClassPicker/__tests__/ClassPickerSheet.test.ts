@@ -68,7 +68,7 @@ const stubs = {
   'v-skeleton-loader': { template: '<div class="v-skeleton-loader"></div>' },
   'v-btn': {
     template:
-      '<button class="v-btn" :class="$attrs.class" :disabled="disabled" @click="$emit(\'click\')"><slot /></button>',
+      '<button class="v-btn" :class="$attrs.class" :data-color="color" :disabled="disabled" @click="$emit(\'click\')"><slot /></button>',
     props: ['disabled', 'color', 'variant', 'size', 'icon'],
     emits: ['click'],
   },
@@ -561,6 +561,13 @@ describe('ClassPickerSheet — error state', () => {
     await nextTick()
     expect(wrapper.find('.error-row').exists()).toBe(true)
     expect(wrapper.text()).toContain("Couldn't load classes.")
+  })
+
+  it("draws Retry in the surface's text colour, not the default primary", async () => {
+    storeState.listError = 'Connection failed'
+    const wrapper = mount(ClassPickerSheet, { props: baseProps, global: { stubs } })
+    await nextTick()
+    expect(wrapper.find('.retry-btn').attributes('data-color')).toBe('rgb(var(--v-theme-on-surface))')
   })
 
   it('shows retry block in search mode when store.matchError is set', async () => {

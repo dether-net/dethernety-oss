@@ -415,7 +415,13 @@
           <v-list-item class="error-row">
             <v-list-item-title class="text-disabled">Couldn't load classes.</v-list-item-title>
             <template #append>
-              <v-btn class="retry-btn" size="small" variant="text" @click="retry">Retry</v-btn>
+              <v-btn
+                class="retry-btn"
+                color="rgb(var(--v-theme-on-surface))"
+                size="small"
+                variant="outlined"
+                @click="retry"
+              >Retry</v-btn>
             </template>
           </v-list-item>
         </template>

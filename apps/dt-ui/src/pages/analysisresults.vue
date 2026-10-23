@@ -229,8 +229,15 @@
         />
         <div v-else-if="viewError" class="d-flex align-center justify-center flex-grow-1 pa-6">
           <v-alert type="error" variant="tonal" :text="viewError">
+            <!-- The surface's text colour: the default `primary` is a header colour and nearly vanishes
+                 on the tonal alert, and no theme accent is readable on it in both themes. -->
             <template #append>
-              <v-btn size="small" variant="text" @click="retryView">Retry</v-btn>
+              <v-btn
+                color="rgb(var(--v-theme-on-surface))"
+                size="small"
+                variant="outlined"
+                @click="retryView"
+              >Retry</v-btn>
             </template>
           </v-alert>
         </div>

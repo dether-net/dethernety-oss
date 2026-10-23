@@ -18,10 +18,10 @@ A module is a deployment unit containing any combination of optional components:
 │   ├── *.cypher               # Executed alphabetically during installation
 │   └── *.csv                  # Referenced via LOAD CSV in Cypher scripts
 ├── frontend/                  # Vue UI components — optional
-│   └── components/
-├── scripts/
-│   └── package.js             # Packaging script (creates tar.gz)
-├── package.json
+│   ├── components/            # Source components
+│   ├── bundle.js              # Built bundle (what ships)
+│   └── frontend-manifest.json # Required next to bundle.js
+├── package.json               # build:package runs the shared root scripts/package-module.js
 └── tsconfig.json              # Only if backend module exists
 ```
 
@@ -56,11 +56,11 @@ cd ../apps/dt-ws && pnpm dev
 
 ```bash
 # Build and create tar.gz package
-pnpm build          # Compiles TS + runs scripts/package.js
+pnpm build          # tsc (+ frontend vite build, if any) + scripts/package-module.js
                     # Output: dist/{name}-{version}.tar.gz
 ```
 
-The `scripts/package.js` packaging script auto-detects and includes all components (dethernety/, langgraph/, data/, frontend/).
+The shared `scripts/package-module.js` packaging script auto-detects and includes all components (dethernety/, langgraph/, data/, frontend/). From frontend/ it ships only `bundle.js` and `frontend-manifest.json`, and refuses to package when either is missing. `mitre-frameworks` packages with its own `scripts/package.sh` instead.
 
 ## Key Patterns
 
@@ -69,7 +69,7 @@ The `scripts/package.js` packaging script auto-detects and includes all componen
 - **Class definitions**: the platform ingests each module's class metadata into the graph at load
 - **Rego policies**: shipped as `policies.rego` in each class directory, evaluated in-process (one Regorus WASM engine per class); registered eagerly at module load and freed on module reload/dispose — no external policy server
 - **Analysis config**: `DtLgModule` uses `LgAnalysisConfig` to define graph names, types, and input builders
-- **Frontend bundles**: Vite-compiled single `bundle.js` with Vue runtime shimmed to avoid host conflicts
+- **Frontend bundles**: Vite-compiled single `bundle.js` with Vue runtime shimmed to avoid host conflicts; it needs its `frontend-manifest.json` (component keys, `hostApi` range), and a frontend without a valid manifest is not loaded
 
 ## Testing
 

@@ -19,6 +19,7 @@
 <template>
   <v-alert
     v-if="blockedModules.length > 0"
+    class="surface-alert"
     type="warning"
     variant="tonal"
     border="start"

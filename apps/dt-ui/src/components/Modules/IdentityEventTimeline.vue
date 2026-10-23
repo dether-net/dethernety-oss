@@ -130,7 +130,7 @@
 </script>
 
 <template>
-  <v-card class="event-timeline elevation-12 rounded-lg opacity-80">
+  <v-card class="event-timeline elevation-12 rounded-lg">
     <v-card-title class="pa-0">
       <v-sheet
         class="pa-2 ma-0 text-body-1 d-flex flex-row justify-space-between"
