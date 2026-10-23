@@ -223,3 +223,13 @@ describe('TechniquePickerInline — vector write-back staleness guard', () => {
     expect(vm.vectorResults).toEqual([candidate('T-cur')])
   })
 })
+
+describe('TechniquePickerInline — error state', () => {
+  it("draws Retry in the surface's text colour, not the default primary", async () => {
+    storeState.matchError = 'Connection failed'
+    const wrapper = mountPicker()
+    await wrapper.find('.v-text-field').trigger('focus')
+    await nextTick()
+    expect(wrapper.find('.retry-btn').attributes('color')).toBe('rgb(var(--v-theme-on-surface))')
+  })
+})

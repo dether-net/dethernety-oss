@@ -292,6 +292,14 @@ describe('ClassPickerInline — loading + error', () => {
     expect(matchClassesMock).toHaveBeenCalledTimes(1)
   })
 
+  it("draws Retry in the surface's text colour, not the default primary", async () => {
+    storeState.matchError = 'Connection failed'
+    const wrapper = mountPicker()
+    await wrapper.find('.v-text-field').trigger('focus')
+    await nextTick()
+    expect(wrapper.find('.retry-btn').attributes('color')).toBe('rgb(var(--v-theme-on-surface))')
+  })
+
   it('listError set → inline picker does NOT render error (cross-op isolation)', async () => {
     // Inline picker only consumes matchClasses; a stale listError must not
     // poison its error caption. Regression for the bug fixed in this round.

@@ -266,7 +266,7 @@
             <v-tabs-window-item value="ops" class="pa-10 pt-5">
               <v-row v-if="!isAdmin">
                 <v-col cols="12">
-                  <v-alert type="info" variant="tonal" border="start">
+                  <v-alert class="surface-alert" type="info" variant="tonal" border="start">
                     <p class="mb-1 font-weight-medium">Operations requires admin role</p>
                     <p class="text-body-2 mb-0">
                       Module install diagnostics, orphaned class cleanup, and identity events.

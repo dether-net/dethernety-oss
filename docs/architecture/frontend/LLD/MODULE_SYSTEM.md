@@ -110,6 +110,8 @@ A `200` or `304` carries `Content-Type: application/javascript; charset=utf-8`, 
 
 The hash makes the URL content-addressed: a bundle never changes under its URL, so the browser keeps it for a year, and a new bundle gets a new URL.
 
+A module frontend installed in a tab is not fetched again; the tab keeps that version until the page is reloaded. The tab also keeps its manifest unless a failure in [Failure Handling](#failure-handling) clears it, so after a server-side update, a module the tab has not loaded yet is requested at the old URL. The fetch uses the default cache mode, so if the HTTP cache holds that URL (from an earlier page load or another tab), the old bundle is served without asking the server (it is `immutable`) and the tab renders it. Only an uncached old URL reaches the `404` recovery, which rereads the manifest and fetches the new URL. A reload gets the new version, since the new manifest names it.
+
 **Source:** `module-bundle.controller.ts`, `module-frontend.ts` (`lookupBundle`, `bundleResponse`). The SPA fallback skips `/module-bundles`, and the dt-ui dev server proxies it to dt-ws.
 
 ### `ensure(key)`

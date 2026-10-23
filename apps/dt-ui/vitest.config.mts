@@ -12,6 +12,9 @@ export default defineConfig({
   test: {
     include: ['src/**/*.test.ts'],
     environment: 'node',
+    // Stylesheets load as empty strings in tests, ?raw included, unless they match here: a test that
+    // reads a stylesheet's source imports it with ?raw.
+    css: { include: [/\.s?css\?raw$/] },
     // Drops the harness's "Failed to resolve component" warnings and nothing else — see the file.
     setupFiles: ['./src/test-setup.ts'],
   },

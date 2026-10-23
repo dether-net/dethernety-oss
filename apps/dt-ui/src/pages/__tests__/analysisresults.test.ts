@@ -128,6 +128,13 @@ describe('analysis results page — a lazily loaded view', () => {
     expect(wrapper.find('.report-view').exists()).toBe(true)
   })
 
+  it("draws Retry in the surface's text colour, not the default primary", async () => {
+    loader.ensure.mockRejectedValueOnce(new loader.ModuleFrontendError('unavailable'))
+    const wrapper = mount(AnalysisResults, { global: { stubs } })
+    await flushPromises()
+    expect(wrapper.find('.alert button').attributes('color')).toBe('rgb(var(--v-theme-on-surface))')
+  })
+
   it('keeps the mounted view when an unrelated component registers', async () => {
     componentRegistry.register('report_view', ReportView)
     const wrapper = mount(AnalysisResults, { global: { stubs } })

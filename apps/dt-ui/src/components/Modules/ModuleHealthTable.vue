@@ -49,7 +49,7 @@
 
 <template>
   <div class="health-table-div pa-0 rounded-lg elevation-12">
-    <v-table density="compact" class="health-table opacity-80">
+    <v-table density="compact" class="health-table">
       <thead>
         <tr>
           <th class="text-left">Module</th>

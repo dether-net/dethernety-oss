@@ -5,3 +5,17 @@
 .v-application {
   font-family: 'JetBrains Mono', monospace !important;
 }
+
+// Vuetify draws a tonal alert's text and icon in its type colour over a faint tint of that colour:
+// below AA for most types in both themes (about 1.1:1 for an error on the light theme's slate
+// surface). The tint and the icon's shape still mark the type. on-surface assumes a surface below:
+// on the light theme's page background it would be white on light grey. A tonal alert that sits on
+// the page, outside any opaque card, sheet or drawer, takes `surface-alert` to bring its own surface.
+.v-alert--variant-tonal > .v-alert__prepend,
+.v-alert--variant-tonal > .v-alert__content {
+  color: rgb(var(--v-theme-on-surface));
+}
+
+.v-alert.surface-alert {
+  background: rgb(var(--v-theme-surface));
+}
