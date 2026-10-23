@@ -233,10 +233,10 @@ constructor(
 ```typescript
 const analysisConfig: LgAnalysisConfig = {
   graphs: {
-    'attack_scenario_analysis': {
-      description: 'Generates attack scenarios for threat models',
+    'example_analysis': {
+      description: 'Generates findings for threat models',
       type: 'model_analysis',
-      category: 'attack_scenario',
+      category: 'example',
 
       // Build input payload
       input: async (scope, analysisId, driver, additionalParams) => {
@@ -251,13 +251,13 @@ const analysisConfig: LgAnalysisConfig = {
 
       // Document storage location
       index_document: async (scope, analysisId) => ({
-        namespace: ['attack_scenarios', scope],
-        key: 'scenarios'
+        namespace: ['example_findings', scope],
+        key: 'findings'
       }),
 
       // Post-process results
       post_process: async (result) => {
-        return result.scenarios?.map(formatScenario);
+        return result.findings?.map(formatFinding);
       }
     }
   }
@@ -346,12 +346,12 @@ async getDocument(
 import { DtLgModule, LgAnalysisConfig } from '@dethernety/dt-module';
 import { Logger } from '@nestjs/common';
 
-const attackScenarioConfig: LgAnalysisConfig = {
+const myAnalysisConfig: LgAnalysisConfig = {
   graphs: {
-    'attack_scenario_analysis': {
-      description: 'AI-powered attack scenario generation',
+    'example_analysis': {
+      description: 'AI-powered model analysis',
       type: 'model_analysis',
-      category: 'attack_scenario',
+      category: 'example',
       input: async (scope, analysisId, driver) => {
         // Build input from model data
         return { model_id: scope };
@@ -360,12 +360,12 @@ const attackScenarioConfig: LgAnalysisConfig = {
   }
 };
 
-class AttackScenarioModule extends DtLgModule {
+class MyAnalysisModule extends DtLgModule {
   constructor(driver: any, logger: Logger) {
-    super('example-attack-scenario', driver, logger, {
-      analysisConfig: attackScenarioConfig,
+    super('my-analysis-module', driver, logger, {
+      analysisConfig: myAnalysisConfig,
       metadata: {
-        description: 'Attack scenario analysis using AI',
+        description: 'Model analysis using AI',
         version: '1.0.0',
         author: 'Dethernety Team'
       }

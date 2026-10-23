@@ -33,6 +33,15 @@ export * from './embedding-file-cache';
 export * from './embedding-text';
 export * from './dt-file-opa-module';
 export * from './dt-remote-module';
+// The runtime half; the contract-test helper is on the `./frontend-manifest` subpath only.
+export {
+  FRONTEND_MANIFEST_FILE,
+  FRONTEND_MANIFEST_VERSION,
+  FrontendManifestError,
+  parseFrontendManifest,
+  validateFrontendManifest,
+} from './frontend-manifest';
+export type { FrontendManifest, HostApiRange } from './frontend-manifest';
 export {
   CloudSessionExpiredError,
   EvaluationNotEntitledError,

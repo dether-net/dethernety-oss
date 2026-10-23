@@ -165,6 +165,23 @@ interface Module extends Element {
 
 > **Breaking change (PR #224)**: `Module.classesWithRebindConflicts: string[]` was renamed to `Module.rebindConflicts: RebindConflictDetail[]`. Clean break — no compatibility shim, since there are no external consumers. Callers must move from the bare class-name array to the structured `RebindConflictDetail` records (which also carry `dbId` and `moduleDeclaredId`).
 
+#### FrontendModuleManifest
+
+One module frontend the UI can load, as `DtModule.getFrontendModuleManifest()` returns it. Source: [`packages/dt-core/src/interfaces/core-types-interface.ts`](../../../packages/dt-core/src/interfaces/core-types-interface.ts).
+
+```typescript
+interface FrontendModuleManifest {
+  name: string
+  version?: string | null
+  available: boolean               // false while the module is unhealthy; its bundle then answers 503
+  hash: string                     // sha256 of the bundle, lowercase hex
+  size: number                     // bundle size in bytes, uncompressed
+  url: string                      // the bundle's path on the API server
+  components: string[]             // the component keys the bundle registers
+  hostApi: { min: number; max: number } // host dependency versions the bundle works with, inclusive
+}
+```
+
 #### Class-identity types
 
 Supporting types for the class-identity admin surface. Source: [`packages/dt-core/src/interfaces/core-types-interface.ts`](../../../packages/dt-core/src/interfaces/core-types-interface.ts).
@@ -822,6 +839,7 @@ interface AnalysisClass extends Element {
   description?: string
   type?: string
   category?: string
+  module?: Module                  // the providing module, where the query selects it
 }
 ```
 

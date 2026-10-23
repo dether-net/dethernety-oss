@@ -29,6 +29,12 @@
       "require": "./dist/rego-mapping.js",
       "default": "./dist/rego-mapping.js"
     },
+    "./frontend-manifest": {
+      "types": "./dist/frontend-manifest.d.ts",
+      "require": "./dist/frontend-manifest.js",
+      "default": "./dist/frontend-manifest.js"
+    },
+    "./frontend-manifest.schema.json": "./dist/frontend-manifest.schema.json",
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "require": "./dist/testing/index.js",
@@ -48,6 +54,9 @@
       ],
       "rego-mapping": [
         "dist/rego-mapping.d.ts"
+      ],
+      "frontend-manifest": [
+        "dist/frontend-manifest.d.ts"
       ],
       "testing": [
         "dist/testing/index.d.ts"

@@ -296,7 +296,7 @@ for the buffer-vs-immediate-persist mechanics.
 
 ### 4. Dynamic Module System
 
-Runtime-extensible architecture for frontend plugins.
+Runtime-extensible architecture for frontend plugins. A module frontend is a bundle plus a manifest naming the component keys it registers. No module frontend is fetched before the app mounts; a module's bundle loads the first time one of its keys is needed.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -304,21 +304,24 @@ Runtime-extensible architecture for frontend plugins.
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
 │  1. App Startup                                                         │
+│     └─→ initializeApolloClient(), authStore.initializeAuthMode()        │
 │     └─→ ModuleLoader.exposeHostDependencies()                           │
-│         └─→ Exposes Vue, Pinia, composables to window                   │
+│         └─→ window.__HOST_DEPENDENCIES__                                │
+│     └─→ app.mount('#app')            (no module frontend fetched)       │
 │                                                                         │
-│  2. Module Discovery                                                    │
-│     └─→ ModuleLoader.loadAvailableModules()                             │
-│         └─→ GraphQL query for module bundles                            │
+│  2. First Use                                                           │
+│     └─→ moduleLoader.ensure(key)                                        │
+│         ├─→ getFrontendModuleManifest (once): key → owning module       │
+│         └─→ GET /module-bundles/<name>/<sha256>/bundle.js (once each)   │
 │                                                                         │
 │  3. Module Installation                                                 │
-│     └─→ For each module:                                                │
-│         ├─→ Create blob URL from bundle string                          │
-│         ├─→ Dynamic import(blobUrl)                                     │
-│         └─→ Call module.install(hostDependencies)                       │
+│     ├─→ Check the bytes against the hash, if crypto.subtle exists       │
+│     ├─→ Dynamic import(blobUrl)                                         │
+│     └─→ module.install(hostDependencies)                                │
+│         └─→ componentRegistry scoped to the module's own keys           │
 │                                                                         │
-│  4. Component Registration                                              │
-│     └─→ ComponentRegistry.register(name, component)                     │
+│  4. Render                                                              │
+│     └─→ Reactive registry lookup renders the component                  │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -326,17 +329,25 @@ Runtime-extensible architecture for frontend plugins.
 **Host Dependencies:**
 
 ```typescript
-// Exposed to modules via window.__DETHERNETY_HOST__
+// Exposed to modules via window.__HOST_DEPENDENCIES__ (services/ModuleLoader.ts)
 interface HostDependencies {
-  vue: typeof Vue;
-  pinia: Pinia;
-  apolloClient: ApolloClient;
-  composables: {
-    useHostContext: () => HostContext;
-    useModuleManager: () => ModuleManager;
+  useHostContext: typeof useHostContext;
+  services: {
+    componentRegistry: typeof componentRegistry; // install() gets a scoped view
   };
+  __VUE__?: any;                // the host's Vue runtime
+  __JSONFORMS__?: {             // the host's JSONForms engine, no renderers
+    core: typeof JsonFormsCore;
+    vue: typeof JsonFormsVue;
+  };
+  __APP_CONTEXT__?: any;        // the host app context
 }
+
+// The version of this shape; a module's manifest names the range it supports.
+const HOST_API_VERSION = 1;
 ```
+
+The loading flow, failure handling and scoped registry are in [Dynamic Module System](./LLD/MODULE_SYSTEM.md).
 
 ### 5. Authentication Flow
 
@@ -650,7 +661,7 @@ pnpm build:docker
 ### Development Server
 
 - **Port**: 3005
-- **Proxy**: `/graphql` → `localhost:3003`
+- **Proxy**: `/graphql` and `/module-bundles` → `localhost:3003`
 - **HMR**: Full hot module replacement
 - **Source Maps**: Enabled for debugging
 
@@ -675,7 +686,7 @@ pnpm build:docker
 3. **Optimistic Updates**: UI updates immediately while GraphQL operations complete
 4. **File-Based Routing**: Automatic route generation from page components
 5. **Chunk Splitting**: Vendor code separated for optimal caching
-6. **Host Dependencies**: Vue runtime exposed to dynamically loaded modules
+6. **Host Dependencies**: Vue runtime exposed to dynamically loaded modules, whose frontends load on first use
 7. **Persistent State**: Auth tokens and UI state survive page reloads
 
 This architecture provides a responsive, real-time threat modeling interface while maintaining extensibility through the dynamic module system and flexibility through multi-provider authentication support.

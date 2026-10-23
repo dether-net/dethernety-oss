@@ -607,7 +607,7 @@ The DtClass implementation includes special handling for:
 
 **Source:** `packages/dt-core/src/dt-module/`
 
-Manages module registry and frontend bundles.
+Manages the module registry and lists module frontends.
 
 ### Methods
 
@@ -618,14 +618,14 @@ Manages module registry and frontend bundles.
 | `getModuleByName` | Get module by name | `moduleName: string` (positional) | `Promise<Module>` |
 | `saveModule` | Save a module's attributes (serialised JSON) | `{ moduleId, attributes }` | `Promise<Module>` |
 | `resetModule` | Reset module to defaults | `moduleId: string` (positional) | `Promise<boolean>` |
-| `getAvailableFrontendModules` | List frontend bundles | `none` | `Promise<string[]>` |
-| `getModuleFrontendBundle` | Get bundle code | `{ moduleName }` | `Promise<string>` |
+| `getFrontendModuleManifest` | The module frontends the UI can load (`network-only`): name, version, `available`, bundle `hash`, `size` and `url`, `components`, `hostApi`. No bundle text | `none` | `Promise<FrontendModuleManifest[]>` |
 
 > **Argument style is not uniform here.** `getModuleById`, `getModuleByName`, and `resetModule` take a
-> bare positional string; `saveModule` and `getModuleFrontendBundle` take an options object. The bundle
-> lookup keys on the module **name**, not its id. `saveModule` throws when either `moduleId` or
-> `attributes` is missing, and `getModuleFrontendBundle` throws on a missing name, rather than returning
-> a null result.
+> bare positional string; `saveModule` takes an options object. `saveModule` throws when either
+> `moduleId` or `attributes` is missing, rather than returning a null result.
+
+The bundle itself is not a GraphQL operation: dt-ui fetches it from the manifest entry's `url`
+(`/module-bundles/<name>/<hash>/bundle.js`). See [Dynamic Module System](../frontend/LLD/MODULE_SYSTEM.md#module-loading-flow).
 
 ---
 

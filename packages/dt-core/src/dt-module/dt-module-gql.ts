@@ -200,14 +200,20 @@ export const RESET_MODULE = gql`
   }
 `
 
-export const GET_AVAILABLE_FRONTEND_MODULES = gql`
-  query GetAvailableFrontendModules {
-    getAvailableFrontendModules
-  }
-`
-
-export const GET_MODULE_FRONTEND_BUNDLE = gql`
-  query GetModuleFrontendBundle($moduleName: String!) {
-    getModuleFrontendBundle(moduleName: $moduleName)
+export const GET_FRONTEND_MODULE_MANIFEST = gql`
+  query GetFrontendModuleManifest {
+    getFrontendModuleManifest {
+      name
+      version
+      available
+      hash
+      size
+      url
+      components
+      hostApi {
+        min
+        max
+      }
+    }
   }
 `

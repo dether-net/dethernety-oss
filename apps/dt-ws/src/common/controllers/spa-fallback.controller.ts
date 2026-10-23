@@ -16,6 +16,7 @@ export class SpaFallbackController {
       '/config',     // Frontend configuration endpoint
       '/health',     // Health check endpoints
       '/ready',      // Readiness probe
+      '/module-bundles', // Module frontend bundles
     ];
     
     // If it's an API path, pass to next handler (let other controllers handle it)

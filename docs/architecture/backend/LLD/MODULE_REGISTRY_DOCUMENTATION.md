@@ -147,6 +147,10 @@ interface ModuleEntry {
   lastReloadAt?: Date;
   loadAttempts: number;
   isHealthy: boolean;
+  metadataUnavailable?: boolean;  // getMetadata() threw at load
+  schemaFragment?: string;        // from getSchemaExtension()
+  resolverMap?: ResolverMap;      // from getResolvers()
+  frontend?: ModuleFrontendAsset; // the module's frontend, read at load or reload
 }
 ```
 
@@ -157,6 +161,22 @@ for (const [name, entry] of entries) {
   console.log(`${name}: ${entry.isHealthy ? 'Healthy' : 'Unhealthy'}`);
 }
 ```
+
+### Module Frontends
+
+When the registry loads or reloads a module, it reads the module's `frontend/bundle.js` and `frontend/frontend-manifest.json` once (`attachFrontend`) and holds, on the entry's `frontend`, the bundle bytes, their sha256, gzip and brotli copies, and the validated manifest. A reload replaces the whole asset with the instance. A frontend that cannot be used (`frontend/` not a directory, one file without the other, a file that is not a regular file, a manifest over 64 KiB or a bundle over 32 MiB, an invalid manifest) is left out and logged as `Module frontend not loaded` with the module name and reason; the module stays loaded. **Source:** `module-frontend.ts` (`loadModuleFrontend`).
+
+#### `getFrontendManifests(): FrontendModuleManifest[]`
+**Description**: The module frontends the UI can load: one entry per module on the module allow-list with a frontend, sorted by name. Backs the `getFrontendModuleManifest` query.
+
+**Returns**: `name`, `version`, `available` (the entry's `isHealthy`), `hash`, `size`, `url` (`/module-bundles/<name>/<hash>/bundle.js`), `components`, `hostApi`.
+
+#### `findFrontendBundle(moduleName: string, hash: string): BundleLookup`
+**Description**: The held bundle for `GET /module-bundles/:name/:hash/bundle.js` (`ModuleBundleController`). Never reads the disk.
+
+**Returns**: `{ status: 404 }` for an unknown module, a module without a frontend or not on the allow-list; `{ status: 503 }` while the module is unhealthy; `{ status: 404 }` when `hash` is not the current bundle's sha256; otherwise `{ status: 200, asset }`.
+
+See [Dynamic Module System](../../frontend/LLD/MODULE_SYSTEM.md#the-bundle-route) for the response headers and the client side.
 
 ### Health Monitoring
 

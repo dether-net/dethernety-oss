@@ -21,14 +21,15 @@ import {
 
 // Unwrap a Cypher relation (which always comes back as an array) into a single
 // object, preserving every field — name/type/category/module. Stripping fields
-// here breaks UI consumers like the analysis table's group-by-class.
-const unwrapAnalysisClass = (
+// here breaks UI consumers like the analysis table's group-by-class. The class's
+// own module relation is unwrapped the same way.
+export const unwrapAnalysisClass = (
   raw: AnalysisClass | AnalysisClass[] | null | undefined,
 ): AnalysisClass => {
-  if (Array.isArray(raw)) {
-    return raw.length > 0 ? { ...raw[0] } : { id: '' } as AnalysisClass
-  }
-  return raw ?? ({ id: '' } as AnalysisClass)
+  const cls = Array.isArray(raw) ? raw[0] : raw
+  if (!cls) return { id: '' } as AnalysisClass
+  const module = cls.module as AnalysisClass['module'] | AnalysisClass['module'][] | undefined
+  return Array.isArray(module) ? { ...cls, module: module[0] } : { ...cls }
 }
 
 export class DtAnalysis {
@@ -77,7 +78,7 @@ export class DtAnalysis {
         fetchPolicy: 'network-only'
       })
 
-      return response.analysisClasses || null
+      return response.analysisClasses ? response.analysisClasses.map(cls => unwrapAnalysisClass(cls)) : null
     } catch (error) {
       throw error
     }

@@ -406,30 +406,26 @@ const dtAnalysis = new DtAnalysis(apolloClient)
 
 ### Initialization Sequence
 
-**Source:** `main.ts:26-47`
+**Source:** `main.ts` (`initializeApp`)
 
 ```typescript
-async function bootstrap() {
-  const app = createApp(App)
-
+// registerPlugins(app) (Pinia, router, Vuetify) runs before this
+const initializeApp = async () => {
   // 1. Initialize Apollo client (async - fetches config)
   await initializeApolloClient()
 
-  // 2. Setup plugins (router, pinia, vuetify)
-  app.use(createPinia())
-  app.use(router)
-  app.use(vuetify)
+  // 2. Resolve the auth mode (including no-auth) before any authenticated request
+  await useAuthStore().initializeAuthMode()
 
-  // 3. Expose host dependencies for modules
+  // 3. Expose host dependencies for module frontends, which load on first use
   ModuleLoader.exposeHostDependencies(VueRuntime, app._context)
 
-  // 4. Load dynamic modules
-  await ModuleLoader.loadAvailableModules()
-
-  // 5. Mount application
+  // 4. Mount application; no module frontend has been fetched
   app.mount('#app')
 }
 ```
+
+Module frontends load after mount, when a page first needs one of their components; see [Dynamic Module System](./MODULE_SYSTEM.md#module-loading-flow).
 
 ---
 

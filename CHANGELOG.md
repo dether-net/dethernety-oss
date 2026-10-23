@@ -5,6 +5,116 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - Unreleased
+
+dt-ui no longer fetches every module frontend before it mounts. A module frontend is now a bundle
+and a manifest naming the component keys it registers, and dt-ui fetches a module's bundle the first
+time one of those keys is needed, from a content-addressed URL the browser caches. dt-ws reads each
+bundle once, when it loads the module, and serves it from memory.
+
+**Upgrading:** no configuration change. **Module authors:** a module frontend without
+`frontend/frontend-manifest.json` is no longer loaded; see *Changed*. `dethernety-threat-report`
+ships its manifest. **API clients:** `getAvailableFrontendModules` and `getModuleFrontendBundle` are
+removed; see *Removed*. **A CDN or reverse proxy in front of dt-ws** must honour
+`Cache-Control: private` on `/module-bundles/` and must not cache it by path; see *Security*.
+**Dethereal:** 0.4.16 carries the updated data layer: dt-core's module queries gain
+`getFrontendModuleManifest` and lose `getAvailableFrontendModules` and `getModuleFrontendBundle`.
+
+### Added
+
+- **The module frontend manifest.** `frontend/frontend-manifest.json`, beside `frontend/bundle.js`:
+  `manifestVersion` (`1`), `components` (the component keys `install()` registers, exactly: 1 to 256
+  unique keys matching `^[A-Za-z][A-Za-z0-9_-]{0,127}$`) and `hostApi` (`{ min, max }`, integers
+  from 1 to 1000, `min` ≤ `max`: the host dependency versions the bundle works with). The host's
+  version is 1. `@dethernety/dt-module` exports `validateFrontendManifest`, `parseFrontendManifest`,
+  `FrontendManifestError` and the JSON schema (`@dethernety/dt-module/frontend-manifest.schema.json`).
+- **`assertFrontendManifest`**, on `@dethernety/dt-module/frontend-manifest`: the contract test for a
+  module frontend. It runs `install()` against a recording registry and throws unless it registers
+  exactly the manifest's keys, each once. It works under any test runner. The threat report
+  module's suite runs it in CI.
+- **`getFrontendModuleManifest`** (`@authentication`): per module on the module allow-list with a
+  frontend, sorted by name, its `name`, `version`, `available`, `hash` (sha256 of the bundle), `size`,
+  `url`, `components` and `hostApi`. No bundle text. dt-core: `DtModule.getFrontendModuleManifest()`
+  and the `FrontendModuleManifest` type; `AnalysisClass.module` is unwrapped like the class.
+- **`GET /module-bundles/:name/:hash/bundle.js`**: a module's bundle, behind `JwtAuthGuard`. `404`
+  for an unknown module, one without a frontend or one not on the module allow-list; `503` while the
+  module is unhealthy; `404` when `:hash` is not the current bundle's sha256; otherwise `200` with `Cache-Control: private,
+  max-age=31536000, immutable`, `Vary: Accept-Encoding` and an ETag per encoding (brotli, gzip or
+  none), and `304` on a matching `If-None-Match`. The dt-ui dev server proxies `/module-bundles` to
+  dt-ws.
+- **User Timing marks in dt-ui.** `dt:mount` (from `dt:boot` to `dt:mounted`), `dt:module:<name>` for
+  each module frontend load, and `dt:view:<key>` from an analysis result's fetch to its module
+  component rendering it. Each measure carries `detail.ok`, `false` for a failed load. Read them with
+  `performance.getEntriesByType('measure')`.
+
+### Changed
+
+- **Breaking (module authors): a module frontend needs `frontend/frontend-manifest.json`.** Without
+  a valid manifest, dt-ws does not load the frontend and logs `Module frontend not loaded` with the
+  module name and the reason; the module itself still loads. To add one, list the keys your
+  `install()` passes to `componentRegistry.register()`:
+
+  ```json
+  {
+    "manifestVersion": 1,
+    "components": ["my_component"],
+    "hostApi": { "min": 1, "max": 1 }
+  }
+  ```
+
+  Then add a test that calls `assertFrontendManifest(frontend, manifest)`, and repackage.
+  `scripts/package-module.js` now refuses, and produces no package for, a `frontend/` that is not a
+  directory (a symlink), lacks either file, holds a symlink in their place, or has a manifest that is
+  not valid JSON or not a JSON object. It copies
+  the manifest into the package before the identity stamp, so `payloadDigest` covers it.
+- **dt-ui loads module frontends on first use.** `ModuleLoader.ensure(key)` reads the manifest on
+  first use, then fetches the owning module's bundle once. A `401` refreshes the token and retries
+  once; a `404` (a stale hash) rereads the manifest once; a `503` or `available: false` is reported
+  as unavailable; a module whose `hostApi` range excludes the host's version is refused. A failed
+  load is forgotten, so Retry starts again.
+- **Each module's `install()` receives a component registry scoped to the keys its manifest
+  declares.** Registering any other key is refused and logged. A key two modules declare belongs to
+  neither, and the view that needs it fails with an error. Component registry lookups are reactive.
+- **The analysis results page** starts loading the analysis class's module frontend alongside the
+  index document, shows *Loading analysis view…* until the component is registered, and on a
+  failure shows an error with **Retry**.
+- **dt-ws reads module frontends once**, when it loads or reloads a module, and holds the bytes,
+  their sha256 and gzip and brotli copies in memory. Files are opened without following symlinks
+  and capped at 64 KiB (manifest) and 32 MiB (bundle).
+
+### Removed
+
+- **Breaking: the `getAvailableFrontendModules` and `getModuleFrontendBundle` queries.** Use
+  `getFrontendModuleManifest` and the bundle route. dt-core's `DtModule.getAvailableFrontendModules()`
+  and `DtModule.getModuleFrontendBundle()`, and the `GET_AVAILABLE_FRONTEND_MODULES` and
+  `GET_MODULE_FRONTEND_BUNDLE` documents, are removed with them.
+
+### Security
+
+- **The bundle route's authentication** is `JwtAuthGuard` (a valid JWT, then `DEPLOYMENT_ALLOWLIST`),
+  then the module allow-list (`ALLOWED_MODULES`). Without OIDC and with `NODE_ENV` other than
+  `production`, the guard's development bypass leaves the route open, as it leaves every guarded route.
+- **The bearer token stays on the API origin.** dt-ui fetches a bundle only from the API server's
+  origin under `/module-bundles/`, and refuses redirects.
+- **Bundle integrity.** dt-ui checks the bytes against the manifest's sha256 where `crypto.subtle`
+  exists. It does not exist over plain HTTP on a host other than `localhost` or a loopback address,
+  and there the check is skipped.
+- **Caching limits.** The `private`, immutable cache is per browser profile: fine while bundles are
+  deployment-wide, but it would bypass any future per-user authorization of bundles. Logout or
+  revocation does not purge cached bundles, and a cached URL is served without a token. A CDN or
+  reverse proxy in front of dt-ws must honour `private` and must not cache by path.
+- **`blob:` stays in `script-src`.** The bundle is fetched with the bearer token and imported from a
+  blob URL. Dropping `blob:` needs a same-origin bundle route that does not use a bearer token.
+- Module frontends remain trusted code with full page privilege; the scoped registry prevents
+  accidental key collisions and is not isolation. See `docs/SECURITY_MODEL.md`, *Module frontends*.
+
+### Documentation
+
+- The frontend module system, the frontend architecture's loading flow and host dependencies, the
+  DTModule interface (a *Module frontend* section), the module package design, the threat report's
+  frontend, the security model, and the GraphQL, schema, dt-core and module registry references
+  describe manifest-based, on-demand loading.
+
 ## [0.12.1] - 2026-10-16
 
 Modules ship their class vectors for the platform's default embedding profile, so a module install no
@@ -2303,6 +2413,7 @@ greenfield ID rebinding, and append-only audit log (#104).
 - GraphQL API with real-time subscriptions
 - OIDC/JWT authentication support
 
+[0.13.0]: https://github.com/dether-net/dethernety-oss/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/dether-net/dethernety-oss/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/dether-net/dethernety-oss/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/dether-net/dethernety-oss/compare/v0.11.0...v0.11.1

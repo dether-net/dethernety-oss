@@ -243,7 +243,7 @@ Because the zoning block is derived from the model, the structural [fingerprint]
 { "threat_report_dashboard": <SnapshotDoc> }
 ```
 
-The analysis-results page resolves the first non-`metadata.*` key against the component registry to pick the component to render — so returning the snapshot under `threat_report_dashboard` (the exact key the frontend bundle registers its root component under) is what makes the right component render. The key must match the frontend registration exactly.
+The analysis-results page resolves the first non-`metadata.*` key against the component registry to pick the component to render — so returning the snapshot under `threat_report_dashboard` (the exact key the frontend bundle registers its root component under) is what makes the right component render. The key must match the frontend registration and the `components` of `frontend/frontend-manifest.json` exactly.
 
 Two fallbacks keep the page robust:
 

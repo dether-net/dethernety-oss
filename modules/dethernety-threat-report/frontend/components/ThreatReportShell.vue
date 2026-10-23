@@ -3,8 +3,8 @@
   `threat_report_dashboard`, unchanged — the backend getDocument contract).
 
   Mounted by the platform analysis-results page (analysisresults.vue), which
-  resolves this component via componentRegistry.getComponent('threat_report_dashboard')
-  and passes:
+  loads this module's frontend when it first needs 'threat_report_dashboard', resolves
+  this component from the component registry, and passes:
     - analysis-id : the standing Analysis node's id
     - content     : the full getDocument({document:'index'}) payload, i.e.
                     { threat_report_dashboard: <snapshot doc> }

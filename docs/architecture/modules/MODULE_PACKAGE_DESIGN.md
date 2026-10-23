@@ -35,8 +35,9 @@ A module package is a **deployment unit** that can contain multiple components:
 │       ├── {ModuleName}Module.js # Main module entry point (must end with Module.js)
 │       ├── *.js                  # Supporting files
 │       ├── schema.graphql        # Optional GraphQL schema extension (SDL)
-│       └── frontend/             # Optional UI components
-│           └── bundle.js         # Vite-bundled Vue.js
+│       └── frontend/             # Optional UI components; exactly these two files
+│           ├── bundle.js         # Vite-bundled Vue.js
+│           └── frontend-manifest.json  # Component keys the bundle registers, host API range
 │
 ├── langgraph/                    # Analysis graphs (Python) - optional
 │   ├── graphs.json               # Graph registration fragment
@@ -102,6 +103,23 @@ A module package is a **deployment unit** that can contain multiple components:
 | `dependencies` | array | No | List of required modules with version constraints |
 | `lifecycle` | object | No | Paths to lifecycle hook scripts |
 | `restarts` | array | No | Systemd units to restart (full unit names, executed in order). Used for both install and remove operations - restarts occur after components change but before post-* hooks. |
+
+## Module frontend
+
+A module frontend is two files in the module's source `frontend/` directory: `bundle.js` and `frontend-manifest.json`. The packager (`scripts/package-module.js`) copies exactly these two into `dethernety/{module-name}/frontend/`, and nothing else from `frontend/` (no Vue sources, no Vite config, no `dist/`). The manifest format is defined in [DTModule Interface → Module frontend](./DT_MODULE_INTERFACE.md#module-frontend).
+
+When a source `frontend/` exists, the packager produces no package, and exits non-zero, if:
+
+- `frontend/` is not a directory (for example, a symlink);
+- `frontend/bundle.js` or `frontend/frontend-manifest.json` is missing;
+- either file is not a regular file (for example, a symlink, which the copy would follow);
+- `frontend-manifest.json` is not valid JSON, or is not a JSON object.
+
+These checks run before the previous package directory is removed. The packager does not check the manifest's format; the module's contract test (`assertFrontendManifest`) and dt-ws, when it loads the module, do.
+
+The manifest is copied before the identity stamp (`.dethernety-module.json`) is written, so the stamp's `payloadDigest` covers it.
+
+dt-ws does not load a frontend without a valid manifest: the module loads, its frontend is refused, and the refusal is logged by module name.
 
 ## Module Dependencies
 

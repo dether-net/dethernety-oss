@@ -967,6 +967,30 @@ refresh pipelines. See CONTROL_LIBRARY.md §7.
 | `classId` | `ID` | ControlClass UUID — null if the Control has no IS_INSTANCE_OF edge to any ControlClass |
 | `attributes` | `JSON` | Edge properties (the per-instance attribute payload). Null when classId is null. |
 
+### FrontendModuleManifest
+
+A module frontend the UI can load.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `String!` | Module name |
+| `version` | `String` | Module version |
+| `available` | `Boolean!` | False while the module is unhealthy; its bundle then answers 503 |
+| `hash` | `String!` | sha256 of the bundle, lowercase hex |
+| `size` | `Int!` | Bundle size in bytes, uncompressed |
+| `url` | `String!` | The bundle's path on this server: /module-bundles/<name>/<hash>/bundle.js |
+| `components` | `[String!]!` | The component keys the bundle registers |
+| `hostApi` | `FrontendHostApiRange!` | The host dependency versions the bundle works with |
+
+### FrontendHostApiRange
+
+An inclusive range of host dependency versions.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `min` | `Int!` | Lowest supported version |
+| `max` | `Int!` | Highest supported version |
+
 ### ClassBinding
 
 Class-based binding state (one or more ControlClasses, or exactly one of any other *Class).
@@ -1721,23 +1745,11 @@ Get a document from the analysis document store
 | `analysisId` | `String!` |
 | `filter` | `JSON!` |
 
-### getAvailableFrontendModules
+### getFrontendModuleManifest
 
-List module names that have frontend bundles available
+List the module frontends the UI can load: allowed modules with a frontend, sorted by name
 
-**Returns:** `[String!]!`
-### getModuleFrontendBundle
-
-Get the compiled frontend bundle for a module
-
-**Returns:** `String!`
-
-**Arguments:**
-
-| Argument | Type |
-|----------|------|
-| `moduleName` | `String!` |
-
+**Returns:** `[FrontendModuleManifest!]!`
 ### matchClasses
 
 Match elements against class catalog nodes: exact-name hits first, merged with vector-similarity hits; name containment, then a type heuristic, only when neither answers

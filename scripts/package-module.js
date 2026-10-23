@@ -17,7 +17,7 @@
  *   │   ├── *Module.js (+ .d.ts)
  *   │   ├── .dethernety-module.json  (identity stamp — see step 5.5)
  *   │   ├── data/       (if source data/ exists)
- *   │   └── frontend/   (bundle.js only, if source frontend/ exists)
+ *   │   └── frontend/   (bundle.js and frontend-manifest.json only, if source frontend/ exists)
  *   ├── langgraph/      (if source langgraph/ exists)
  *   └── data/           (if source data/*.cypher or *.csv exist — legacy ingestion)
  *
@@ -178,6 +178,59 @@ console.log(`Packaging ${name} v${version}...`);
   }
 }
 
+// ---------------------------------------------------------------------------
+// 0.5 Frontend files  (BEFORE anything is destroyed)
+// ---------------------------------------------------------------------------
+//
+// A module that ships a frontend/ without its bundle loads, registers, and reports
+// healthy — and then renders nothing, because the lookup that would have found the
+// bundle treats a missing file as "this module has no UI" rather than as an error. The
+// same goes for a bundle without its manifest. Refusing here converts that silent
+// failure into a loud one.
+//
+// frontend/ must be a directory and each file a regular file: a symlink would be
+// followed by the copy and package whatever it points at. The manifest must parse as a JSON object; its format is checked
+// by the module's own contract test and wherever the manifest is read.
+
+const frontendSourceDir = path.join(projectRoot, 'frontend');
+const FRONTEND_FILES = ['bundle.js', 'frontend-manifest.json'];
+let frontendFiles = null;
+
+if (fs.existsSync(frontendSourceDir)) {
+  if (!fs.lstatSync(frontendSourceDir).isDirectory()) {
+    console.error('✗ frontend/ is not a directory (a symlink?) — no package produced.');
+    process.exit(1);
+  }
+  for (const file of FRONTEND_FILES) {
+    const source = path.join(frontendSourceDir, file);
+    if (!fs.existsSync(source)) {
+      console.error(`✗ frontend/ exists but frontend/${file} does not — no package produced.`);
+      if (file === 'bundle.js') {
+        console.error('  The convention is `cd frontend && vite build && cp dist/bundle.js bundle.js`.');
+      } else {
+        console.error('  The host does not load a module frontend without its manifest.');
+      }
+      process.exit(1);
+    }
+    if (!fs.lstatSync(source).isFile()) {
+      console.error(`✗ frontend/${file} is not a regular file (a symlink?) — no package produced.`);
+      process.exit(1);
+    }
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(path.join(frontendSourceDir, 'frontend-manifest.json'), 'utf8'));
+  } catch (error) {
+    console.error(`✗ frontend/frontend-manifest.json is not valid JSON (${error.message}) — no package produced.`);
+    process.exit(1);
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    console.error('✗ frontend/frontend-manifest.json is not a JSON object — no package produced.');
+    process.exit(1);
+  }
+  frontendFiles = FRONTEND_FILES;
+}
+
 // Clean and create package directory
 if (fs.existsSync(packageDir)) {
   fs.rmSync(packageDir, { recursive: true });
@@ -268,40 +321,26 @@ if (fs.existsSync(langgraphSourceDir)) {
 }
 
 // ---------------------------------------------------------------------------
-// 5. Frontend bundle  →  dethernety/{name}/frontend/bundle.js
+// 5. Frontend  →  dethernety/{name}/frontend/{bundle.js,frontend-manifest.json}
 // ---------------------------------------------------------------------------
 //
-// An allowlist of exactly one file, mirroring step 2's extension allowlist rather
+// An allowlist of exactly two files, mirroring step 2's extension allowlist rather
 // than inventing a second, weaker discipline.
 //
-// The backend serves precisely one file out of a module frontend — `bundle.js`, both
-// when discovering which modules have a UI and when answering the bundle request.
-// Nothing at runtime opens the Vue sources, the vite config, or the build output
-// directory, and each module's vite config inlines dynamic imports and CSS so the
-// bundle is self-contained by construction. Everything else is dead weight in the
-// package.
+// A module frontend is precisely two files: `bundle.js`, and `frontend-manifest.json`,
+// which names the component keys the bundle registers (the host loads a module
+// frontend only through its manifest). Step 0.5 has checked both. Nothing at runtime
+// opens the Vue sources, the vite config, or the build output directory, and each
+// module's vite config inlines dynamic imports and CSS so the bundle is self-contained
+// by construction. Everything else is dead weight in the package.
 
-const frontendSourceDir = path.join(projectRoot, 'frontend');
-
-if (fs.existsSync(frontendSourceDir)) {
-  const bundleSource = path.join(frontendSourceDir, 'bundle.js');
-
-  // Refusing here converts a silent failure into a loud one. A module that ships a
-  // frontend/ without a bundle loads, registers, and reports healthy — and then
-  // renders nothing, because the lookup that would have found the bundle treats a
-  // missing file as "this module has no UI" rather than as an error.
-  if (!fs.existsSync(bundleSource)) {
-    console.error('✗ frontend/ exists but frontend/bundle.js does not — no package produced.');
-    console.error('  The convention is `cd frontend && vite build && cp dist/bundle.js bundle.js`.');
-    console.error('  Packaging a frontend without its bundle yields a module that loads and');
-    console.error('  reports healthy while rendering no UI at all.');
-    process.exit(1);
-  }
-
+if (frontendFiles) {
   const frontendDestDir = path.join(moduleDestDir, 'frontend');
   fs.mkdirSync(frontendDestDir, { recursive: true });
-  fs.copyFileSync(bundleSource, path.join(frontendDestDir, 'bundle.js'));
-  console.log(`  Copied frontend/bundle.js → dethernety/${name}/frontend/`);
+  for (const file of frontendFiles) {
+    fs.copyFileSync(path.join(frontendSourceDir, file), path.join(frontendDestDir, file));
+  }
+  console.log(`  Copied ${frontendFiles.map((f) => `frontend/${f}`).join(', ')} → dethernety/${name}/frontend/`);
 }
 
 // ---------------------------------------------------------------------------

@@ -3,51 +3,60 @@
 ## Table of Contents
 - [Overview](#overview)
 - [Module Loading Flow](#module-loading-flow)
+- [Failure Handling](#failure-handling)
 - [Host Dependency Injection](#host-dependency-injection)
 - [Component Registry](#component-registry)
 - [Host Context Composable](#host-context-composable)
 - [Application Initialization](#application-initialization)
 - [Module Development Guide](#module-development-guide)
 - [Security Considerations](#security-considerations)
+- [API Surface](#api-surface)
+- [Debugging](#debugging)
 
 ## Overview
 
-The dynamic module system enables runtime extensibility by loading Vue components and functionality from the backend without rebuilding the frontend application.
+The dynamic module system lets a module ship Vue components that dt-ui loads at runtime, without rebuilding the frontend application. A module frontend is two files, `frontend/bundle.js` and `frontend/frontend-manifest.json`; the manifest names the component keys the bundle registers (see [DTModule Interface → Module frontend](../../modules/DT_MODULE_INTERFACE.md#module-frontend)).
+
+dt-ui loads **no module frontend before it mounts**. A module's bundle is fetched the first time one of its component keys is needed, once per module.
 
 **Primary Source Files:**
 - `apps/dt-ui/src/services/ModuleLoader.ts`
 - `apps/dt-ui/src/services/ComponentRegistry.ts`
 - `apps/dt-ui/src/composables/useHostContext.ts`
+- `apps/dt-ui/src/pages/analysisresults.vue` (the page that renders module components)
+- `apps/dt-ws/src/gql/module-management-services/module-frontend.ts` (dt-ws: reading and serving bundles)
+- `apps/dt-ws/src/modules/module-bundle.controller.ts` (dt-ws: the bundle route)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                      Module Loading Architecture                        │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│  1. Application Startup                                                 │
+│  1. Application Startup (no module is fetched)                          │
 │     └─→ ModuleLoader.exposeHostDependencies()                           │
-│         └─→ Exposes Vue, Pinia, composables to window                   │
+│         └─→ window.__HOST_DEPENDENCIES__                                │
+│     └─→ app.mount('#app')                                               │
 │                                                                         │
-│  2. Module Discovery                                                    │
-│     └─→ modulesStore.getAvailableFrontendModules()                      │
-│         └─→ GraphQL query returns module names                          │
+│  2. First Use: moduleLoader.ensure(key)                                 │
+│     └─→ Key already registered? Return the component                    │
+│     └─→ Otherwise read the manifest (getFrontendModuleManifest, once)   │
+│         └─→ key → owning module                                         │
 │                                                                         │
-│  3. Module Fetch                                                        │
-│     └─→ For each module:                                                │
-│         └─→ modulesStore.getModuleFrontendBundle(name)                  │
-│             └─→ Returns JavaScript bundle as string                     │
+│  3. Bundle Fetch (once per module)                                      │
+│     └─→ GET /module-bundles/<name>/<sha256>/bundle.js                   │
+│         └─→ Bearer token; same origin as the API; no redirects          │
+│     └─→ Check the bytes against the manifest hash                       │
 │                                                                         │
 │  4. Dynamic Import                                                      │
-│     └─→ Create Blob from bundle string                                  │
-│     └─→ Create Object URL from Blob                                     │
-│     └─→ import(blobUrl)                                                 │
+│     └─→ Blob → object URL → import(blobUrl) → revoke the URL            │
 │                                                                         │
 │  5. Module Installation                                                 │
-│     └─→ Call module.install(hostDependencies)                           │
-│         └─→ Module registers components via componentRegistry           │
+│     └─→ module.install(hostDependencies)                                │
+│         └─→ componentRegistry scoped to the module's own keys           │
 │                                                                         │
-│  6. Cleanup                                                             │
-│     └─→ Revoke blob URL                                                 │
+│  6. Render                                                              │
+│     └─→ The registry is reactive: the waiting view renders the          │
+│         component once it is registered                                 │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -56,102 +65,135 @@ The dynamic module system enables runtime extensibility by loading Vue component
 
 ## Module Loading Flow
 
-### Discovery Phase
+### What dt-ws holds
 
-**Source:** `ModuleLoader.ts:41-57`
+When the module registry loads or reloads a module, it reads `frontend/bundle.js` and `frontend/frontend-manifest.json` once and holds, on the module's registry entry, the bundle bytes, their sha256, gzip and brotli copies, and the validated manifest. A request never reads the disk. A reload replaces the whole held copy at once, so a URL carrying an old hash is never answered with new bytes.
+
+A frontend that cannot be used is refused and logged by module name (`Module frontend not loaded`, with the reason); the module itself stays loaded. Refusals:
+
+- one of the two files without the other;
+- a file that is not a regular file (a symlink, a FIFO), or `frontend/` that is not a directory;
+- a manifest over 64 KiB or a bundle over 32 MiB;
+- a manifest that does not validate (`parseFrontendManifest` from `@dethernety/dt-module`).
+
+**Source:** `module-frontend.ts` (`loadModuleFrontend`), `module-registry.service.ts` (`attachFrontend`)
+
+### The manifest query
+
+`getFrontendModuleManifest` returns one entry per module that is on the module allow-list (`ALLOWED_MODULES`) and has a frontend, sorted by name. It carries no bundle text.
+
+| Field | Meaning |
+|-------|---------|
+| `name`, `version` | The module |
+| `available` | `false` while the module is unhealthy; its bundle route then answers `503` |
+| `hash` | sha256 of the bundle, lowercase hex |
+| `size` | Bundle size in bytes, uncompressed |
+| `url` | `/module-bundles/<name>/<hash>/bundle.js` |
+| `components` | The component keys the bundle registers |
+| `hostApi` | `{ min, max }`, the host dependency versions the bundle works with |
+
+dt-ui reads it through `DtModule.getFrontendModuleManifest()` (dt-core, `network-only`) via `modulesStore.getFrontendModuleManifest()`.
+
+### The bundle route
+
+`GET /module-bundles/:name/:hash/bundle.js`, behind `JwtAuthGuard`, as the SSE route is.
+
+| Condition | Response |
+|-----------|----------|
+| No registered module of that name, no frontend, or not on the module allow-list | `404` |
+| The module is unhealthy | `503` |
+| `:hash` is not the current bundle's sha256 | `404` |
+| Otherwise | `200`, the held bytes |
+| `If-None-Match` matches the ETag | `304` |
+
+A `200` or `304` carries `Content-Type: application/javascript; charset=utf-8`, `Cache-Control: private, max-age=31536000, immutable`, `Vary: Accept-Encoding` and an ETag per encoding (`"<hash>"`, `"<hash>-gz"`, `"<hash>-br"`). The encoding follows `Accept-Encoding`: brotli, then gzip, then none.
+
+The hash makes the URL content-addressed: a bundle never changes under its URL, so the browser keeps it for a year, and a new bundle gets a new URL.
+
+**Source:** `module-bundle.controller.ts`, `module-frontend.ts` (`lookupBundle`, `bundleResponse`). The SPA fallback skips `/module-bundles`, and the dt-ui dev server proxies it to dt-ws.
+
+### `ensure(key)`
+
+**Source:** `ModuleLoader.ts`
 
 ```typescript
-async loadAvailableModules(): Promise<void> {
-  // Get list of modules with frontend bundles
-  const moduleNames = await this.modulesStore.getAvailableFrontendModules()
-
-  console.log(`[ModuleLoader] Found ${moduleNames.length} frontend modules`)
-
-  // Load each module sequentially (maintains load order)
-  for (const moduleName of moduleNames) {
-    await this.loadModule({ name: moduleName })
-  }
-}
+async ensure(key: string): Promise<Component>
 ```
 
-**Why Sequential Loading:**
-- Produces a deterministic load order
-- Prevents race conditions in component registration
-- Allows modules to depend on previously loaded modules
+1. If the registry already has `key`, return it.
+2. Read the manifest on first use, and index it: component key → owning module.
+3. No module owns `key`: forget the manifest (a module may have been installed since) and fail.
+4. Load the owner, once per module: fetch the bundle from the manifest's `url`, check its hash, import it, call `install()`.
+5. Return the registered component. If `install()` did not register the key it declared, forget the load and fail.
 
-### Fetch Phase
+Every failure is a `ModuleFrontendError` with a `kind`: `unloadable`, `unavailable` or `host-api`.
 
-**Source:** `ModuleLoader.ts:59-74`
+### `prefetch(moduleName)`
 
-```typescript
-private async loadModule({ name }: { name: string }): Promise<void> {
-  console.log(`[ModuleLoader] Loading module: ${name}`)
+Starts loading a module's frontend ahead of need, when the caller knows the owning module before it knows the key. A module that cannot be used now is left for `ensure()` to report; `prefetch()` never throws.
 
-  // Fetch bundle content from backend
-  const bundleContent = await this.modulesStore.getModuleFrontendBundle({ name })
+### Bundle fetch
 
-  if (!bundleContent) {
-    console.warn(`[ModuleLoader] No bundle found for module: ${name}`)
-    return
-  }
+**Source:** `ModuleLoader.ts` (`fetchBundle`)
 
-  await this.installModule({ name, bundleContent })
-}
-```
+- The `url` from the manifest is resolved against the API server's URL (the configured GraphQL URL). The result must have the API server's origin and a path under `/module-bundles/`; anything else is refused before a request is made.
+- The request carries `Authorization: Bearer <token>` unless auth is disabled, and uses `redirect: 'error'`, so a redirect fails the fetch. The token never leaves the API origin.
+- Where `crypto.subtle` exists, the bytes' sha256 must equal the manifest's `hash`. `crypto.subtle` exists only in a secure context, so over plain HTTP on a host other than `localhost` or a loopback address the check is skipped.
 
-### Dynamic Import Phase
+### Dynamic import and install
 
-**Source:** `ModuleLoader.ts:76-100`
+The bundle text is wrapped in a `Blob` (`application/javascript`), imported from an object URL with `/* @vite-ignore */`, and the URL is revoked in a `finally` block. The default export (or the module namespace) must have an `install` function.
 
-```typescript
-private async installModule({
-  name,
-  bundleContent
-}: {
-  name: string
-  bundleContent: string
-}): Promise<void> {
-  let moduleUrl: string | null = null
+`install()` receives the host dependencies (`window.__HOST_DEPENDENCIES__`) with one change: `services.componentRegistry` is a registry **scoped to the keys this module owns** (see [Scoped registry](#scoped-registry)).
 
-  try {
-    // Create Blob from bundle string
-    const blob = new Blob([bundleContent], { type: 'application/javascript' })
+### The analysis results page
 
-    // Create Object URL for dynamic import
-    moduleUrl = URL.createObjectURL(blob)
+`pages/analysisresults.vue` renders an analysis document's first non-`metadata.*` key as a module component.
 
-    // Dynamic import (Vite ignore directive prevents bundling)
-    const moduleExports = await import(/* @vite-ignore */ moduleUrl)
+1. When the analysis is fetched, the page calls `moduleLoader.prefetch()` with the analysis class's module name, so the bundle loads alongside the index document instead of after it.
+2. When the index document arrives and its key is not registered, the page calls `ensure(key)` and shows **Loading analysis view…**.
+3. The component renders once it is registered.
+4. On failure the page shows an error with **Retry**, which calls `ensure(key)` again.
 
-    // Extract default export or use full module
-    const moduleInstance = moduleExports.default || moduleExports
+| Error kind | Message |
+|------------|---------|
+| `unloadable` | This analysis view couldn't be loaded. |
+| `unavailable` | This analysis view is unavailable right now. Try again shortly. |
+| `host-api` | This analysis view needs a different version of the app. Reload the page; if that doesn't help, ask an administrator to update the module. |
 
-    // Call module's install function with host dependencies
-    if (typeof moduleInstance.install === 'function') {
-      moduleInstance.install(window.__HOST_DEPENDENCIES__)
-      console.log(`[ModuleLoader] Module ${name} installed successfully`)
-    } else {
-      console.warn(`[ModuleLoader] Module ${name} has no install function`)
-    }
-  } catch (error) {
-    console.error(`[ModuleLoader] Failed to install module ${name}:`, error)
-  } finally {
-    // Always cleanup blob URL to prevent memory leaks
-    if (moduleUrl) {
-      URL.revokeObjectURL(moduleUrl)
-    }
-  }
-}
-```
+### User Timing marks
 
-**Key Implementation Details:**
+Read them with `performance.getEntriesByType('measure')`. Each measure carries `detail.ok`.
 
-| Step | Purpose |
-|------|---------|
-| `new Blob([bundleContent], ...)` | Convert string to importable module |
-| `URL.createObjectURL(blob)` | Create temporary URL for import |
-| `/* @vite-ignore */` | Prevent Vite from analyzing import |
-| `URL.revokeObjectURL(moduleUrl)` | Free memory after import |
+| Measure | From → to | `detail.ok` |
+|---------|-----------|-------------|
+| `dt:mount` | `dt:boot` → `dt:mounted` | `false` if initialization threw |
+| `dt:module:<name>` | Start → end of one module frontend load | `false` for a failed load |
+| `dt:view:<key>` | The analysis fetch → its module component rendering it | Always `true`; a failed view is not measured |
+
+**Source:** `utils/userTiming.ts`. A timing call never throws.
+
+---
+
+## Failure Handling
+
+| Situation | What the loader does | Error kind |
+|-----------|----------------------|------------|
+| Manifest query fails | Forgets the manifest; the next `ensure()` asks again | `unloadable` |
+| No module declares the key | Forgets the manifest | `unloadable` |
+| A key is declared by two or more modules | Gives it to neither; logs both names | `unloadable` |
+| `available: false` | No fetch; forgets the manifest, to notice recovery | `unavailable` |
+| `HOST_API_VERSION` outside the module's `hostApi` range | No fetch | `host-api` |
+| Bundle URL off the API origin or outside `/module-bundles/` | No fetch | `unloadable` |
+| `401` | Refreshes the token and retries once (not when auth is disabled) | `unloadable` if it still fails |
+| `404` (a stale hash: the module changed since the manifest was read) | Rereads the manifest once and fetches the new URL | `unloadable` if it still fails |
+| `503` | — | `unavailable` |
+| Other non-2xx, a redirect, a network error | — | `unloadable` |
+| Hash mismatch | Does not import | `unloadable` |
+| No `install` function, or `install()` throws | — | `unloadable` |
+| `install()` does not register a key it declared | Forgets the load | `unloadable` |
+
+A failed load is forgotten, so the next `ensure()`, the page's **Retry**, starts again. Failures are logged to the console (`Failed to load module <name>:`) and are never silenced.
 
 ---
 
@@ -159,23 +201,17 @@ private async installModule({
 
 ### Global Exposure
 
-**Source:** `ModuleLoader.ts:123-135`
+**Source:** `ModuleLoader.ts` (`exposeHostDependencies`)
 
 ```typescript
 static exposeHostDependencies(VueRuntime?: any, appContext?: any): void {
   window.__HOST_DEPENDENCIES__ = {
-    // Composable for accessing router, stores, services
     useHostContext,
-
-    // Services for component registration
     services: {
       componentRegistry,
     },
-
-    // Vue runtime for module components
     __VUE__: VueRuntime,
-
-    // App context for advanced integration
+    __JSONFORMS__: { core: JsonFormsCore, vue: JsonFormsVue },
     __APP_CONTEXT__: appContext,
   }
 }
@@ -183,7 +219,7 @@ static exposeHostDependencies(VueRuntime?: any, appContext?: any): void {
 
 ### HostDependencies Interface
 
-**Source:** `ModuleLoader.ts:14-21`
+**Source:** `ModuleLoader.ts`
 
 ```typescript
 export interface HostDependencies {
@@ -192,16 +228,19 @@ export interface HostDependencies {
     componentRegistry: typeof componentRegistry
   }
   __VUE__?: any
+  // The host's JSONForms engine: @jsonforms/core and @jsonforms/vue only.
+  // Modules supply their own renderer set.
+  __JSONFORMS__?: {
+    core: typeof JsonFormsCore
+    vue: typeof JsonFormsVue
+  }
   __APP_CONTEXT__?: any
 }
 
-// TypeScript global declaration
-declare global {
-  interface Window {
-    __HOST_DEPENDENCIES__: HostDependencies
-  }
-}
+export const HOST_API_VERSION = 1
 ```
+
+`HOST_API_VERSION` is the version of this shape. A module frontend's manifest names the range it works with (`hostApi`); the host raises the version when the shape changes incompatibly, and refuses a module whose range excludes it.
 
 ### Why Window Global?
 
@@ -240,125 +279,37 @@ Dynamic imports cannot access the host application's module scope. The window gl
 
 ## Component Registry
 
-### Registry Implementation
+**Source:** `ComponentRegistry.ts`
 
-**Source:** `ComponentRegistry.ts:1-107`
+The registry maps a component key to `{ component, moduleId, globalName }` and tracks which keys each `moduleId` registered.
 
-```typescript
-class ComponentRegistry {
-  // Component storage: key -> { component, moduleId, globalName }
-  private components: Map<string, {
-    component: Component | (() => Promise<Component>)
-    moduleId?: string
-    globalName: string
-  }> = new Map()
+| Method | Purpose |
+|--------|---------|
+| `register(key, component, moduleId?)` | Store the component (`markRaw` unless it is a loader function) and a global name: `my_component` → `DynamicMyComponent` |
+| `unregister(key)` / `unregisterModule(moduleId)` | Remove one key, or every key a module registered |
+| `get(key)` | The component, or `undefined` |
+| `getComponent(key)` | As `get`, with a console warning when the key is missing |
+| `getComponentName(key)` | The global name |
+| `hasComponent(key)`, `getAvailableComponents()`, `getModuleComponents(moduleId)`, `getAllModules()`, `getComponentInfo(key)` | Lookups |
+| `scoped(owns, onRefused)` | The per-module view `install()` receives |
 
-  // Module to components mapping for bulk operations
-  private moduleComponents: Map<string, Set<string>> = new Map()
-}
-```
+**markRaw:** keeps Vue from making a component reactive, which saves memory and render work.
 
-### Component Registration
+### Reactive lookups
 
-**Source:** `ComponentRegistry.ts:15-38`
+The maps are plain, so Vue would not see a change. Every change increments a `shallowRef` revision and every lookup reads it, so a `computed` over `get(key)` re-runs when a module frontend that loads later registers its components. This is how the analysis results page renders a component that was not registered when the page opened.
 
-```typescript
-register(
-  key: string,
-  component: Component | (() => Promise<Component>),
-  moduleId?: string
-): void {
-  // Wrap component with markRaw to prevent Vue reactivity overhead
-  const wrappedComponent = typeof component === 'function'
-    ? component
-    : markRaw(component)
+### Scoped registry
 
-  // Generate global name: my_component -> DynamicMyComponent
-  const globalName = `Dynamic${key
-    .split('_')
-    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-    .join('')}`
+`scoped(owns, onRefused)` returns a `ModuleComponentRegistry`: the registry's public methods and none of its state.
 
-  // Store component with metadata
-  this.components.set(key, {
-    component: wrappedComponent,
-    moduleId,
-    globalName
-  })
+- `register` and `unregister` act only on keys `owns(key)` accepts; any other key is refused, logged (`Module <name> touched the component "<key>", which it does not own: ignored`) and not registered.
+- `unregisterModule` removes only the owned keys.
+- Lookups read the whole registry.
 
-  // Track module-to-component relationship
-  if (moduleId) {
-    if (!this.moduleComponents.has(moduleId)) {
-      this.moduleComponents.set(moduleId, new Set())
-    }
-    this.moduleComponents.get(moduleId)!.add(key)
-  }
+The loader's `owns` accepts the keys the manifest index gives the module. A key two modules declare belongs to neither, so neither can register it, and a view that needs it fails visibly instead of rendering whichever module loaded last.
 
-  console.log(`[ComponentRegistry] Registered: ${key} as ${globalName}`)
-}
-```
-
-**markRaw Importance:**
-- Prevents Vue from making components reactive
-- Reduces memory overhead
-- Improves render performance
-
-### Component Lookup
-
-**Source:** `ComponentRegistry.ts:57-107`
-
-```typescript
-// Direct lookup (returns component or undefined)
-get(key: string): Component | (() => Promise<Component>) | undefined {
-  return this.components.get(key)?.component
-}
-
-// Safe lookup with warning
-getComponent(key: string): Component | (() => Promise<Component>) | undefined {
-  const entry = this.components.get(key)
-  if (!entry) {
-    console.warn(`[ComponentRegistry] Component not found: ${key}`)
-    return undefined
-  }
-  return entry.component
-}
-
-// Get global name for template usage
-getComponentName(key: string): string | undefined {
-  return this.components.get(key)?.globalName
-}
-
-// List all components from a module
-getModuleComponents(moduleId: string): string[] {
-  const componentKeys = this.moduleComponents.get(moduleId)
-  return componentKeys ? Array.from(componentKeys) : []
-}
-
-// Check existence
-hasComponent(key: string): boolean {
-  return this.components.has(key)
-}
-
-// List all registered keys
-getAllComponentKeys(): string[] {
-  return Array.from(this.components.keys())
-}
-```
-
-### Module Unregistration
-
-**Source:** `ComponentRegistry.ts:50-55`
-
-```typescript
-unregisterModule(moduleId: string): void {
-  const componentKeys = this.moduleComponents.get(moduleId)
-  if (componentKeys) {
-    componentKeys.forEach(key => this.components.delete(key))
-    this.moduleComponents.delete(moduleId)
-    console.log(`[ComponentRegistry] Unregistered module: ${moduleId}`)
-  }
-}
-```
+This prevents accidental collisions between modules. It is **not isolation**: a module frontend runs with full page privilege and can reach the unscoped registry through `window.__HOST_DEPENDENCIES__`.
 
 ---
 
@@ -532,66 +483,80 @@ application's trust base.
 
 ### Startup Sequence
 
-**Source:** `main.ts:26-47`
+**Source:** `main.ts` (`initializeApp`)
 
 ```typescript
-async function bootstrap() {
-  // 1. Create Vue app instance
-  const app = createApp(App)
+const initializeApp = async () => {
+  timingMark('dt:boot')
+  try {
+    // 1. Apollo client (async: fetches the runtime config)
+    await initializeApolloClient()
 
-  // 2. Initialize Apollo client (async - fetches config)
-  await initializeApolloClient()
+    // 2. Auth mode, including no-auth, before anything authenticated runs
+    await useAuthStore().initializeAuthMode()
 
-  // 3. Setup plugins
-  app.use(createPinia())
-  app.use(router)
-  app.use(vuetify)
+    // 3. Host dependencies, for module frontends loaded later
+    ModuleLoader.exposeHostDependencies(VueRuntime, app._context)
 
-  // 4. Expose host dependencies BEFORE loading modules
-  ModuleLoader.exposeHostDependencies(VueRuntime, app._context)
-
-  // 5. Load all available modules
-  const moduleLoader = new ModuleLoader()
-  await moduleLoader.loadAvailableModules()
-
-  // 6. Mount application
-  app.mount('#app')
+    // 4. Mount. No module frontend has been fetched.
+    app.mount('#app')
+    markMounted(true)   // dt:mounted, measure dt:mount
+  } catch (error) {
+    app.mount('#app')
+    markMounted(false)
+  }
 }
-
-bootstrap()
 ```
 
-**Order Critical:**
-1. Apollo client needed for module fetching
-2. Host dependencies must be exposed before module install
-3. Modules loaded before mount to ensure components available
+Plugins (Pinia, router, Vuetify) are registered by `registerPlugins(app)` before `initializeApp()` runs.
+
+**Order:**
+1. Auth mode is resolved before mount, so the first authenticated request after mount, GraphQL or a module bundle, knows whether to send a token.
+2. Host dependencies are exposed before mount, so any later `install()` finds them.
+3. Module frontends load on first use, after mount (`moduleLoader.ensure`).
 
 ---
 
 ## Module Development Guide
 
-**Reference Implementation:** `modules/example-analysis-module/frontend/`
+**Reference implementation:** `modules/dethernety-threat-report/frontend/`
 
 ### Module Directory Structure
 
 ```
 modules/my-module/frontend/
 ├── index.js                 # Module entry point with install/uninstall
-├── vite.config.js           # Build configuration
+├── frontend-manifest.json   # The component keys install() registers, and the hostApi range
+├── vite.config.mjs          # Build configuration
 ├── externals/
 │   └── vue-shim.js          # Vue runtime redirect to host
 ├── components/
 │   ├── MyComponent.vue      # SFC components
 │   └── AnotherComponent.vue
-└── dist/
-    └── bundle.js            # Built bundle (uploaded to backend)
+├── __tests__/
+│   └── frontendManifest.test.js  # Contract test: install() registers exactly the manifest's keys
+├── dist/
+│   └── bundle.js            # Build output
+└── bundle.js                # Copied from dist/; the packager takes this file and the manifest
 ```
+
+### Frontend Manifest
+
+```json
+{
+  "manifestVersion": 1,
+  "components": ["my_component", "another_component"],
+  "hostApi": { "min": 1, "max": 1 }
+}
+```
+
+`components` must list exactly the keys `install()` registers. A bundle without a valid manifest is not loaded. The format, the validator and the contract test are in [DTModule Interface → Module frontend](../../modules/DT_MODULE_INTERFACE.md#module-frontend).
 
 ### Module Entry Point
 
 A module exports `id`, `install`, and optionally `uninstall`:
 
-**Source:** `modules/example-analysis-module/frontend/index.js`
+**Example:** `modules/my-module/frontend/index.js`
 
 ```javascript
 import MyComponent from './components/MyComponent.vue'
@@ -606,6 +571,7 @@ export default {
       return
     }
 
+    // Scoped to the keys this module's manifest declares
     const { componentRegistry } = hostDependencies.services || {}
 
     if (!componentRegistry) {
@@ -613,7 +579,8 @@ export default {
       return
     }
 
-    // Register components with keys matching backend class windowComponent
+    // Keys match the document keys the module's getDocument() returns,
+    // and frontend-manifest.json's "components"
     const componentsToRegister = [
       { key: "my_component", component: MyComponent },
       { key: "another_component", component: AnotherComponent },
@@ -622,13 +589,10 @@ export default {
     componentsToRegister.forEach(({ key, component }) => {
       try {
         componentRegistry.register(key, component, "my-module-id")
-        console.log(`Registered component: ${key}`)
       } catch (error) {
         console.error(`Failed to register component ${key}:`, error)
       }
     })
-
-    console.log('Module components registered successfully')
   },
 
   uninstall() {
@@ -644,7 +608,7 @@ export default {
 
 Modules using Single File Components (`.vue` files) must redirect Vue imports to the host runtime. This is achieved via a shim file and Vite alias.
 
-**Source:** `modules/example-analysis-module/frontend/externals/vue-shim.js`
+**Example:** `modules/my-module/frontend/externals/vue-shim.js`
 
 ```javascript
 // vue-shim.js - Redirects Vue imports to host runtime
@@ -688,7 +652,7 @@ export const {
 
 ### Vite Build Configuration
 
-**Source:** `modules/example-analysis-module/frontend/vite.config.js`
+**Example:** `modules/my-module/frontend/vite.config.mjs`
 
 ```javascript
 import { defineConfig } from 'vite'
@@ -742,7 +706,7 @@ export default defineConfig({
 
 Components access host context directly via `window.__HOST_DEPENDENCIES__`:
 
-**Source:** `modules/example-analysis-module/frontend/components/AttackScenarioSummaryWindow.vue`
+**Example:** `modules/my-module/frontend/components/MyComponent.vue`
 
 ```vue
 <script setup lang="ts">
@@ -827,21 +791,17 @@ watch(() => props.content, (newContent) => {
 | Other module components | Direct import | `import MyDialog from './MyDialog.vue'` |
 | Host components (Vuetify) | Use in template directly | `<v-card>`, `<v-btn>` |
 
-### Building and Deploying
+### Building and Packaging
 
 ```bash
-# Navigate to module frontend directory
+# From the module's frontend directory
 cd modules/my-module/frontend
 
-# Install dependencies (if any)
-pnpm install
-
-# Build bundle
-pnpm build  # or: npx vite build
-
-# Output: dist/bundle.js
-# Upload to backend module configuration
+# Build the bundle and place it beside the manifest
+vite build && cp dist/bundle.js bundle.js
 ```
+
+The module's packager (`scripts/package-module.js`) takes `frontend/bundle.js` and `frontend/frontend-manifest.json` into the package, and refuses a `frontend/` that lacks either; see [Module Package Design → Module frontend](../../modules/MODULE_PACKAGE_DESIGN.md#module-frontend). dt-ws reads both when it loads the module.
 
 ---
 
@@ -868,6 +828,8 @@ pnpm build  # or: npx vite build
 │  - "Limited store exposure" — an API-surface choice, not a data boundary│
 │  - "authStore not exposed" — hides the raw token, but the module still  │
 │    makes authenticated requests through the bridged client              │
+│  - "Scoped component registry" — prevents accidental key collisions;    │
+│    a module can still reach the unscoped registry                       │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -883,42 +845,47 @@ capability sandbox to rely on.
 | Malicious / untrusted module code | Backend module allowlist + source validation in production ("only load modules you trust") |
 | Unauthorized data access or mutation | Server-side authorization on every GraphQL request (per-request JWT) — the same control that governs the host UI |
 | Raw refresh-token theft | `authStore` not exposed (module can still make authenticated requests, but cannot read the raw token) |
-| XSS via module | Module allowlist, module content review. **Not** the CSP — it deliberately permits `blob:` so module bundles can execute (see [SECURITY_MODEL.md](../../../SECURITY_MODEL.md)) |
-| Memory leaks | Blob URL cleanup in finally block |
+| XSS via module | Module allowlist, module content review. **Not** the CSP — it deliberately permits `blob:` so module bundles can execute (see [SECURITY_MODEL.md](../../../SECURITY_MODEL.md#module-frontends)) |
+| Bearer token sent off the API origin | The loader fetches only same-origin `/module-bundles/` URLs and refuses redirects |
+| Bundle replaced in transit or by a stale cache | sha256 check against the manifest hash where `crypto.subtle` exists; hash-addressed URLs |
+| Two modules claiming the same component key | The key belongs to neither; the view fails visibly |
+| Memory leaks | Blob URL revoked in a `finally` block |
 
-### Production Configuration
-
-In production, the backend should:
-1. Only serve whitelisted module bundles
-2. Validate module signatures (if implemented)
-3. Disable hot module reload
-4. Log module loading events
+The bundle route's authentication, caching and their limits are in [SECURITY_MODEL.md → Module frontends](../../../SECURITY_MODEL.md#module-frontends).
 
 ---
 
-## GraphQL Queries
+## API Surface
 
-### Module Discovery
+### GraphQL
 
-**Source:** `dt-core/src/dt-module/dt-module-gql.ts`
+**Source:** `dt-core/src/dt-module/dt-module-gql.ts` (`GET_FRONTEND_MODULE_MANIFEST`)
 
 ```graphql
-query GetAvailableFrontendModules {
-  modules(where: { frontendBundle_NOT: null }) {
+query GetFrontendModuleManifest {
+  getFrontendModuleManifest {
     name
+    version
+    available
+    hash
+    size
+    url
+    components
+    hostApi {
+      min
+      max
+    }
   }
 }
 ```
 
-### Bundle Fetch
+### REST
 
-```graphql
-query GetModuleFrontendBundle($name: String!) {
-  modules(where: { name: $name }) {
-    frontendBundle
-  }
-}
 ```
+GET /module-bundles/:name/:hash/bundle.js
+```
+
+The bundle bytes. See [The bundle route](#the-bundle-route).
 
 ---
 
@@ -926,20 +893,27 @@ query GetModuleFrontendBundle($name: String!) {
 
 ### Console Logs
 
-The module system logs at key points:
+dt-ui logs:
 
 ```
-[ModuleLoader] Found 3 frontend modules
-[ModuleLoader] Loading module: dt-analysis-module
-[ModuleLoader] Module dt-analysis-module installed successfully
-[ComponentRegistry] Registered: analysis_results as DynamicAnalysisResults
+Component registered: my_component (module: my-module-id) as DynamicMyComponent
+Failed to load module my-module: ModuleFrontendError: Module my-module bundle: HTTP 500
+Failed to load the module frontend manifest: <error>
+The component "my_component" is declared by more than one module (module-a, module-b): not loaded
+Module my-module touched the component "other_key", which it does not own: ignored
 ```
+
+dt-ws logs `Module frontend loaded` (with `moduleName`, `hash`, `size`, and `components`, the number of keys) or `Module frontend not loaded` (with `moduleName` and the `reason`, or `error` when reading the files threw) at module load and reload.
 
 ### Troubleshooting
 
 | Issue | Cause | Solution |
 |-------|-------|----------|
-| "Module has no install function" | Module doesn't export `install` | Check module's default export |
-| "Component not found" | Component not registered | Verify `register()` called in install |
-| "Cannot access before initialization" | Apollo client not ready | Ensure async startup sequence |
-| Memory growth | Blob URLs not revoked | Check finally block cleanup |
+| dt-ws logs `Module frontend not loaded … frontend/bundle.js without frontend/frontend-manifest.json` | The module ships no manifest | Add `frontend/frontend-manifest.json` and repackage |
+| dt-ws logs `invalid frontend-manifest.json: …` | The manifest fails validation | Fix the problems it names; run the contract test |
+| "No module frontend owns the component" | No allowed module with a frontend declares the key, or two modules do | Check `getFrontendModuleManifest` and `ALLOWED_MODULES` |
+| "did not register the component … it declares" | `install()` and the manifest disagree | Run `assertFrontendManifest` in the module's tests |
+| "needs host API …" | The module's `hostApi` range excludes this host's `HOST_API_VERSION` | Update the module, or the app |
+| "bundle does not match its hash" | The bytes received are not the ones the manifest names | Check any proxy in front of dt-ws |
+| "Refusing a module bundle URL off the API server" | The manifest `url` resolves to another origin or path | Check the configured API URL |
+| "Module <name> has no install function" | Module doesn't export `install` | Check module's default export |

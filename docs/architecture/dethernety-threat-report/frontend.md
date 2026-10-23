@@ -61,19 +61,61 @@ the whole module's registrations in one call.
 
 That key is a contract with the backend. The backend declares a "Threat Report"
 analysis class and serves its document under the same `threat_report_dashboard`
-key; the platform's analysis-results page resolves the key through
-`componentRegistry.getComponent(...)` and renders the shell. The registry key and
-the document key must stay identical — changing one without the other breaks the
-mount.
+key; the platform's analysis-results page looks the key up in the component
+registry and renders the shell. The key appears in three places that must stay
+identical: the document key, the `register()` call, and the manifest's
+`components`. Changing one without the others breaks the mount.
+
+### The manifest and loading
+
+[`frontend-manifest.json`](../../../modules/dethernety-threat-report/frontend/frontend-manifest.json)
+sits beside the bundle:
+
+```json
+{
+  "manifestVersion": 1,
+  "components": ["threat_report_dashboard"],
+  "hostApi": { "min": 1, "max": 1 }
+}
+```
+
+The host loads the bundle only through this file. dt-ui fetches no module
+frontend before it mounts. When a Threat Report analysis is opened, the
+analysis-results page starts loading this module's frontend (the analysis class's
+module) alongside the index document, then asks the loader for
+`threat_report_dashboard`. The loader finds the owning module in the manifest
+query, fetches `bundle.js` from its hash-addressed URL, checks the bytes against
+the hash (where `crypto.subtle` exists), and calls `install()`. Until the shell is registered the page shows a
+loading state; on a failure, an error with **Retry**.
+
+`install()` receives a component registry scoped to the keys the manifest
+declares, so the module can register `threat_report_dashboard` and nothing else.
+`hostApi` `1`–`1` is the host dependency shape described here; a host on another
+version refuses the bundle. The loading flow and its failure handling are in
+[Dynamic Module System](../frontend/LLD/MODULE_SYSTEM.md#module-loading-flow).
+
+The contract test
+[`__tests__/frontendManifest.test.js`](../../../modules/dethernety-threat-report/frontend/__tests__/frontendManifest.test.js)
+runs the real `install()` through `assertFrontendManifest` from
+`@dethernety/dt-module/frontend-manifest`, which fails unless it registers
+exactly the manifest's keys, each once. It runs in the module's vitest suite.
+
+The build copies `frontend/dist/bundle.js` to `frontend/bundle.js`
+(`build:frontend`), and the packager takes `frontend/bundle.js` and
+`frontend/frontend-manifest.json` into the package; it refuses a `frontend/`
+missing either.
 
 ```mermaid
 graph LR
-  Host["dt-ui host"] -->|install hostDependencies| Entry["index.js"]
-  Entry -->|register threat_report_dashboard| Reg["componentRegistry"]
-  Host -->|getComponent threat_report_dashboard| Shell["ThreatReportShell.vue"]
+  Page["analysis-results page"] -->|"ensure threat_report_dashboard"| Loader["ModuleLoader"]
+  Loader -->|getFrontendModuleManifest| Api["dt-ws"]
+  Loader -->|"GET /module-bundles/…/bundle.js"| Api
+  Loader -->|"install(hostDependencies)"| Entry["index.js"]
+  Entry -->|register threat_report_dashboard| Reg["scoped componentRegistry"]
+  Page -->|"registry lookup"| Shell["ThreatReportShell.vue"]
   Shell -->|"window.__HOST_DEPENDENCIES__.useHostContext()"| Ctx["host stores / utils / services"]
   Shell -->|imports vue| Shim["externals/vue-shim.js"]
-  Shim -->|"window.__HOST_DEPENDENCIES__.__VUE__"| Host
+  Shim -->|"window.__HOST_DEPENDENCIES__.__VUE__"| Host["dt-ui host"]
 ```
 
 ### Reaching the host: `useHostContext()` and `dtUtils`

@@ -33,6 +33,7 @@ import {
 const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'package-module.js');
 const MODULE_NAME = 'fixture-mod';
 const BUNDLE_BODY = 'export const ui = () => "hello";\n';
+const FRONTEND_MANIFEST_BODY = '{"manifestVersion":1,"components":["ui"],"hostApi":{"min":1,"max":1}}\n';
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -68,7 +69,7 @@ function makeFixture({ compatibility } = {}) {
   });
   writeJson(path.join(data, 'class.json'), { id: 'abc', name: 'X', classType: 'component' });
 
-  // Frontend: one file the runtime reads, and four that it does not.
+  // Frontend: two files the runtime reads, and four that it does not.
   const fe = path.join(root, 'frontend');
   fs.mkdirSync(path.join(fe, 'dist'), { recursive: true });
   fs.mkdirSync(path.join(fe, '__tests__'), { recursive: true });
@@ -76,6 +77,7 @@ function makeFixture({ compatibility } = {}) {
   fs.mkdirSync(path.join(fe, 'lib', 'dist'), { recursive: true });
   fs.mkdirSync(path.join(fe, 'lib', 'node_modules'), { recursive: true });
   fs.writeFileSync(path.join(fe, 'bundle.js'), BUNDLE_BODY);
+  fs.writeFileSync(path.join(fe, 'frontend-manifest.json'), FRONTEND_MANIFEST_BODY);
   fs.writeFileSync(path.join(fe, 'index.js'), 'source entry\n');
   fs.writeFileSync(path.join(fe, 'dist', 'bundle.js'), BUNDLE_BODY);
   fs.writeFileSync(path.join(fe, '__tests__', 'a.test.js'), 'test\n');
@@ -155,6 +157,7 @@ test('the packaged tree is exactly the expected file set', () => {
       'dethernety/fixture-mod/data/fixture-mod/component/x/class.json',
       'dethernety/fixture-mod/data/fixture-mod/module.json',
       'dethernety/fixture-mod/frontend/bundle.js',
+      'dethernety/fixture-mod/frontend/frontend-manifest.json',
       'dethernety/fixture-mod/schema.graphql',
       'manifest.json',
     ]);
@@ -166,6 +169,15 @@ test('frontend/bundle.js survives byte-identical', () => {
     assert.equal(pack(fx.root).status, 0);
     const packaged = fs.readFileSync(path.join(fx.payloadDir, 'frontend', 'bundle.js'));
     const source = fs.readFileSync(path.join(fx.frontendDir, 'bundle.js'));
+    assert.ok(packaged.equals(source));
+  });
+});
+
+test('frontend/frontend-manifest.json survives byte-identical', () => {
+  withFixture((fx) => {
+    assert.equal(pack(fx.root).status, 0);
+    const packaged = fs.readFileSync(path.join(fx.payloadDir, 'frontend', 'frontend-manifest.json'));
+    const source = fs.readFileSync(path.join(fx.frontendDir, 'frontend-manifest.json'));
     assert.ok(packaged.equals(source));
   });
 });
@@ -193,6 +205,82 @@ test('a frontend without bundle.js fails the build and names the file', () => {
     // The alternative is a module that loads, reports healthy, and renders nothing.
     assert.equal(res.status, 1);
     assert.match(res.stderr, /frontend\/bundle\.js/);
+  });
+});
+
+test('a frontend without frontend-manifest.json fails the build and names the file', () => {
+  withFixture((fx) => {
+    fs.rmSync(path.join(fx.frontendDir, 'frontend-manifest.json'));
+    const res = pack(fx.root);
+    // The host does not load a frontend without its manifest.
+    assert.equal(res.status, 1);
+    assert.match(res.stderr, /frontend\/frontend-manifest\.json does not/);
+  });
+});
+
+test('a frontend-manifest.json that is not JSON fails the build', () => {
+  withFixture((fx) => {
+    fs.writeFileSync(path.join(fx.frontendDir, 'frontend-manifest.json'), '{ not json\n');
+    const res = pack(fx.root);
+    assert.equal(res.status, 1);
+    assert.match(res.stderr, /frontend-manifest\.json is not valid JSON/);
+  });
+});
+
+test('a frontend-manifest.json that is not a JSON object fails the build', () => {
+  for (const body of ['null\n', '[]\n', '"threat_report_dashboard"\n']) {
+    withFixture((fx) => {
+      fs.writeFileSync(path.join(fx.frontendDir, 'frontend-manifest.json'), body);
+      const res = pack(fx.root);
+      assert.equal(res.status, 1, body);
+      assert.match(res.stderr, /frontend-manifest\.json is not a JSON object/);
+    });
+  }
+});
+
+test('a symlinked frontend file fails the build instead of packaging its target', () => {
+  for (const file of ['bundle.js', 'frontend-manifest.json']) {
+    withFixture((fx) => {
+      const source = path.join(fx.frontendDir, file);
+      const target = path.join(fx.root, `outside-${file}`);
+      fs.renameSync(source, target);
+      fs.symlinkSync(target, source);
+      const res = pack(fx.root);
+      assert.equal(res.status, 1, file);
+      assert.match(res.stderr, new RegExp(`frontend/${file.replace('.', '\\.')} is not a regular file`));
+    });
+  }
+});
+
+test('a symlinked frontend/ directory fails the build', () => {
+  withFixture((fx) => {
+    const elsewhere = path.join(fx.root, 'elsewhere');
+    fs.renameSync(fx.frontendDir, elsewhere);
+    fs.symlinkSync(elsewhere, fx.frontendDir);
+    const res = pack(fx.root);
+    assert.equal(res.status, 1);
+    assert.match(res.stderr, /frontend\/ is not a directory/);
+  });
+});
+
+test('a failing frontend check does not destroy the previous package', () => {
+  withFixture((fx) => {
+    assert.equal(pack(fx.root).status, 0);
+    const sentinel = path.join(fx.packageDir, 'sentinel.txt');
+    fs.writeFileSync(sentinel, 'previous build\n');
+
+    fs.rmSync(path.join(fx.frontendDir, 'frontend-manifest.json'));
+    assert.equal(pack(fx.root).status, 1);
+    assert.ok(fs.existsSync(sentinel));
+  });
+});
+
+test('a module without frontend/ packages without a manifest', () => {
+  withFixture((fx) => {
+    fs.rmSync(fx.frontendDir, { recursive: true });
+    const res = pack(fx.root);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(fs.existsSync(path.join(fx.payloadDir, 'frontend')), false);
   });
 });
 
@@ -289,6 +377,17 @@ test('a one-byte change to the bundle flips the digest', () => {
     const before = readStamp(fx.payloadDir).payloadDigest;
 
     fs.writeFileSync(path.join(fx.frontendDir, 'bundle.js'), `${BUNDLE_BODY}//x\n`);
+    assert.equal(pack(fx.root).status, 0);
+    assert.notEqual(readStamp(fx.payloadDir).payloadDigest, before);
+  });
+});
+
+test('a one-byte change to the frontend manifest flips the digest', () => {
+  withFixture((fx) => {
+    assert.equal(pack(fx.root).status, 0);
+    const before = readStamp(fx.payloadDir).payloadDigest;
+
+    fs.writeFileSync(path.join(fx.frontendDir, 'frontend-manifest.json'), FRONTEND_MANIFEST_BODY.replace('"max":1', '"max":2'));
     assert.equal(pack(fx.root).status, 0);
     assert.notEqual(readStamp(fx.payloadDir).payloadDigest, before);
   });
