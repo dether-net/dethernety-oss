@@ -30,7 +30,7 @@ This page is the index for the Threat Report documentation set. New to the repor
 - **No attacker model.** Reachability shows **flow routes, not attack paths** — it models how data flows connect, never attacker effort, credential reuse, or exploit chaining. A hop count is proximity, not difficulty.
 - **Not a live view.** The report is a snapshot as of the moment you generated it. If you edit the model afterward, the report flags itself stale until you recreate it — it does not auto-update.
 
-> Read the scope-and-freshness banner at the top of the report first, every time. It surfaces honesty flags — a stale snapshot, missing boundaries, unclassified data — *before* you read any reassuring count.
+> Read the scope-and-freshness banner at the top of the report first, every time. It surfaces caveats — a stale snapshot, missing boundaries, unclassified data — *before* you read any reassuring count.
 
 ---
 
@@ -69,4 +69,4 @@ See [Getting Started](./GETTING_STARTED.md) for the full setup walkthrough.
 
 ## For developers
 
-For the system design — the snapshot lifecycle, the backend/frontend split, the data contracts, and the honesty principles behind each surface — see the [Threat Report architecture documentation](../../architecture/dethernety-threat-report/README.md).
+For the system design — the snapshot lifecycle, the backend/frontend split, the data contracts, and the caveats each surface carries — see the [Threat Report architecture documentation](../../architecture/dethernety-threat-report/README.md).

@@ -56,7 +56,7 @@ Show connection status, authentication state, local model summary, and a per-mod
 
 Dethernety Connection Status
 ─────────────────────────────────────────
-Platform URL:  https://demo.dethernety.io
+Platform URL:  https://dethernety.example.com
 Auth status:   Authenticated (user@example.com, 59 min remaining)
 ─────────────────────────────────────────
 
@@ -91,7 +91,7 @@ A `Control library (<model-name>):` block is rendered per model that has a `cont
 > /dethereal:status show models <controlId>
 ```
 
-Lists the model IDs assigned to a Control, read from the `platformState.assignedModelIds` cached in the local `controls/<controlId>.json` — no fresh platform query. If the Control has not been pulled locally, the command says so and points you at `/dethereal:enrich --focus controls`. Model names, owners, and freshness are not shown (a V1 limitation).
+Lists the model IDs assigned to a Control, read from the `platformState.assignedModelIds` cached in the local `controls/<controlId>.json` — no fresh platform query. If the Control has not been pulled locally, the command says so and points you at `/dethereal:enrich --focus controls`. Model names, owners, and freshness are not shown.
 
 Model and control-library data come from local files. The connection and authentication lines come from the plugin's MCP server, which may contact the platform to load its configuration and refresh an expired session (bounded to 10 seconds). Session tokens are never read into the conversation.
 
@@ -107,7 +107,7 @@ Authenticate with the Dethernety platform via browser-based OAuth.
 Opening browser for authentication...
 
 Authenticated successfully.
-Platform:     https://demo.dethernety.io
+Platform:     https://dethernety.example.com
 User:         user@example.com
 Token valid:  60 minutes remaining
 ```
@@ -273,7 +273,9 @@ If removing a boundary, child components are relocated to the parent boundary �
 
 ## Classification and Enrichment Commands
 
-### `/dethereal:classify [--type components|flows|boundaries|data-items]`
+### `/dethereal:classify`
+
+**Usage:** `/dethereal:classify [--type components|flows|boundaries|data-items]`
 
 Assign classes to unclassified elements using a two-pass process.
 
@@ -321,10 +323,10 @@ Populate security attributes, credentials, MITRE ATT&CK references, monitoring t
 - `--focus credentials` — credential topology only
 - `--focus monitoring` — monitoring tools only
 - `--focus compliance` — compliance-driven prompts only
-- `--focus controls` — control assignment pass (separate invocation, own 40-turn budget). Auto-pulls referenced Controls, lets you edit per-instance attributes, and queues `pendingEdit` blocks for the next push. Greenfield Controls get a temporary ID; brownfield Controls write to `controls/<id>.json`. See [Discovery and Enrichment](DISCOVERY_AND_ENRICHMENT.md#part-4--control-enrichment).
+- `--focus controls` — control assignment pass (separate invocation, own 40-turn budget). Auto-pulls referenced Controls, lets you edit per-instance attributes, and queues `pendingEdit` blocks for the next push. Greenfield Controls get a temporary ID; brownfield Controls write to `controls/<id>.json`. See [Discovery and Enrichment](DISCOVERY_AND_ENRICHMENT.md#part-4-control-enrichment).
 
 **Targeted flag:**
-- `--pick <element-id>` — target a single element by id, skipping the interactive selector. Used by the drift orchestrator (CHANGED-substrate and CHANGED-attribute-only delta items route here); also available for direct invocation when you know the element id.
+- `--pick <element-id>` — target a single element by id, skipping the interactive selector. Drift detection on resume uses it to re-enrich an element whose technology or attributes changed in your source; also available for direct invocation when you know the element id.
 
 ```
 > /dethereal:enrich tier1
@@ -416,7 +418,7 @@ Synchronize local model with the Dethernety platform, plus four recovery verbs f
 > /dethereal:sync push
 ```
 
-Validates the model (Gate 2 pre-flight), checks for conflicts with the platform version, and publishes. Server-generated IDs are written back to local files. If your model has Controls assigned to multiple Models, the push pauses on the **shared-ownership prompt** — you choose `cancel`, `push-anyway`, `push-unverified`, or (V1.1) `clone-and-swap` per Control. Decisions are recorded in `.dethereal/control-audit.log`. See [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md#shared-ownership-prompts).
+Validates the model (Gate 2 pre-flight), checks for conflicts with the platform version, and publishes. Server-generated IDs are written back to local files. If your model has Controls assigned to multiple Models, the push pauses on the **shared-ownership prompt** — you choose `cancel`, `push-anyway`, or `push-unverified` per Control (`clone-and-swap` is not yet available). Decisions are recorded in `.dethereal/control-audit.log`. See [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md#shared-ownership-prompts).
 
 **Pull (import from platform):**
 
@@ -446,13 +448,13 @@ Surface a stranded WAL journal (`.dethereal/pending-id-rewrite.json`) and walk t
 > /dethereal:sync promote-external-edit <controlId> <classId>
 ```
 
-Unblock the Step A external-edit guard. When someone else changed the Control on the platform between your pull and push, this promotes the platform's current state into your local `pendingEdit` so the next push runs the shared-ownership check against your effective intent. No platform mutation; purely local.
+Unblock a push stopped by the external-edit guard (`EXTERNAL_EDIT_DETECTED`). When someone else changed the Control on the platform between your pull and push, this promotes the platform's current state into your local `pendingEdit` so the next push runs the shared-ownership check against your effective intent. No platform mutation; purely local.
 
 ```
 > /dethereal:sync tombstone <controlId>
 ```
 
-Mark a Control as tombstoned locally so future pulls don't resurrect it. Useful when retiring a Control without waiting for the platform-deletion-detected reconciliation path.
+Mark a Control as tombstoned locally so future pulls don't resurrect it. Useful when retiring a Control without waiting for it to be deleted on the platform and for a later pull to notice.
 
 **`merge-from-file` (in-prompt verb).** During a shared-ownership prompt with large per-key payloads, the operator can stage edits via `merge-from-file <n>.<key> = <path>` instead of pasting them inline. The file lives under `.dethereal/merge-staging/` (auto-created if absent).
 

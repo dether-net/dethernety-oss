@@ -60,9 +60,9 @@ There is no module step here. The classes you will pick for boundaries, componen
 
 Security boundaries help organize your model and define trust zones:
 
-1. **Internet Boundary** (Default boundary - already created)
-   - Contains all internet-facing components
-   - Highest risk zone
+1. **Default boundary** (already created)
+   - The model's outermost container — every component and boundary you add sits inside it
+   - It carries no trust zone of its own: its settings have no **Zoning** tab. A boundary with no zone set anywhere up its parent chain falls back to **Internal** and is flagged as unclassified, so set a zone on each boundary you create — see [Boundary Trust Zones](BOUNDARY_TRUST_ZONES.md)
 
 2. **Create DMZ Boundary**:
    - **Drag boundary**: From the component palette on the right, drag **Boundary** onto the canvas
@@ -86,7 +86,7 @@ Security boundaries help organize your model and define trust zones:
 **Your boundary structure should look like:**
 
 ```
-Internet Boundary (Default)
+Default boundary
 ├── DMZ Zone
 │   └── [Public-facing services]
 └── Internal Network
@@ -228,7 +228,7 @@ Internet Boundary (Default)
 
 Now connect your components with data flows to show how information moves through the system:
 
-### Customer Interactions
+### User Interactions
 
 **1. Customer → Public Web Server**:
 - **Create connection**: Drag from a connection point on the Customer entity to a connection point on the Public Web Server
@@ -242,15 +242,15 @@ Now connect your components with data flows to show how information moves throug
   - **Direction**: Bi-directional
 - **View exposures**: Check automatically calculated security exposures
 
-**2. Customer → Admin Panel Server**:
-- **Create connection**: Drag from Customer to Admin Panel Server connection points
+**2. Administrator → Admin Panel Server**:
+- **Create connection**: Drag from Administrator to Admin Panel Server connection points
 - **Configure data flow**: Double-click arrow and set basic properties
 - **Class assignment**: Select admin access data flow class
 - **Configure attributes**:
   - **Protocol**: HTTPS
   - **Data Types**: Admin commands, configuration
   - **Authentication**: Required (MFA)
-- **Note**: Only for administrators
+- **Note**: Only administrators reach the admin panel
 
 ### Internal Service Communication
 

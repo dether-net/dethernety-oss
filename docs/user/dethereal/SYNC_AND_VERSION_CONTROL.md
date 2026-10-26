@@ -123,7 +123,7 @@ Options (per row):
   cancel        — Skip this Control. Push everything else.
   push-anyway   — Apply your changes to all 4 Models. Audit-log entry: force-shared.
   push-unverified — Apply when the ownership query failed. Audit-log entry: force-unverified.
-  clone-and-swap — Fork into a new Control just for this Model. (V1.1 — not yet implemented)
+  clone-and-swap — Fork into a new Control just for this Model. (not yet available)
 ```
 
 Choosing `push-anyway` writes a `force-shared` entry to `.dethereal/control-audit.log` so PR review can see who decided to mutate the shared state. Choosing `push-unverified` writes a `force-unverified` entry with the reason the ownership query failed (timeout, forbidden, no-data).
@@ -150,7 +150,7 @@ Three operator recovery paths exist for the control-library workflow:
 |------|-------------|
 | `/dethereal:sync repair-wal` | Any push/pull/status returned `WAL_REPLAY_FAILED`. Surfaces the stranded `.dethereal/pending-id-rewrite.json` journal and walks through delete-journal / retry-replay / manual-rename. |
 | `/dethereal:sync promote-external-edit <controlId> <classId>` | Push aborted with `EXTERNAL_EDIT_DETECTED`. Promotes the platform's state into your local `pendingEdit`. Purely local — no platform mutation. |
-| `/dethereal:sync tombstone <controlId>` | Retiring a Control locally without waiting for the platform-deletion-detected path. Future pulls won't resurrect it. |
+| `/dethereal:sync tombstone <controlId>` | Retiring a Control locally without waiting for it to be deleted on the platform and for a later pull to notice. Future pulls won't resurrect it. |
 
 ---
 
@@ -206,7 +206,7 @@ Platform models don't have `.dethereal/state.json`. After pull, the plugin infer
 
 ### Missing Scope Metadata
 
-Pull materialises `.dethereal/scope.json` from the platform model's scope fields (depth, modeling intent, compliance drivers, exclusions, trust assumptions), merge-preserving any skill-owned local-only keys; push reads it back. A legacy model created without scope simply yields a `scope.json` with no synced keys — you can fill it in via `/dethereal:threat-model`, but you no longer need to hand-create the file.
+Pull materialises `.dethereal/scope.json` from the platform model's scope fields (depth, modeling intent, compliance drivers, exclusions, trust assumptions), keeping any local-only workflow settings already in the file; push reads it back. A legacy model created without scope simply yields a `scope.json` with no synced keys — you can fill it in via `/dethereal:threat-model`, but you no longer need to hand-create the file.
 
 ### Referenced Models
 
@@ -227,7 +227,7 @@ Sync Status: ./threat-models/prod/
 
   Platform:
     Model ID: abc-123-def
-    URL: https://demo.dethernety.io
+    URL: https://dethernety.example.com
     Auth: user@example.com (45 min remaining)
 
   Sync:

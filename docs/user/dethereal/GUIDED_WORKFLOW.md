@@ -455,7 +455,7 @@ The most intensive step, and the one hardest to size in advance. The plugin dele
 - **Auth failure modes** — what happens when authentication fails (deny, fallback, fail_open)
 - **Boundary enforcement** — implicit deny, egress filtering per boundary
 
-MITRE ATT&CK techniques are **not** written during this step. Technique coverage is derived on the platform from analysis exposures — see [Discovery and Enrichment Part 3](DISCOVERY_AND_ENRICHMENT.md#part-3-mitre-attck-and-d3fend-integration).
+MITRE ATT&CK techniques are **not** written during this step. Technique coverage is derived on the platform from analysis exposures — see [Discovery and Enrichment Part 3](DISCOVERY_AND_ENRICHMENT.md#part-3-mitre-framework-integration).
 
 If stale elements exist (from a backward transition), they're enriched first.
 
@@ -564,7 +564,7 @@ Server IDs written to local files.
 Commit these changes to preserve sync state.
 ```
 
-**Control-library prompts.** If you ran the control pass (`/dethereal:enrich --focus controls`) and have edits to brownfield Controls assigned to multiple Models, the push pauses on the **shared-ownership prompt** — you confirm `cancel`, `push-anyway`, or `push-unverified` per Control. (`clone-and-swap` is a planned V1.1 option; choosing it today returns `CLONE_AND_SWAP_NOT_IMPLEMENTED`. The V1 equivalent is `cancel`, then create a separate Control with `/dethereal:enrich --focus controls`. `push-anyway` and `push-unverified` both **overwrite the shared Control on every model that references it** — the opposite of what you wanted if you reached for clone-and-swap.) Decisions land in `.dethereal/control-audit.log`. If someone else changed a Control on the platform between your pull and push, the push aborts with `EXTERNAL_EDIT_DETECTED`; recover with `/dethereal:sync promote-external-edit <controlId> <classId>`.
+**Control-library prompts.** If you ran the control pass (`/dethereal:enrich --focus controls`) and have edits to brownfield Controls assigned to multiple Models, the push pauses on the **shared-ownership prompt** — you confirm `cancel`, `push-anyway`, or `push-unverified` per Control. (`clone-and-swap` is not yet available; choosing it returns `CLONE_AND_SWAP_NOT_IMPLEMENTED`. The equivalent today is `cancel`, then create a separate Control with `/dethereal:enrich --focus controls`. `push-anyway` and `push-unverified` both **overwrite the shared Control on every model that references it** — the opposite of what you wanted if you reached for clone-and-swap.) Decisions land in `.dethereal/control-audit.log`. If someone else changed a Control on the platform between your pull and push, the push aborts with `EXTERNAL_EDIT_DETECTED`; recover with `/dethereal:sync promote-external-edit <controlId> <classId>`.
 
 For details on sync, conflicts, and version control, see [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md).
 
@@ -692,14 +692,14 @@ Enrichment data on existing elements is preserved — only the new elements need
 
 ## Drift detection on resume
 
-When you re-run `/dethereal:threat-model` on a model that already has a baseline, the skill detects drift between your last reconcile point and the current git working tree. If in-scope source files have changed since the baseline commit, the resume path surfaces a four-way delta — REMOVED, ADDED, CHANGED-substrate, CHANGED-attribute-only — and routes each item through the existing `/dethereal:add`, `/dethereal:remove`, or `/dethereal:enrich` flows. You review drift via the same UX you used to author the model.
+When you re-run `/dethereal:threat-model` on a model that already has a baseline, the skill detects drift between your last reconcile point and the current git working tree. If in-scope source files have changed since the baseline commit, the resume path sorts each change into one of four kinds — an element removed, an element added, an element whose technology changed (it now matches a different class), or an element whose attributes alone changed — and routes each item through the existing `/dethereal:add`, `/dethereal:remove`, or `/dethereal:enrich` flows. You review drift via the same UX you used to author the model.
 
 Two operator-facing details:
 
 - **`/dethereal:threat-model --full-scan`** bypasses drift detection entirely and re-runs `/dethereal:discover` end-to-end. Use this when history was rewritten past the baseline (e.g., a force-push or a branch-switch that orphaned the prior reconcile commit), or when you want to re-baseline against the current source tree.
 - **Crown-jewel removal triggers an elevated confirm.** When the drift detector proposes removing an element tagged as a crown jewel, `/dethereal:remove` shows an explicit "this element is tagged as a CROWN JEWEL" prompt before applying. Untagged removals fall through to the standard confirmation.
 
-For the full mechanism (git-diff substrate, scoped scout invocation, four-way delta routing), see [`oss/docs/architecture/dethereal/DRIFT_DETECTION.md`](../../architecture/dethereal/DRIFT_DETECTION.md).
+For how drift detection works under the hood, see [Drift Detection architecture](../../architecture/dethereal/DRIFT_DETECTION.md).
 
 ### Where crown-jewel status lives
 

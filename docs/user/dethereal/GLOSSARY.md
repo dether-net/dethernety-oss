@@ -39,7 +39,7 @@ Plugin-specific terminology. For platform-wide terms, see the [Dethernety Glossa
 
 **Sensitivity** — A data item's author-asserted confidentiality classification on a four-level scale, lowest to highest: `public`, `internal`, `confidential`, `restricted`. Absent ⇒ unclassified (which is *not* the same as `public`).
 
-**Regulatory Flags** — Free-text compliance labels on a data item (e.g. `PCI cardholder`, `PHI`, `GDPR personal`), kept separate from sensitivity. Matched exactly and case-sensitively by the platform's `dataInRegulatoryScope` query; see the [canonical vocabulary](../../architecture/dethereal/THREAT_MODELING_WORKFLOW.md#canonical-sensitivity-and-regulatory-flag-vocabulary) for the recommended set and casing.
+**Regulatory Flags** — Free-text compliance labels on a data item (e.g. `PCI cardholder`, `PHI`, `GDPR personal`), kept separate from sensitivity. Matched exactly and case-sensitively by the platform's compliance queries; see the [canonical vocabulary](../../architecture/dethereal/THREAT_MODELING_WORKFLOW.md#canonical-sensitivity-and-regulatory-flag-vocabulary) for the recommended set and casing.
 
 **Origin** — A data item's author-asserted answer to who can write its content (`origin` in `data-items.json`), most to least trusted: `authenticated_first_party`, `curated_internal`, `agent_relayed`, `model_generated`, `third_party`, `arbitrary_public`, `not_assessed`. The last three are untrusted, and the least-trusted source wins. Absent ⇒ unclassified (which is *not* the same as `not_assessed`). See the [canonical vocabulary](../../architecture/dethereal/THREAT_MODELING_WORKFLOW.md#canonical-data-origin-and-credential-vocabulary).
 
@@ -167,7 +167,7 @@ Zoning records the *declared design intent* of your segmentation — which trust
 
 **Two-Write Rule** — Every edit to a Control's `attributes` must (a) bump `localEditedAt` and (b) populate `pendingEdit`. The plugin enforces this via the `set-local-edited` MCP action — never edit `controls/<id>.json` by hand.
 
-**Shared-Ownership Prompt** — When pushing a brownfield Control assigned to multiple Models, the plugin shows the operator the list of co-owner Models and offers per-row choices: `cancel`, `push-anyway` (apply your edits to all sharing Models), `push-unverified` (apply when the ownership query failed), `clone-and-swap` (V1.1 — fork into a new Control). See [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md#shared-ownership-prompts).
+**Shared-Ownership Prompt** — When pushing a brownfield Control assigned to multiple Models, the plugin shows the operator the list of co-owner Models and offers per-row choices: `cancel`, `push-anyway` (apply your edits to all sharing Models), `push-unverified` (apply when the ownership query failed), `clone-and-swap` (fork into a new Control — not yet available). See [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md#shared-ownership-prompts).
 
 **Force-Shared / Force-Unverified** — Audit-log entry shapes recording the operator's choice when they bypass the shared-ownership default. `force-shared` means "I knowingly mutated a multi-owner Control." `force-unverified` means "I mutated despite a failed ownership query."
 

@@ -122,13 +122,13 @@ Above the route list, whenever the target is reachable, **Pick two** answers the
 | `A direct modeled flow connects them — no intermediary to control` | The origin flows straight to the target; there is no in-between node to harden. |
 | `No single choke point — at least two internally disjoint routes exist` | The routes fan out enough that no one node is on all of them; controlling any single node leaves another route open. |
 
-Two things make this trustworthy. First, it is computed by testing whether removing a node disconnects the target — **not** by intersecting the route list above — so it stays **complete even when route enumeration is capped** (the strip says so when that happens). Second, the honesty line stays attached: a choke point sits on every *modeled* flow route only. Controlling it does **not** address unmodeled flows, shared credentials, or non-flow lateral movement, and "no single choke point" is **not** a verdict that the path is well-segmented. The number of choke points is never a risk score.
+Two things make this trustworthy. First, it is computed by testing whether removing a node disconnects the target — **not** by intersecting the route list above — so it stays **complete even when route enumeration is capped** (the strip says so when that happens). Second, the caveat stays attached: a choke point sits on every *modeled* flow route only. Controlling it does **not** address unmodeled flows, shared credentials, or non-flow lateral movement, and "no single choke point" is **not** a verdict that the path is well-segmented. The number of choke points is never a risk score.
 
 ---
 
 ## Blast Radius
 
-Where the first two modes ask *"can the attacker reach a specific target?"*, **Blast radius** asks the **containment** question: *if this one node were compromised, how much of the model is exposed?* You pick a node — its assumed-breach origin — and the tab shows every component reachable from it by following modeled flows downstream.
+Where the first two modes ask *"which flow routes lead to a specific target?"*, **Blast radius** asks the **containment** question: *if this one node were compromised, how much of the model is exposed?* You pick a node — its assumed-breach origin — and the tab shows every component reachable from it by following modeled flows downstream.
 
 ### Choosing the node and the scope
 
@@ -139,7 +139,7 @@ The **Assume breached** selector picks the origin node — or click any node dir
 | **Full radius** (default) | Every component transitively reachable downstream — the complete blast radius. Each node is labelled with how many hops away it is. |
 | **Direct (1-hop)** | Only the immediate downstream neighbours — the nodes one flow away. |
 
-The radius is **forward only**: it follows flow direction outward from the node (where an attacker could pivot *to*), never backward toward it.
+The radius is **forward only**: it follows flow direction outward from the node to what its flows lead *to*, never backward toward it.
 
 ### Reading the radius
 
@@ -151,7 +151,7 @@ Below that, each reachable node is a row, ordered nearest-first:
 |---|---|
 | `⬢` before the name | This reachable node is a crown jewel — a high-value asset caught in the radius. |
 | `N hops` | The fewest flow steps to reach it from the origin. |
-| `first → <flow> [sensitivity]` | The **first hop out of the breached origin** on the shortest path to this node — the flow the attacker rides first, and the data that flow carries *in motion* (distinct from the data the node handles at rest). The flow name opens its profile. For a direct (1-hop) neighbour this is simply the origin→node flow. `unclassified` means the flow carries data with no sensitivity set (not the same as Public). |
+| `first → <flow> [sensitivity]` | The **first hop out of the breached origin** on the shortest route to this node — the first flow along that route, and the data that flow carries *in motion* (distinct from the data the node handles at rest). The flow name opens its profile. For a direct (1-hop) neighbour this is simply the origin→node flow. `unclassified` means the flow carries data with no sensitivity set (not the same as Public). |
 | `◂ EXIT` / `▸ ENTER` boundary chips | The **net** trust-boundary crossings from the breached origin to this node — which zones the blast leaves and enters to reach it (e.g. `◂ Web tier ▸ API tier`). Same vocabulary as **Boundary Crossings**; each chip opens that boundary's profile. This is the *net* origin→node delta, not a per-hop tally — so a node that sits back in the origin's own zone shows `· same zone as origin` rather than chips, even if it is several hops away. |
 | A severity dot + band | The worst live threat sitting on that reachable node. |
 | A sensitivity chip | Sensitive data that node handles. |
@@ -166,7 +166,7 @@ The whole reachable cone is painted on the minimap at once, so you can see the s
 
 ## The Minimap and the Route Legend
 
-The minimap is a small, faithful copy of your hand-laid diagram — it uses your real layout, not an auto-generated one. It serves both modes:
+The minimap is a small, faithful copy of your hand-laid diagram — it uses your real layout, not an auto-generated one. It serves all three modes:
 
 - **Crown jewels** are drawn in red and **external entry-points** in amber, so you can spot them at a glance.
 - The **active route** is painted in cyan — both the nodes and the exact flow edges along it — so you can see the route in the context of the whole model.

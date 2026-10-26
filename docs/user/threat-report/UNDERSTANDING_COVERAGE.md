@@ -114,7 +114,7 @@ A bare technique id like `T1078` is opaque. Click the **ⓘ** next to any techni
 
 ## Reading the Off-Grid Notes Honestly
 
-Below the controls sits an **Off-grid** summary line. Its counts are **always visible** — they are the honesty signal that keeps the grid from reading as a false all-clear. Click the line to expand the detail. There are four categories, and each exists because charting it as "covered" or "uncovered" would mislead you.
+Below the controls sits an **Off-grid** summary line. Its counts are **always visible** — they are the completeness note that keeps the grid from reading as a false all-clear. Click the line to expand the detail. There are four categories, and each exists because charting it as "covered" or "uncovered" would mislead you.
 
 | Off-grid category | What it means | How to treat it |
 |---|---|---|
@@ -164,6 +164,6 @@ Adding or mapping a control changes the model, which makes the report **stale**.
 
 - **[Getting Started](./GETTING_STARTED.md)** — generating, refreshing, and exporting the report; the Coverage Tools prerequisite.
 - **[Reading the Report](./READING_THE_REPORT.md)** — the shared visual language and the technique dialog.
-- **[Reachability](./REACHABILITY.md)** — which crown jewels attackers can reach over modeled routes.
+- **[Reachability](./REACHABILITY.md)** — which crown jewels modeled flow routes lead to.
 - **[Working with Findings](./WORKING_WITH_FINDINGS.md)** — the Residual Risk ledger, recording decisions, and the Component Profile.
 - **[Guide Index](./README.md)** — the full Threat Report documentation set.

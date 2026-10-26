@@ -323,7 +323,7 @@ unencrypted_web_traffic_def := {
     "criticality": "high",
     "exploited_by": [
         {"label": "MitreAttackTechnique", "property": "attack_id", "value": "T1040"},  # Network Sniffing
-        {"label": "MitreAttackTechnique", "property": "attack_id", "value": "T1557"}   # Man-in-the-Middle
+        {"label": "MitreAttackTechnique", "property": "attack_id", "value": "T1557"}   # Adversary-in-the-Middle
     ]
 }
 
@@ -409,7 +409,7 @@ Each calculated exposure is stored in the graph database with complete MITRE ATT
 
 (UnencryptedTraffic)-[:EXPLOITED_BY]->(T1557:MitreAttackTechnique {
   attack_id: "T1557",
-  name: "Man-in-the-Middle"
+  name: "Adversary-in-the-Middle"
 })
 ```
 
@@ -430,193 +430,54 @@ Different modules generate different types of exposures:
 4. **Understand MITRE Mappings**: Learn what attack techniques your exposures enable
 5. **Iterative Improvement**: Make incremental configuration improvements and observe exposure changes
 
-## Data Item Management
+### APIs and Services
 
-**Understanding Data Items**
+API components handle business logic and data processing between different system layers.
 
-Data items (or entities) represent the types of data that components process, store, or transfer. They help identify data-specific security exposures and compliance requirements.
+#### Basic Configuration
 
-**Where Data Items Apply**:
-- **Process Components**: Data types processed or transformed
-- **External Entities**: Data exchanged with external systems
-- **Data Stores**: Data types stored or managed
-- **Security Boundaries**: Data types crossing boundary lines
-- **Data Flows**: Data types transmitted between components
+**API Properties:**
+- **API Type**: REST, GraphQL, gRPC, SOAP
+- **Protocol**: HTTP, HTTPS, TCP
+- **Documentation**: OpenAPI, schema definitions
+- **Versioning Strategy**: URL path, header, query parameter
 
-### Adding Data Items to Elements
+#### Security Configuration
 
-**Step-by-Step Process**:
+**Authentication and Authorization:**
 
-1. **Access Element Settings**: Open the settings dialog for any component, boundary, or data flow
-2. **Navigate to Data Tab**: Click on the **"Data"** tab in the settings panel
-3. **Create New Data Item**: Click the **+ button** in the top right corner
-4. **Data Item Dialog Opens**: Configure the new data item
-
-### Configuring Data Items
-
-**General Tab Configuration**:
-
-**Basic Properties**:
-- **Name**: Descriptive name (e.g., "Customer Payment Data", "User Authentication Tokens")
-- **Description**: Detailed explanation of the data type and its purpose
-
-**Class Assignment**:
-A data item takes a single **data class**, picked from the catalogue your installed modules provide — for example "Customer & Personal Data", "User Credentials", or "Authentication Tokens". The picker sits in the right-hand column of the Data dialog's **General** tab and behaves exactly as it does for every other element; see [How an Element Gets Its Class](#how-an-element-gets-its-class).
-
-### Data Item Attributes and Exposure Analysis
-
-**Attributes Tab Configuration**:
-
-After class assignment, configure data-specific attributes:
-
-**Common Data Attributes**:
-- **Sensitivity Level**: Public, Internal, Confidential, Restricted
-- **Data Classification**: PII, PHI, Financial, Intellectual Property
-- **Regulatory Requirements**: GDPR, HIPAA, PCI DSS, SOX compliance
-- **Encryption Requirements**: At rest, in transit, in processing
-- **Access Controls**: Who can access, modify, or delete the data
-- **Retention Policies**: Storage duration, archival requirements
-
-**Automatic Exposure Detection**:
-
-Similar to components, data items undergo automatic exposure analysis:
-
-1. **Policy Evaluation**: Module evaluates data attributes against security policies
-2. **Data-Specific Exposures**: Identifies risks like data exposure, unauthorized access, compliance violations
-3. **MITRE Mapping**: Links to relevant ATT&CK techniques for data-focused attacks
-4. **Real-Time Updates**: Exposures recalculate when data attributes change
-
-**Example Data Exposures**:
-```rego
-# Example: PII data without encryption
-unencrypted_pii_exposure {
-    input.data_classification == "PII"
-    input.encryption_at_rest == false
-
-    exposure := {
-        "name": "Unencrypted Personal Data",
-        "description": "PII stored without encryption violates privacy regulations",
-        "criticality": "high",
-        "exploited_by": ["T1005", "T1530"]  # Data from Local System, Data from Cloud Storage
-    }
-}
-
-# GDPR compliance check
-gdpr_retention_violation {
-    input.subject_to_gdpr == true
-    input.retention_period_days > 2555  # 7 years maximum
-
-    exposure := {
-        "name": "GDPR Data Retention Violation",
-        "description": "Data retention exceeds GDPR maximum retention periods",
-        "criticality": "medium",
-        "compliance_framework": "GDPR Article 5(1)(e)"
-    }
-}
+```
+Authentication Method: [API Keys | JWT | OAuth 2.0 | mTLS]
+Authorization Model: [RBAC | ABAC | Custom]
+Token Validation: [Local | Remote | Cached]
+Scope Management: [Granular | Coarse | None]
 ```
 
-### Managing Existing Data Items
+**Example - Payment API:**
+- **Authentication**: OAuth 2.0 with client credentials
+- **Authorization**: Role-based access control (RBAC)
+- **Scopes**: `payment:read`, `payment:write`, `payment:refund`
+- **Token Lifetime**: 1 hour with refresh capability
 
-**Data Tab Interface**:
+**API Security:**
 
-The Data tab provides data item management:
-
-**Data Items Table**:
-- **Selection Column**: Checkboxes to assign/unassign data items to/from the current element
-- **Name/Description**: Data item identification and details
-- **Class**: Assigned data class type
-- **Status**: Assignment status to current element
-- **Actions**: Edit, delete, and other management operations
-
-**Assigning Existing Data Items**:
-1. **Browse Available Data**: View all data items in the model
-2. **Select Data Items**: Click checkboxes to assign data to the current element
-3. **Unassign Data**: Clear checkboxes to remove data from the current element
-4. **Automatic Updates**: Exposure analysis updates based on data assignments
-
-### Data Item Filtering and Search
-
-**Filter Options**:
-
-**Name/Description Filter**:
-- **Search Bar**: Enter keywords to filter data items by name or description
-- **Real-Time Filtering**: Results update as you type
-- **Case-Insensitive**: Matches partial words and phrases
-
-**Flow Direction Filter**:
-- **In-Out Button**: Toggle button next to search filter
-- **Connected Data Only**: Shows only data items flowing in/out to connected elements
-- **Context-Aware**: Helps identify relevant data for the current component's connections
-
-**Filter Examples**:
 ```
-Search: "payment" → Shows: Credit Card Data, Payment Tokens, Transaction Records
-Search: "PII" → Shows: Customer Data, User Profiles, Personal Information
-
-Flow Filter ON → Shows only data from connected components
-Flow Filter OFF → Shows all available data items in the model
+Rate Limiting: [Per IP | Per User | Per API Key]
+Request Size Limits: [MB]
+Response Filtering: [Enabled | Disabled]
+CORS Configuration: [Specific origins | Wildcard | Disabled]
 ```
 
-### Data Item Management Operations
+**Data Validation:**
 
-**Editing Data Items**:
-1. **Click Edit Button**: In the data item's row
-2. **Modify Properties**: Update name, description, class, or attributes
-3. **Save Changes**: Updates apply to all elements using this data item
-
-**Deleting Data Items**:
-1. **Click Delete Button**: In the data item's row
-2. **Confirmation Dialog**: Confirms deletion and shows impact
-3. **Permanent Removal**: Data item removed from all elements and the model
-
-**Important**: Deleting a data item affects all elements that use it and may change exposure calculations.
-
-### Data Flow Integration
-
-**Data in Transit**:
-
-When data items are assigned to data flows:
-- **Transmission Security**: Exposure analysis includes data-in-transit risks
-- **Protocol Matching**: Data sensitivity matched against transmission protocols
-- **Encryption Requirements**: TLS/encryption requirements based on data classification
-- **Compliance Validation**: Regulatory requirements for data transmission
-
-**Example Data Flow Analysis**:
 ```
-Data Flow: Web App → Database
-Data Items: [Credit Card Numbers, Customer PII]
-Protocol: HTTP (unencrypted)
-
-Generated Exposures:
-- "PCI Data Over Unencrypted Channel"
-- "PII Transmission Privacy Violation"
-- "Regulatory Compliance Failure"
-
-Recommended Controls:
-- Enable TLS 1.3 encryption
-- Implement data tokenization
-- Add network segmentation
+Input Schema Validation: [Strict | Permissive | Disabled]
+Output Schema Validation: [Enabled | Disabled]
+Parameter Sanitization: [Automatic | Manual]
+SQL Injection Protection: [Enabled | Disabled]
 ```
 
-### Best Practices for Data Item Management
-
-**Data Classification**:
-1. **Consistent Taxonomy**: Use standardized data classification schemes
-2. **Regular Review**: Periodically review and update data classifications
-3. **Granular Classification**: Be specific about data types and sensitivity
-4. **Compliance Alignment**: Ensure classifications match regulatory requirements
-
-**Data Item Assignment**:
-1. **Full Coverage**: Assign all relevant data types to components
-2. **Accurate Mapping**: Ensure data assignments reflect actual data handling
-3. **Flow Consistency**: Data in components should match data in connecting flows
-4. **Regular Validation**: Verify data assignments remain accurate over time
-
-**Security Configuration**:
-1. **Attribute Completeness**: Fill in all relevant data attributes for accurate analysis
-2. **Encryption Settings**: Properly configure encryption requirements
-3. **Access Controls**: Define appropriate access control requirements
-4. **Retention Policies**: Set proper data retention and disposal requirements
+## Data Store Components
 
 ### Databases
 
@@ -687,55 +548,6 @@ Alert Thresholds: [Custom settings]
 - **Authorization**: Use role-based access control
 - **Network Binding**: Bind to specific interfaces, not `0.0.0.0`
 - **Journaling**: Enable for data durability
-
-### APIs and Services
-
-API components handle business logic and data processing between different system layers.
-
-#### Basic Configuration
-
-**API Properties:**
-- **API Type**: REST, GraphQL, gRPC, SOAP
-- **Protocol**: HTTP, HTTPS, TCP
-- **Documentation**: OpenAPI, schema definitions
-- **Versioning Strategy**: URL path, header, query parameter
-
-#### Security Configuration
-
-**Authentication and Authorization:**
-
-```
-Authentication Method: [API Keys | JWT | OAuth 2.0 | mTLS]
-Authorization Model: [RBAC | ABAC | Custom]
-Token Validation: [Local | Remote | Cached]
-Scope Management: [Granular | Coarse | None]
-```
-
-**Example - Payment API:**
-- **Authentication**: OAuth 2.0 with client credentials
-- **Authorization**: Role-based access control (RBAC)
-- **Scopes**: `payment:read`, `payment:write`, `payment:refund`
-- **Token Lifetime**: 1 hour with refresh capability
-
-**API Security:**
-
-```
-Rate Limiting: [Per IP | Per User | Per API Key]
-Request Size Limits: [MB]
-Response Filtering: [Enabled | Disabled]
-CORS Configuration: [Specific origins | Wildcard | Disabled]
-```
-
-**Data Validation:**
-
-```
-Input Schema Validation: [Strict | Permissive | Disabled]
-Output Schema Validation: [Enabled | Disabled]
-Parameter Sanitization: [Automatic | Manual]
-SQL Injection Protection: [Enabled | Disabled]
-```
-
-## Data Store Components
 
 ### File Systems
 
@@ -902,37 +714,33 @@ Incident Response: [24/7 | Business hours | Limited]
 
 ### Understanding Data Items
 
-Data items represent the specific types of data that flow through, are processed by, or stored within your system components. Unlike components that represent system elements, data items represent the actual information assets that need protection.
+Data items represent the specific types of data that flow through, are processed by, or are stored within your system. Unlike components, which represent system elements, data items represent the information assets that need protection.
 
-**Data items can be associated with any element:**
+A data item belongs to the model, and you attach it to any element that handles it:
 - **Processes**: Data processed, transformed, or validated
-- **External Entities**: Data sent to or received from external sources
+- **External Entities**: Data sent to or received from external parties
 - **Data Stores**: Data persisted, cached, or archived
-- **Boundaries**: Data crossing trust boundaries
+- **Security Boundaries**: Data associated with the boundary as a whole
 - **Data Flows**: Data transmitted between components
 
-### Creating Data Items
+Because a data item is one object in the model, the same item can be attached to many elements, and an edit to it shows everywhere it is attached.
 
-#### Accessing the Data Tab
+### Creating a Data Item
 
-To add data items to any element:
+1. **Open the element's settings**: Double-click a component, boundary, or data flow on the canvas
+2. **Open the Data tab**: Click the **Data** tab in the settings panel
+3. **Add a data item**: Click the **+** button to the right of the search bar
+4. **Fill in the Data dialog**: It opens with three tabs — **General**, **Attributes**, and **Exposures**
 
-1. **Open Element Settings**: Click on any component, boundary, or data flow
-2. **Navigate to Data Tab**: Click the "Data" tab in the settings panel
-3. **Add New Data Item**: Click the **+** button in the top-right corner
-
-#### Data Item Creation Dialog
-
-The data dialog has three tabs: **General**, **Attributes**, and **Exposures**.
-
-**General Tab:**
+**General tab:**
 - **Name**: Descriptive name for the data type (e.g., "Customer Payment Information", "User Authentication Tokens")
-- **Description**: Detailed description of the data structure and purpose
-- **Class**: the data class this item is an instance of, picked with the class picker in the right-hand column
+- **Description**: What the data is and what it is used for
+- **Sensitivity, Regulatory flags, Origin, Credential**: Classification context — see [Classifying Data Items](#classifying-data-items)
+- **Class**: The data class this item is an instance of, picked with the class picker in the right-hand column
 
 **Choosing the class:**
 
-The picker lists the data classes provided by the modules installed on your instance. The shipped **Dethernety General** module provides these:
+A data item takes a single **data class**, picked from the catalogue your installed modules provide. The shipped **Dethernety General** module provides these:
 
 ```
 Available Classes:
@@ -946,198 +754,120 @@ Available Classes:
 
 Search, browse, and confirmation work the same as for every other element — see [How an Element Gets Its Class](#how-an-element-gets-its-class). If none of the available classes describes your data, the class you need has to come from a module: see [Understanding Modules](UNDERSTANDING_MODULES.md).
 
-### Configuring Data Attributes
+### Configuring Data Attributes and Exposures
 
-After saving a data item with an assigned class:
+Once the data item has a class, the **Attributes** tab shows that class's configuration form. The attributes come from the class, so they differ from class to class. For example, the **Customer & Personal Data** class asks, among others:
 
-1. **Switch to Attributes Tab**: Configure class-specific properties
-2. **Set Security Attributes**: Based on the assigned Data Class
-3. **Review Exposure Analysis**: Module policies automatically evaluate data security
-
-#### Example Attributes by Data Type
-
-**Personal Information Data Class:**
 ```
-Contains PII: [Yes | No]
-PII Categories: [Name | Email | Phone | Address | SSN]
-Data Subject Rights: [Access | Rectification | Erasure | Portability]
-Consent Basis: [Explicit | Legitimate Interest | Contract | Legal]
-Cross-border Transfers: [None | EU | US | Global]
+Encrypted At Rest: [Yes | No | Not answered]
+At-Rest Encryption Strength: [none | weak | strong]
+Backups Encrypted: [Yes | No | Not answered]
+Field-Level Protection Method: [none | truncation | one_way_hash | tokenization | field_level_encryption | pseudonymization]
+Retention Schedule Enforced: [Yes | No | Not answered]
+Secure Deletion Or Crypto-Shred: [Yes | No | Not answered]
 ```
 
-**Payment Data Class:**
-```
-Card Data Elements: [PAN | CVV | Expiry | Cardholder Name]
-PCI DSS Scope: [CDE | Non-CDE | Out of Scope]
-Tokenization: [Required | Optional | Not Applicable]
-Encryption Method: [AES-256 | TDE | Application-level]
-Key Management: [HSM | Cloud KMS | Software]
-```
+When you save the attributes, the class's OPA/Rego policies evaluate them, and the resulting exposures appear on the dialog's **Exposures** tab — the same mechanism as for components (see [Understanding Security Exposures](#understanding-security-exposures)). Two policies from the **Customer & Personal Data** class, shortened:
 
-### Managing Existing Data Items
+```rego
+# Unencrypted PII at rest
+_unencrypted_pii_at_rest_def := {
+    "name": "Unencrypted PII at rest",
+    "criticality": "high",
+    "exploited_by": [
+        {"label": "MitreAttackTechnique", "property": "attack_id", "value": "T1005"}  # Data from Local System
+    ]
+}
 
-#### Data Items Table
+unencrypted_pii_at_rest[_unencrypted_pii_at_rest_def] if {
+    not input.encrypted_at_rest
+}
 
-The Data tab displays all data items in a table:
+unencrypted_pii_at_rest[_unencrypted_pii_at_rest_def] if {
+    input.at_rest_encryption_strength in ["none", "weak"]
+}
 
-**Table Columns:**
-- **Select Checkbox**: Assign/unassign data items to current element
-- **Name**: Data item identifier with quick edit option
-- **Class**: Assigned Data Class with policy status
-- **Description**: Data item description
-- **Exposures**: Count of active security exposures
-- **Actions**: Edit attributes, view details, delete
+exposures contains _unencrypted_pii_at_rest_def if {
+    count(unencrypted_pii_at_rest) > 0
+}
 
-#### Data Assignment Operations
+# Indefinite retention and unsafe deletion
+_indefinite_retention_and_unsafe_deletion_def := {
+    "name": "Indefinite retention and unsafe deletion",
+    "criticality": "medium",
+    "exploited_by": []
+}
 
-**Assigning Existing Data:**
-1. **Browse Available Data**: View all data items in your model
-2. **Select Data Items**: Check boxes for relevant data types
-3. **Confirm Assignment**: Data items become associated with current element
+indefinite_retention_and_unsafe_deletion[_indefinite_retention_and_unsafe_deletion_def] if {
+    not input.retention_schedule_enforced
+}
 
-**Unassigning Data:**
-1. **Clear Selection**: Uncheck boxes for data items
-2. **Confirm Changes**: Data items remain in model but lose association
+indefinite_retention_and_unsafe_deletion[_indefinite_retention_and_unsafe_deletion_def] if {
+    input.soft_delete_leaves_recoverable_pii == true
+}
 
-#### Filtering and Search
-
-**Search Functionality:**
-- **Name/Description Filter**: Type in search bar to filter by text
-- **Advanced Filtering**: Filter by class type, exposure count, assignment status
-
-**Flow-Based Filtering:**
-- **In-Out Toggle Button**: Click the flow button next to search
-- **Connected Data Only**: Shows only data items associated with connected elements
-- **Data Flow Analysis**: Understand data movement patterns
-
-**Example Flow Filter Results:**
-```
-Showing data items flowing through connected elements:
-├── Customer Data (from User Registration Form)
-├── Payment Information (to Payment Gateway)
-├── Order Details (to Fulfillment System)
-└── Receipt Data (to Email Service)
+exposures contains _indefinite_retention_and_unsafe_deletion_def if {
+    count(indefinite_retention_and_unsafe_deletion) > 0
+}
 ```
 
-### Data Item Operations
+A policy reads only the attributes of the data item it belongs to. Attaching the item to an element does not change that element's exposures, and the element's policies do not read the data item's attributes.
 
-#### Editing Data Items
+### The Data Tab
 
-**Quick Edit Options:**
-- **In-line Name Edit**: Double-click name field in table
-- **Attribute Modification**: Click edit icon to open attributes dialog
-- **Class Reassignment**: Change Data Class and recalculate exposures
+The **Data** tab lists the model's data items in a table:
 
-**Bulk Operations:**
-- **Multi-select**: Use checkboxes to select multiple data items
-- **Bulk Class Assignment**: Apply same class to multiple data items
-- **Bulk Attribute Updates**: Set common attributes across data items
+| Column | What it shows |
+|--------|---------------|
+| **Checkbox** | Whether the data item is attached to the current element |
+| **Name** | The data item's name |
+| **Description** | The data item's description |
+| **Class** | The assigned data class, as a chip |
+| *(actions)* | An issue button, **Edit** (pencil), and **Delete** (trash can) |
 
-#### Deleting Data Items
+**Searching:** Type in the **Search** field to filter the table. It matches the data item's name, description, and class name, ignoring case, and updates as you type.
 
-**Safe Deletion Process:**
-1. **Dependency Check**: System verifies data item usage across model
-2. **Impact Warning**: Shows all elements that will be affected
-3. **Confirmation Required**: Prevent accidental deletion of critical data
-4. **Clean Removal**: Updates all references and exposure calculations
+**Choosing which data items to list:** The toggle next to the search field switches between three views:
 
-**Data Item Dependencies:**
-```
-Dependency Analysis for "Customer Payment Data":
-├── Used by: Payment Processing Service
-├── Stored in: Payment Database
-├── Flows through: 3 data connections
-└── Referenced in: 2 security policies
-```
+| View | Shows |
+|------|-------|
+| **All** | Every data item in the model |
+| **Related** (default) | Data items attached to this element, plus those on the elements directly connected to it — for a component, the data flows that arrive at or leave it; for a data flow, its source and target |
+| **Own** | Only the data items attached to this element |
 
-### Data Flow Integration
+### Attaching and Detaching Data Items
 
-#### Data Movement Tracking
+- **Attach**: Check a data item's box. The attachment is saved immediately.
+- **Detach**: Clear the box. A confirmation asks *Remove data item '…' from this element?* — confirm, and the data item stays in the model but is no longer attached to this element.
 
-When data items are assigned to elements connected by data flows:
+Switch the view to **All** to attach a data item that is not yet on this element or its neighbours.
 
-**Automatic Flow Analysis:**
-- **Data Path Mapping**: Track data movement through system architecture
-- **Transformation Points**: Identify where data format or content changes
-- **Security Boundary Crossings**: Highlight when data crosses trust zones
-- **Compliance Checkpoints**: Verify regulatory requirements at each step
+### Editing and Deleting Data Items
 
-**Flow Security Assessment:**
-```
-Data Flow Security Analysis:
-├── Source Security: Encryption at rest verified
-├── Transport Security: TLS 1.3 encryption in transit
-├── Transformation Security: Data masking applied
-└── Destination Security: Access controls validated
-```
+- **Edit**: Click the pencil icon in the data item's row to reopen the Data dialog. Changes to name, description, class, or attributes apply everywhere the data item is attached.
+- **Delete**: Click the trash-can icon. A confirmation asks *Are you sure you want to delete this Data Item: …?* — confirm, and the data item is removed from the model and from every element it was attached to.
 
-#### Cross-Element Data Management
+**Important**: Deleting a data item affects every element that uses it. If you only want it off the current element, detach it instead.
 
-**Consistent Data Handling:**
-- **Shared Data Items**: Same data item can be assigned to multiple elements
-- **Policy Inheritance**: Security policies apply consistently across assignments
-- **Global Updates**: Changes to data item class affect all assignments
-- **Compliance Tracking**: Monitor regulatory requirements across data usage
+### Where Data Items Show Up in Analysis
 
-### Data Security Analysis
-
-#### Real-Time Exposure Detection
-
-As you configure data item attributes, the assigned module's OPA/Rego policies continuously evaluate security:
-
-**Exposure Categories:**
-```
-Data Protection Exposures:
-├── Unencrypted Sensitive Data
-├── Inadequate Access Controls
-├── Missing Data Classification
-├── Regulatory Non-compliance
-├── Insecure Data Retention
-└── Cross-border Transfer Violations
-```
-
-**MITRE ATT&CK Integration:**
-Data-related exposures automatically map to relevant attack techniques:
-- **T1005**: Data from Local System
-- **T1039**: Data from Network Shared Drive
-- **T1041**: Exfiltration Over C2 Channel
-- **T1052**: Exfiltration Over Physical Medium
-- **T1213**: Data from Information Repositories
-
-#### Compliance Monitoring
-
-**Regulatory Framework Integration:**
-```
-GDPR Compliance Status:
-├── Data Subject Rights: ✓ Implemented
-├── Consent Management: ⚠ Needs Review
-├── Data Retention: ✓ Compliant
-├── Cross-border Transfers: ❌ Non-compliant
-└── Breach Notification: ✓ Implemented
-```
+Attaching data items records which elements handle which data. The [Threat Report](threat-report/README.md) reads this: an element's profile lists the **data handled** by that element, with each item's sensitivity and its own exposure counts — see [Working with Findings](threat-report/WORKING_WITH_FINDINGS.md). Keep attachments accurate so that view reflects how your system actually handles its data.
 
 ### Best Practices for Data Item Management
 
-#### Data Classification Strategy
+**Classification:**
+1. **Set sensitivity and regulatory flags** on every data item — see [Classifying Data Items](#classifying-data-items)
+2. **Use consistent terminology**: Keep one classification scheme across your models, and prefer the suggested regulatory flag labels
+3. **Review periodically**: Reassess classifications as the system changes
 
-1. **Start with Sensitivity Levels**: Classify data by business impact if compromised
-2. **Apply Regulatory Frameworks**: Map to applicable compliance requirements
-3. **Use Consistent Terminology**: Maintain standard data classification across organization
-4. **Regular Review Process**: Periodically reassess data classifications
+**Attachment:**
+1. **Full coverage**: Attach every relevant data item to the elements that handle it
+2. **Accuracy**: Attachments should reflect how data is actually handled
+3. **Flow consistency**: Data on a component should match the data on the flows that reach it — the **Related** view helps you check
 
-#### Data Flow Documentation
-
-1. **Document Data Transformations**: Record how data changes as it flows
-2. **Identify Decision Points**: Mark where data routing decisions occur
-3. **Track Data Lineage**: Maintain visibility into data origins and destinations
-4. **Monitor Data Quality**: Ensure data integrity throughout the flow
-
-#### Security Configuration
-
-1. **Principle of Least Privilege**: Restrict data access to minimum required
-2. **Defense in Depth**: Apply multiple security controls to sensitive data
-3. **Regular Access Review**: Periodically validate data access permissions
-4. **Incident Response Planning**: Prepare for data breach scenarios
+**Attributes:**
+1. **Answer the class's attributes**: Unanswered attributes can raise exposures, so fill in what you know — see [Answering Yes-or-No Attributes](#answering-yes-or-no-attributes)
+2. **Least privilege and defence in depth**: Record the access restrictions and layered protections that actually apply to sensitive data
 
 ---
 

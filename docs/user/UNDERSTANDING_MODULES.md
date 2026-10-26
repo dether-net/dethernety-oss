@@ -111,17 +111,31 @@ Installing a module aimed at your technology does more than add rows to the pick
 Modules use OPA/Rego policies to analyze your configurations:
 
 ```rego
-# Example: Web application security policy
-unencrypted_web_traffic_exposure {
-    input.protocol == "http"           # Your configuration
-    input.environment == "production"  # Context matters
-    # Result: Exposure detected with specific attack technique mapping
+# Example: a Web Server class policy (shortened)
+_weak_tls_termination_def := {
+    "name": "Weak TLS termination",
+    "criticality": "high",
+    "exploited_by": [
+        {"label": "MitreAttackTechnique", "property": "attack_id", "value": "T1557"}  # Adversary-in-the-Middle
+    ]
+}
+
+weak_tls_termination[_weak_tls_termination_def] if {
+    input.min_tls_version == "tls1_0_or_tls1_1_or_sslv3_accepted"  # Your configuration
+}
+
+weak_tls_termination[_weak_tls_termination_def] if {
+    not input.hsts_enabled                                        # An unanswered attribute counts too
+}
+
+exposures contains _weak_tls_termination_def if {
+    count(weak_tls_termination) > 0  # Result: exposure with its attack technique mapping
 }
 ```
 
 What this means in practice:
-- **Real-time feedback**: Exposures appear as you configure components
-- **Context-aware analysis**: The same setting may have different risk levels in different contexts
+- **Real-time feedback**: Exposures are recalculated each time you save an element's attributes
+- **Several routes to one exposure**: A policy can raise the same exposure from different attribute combinations
 - **Automated coverage**: Policies check many security considerations automatically
 
 ### Security Framework Mapping
