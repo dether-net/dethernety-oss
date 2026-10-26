@@ -544,6 +544,9 @@ Stated so they are decisions rather than surprises:
   runtime from their publishers. They carry their own provenance and their own licenses — see the
   bundle's [`NOTICE`](../../../deploy/compose/NOTICE) — and verifying them is the operator's decision,
   not something this bundle does on their behalf.
+- **Vendor usage reporting.** The bundle turns off the database's usage reporting to its vendor:
+  Memgraph with `--telemetry-enabled=false`, Neo4j with `dbms.usage_report.enabled=false`. Beyond those
+  two settings, what an image sends out of its container is the image's own behaviour.
 - **Traffic inside the stack network.** Plain HTTP and unencrypted Bolt, by design. The control is that
   nothing but the proxy is reachable from outside.
 - **A compromised operator browser session.** The console session is a bearer token in that browser's

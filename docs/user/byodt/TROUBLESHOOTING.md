@@ -329,6 +329,26 @@ On Neo4j the middle reads `the database needs more memory (Neo4j's heap, NEO4J_H
 
 The ingest re-runs because the corpus is not yet recorded as loaded. Confirm the console's **Data ingest** panel reads `ok` and the statement count is no longer zero.
 
+To raise Memgraph's limit itself, set `--memory-limit` in `compose.override.yaml`. A `command:` there replaces the db service's whole `command:` list rather than merging into it, so repeat every flag from `compose.memgraph.yaml`'s `command:`, `--telemetry-enabled=false` included, and change only `--memory-limit` (the value is in MiB):
+
+```yaml
+services:
+  db:
+    command:
+      - "--bolt-num-workers=4"
+      - "--query-plan-cache-max-size=100"
+      - "--query-execution-timeout-sec=600"
+      - "--query-max-plans=100"
+      - "--cartesian-product-enabled=true"
+      - "--storage-gc-cycle-sec=300"
+      - "--storage-snapshot-interval-sec=${SNAPSHOT_INTERVAL_SEC:-300}"
+      - "--memory-limit=6144"
+      - "--query-vertex-count-to-expand-existing=10"
+      - "--telemetry-enabled=false"
+```
+
+`byodt` loads the override after `compose.memgraph.yaml` (see [Configuration → Local changes to the compose files](./CONFIGURATION.md#local-changes-to-the-compose-files)). `./byodt restart` recreates the stack with it, and the ingest runs again. The override is loaded on either engine, so remove this `db` block before you switch to Neo4j. A bundle upgrade leaves the override alone, so compare its `command:` list with `compose.memgraph.yaml`'s after each upgrade.
+
 ### `the module release channel was unreachable`
 
 > **Module Fetch Failed** — the module release channel was unreachable — no code modules were installed
