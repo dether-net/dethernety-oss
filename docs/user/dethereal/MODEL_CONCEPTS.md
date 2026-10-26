@@ -161,7 +161,7 @@ Data items classify what data flows carry. They're attached to data flows and de
 
 ### Regulatory Labels
 
-Data items can carry **regulatory flags** — free-text compliance labels, kept separate from the sensitivity level. The recommended canonical set (matched **exactly and case-sensitively** by the platform's `dataInRegulatoryScope` query, so spelling and case matter):
+Data items can carry **regulatory flags** — free-text compliance labels, kept separate from the sensitivity level. The recommended canonical set (matched **exactly and case-sensitively** by the platform's compliance queries, so spelling and case matter):
 
 | Label | Framework | Sensitivity floor |
 |-------|-----------|-------------------|
@@ -203,7 +203,7 @@ Use the least-trusted source of what the item holds — one public source makes 
 Classes are predefined types from the platform's module system. When you classify a component as "Database" or "Web Application," you're assigning it a class that comes with:
 
 - An attribute schema (which security properties are relevant)
-- Default attribute values
+- Schema default values, which describe the class rather than your system — they are not written into your model; every field starts empty and enrichment fills it from evidence or from you (see [Class Templates Drive the Questions](DISCOVERY_AND_ENRICHMENT.md#class-templates-drive-the-questions))
 - Guidance for enrichment
 
 ### How Classification Works
@@ -216,7 +216,7 @@ Classification happens in two passes:
 
 You always confirm classifications before they're written. The plugin never auto-classifies without showing you what it's doing.
 
-For more on the classification process, see the [classify command](COMMAND_REFERENCE.md#detherealclassify---type-componentsflowsboundariesdata-items) or the platform's [Component Configuration Guide](../COMPONENT_CONFIGURATION_GUIDE.md).
+For more on the classification process, see the [classify command](COMMAND_REFERENCE.md#detherealclassify) or the platform's [Component Configuration Guide](../COMPONENT_CONFIGURATION_GUIDE.md).
 
 ---
 
@@ -224,7 +224,7 @@ For more on the classification process, see the [classify command](COMMAND_REFER
 
 ### The 6 Key Component Attributes
 
-A floor of six security properties that enrichment captures on every in-scope component, whatever its class template happens to cover. Five are component attributes; encryption in transit is recorded on the data flow. The **attribute key** column is what you must write — the scorer reads these literal names:
+A floor of six security properties that enrichment captures on every in-scope component, whatever its class template happens to cover. Four have a component attribute key; encryption in transit is recorded on the data flow, and logging has no scored key. The **attribute key** column is what you must write — the scorer reads these literal names:
 
 | # | Concept | Attribute key | Written on | Value the scorer accepts |
 |---|---------|---------------|------------|--------------------------|
@@ -237,7 +237,7 @@ A floor of six security properties that enrichment captures on every in-scope co
 
 **Write these key names literally.** `control_coverage_rate` (10 points of the quality score) and the attack-surface report's encryption and authentication coverage read these exact keys and no others — a semantically equivalent name that a class template happens to use (`transit_encryption_enforced`, `tls_enabled`, …) does not satisfy the floor. Types are strict too: a boolean `true` for `encryption_at_rest` scores as absent, because that key wants the concrete algorithm string.
 
-Note that `encryption_in_transit` is scored **per cross-boundary data flow**, not per component — it belongs on the flow's attribute file under `attributes/dataFlows/`. The other five are component attributes, stored in individual files under `attributes/components/`.
+Note that `encryption_in_transit` is scored **per cross-boundary data flow**, not per component — it belongs on the flow's attribute file under `attributes/dataFlows/`. The other scored keys (`authentication_type`, `encryption_at_rest`, `implicit_deny_enabled`, `monitoring_tools`) are component attributes, stored in individual files under `attributes/components/`.
 
 These attributes are a floor, not the whole enrichment job: the primary pass resolves every field declared by each element's assigned class template. See [Discovery and Enrichment](DISCOVERY_AND_ENRICHMENT.md).
 

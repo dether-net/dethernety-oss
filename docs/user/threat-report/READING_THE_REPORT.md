@@ -17,7 +17,7 @@ The Threat Report turns a generated snapshot of your model into a set of focused
 
 The report is a single screen titled **Threat Report**. From top to bottom:
 
-1. **The scope banner.** Pinned above everything else. It carries model-wide honesty flags — a stale snapshot, missing boundaries, under-analyzed high-value elements, unclassified data — and the **Generate** / **Recreate** action. You read the caveats here *before* you read any numbers.
+1. **The scope banner.** Pinned above everything else. It carries model-wide caveats — a stale snapshot, missing boundaries, under-analyzed high-value elements, unclassified data — and the **Generate** / **Recreate** action. You read the caveats here *before* you read any numbers.
 2. **The model summary line + export.** A small line reads `N components · M boundaries`, with **Export JSON** and **Export HTML** buttons on the right.
 3. **The tab strip** (a segmented control). One click switches the view below it. The tabs are:
 
@@ -25,7 +25,7 @@ The report is a single screen titled **Threat Report**. From top to bottom:
    |-----|-----------------|
    | **Posture** | What's my overall exposure right now? (the default landing view) |
    | **Coverage & Gaps** | Which attack techniques do my controls actually address? |
-   | **Reachability** | Can an attacker reach my crown jewels from outside? |
+   | **Reachability** | Which modeled flow routes lead from outside to my crown jewels? |
    | **Boundary Crossings** | Where does data leave or enter a security boundary? |
    | **Residual Risk** | The full ledger of open and dispositioned findings. |
 

@@ -300,7 +300,7 @@ Your compliance drivers (from scope definition) determine which framework-specif
 
 ---
 
-## Part 3: MITRE ATT&CK and D3FEND Integration
+## Part 3: MITRE Framework Integration
 
 ATT&CK technique coverage is **derived on the platform**, not annotated locally. Enrichment does not write technique IDs onto your attribute files — its job is to produce component attributes good enough for the platform's analysis policies to fire. Those policies attach techniques to the exposures they raise, and `/dethereal:surface` reports coverage from there. Do not expect to find a `mitre_attack_techniques` field after enrichment; there isn't one, and its absence is not a failed run.
 
@@ -319,7 +319,7 @@ For each mapped ATT&CK technique, the plugin can look up D3FEND defensive techni
 
 ### Coverage Assessment
 
-The attack surface analysis (`/dethereal:surface`) shows which of the 14 Enterprise ATT&CK tactics are covered by the techniques the platform's analysis attached to your exposures:
+The attack surface analysis (`/dethereal:surface`) shows which of the 15 Enterprise ATT&CK tactics are covered by the techniques the platform's analysis attached to your exposures:
 
 ```
 MITRE ATT&CK Coverage (platform-derived)
@@ -386,7 +386,7 @@ Every edit to `attributes` must (a) bump `localEditedAt` and (b) populate `pendi
 
 ### Push-Time Safety
 
-Pushing edits to a Control assigned to multiple Models pauses on the **shared-ownership prompt** — the operator chooses `cancel`, `push-anyway`, or `push-unverified` per Control. `clone-and-swap` is planned for V1.1 and is not yet implemented: choosing it returns `CLONE_AND_SWAP_NOT_IMPLEMENTED` and the Control is left untouched. If you reached for it because you did **not** want to mutate a shared Control, the V1 equivalent is `cancel`, then create a separate Control with `/dethereal:enrich --focus controls` — not `push-anyway`, which overwrites the shared Control on every model referencing it. See [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md#shared-ownership-prompts).
+Pushing edits to a Control assigned to multiple Models pauses on the **shared-ownership prompt** — the operator chooses `cancel`, `push-anyway`, or `push-unverified` per Control. `clone-and-swap` is not yet available: choosing it returns `CLONE_AND_SWAP_NOT_IMPLEMENTED` and the Control is left untouched. If you reached for it because you did **not** want to mutate a shared Control, the equivalent today is `cancel`, then create a separate Control with `/dethereal:enrich --focus controls` — not `push-anyway`, which overwrites the shared Control on every model referencing it. See [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md#shared-ownership-prompts).
 
 ### Status Visibility
 
@@ -395,7 +395,7 @@ Pushing edits to a Control assigned to multiple Models pauses on the **shared-ow
 - The count of pending shared-edit prompts (Controls with un-pushed `pendingEdit` blocks).
 - Drift hints (`attributes !== platformAttributes` without a pendingEdit) and the `promote-external-edit` recovery verb to apply.
 
-This avoids the "branch-switch ambush" case where you forget a queued review screen across days.
+This keeps a queued review from being forgotten — for example, when you switch branches and come back to the model days later.
 
 ---
 

@@ -380,7 +380,7 @@ These are listed, not scored. They have no element to attach to, so they contrib
 
 **This section requires a platform sync and a completed analysis.** Tactic coverage is derived from the techniques the analysis engine attaches to exposures — the plugin does not maintain its own client-side technique annotation, so enriching components alone produces no coverage here.
 
-When exposures are available, their techniques are aggregated and deduplicated to show which of the 14 Enterprise ATT&CK tactics are covered:
+When exposures are available, their techniques are aggregated and deduplicated to show which of the 15 Enterprise ATT&CK tactics are covered:
 
 ```
 MITRE ATT&CK Coverage (platform-derived)

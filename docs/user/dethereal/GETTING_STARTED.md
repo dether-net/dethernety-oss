@@ -41,7 +41,7 @@ claude plugin install dethereal@dether.net
 Set the platform URL as an environment variable:
 
 ```bash
-export DETHERNETY_URL=https://your-instance.dethernety.io
+export DETHERNETY_URL=https://dethernety.example.com
 ```
 
 ### For Team Projects
@@ -65,14 +65,14 @@ Team members get prompted to install when they trust the project folder.
 
 ### From Source (Contributors)
 
-If you're developing from the Dethernety repository:
+If you're developing from a clone of [dether-net/dethernety-oss](https://github.com/dether-net/dethernety-oss), run these from the repository root after `pnpm install`:
 
 ```bash
 # Build the plugin
-cd oss/apps/dethereal && pnpm build
+pnpm --filter "@dether.net/dethereal..." build
 
 # Load it locally
-claude --plugin-dir oss/apps/dethereal
+claude --plugin-dir apps/dethereal
 ```
 
 ### Configuration
@@ -125,7 +125,7 @@ Run `/dethereal:status` to verify everything is connected:
 ```
 Dethernety Connection Status
 ─────────────────────────────────────────
-Platform URL:  https://demo.dethernety.io
+Platform URL:  https://dethernety.example.com
 Auth status:   Not authenticated — run /dethereal:login
 ─────────────────────────────────────────
 
@@ -144,7 +144,7 @@ Run `/dethereal:login` to authenticate with the platform. This opens your browse
 Opening browser for authentication...
 
 Authenticated successfully.
-Platform:     https://demo.dethernety.io
+Platform:     https://dethernety.example.com
 User:         user@example.com
 Token valid:  60 minutes remaining
 ```
@@ -337,18 +337,7 @@ git add threat-models/ .dethernety/models.json
 git commit -m "feat: initial threat model for web application"
 ```
 
-**What to gitignore:**
-
-```gitignore
-# Per-user sync state (different per developer)
-**/.dethereal/sync.json
-
-# Discovery provenance (may contain infrastructure details)
-**/.dethereal/discovery.json
-
-# Discovery cache (transient)
-.dethernety/discovery-cache.json
-```
+**What to gitignore:** per-user sync state, discovery provenance, and a few transient working files and backups. Copy the full list from [What to Commit](SYNC_AND_VERSION_CONTROL.md#what-to-commit) — and use its per-file rules rather than ignoring the whole `.dethereal/` directory.
 
 Token storage (`~/.dethernety/`) is in your home directory, outside the repository — no gitignore entry needed.
 
