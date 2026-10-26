@@ -9,6 +9,7 @@
 import { EmbeddingService } from '../../src/gql/services/embedding.service';
 import { startMemgraph, clearGraph } from './memgraph-container';
 import { startNeo4j } from './neo4j-container';
+import { EXTERNAL_RUN_WITHOUT_NEO4J, TEST_ENGINE } from './test-engine';
 import { MatchClassesResolverService } from '../../src/gql/resolver-services/match-classes-resolver.service';
 import { MatchMitreTechniquesResolverService } from '../../src/gql/resolver-services/match-mitre-techniques-resolver.service';
 import { VectorSearchService } from '../../src/gql/services/vector-search.service';
@@ -60,11 +61,18 @@ async function run(driver: any, cypher: string, params: Record<string, unknown> 
   }
 }
 
-const engines = [
+const allEngines = [
   // The default harness image (MEMGRAPH_TEST_IMAGE overrides it); MEMGRAPH_TEST_URI serves this suite too.
   ['memgraph', () => startMemgraph()],
   ['neo4j', () => startNeo4j()],
 ] as const;
+// The Neo4j leg (DT_TEST_ENGINE=neo4j) runs the Neo4j case only: startMemgraph() starts Neo4j there, so the
+// Memgraph case would run Neo4j a second time under the wrong name.
+// An external run that names no Neo4j (NEO4J_TEST_URI) runs the Memgraph case only: nothing may start a Neo4j there.
+const engines = allEngines.filter(
+  ([engine]) => (TEST_ENGINE === 'memgraph' || engine === 'neo4j') && !(engine === 'neo4j' && EXTERNAL_RUN_WITHOUT_NEO4J),
+);
+if (EXTERNAL_RUN_WITHOUT_NEO4J) console.log('[test-db] skipped the Neo4j case: the external run names no Neo4j (NEO4J_TEST_URI)');
 
 describe.each(engines)('exact vector search on %s', (engine, start) => {
   let handle: { driver: any; stop: () => Promise<void> };

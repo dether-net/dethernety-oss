@@ -1049,7 +1049,7 @@ Class-compatibility refusals are made in the preflight, before the write block o
 
 - **Single write path.** Every `IS_INSTANCE_OF` and `REPRESENTS_MODEL` mutation routes through this service. Custom resolvers and modules MUST NOT bypass it with direct `MERGE` / `DELETE` of those edges.
 - **USER findings are sacred.** The destructive sweep's `createdBy = 'SYSTEM' OR createdBy IS NULL` predicate never touches `createdBy = 'USER'` rows. Verified by the `provenance.e2e-spec.ts` legacy-null adoption suite.
-- **Last-writer-wins on concurrent calls.** Two concurrent calls against the same `elementId` produce a deterministic forensic trail (both Bolt transactions commit; the later one wins the binding state). The frontend `binding_${elementId}` mutex serialises the common single-tab case; the in-tx authoritative read closes the window for the cross-tab / cross-client case.
+- **Last-writer-wins on concurrent calls.** Two concurrent calls against the same `elementId` produce a deterministic forensic trail (both Bolt transactions commit; the later one wins the binding state). The frontend `binding_${elementId}` mutex serialises the common single-tab case; `runExclusive` on the element serialises calls within one platform instance; the element's database lock, taken before the in-tx authoritative read, serialises them across instances (see [Concurrency Control](./SET_INSTANTIATION_ATTRIBUTES.md#concurrency-control)).
 - **Identity short-circuit returns zero deltas.** The client trusts the server's identity decision — the UI suppresses snackbar feedback on all-zero deltas, so a no-op round-trip is silent.
 
 ### Related
@@ -1211,14 +1211,14 @@ The order of operations is fixed: score → threshold → top `k` by score (ties
 
 ### MITRE vector indexes
 
-The resolver's own search does not use a vector index. It still keeps one Memgraph HNSW index per healthy kind, for consumers that search the MITRE corpus by index name. On Neo4j this upkeep does nothing. It runs in the background after a precheck refresh (so on the first MITRE match after start, and again after the 10-minute cache expires), and it **never affects `vectorAvailable`**:
+The resolver's own search does not use a vector index. It still keeps one Memgraph HNSW index per healthy kind, for consumers that search the MITRE corpus by index name. On any engine other than Memgraph the upkeep does nothing and logs that once per process, at info. It runs in the background after a precheck refresh (so on the first MITRE match after start, and again after the 10-minute cache expires), and it **never affects `vectorAvailable`**:
 
 - A missing index is created with `CREATE VECTOR INDEX <indexName> ON :<Label>(embedding) WITH CONFIG {"dimension": <d>, "capacity": <c>, "metric": "cos"}`.
 - An index whose dimension differs from the embedder's is rebuilt.
 - An index keyed on another label or property, or holding fewer entries than there are nodes of its label with an `embedding`, is dropped and created again on its intended key. Memgraph 3.8.x can recover a vector index from a snapshot under the wrong label or property, and a snapshot written while an index was mis-keyed keeps the wrong key. The key and size come from `vector_search.show_index_info()`; the helpers live in `src/gql/services/vector-index-keys.ts`.
 - A rebuild is logged as `MITRE vector index <name> rebuilt: holds <n> of <embedded> embedded nodes`. A failure is logged (`… could not be verified or rebuilt`) and leaves the index as it was.
 
-Class matching keeps no vector index; see [Class and control resolver spec → Vector tier](./CLASS_AND_CONTROL_RESOLVER_SPEC.md#vector-tier-optional-requires-embeddings).
+Class matching keeps no vector index; see [Class and control resolver spec → Vector tier](./CLASS_AND_CONTROL_RESOLVER_SPEC.md#vector-tier-optional-requires-embeddings). The class vector indexes earlier versions created (`component_class_embeddings`, `control_class_embeddings`, `dataflow_class_embeddings`, `boundary_class_embeddings`, `data_class_embeddings`) are dropped at application bootstrap by `DropLegacyVectorIndexesService` ([`src/bootstrap/drop-legacy-vector-indexes.service.ts`](../../../../apps/dt-ws/src/bootstrap/drop-legacy-vector-indexes.service.ts)): on Memgraph only, only those the database reports, after the index and constraint bootstrap has finished, and never a MITRE index. A failed drop is logged and does not stop startup.
 
 ### Graceful degradation
 

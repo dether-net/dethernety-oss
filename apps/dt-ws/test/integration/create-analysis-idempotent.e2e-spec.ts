@@ -28,6 +28,13 @@
 import { Neo4jGraphQL } from '@neo4j/graphql';
 import { graphql, GraphQLSchema } from 'graphql';
 import { startMemgraph, clearGraph, MemgraphHandle } from './memgraph-container';
+import { buildConstraintDdl, buildDropConstraintDdl, type EngineInfo } from '@dethernety/dt-module';
+import { TEST_ENGINE } from './test-engine';
+
+// The Analysis.id uniqueness constraint in the dialect of the engine the suite runs on (DT_TEST_ENGINE).
+const ENGINE: EngineInfo = { engine: TEST_ENGINE, edition: null, version: null };
+const CREATE_ANALYSIS_ID_UNIQUE = buildConstraintDdl(ENGINE, 'Analysis', 'id', 'unique')!;
+const DROP_ANALYSIS_ID_UNIQUE = buildDropConstraintDdl(ENGINE, 'Analysis', 'id', 'unique')!;
 
 // ---------------------------------------------------------------------------
 // Schema fixture
@@ -143,7 +150,7 @@ describe('createAnalysisIdempotent — MERGE-by-id end-to-end', () => {
     // race is caught at the schema layer rather than at MERGE time.
     const session = mg.driver.session({ database: 'memgraph' });
     try {
-      await session.run('CREATE CONSTRAINT ON (a:Analysis) ASSERT a.id IS UNIQUE');
+      await session.run(CREATE_ANALYSIS_ID_UNIQUE);
     } finally {
       await session.close();
     }
@@ -346,7 +353,7 @@ describe('createAnalysisIdempotent — MERGE-by-id end-to-end', () => {
     // enough to expose the MERGE-non-atomic race?
     const session = mg.driver.session({ database: 'memgraph' });
     try {
-      await session.run('DROP CONSTRAINT ON (a:Analysis) ASSERT a.id IS UNIQUE');
+      await session.run(DROP_ANALYSIS_ID_UNIQUE);
     } finally {
       await session.close();
     }
@@ -360,7 +367,7 @@ describe('createAnalysisIdempotent — MERGE-by-id end-to-end', () => {
     // Restore the constraint for phase 2.
     const session2 = mg.driver.session({ database: 'memgraph' });
     try {
-      await session2.run('CREATE CONSTRAINT ON (a:Analysis) ASSERT a.id IS UNIQUE');
+      await session2.run(CREATE_ANALYSIS_ID_UNIQUE);
     } finally {
       await session2.close();
     }

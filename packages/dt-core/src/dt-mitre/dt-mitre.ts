@@ -41,7 +41,7 @@ export class DtMitre {
    *   the server batch. Empty array is rejected client-side (caller should not
    *   issue the call). Max length per string is enforced server-side (MAX_QUERY_LENGTH=500).
    * @param kind - Which corpus to consult — ATTACK_TECHNIQUE / DEFEND_TECHNIQUE / ATTACK_MITIGATION.
-   *   Determines the HNSW index the server reads and the deterministic-tier
+   *   Determines the MITRE label the server scores and the deterministic-tier
    *   schema applied (ATT&CK uses attack_id, D3FEND uses d3fendId).
    * @param topN - Optional cap on candidates per query. Server clamps to [1, 50].
    *   Defaults to 3 on the server when omitted.

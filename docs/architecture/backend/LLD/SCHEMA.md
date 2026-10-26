@@ -764,7 +764,7 @@ GraphQL has no native input unions, so the `kind` enum is the discriminator — 
 - `errorCode: ElementBindingErrorCode` — null on success. The 8-value enum is structured for UI branching: `VALIDATION_ERROR`, `ELEMENT_NOT_FOUND`, `CLASS_NOT_FOUND`, `MODEL_NOT_FOUND`, `ORPHAN_CLASS_REFUSED`, `REPRESENTED_MODEL_NOT_ALLOWED`, `MODULE_ERROR`, `DATABASE_ERROR`.
 - `errorMessage: String` — sanitised human-readable string suitable for snackbar display.
 
-**Transaction discipline.** The resolver runs validation and a preflight read outside the transaction, then opens a single `session.executeWrite(...)` block that performs an **in-tx authoritative re-read** of the current binding, identity short-circuit, destructive sweep, rewire, and constructive upsert. The in-tx read is authoritative — the preflight is an optimisation that lets the resolver call module SDKs (to produce module-supplied exposure / countermeasure data) before opening the write transaction. On any database error inside the transaction, Bolt rolls back the entire write — no partial graph state can persist.
+**Transaction discipline.** The resolver runs validation and a preflight read outside the transaction, then opens a single `session.executeWrite(...)` block that takes the element's database lock, then performs an **in-tx authoritative re-read** of the current binding, identity short-circuit, destructive sweep, rewire, and constructive upsert. The in-tx read is authoritative — the preflight is an optimisation that lets the resolver call module SDKs (to produce module-supplied exposure / countermeasure data) before opening the write transaction. On any database error inside the transaction, Bolt rolls back the entire write — no partial graph state can persist.
 
 **Authorization.** Enforced exclusively by `@authentication` on the mutation. The service does no in-resolver authz checks (per the project convention: module and resolver code never owns authz — the JWT guard and Neo4j session scoping do).
 
@@ -793,3 +793,15 @@ interface Element {
 ```
 
 Types implementing Element: Model, Component, DataFlow, SecurityBoundary, Data, Control, Module, Exposure, Countermeasure, Analysis, AnalysisClass, ComponentClass, DataFlowClass, SecurityBoundaryClass, ControlClass, DataClass, IssueClass, Issue, Folder, and all MITRE types.
+
+**Filtering a relationship to `Element`, or to any interface or union: use `some`, not `single`.** The API refuses a `single` filter (and the deprecated `<field>_SINGLE` / `<field>Connection_SINGLE` fields) on such a relationship, with an error that says to use `some`. Neo4j cannot plan the XOR across every member type that `single` renders as. Ids are unique, so `some` on an `id` matches the same nodes:
+
+```graphql
+query {
+  analyses(where: { element: { some: { id: { eq: "<element-id>" } } } }) {
+    id
+  }
+}
+```
+
+`all` and `none` are allowed too, within the request's filter budget of 300: each filter on `Element` costs 28 (one per member type), `all` twice that, and a filter on a concrete type 1. Everything nested under a filter on `Element` counts 28 times against the request's limits, so a filter nested inside one costs 28 times its own price: a `some` on `Element` inside another costs 784, past the budget. See the [Security Model](../../../SECURITY_MODEL.md#query-limits).

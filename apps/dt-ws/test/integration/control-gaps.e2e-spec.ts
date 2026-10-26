@@ -24,7 +24,7 @@ function makeStubConfigService(): ConfigService {
   } as unknown as ConfigService;
 }
 
-describe('ControlGapsResolverService — live Memgraph (e2e)', () => {
+describe('ControlGapsResolverService — live test database (e2e)', () => {
   let mg: MemgraphHandle;
   let svc: ControlGapsResolverService;
 

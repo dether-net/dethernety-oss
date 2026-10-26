@@ -25,6 +25,7 @@ import { FindingReevaluationService } from '../../src/gql/resolver-services/find
 import { ModuleManagementService } from '../../src/gql/module-management-services/module-management.service';
 import { ClassReconciler } from '../../src/gql/module-management-services/class-reconciler.service';
 import { ClassIdentityEventLog } from '../../src/gql/module-management-services/class-identity-event-log.service';
+import { engineSource } from './engine-source';
 
 jest.setTimeout(120_000);
 
@@ -580,7 +581,7 @@ describe('FindingReevaluationService — re-evaluation after a class policy chan
       registry.modules.add(INSTALLED);
       const log = new ClassIdentityEventLog();
       jest.spyOn((log as any).logger, 'warn').mockImplementation(() => {});
-      const reconciler = new ClassReconciler(mg.driver, log);
+      const reconciler = new ClassReconciler(mg.driver, log, engineSource(mg.driver));
       reconciler.setMageAvailableForTesting(null);
       modules = new ModuleManagementService(mg.driver, makeStubConfigService(), embeddingStub, reconciler, log);
       jest.spyOn((modules as any).logger, 'log').mockImplementation(() => {});

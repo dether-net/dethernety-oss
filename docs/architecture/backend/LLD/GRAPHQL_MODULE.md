@@ -42,7 +42,7 @@ The main NestJS module that orchestrates the GraphQL setup.
 #### Key Features
 - **Neo4j Integration**: Automatic CRUD operations from GraphQL schema
 - **Custom Resolvers**: Business logic resolvers for specialized functionality
-- **Security**: Query depth/complexity limiting, error sanitization
+- **Security**: Query depth/complexity limiting, relationship-filter limits (including the refusal of `single` on interface/union relationships), error sanitization
 - **Authentication**: OIDC JWT integration
 - **Real-time**: GraphQL subscriptions support
 - **Environment-based Configuration**: Different settings per environment
@@ -239,6 +239,7 @@ interface ResolverFunction {
 - **Introspection Disabled**: Schema introspection disabled in production
 - **Error Sanitization**: Internal errors hidden from clients
 - **Query Limiting**: Depth and complexity limits prevent DoS attacks
+- **Relationship-Filter Limits**: A `single` filter on an interface or union relationship is refused, a request's filters are held to a budget, and its arguments to caps on input objects, relationship operands and scalar size (see [Query Protection](#query-protection))
 
 ### Authentication
 - **OIDC Integration**: JWT token validation via JWKS endpoint
@@ -305,7 +306,40 @@ query {
 
 // Complexity limiting (prevents expensive operations)
 // Each field has a complexity score, total must be under limit
+
+// Relationship-filter limits: `single` on an interface or union relationship (refused)
+query {
+  analyses(where: { element: { single: { id: { eq: "..." } } } }) {  // <- refused: use `some`
+    id
+  }
+}
 ```
+
+All the guards live in [`query-guards.ts`](../../../../apps/dt-ws/src/gql/utils/query-guards.ts), and every transport calls the same implementations:
+
+| Transport | Depth rules | Relationship-filter limits and complexity limit |
+|-----------|-------------|-------------------------------------------------|
+| `/graphql` (Apollo, HTTP) | `validationRules` (`buildValidationRules`) | `didResolveOperation` hook of `buildApolloQueryGuardPlugin` |
+| `/graphql/stream` (graphql-sse) | `validate` (`buildGuardedValidate`) | the controller's `onSubscribe` |
+| graphql-ws WebSocket (only with `SUBSCRIPTION_TRANSPORT=ws`) | `buildGraphqlWsOnSubscribe` | `buildGraphqlWsOnSubscribe` |
+
+The relationship-filter limits and the complexity limit need the request's variables, which validation does not have, so they run after parsing. graphql-ws carries queries and mutations as well as subscriptions, so its `onSubscribe` runs all three guards for every operation and answers a refusal with GraphQL errors, without running anything.
+
+`assertRelationshipFiltersWithinLimits` walks the operation the request runs, selected by `operationName` as execution selects it, with only the variables that operation declares. A request that selects no single operation is refused with `BAD_USER_INPUT` and HTTP status 400. The walk expands fragments where they are spread, reads each argument once however often its fragment is spread, applies each variable's default as execution applies it, and refuses the request at the first limit it breaks. The limits bound how much Cypher a request's arguments make `@neo4j/graphql` write, which dt-ws translates on its event loop, and how much of it the database has to plan. They are `RELATIONSHIP_FILTER_LIMITS`:
+
+| Limit | Value | What it counts |
+|-------|-------|----------------|
+| `maxBudget` | 300 | Each relationship or connection filter quantifier (`some`, `all`, `none`, `single`, or a deprecated `_SOME` … `_SINGLE` form) costs the number of types it can match: the member types of an interface or union (28 on `Element`), else 1. `all` costs twice that. An aggregate filter costs what a `some` on the same relationship does; a filter on a `@cypher` field costs 2 (`CYPHER_FILTER_COST`), or 10 when the field's statement walks a variable-length path. A condition on a stored property, `in` lists included, costs nothing. The largest any platform client sends is 58 |
+| `maxFilterObjects` | 1000 | Input objects in the request's `where` arguments. The largest any platform client sends is 42 |
+| `maxInputObjects` | 2500 | Input objects in all of the request's arguments. A platform client's request grows only with links that carry a justification, which are operands of their own (about 5 objects each): dt-core's countermeasure create reaches the limit at 495 technique links |
+| `maxRelationshipOperands` | 640 | Items of a connect, disconnect, create, update or delete under a relationship in mutation inputs, each counted once per type its target can be (28 on `Element`). A platform client's operands grow only with the same justified links, one each |
+| `maxScalarSize` | 4,000,000 | Characters of the request's scalar values: a string its length, any other scalar one, a list or JSON value its entries summed. A value counts once for every place it is used, as `@neo4j/graphql` writes a value into a Cypher parameter of its own each time a variable is referenced |
+| `maxInputDepth` | 64 | Nesting depth of any input value. The deepest any platform client sends is 9 |
+| `maxSelections` | 10,000 | Selections the walk visits once fragments are expanded, which bounds the check's own cost |
+
+A `single` filter, or a deprecated `<field>_SINGLE` / `<field>Connection_SINGLE` field, on a relationship whose target is an interface or union is refused outright, whatever the budget. `@neo4j/graphql` renders it as a XOR of one predicate per member type, and Neo4j's planner rewrites a XOR chain into a form that grows exponentially with its length: on `Element` one request exhausts the database's heap during planning, and the database answers nothing until a restart. `some`, `all` and `none` render as an OR or an AND, which stays linear, and are allowed within the budget. Every count but the depth and the selections is weighted by how often the library renders the input: everything under a filter or an operand on an interface or union counts once per member type (28 times on `Element`), and under `all` twice that. The `@cypher` fields are not visible on the executable schema, which keeps no directives, so `SchemaService` calls `registerCypherFields(schema, typeDefs)` when it composes the schema, and the walk reads the field list from there. The checks run on both engines, whatever the complexity limit. A literal that does not coerce to its argument's type, a variable that holds something other than an object where an input object is expected, and a field the input type does not define are refused with `BAD_USER_INPUT` and HTTP status 400, as coercion refuses them; a null entry in a list of input objects counts as one input object.
+
+A refusal, from these limits or from the complexity limit (`assertComplexityWithinLimit`), is a `GraphQLError` with `extensions.code: BAD_USER_INPUT`, answered on `/graphql` with HTTP status 400. Its message names the limit, or the path of the refused filter and says to use `some`. In production, `formatError` replaces the message with "Internal server error" and keeps `BAD_USER_INPUT`, since `maskedErrorCode` keeps any explicit code other than `INTERNAL_SERVER_ERROR`. The SSE controller answers a refusal with a 400 whose body carries the message.
 
 ## Error Handling
 

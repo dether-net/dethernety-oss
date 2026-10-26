@@ -30,7 +30,7 @@ const call = async (args: Record<string, unknown> = {}) => {
 
 const send = async (args: Record<string, unknown> = {}) => (await call(args)).variables.input;
 
-const ids = (v: any, key: string) => (v?.[key] ?? []).map((o: any) => o.where.node.id.eq);
+const ids = (v: any, key: string) => (v?.[key] ?? []).flatMap((o: any) => o.where.node.id.in);
 
 /** The shape the push path builds: everything it holds, asserted whole. */
 const wholeModel = {

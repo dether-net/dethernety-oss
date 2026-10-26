@@ -19,8 +19,7 @@ import neo4j from 'neo4j-driver';
  * vector tier rather than switching it off for every kind.
  *
  * Structural mirror of MatchClassesResolverService for the query path —
- * same auth + monitoring wrapping, same `ensureVectorIndexes` idempotency,
- * same graceful-degradation cascade.
+ * same auth + monitoring wrapping, same graceful-degradation cascade.
  */
 
 // --- Constants ---
@@ -241,6 +240,8 @@ export class MatchMitreTechniquesResolverService {
   // Single-flight handle so concurrent cold-cache callers await one ensure
   // pass instead of racing two CREATE VECTOR INDEX statements.
   private ensurePromise: Promise<void> | null = null;
+  // The upkeep is skipped on an engine other than Memgraph; that is said once per process.
+  private upkeepSkipLogged = false;
   // Global precheck outcome: null while at least one loaded kind is healthy, otherwise the
   // dominant per-kind reason.
   private vectorPrecheckResult: PrecheckState | null = null;
@@ -405,7 +406,8 @@ export class MatchMitreTechniquesResolverService {
 
   /**
    * Keep a Memgraph HNSW index on every healthy MITRE kind. The search in this resolver does not use
-   * them (it is exact); they stay for consumers that still search the MITRE corpus by index name.
+   * them (it is exact); they stay for consumers that still search the MITRE corpus by index name on
+   * Memgraph. On any other engine the upkeep is skipped, with one info log per process.
    * Lazy and idempotent; concurrent callers share one pass. Never affects availability.
    */
   async ensureMitreVectorIndexes(): Promise<void> {
@@ -420,8 +422,13 @@ export class MatchMitreTechniquesResolverService {
   }
 
   private async runEnsureMitreVectorIndexes(): Promise<void> {
-    if ((await this.vectorSearch.dialect()) !== 'memgraph') {
+    const dialect = await this.vectorSearch.dialect();
+    if (dialect !== 'memgraph') {
       this.vectorIndexesEnsured = true;
+      if (!this.upkeepSkipLogged) {
+        this.upkeepSkipLogged = true;
+        this.logger.log(`MITRE vector index upkeep skipped: it applies to Memgraph only, the database is ${dialect}`);
+      }
       return;
     }
     if (this.vectorPrecheckResult === null) await this.runPrecheck();

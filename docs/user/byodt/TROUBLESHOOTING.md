@@ -119,6 +119,42 @@ sudo rm -rf data/ollama
 
 `sudo` is usually needed (rootful Docker on Linux): the old `ollama` service wrote the directory as root. If `data/ollama` is a symbolic link, `byodt` reports only that it is one: it does not name or measure the link's target. Check where it points yourself (`ls -l data/ollama`) before you remove anything. Keep `data/ollama` while you might still roll back to the previous release, which uses it.
 
+### `DB_ENGINE is …, but its data directory (…) is empty`
+
+> `error: DB_ENGINE is neo4j, but its data directory (./data/neo4j) is empty while memgraph's (./data/memgraph) holds a graph. Starting would bring up an empty graph. To keep using memgraph, set DB_ENGINE=memgraph in .env (and unset an exported DB_ENGINE). To move to neo4j, move ./data/memgraph aside: the neo4j graph starts empty, and a backup taken on memgraph cannot be loaded into it.`
+
+The same message appears with the engines the other way round.
+
+**Cause.** `DB_ENGINE` now names the other engine — changed in `.env`, or exported for this command — while your graph is in the first engine's data directory. Nothing converts one engine's data into the other's, so starting would bring up an empty graph. `./byodt up`, `./byodt restart`, `./byodt update` and `./byodt bootstrap` refuse, before they record or create anything: `.env` and `data/` are left as they were, so an exported `DB_ENGINE` that is refused is not recorded either.
+
+**Fix.** To stay on the engine that holds your graph, set `DB_ENGINE` back in `.env` and unset any exported `DB_ENGINE`. To switch on purpose, follow [Configuration → The database engine](./CONFIGURATION.md#the-database-engine): back up, `./byodt down`, move the old data directory aside, `./byodt up`.
+
+### `DB_ENGINE=… is not a database this bundle runs`
+
+> `error: DB_ENGINE=… in .env is not a database this bundle runs — set memgraph or neo4j.`
+
+When the value is exported, the message says `in your shell's environment` instead of `in .env`.
+
+**Cause.** `DB_ENGINE` in `.env`, or exported, is neither `memgraph` nor `neo4j`. `byodt` reads the `.env` line as compose does: an `export ` prefix, quotes, and a trailing ` # comment` are fine; the value itself must be one of the two.
+
+**Fix.** Set `DB_ENGINE=memgraph` or `DB_ENGINE=neo4j` in `.env`, unset any exported value, and run the command again.
+
+### `NEO4J_USERNAME=… in .env is not used on Neo4j`
+
+> `==> NEO4J_USERNAME=dethernety in .env is not used on Neo4j: the platform connects with NEO4J_USERNAME=neo4j. You can remove the line.`
+
+**Cause.** A notice, not an error. On Neo4j the platform always connects as `neo4j` to the database `neo4j`, so `NEO4J_USERNAME` and `NEO4J_DATABASE` in `.env` are not used. On the first Neo4j run — the one that records `NEO4J_IMAGE` in `.env` — `byodt` says so for each one set to another value. It does not repeat the notice on later runs.
+
+**Fix.** None needed. You can remove the lines, or leave them.
+
+### `… is not loaded: byodt reads local changes from compose.override.yaml only`
+
+> `warning: compose.override.yml is not loaded: byodt reads local changes from compose.override.yaml only. Rename it to use it.`
+
+**Cause.** `byodt` names the compose files it passes, and `compose.override.yaml` is the only override file among them. Compose no longer picks up `compose.override.yml`, `docker-compose.override.yaml` or `docker-compose.override.yml` on its own.
+
+**Fix.** Rename the file to `compose.override.yaml`, then `./byodt up`. See [Configuration → Local changes to the compose files](./CONFIGURATION.md#local-changes-to-the-compose-files).
+
 ### The platform does not start, or keeps restarting, after `./byodt restart`
 
 **Symptom.** One of two, depending on the command:
@@ -210,16 +246,16 @@ If the message instead says the platform's **default** embedding profile does no
 **Fix, in order of preference:**
 
 1. **Restore the original `.env.secrets`** from your backup of it, then `./byodt up`. Your graph is intact.
-2. **If the password is gone for good**, the existing graph cannot be opened. Restore from a backup snapshot onto a fresh database:
+2. **If the password is gone for good**, the existing graph cannot be opened. Restore from a backup onto a fresh database:
 
    ```sh
    ./byodt down
    # remove the graph — ./byodt destroy prints the exact command for your storage setting
    ./byodt up
-   ./byodt restore backups/<your latest snapshot>
+   ./byodt restore backups/<your latest backup>
    ```
 
-   A fresh database adopts the password currently on disk, and a snapshot carries no credentials, so this works.
+   A fresh database adopts the password currently on disk, and a backup carries no credentials, so this works.
 
 This is why `./byodt destroy` prints a warning about `.env.secrets` every time. Back that file up separately — see [Configuration → The generated secret file](./CONFIGURATION.md#the-generated-secret-file).
 
@@ -279,11 +315,13 @@ If the message names the models directory itself (`the models directory is writa
 
 ### `the data ingest failed` with a memory limit
 
-> **Ingest Failed** — the data ingest failed — the deployment runs without the MITRE corpus: memory limit exceeded (…) — the database needs a larger memory limit; this is terminal and was not retried: …
+> **Ingest Failed** — the data ingest failed — the deployment runs without the MITRE corpus: memory limit exceeded (…) — the database needs a larger memory limit (Memgraph's --memory-limit, set in the bundle's compose.memgraph.yaml; override it in compose.override.yaml); this is terminal and was not retried: …
 
-**Cause.** The database ran out of memory partway through the reference-data ingest. The database container is started with a 4096 MiB limit, which is the measured floor for this ingest — but it can only use memory the engine is actually able to give it.
+On Neo4j the middle reads `the database needs more memory (Neo4j's heap, NEO4J_HEAP_SIZE in the bundle's .env)`.
 
-**Fix.** Raise the memory available to your container engine, then re-run the one-shot. On a VM-backed runtime — Docker Desktop, or a Podman machine — the constraint is the **virtual machine's** memory allocation, not the host's. Raise it to comfortably more than 4 GB, then:
+**Cause.** The database ran out of memory partway through the reference-data ingest. Memgraph is started with a 4096 MiB limit, which is the measured floor for this ingest; Neo4j parses the large ingest statements on its heap, `NEO4J_HEAP_SIZE` (default `2G`). Either can only use memory the container engine is actually able to give it.
+
+**Fix.** On Neo4j, raise `NEO4J_HEAP_SIZE` in `.env` (for example to `3G`). On either engine, make sure the container engine can give the database that memory. On a VM-backed runtime — Docker Desktop, or a Podman machine — the constraint is the **virtual machine's** memory allocation, not the host's. Raise it to comfortably more than 4 GB, then re-run the one-shot:
 
 ```sh
 ./byodt restart
@@ -518,7 +556,7 @@ Then browse to the same address over `https://`.
 
 ### `Database is not reachable (running? credentials right?)`
 
-**Cause.** `./byodt backup` probes the database before doing anything, and the probe failed.
+**Cause.** `./byodt backup` probes the database before doing anything, on either engine, and the probe failed.
 
 **Fix.**
 
@@ -530,21 +568,66 @@ If the database is not running, `./byodt up`. If it is running but the probe fai
 
 ### `No snapshot available to back up`
 
-**Cause.** The database neither produced a new snapshot nor has an existing one to copy — this is effectively an empty or very newly created database.
+**Cause.** Memgraph only. The database neither produced a new snapshot nor has an existing one to copy — this is effectively an empty or very newly created database.
 
 **Fix.** Confirm the deployment is actually holding data — the console's **Data ingest** panel shows the statement count from the reference ingest beneath its status. If the graph really is empty, there is nothing to back up yet.
 
 ### `That backup was taken on version X; this deployment is Y`
 
-**Cause.** A warning, not an error. The filename records the version the snapshot was taken on, and it differs from what this deployment runs. Snapshots are version-sensitive and may not load across versions.
+**Cause.** A warning, not an error. The filename records the version the backup was taken on, and it differs from what this deployment runs. Snapshots and dumps are version-sensitive and may not load across versions.
 
-**Fix.** Prefer restoring onto the version the backup was taken on. If you continue and the restore fails, the current graph is left unchanged — nothing is lost by trying.
+**Fix.** Prefer restoring onto the version the backup was taken on. On Memgraph, if you continue and the restore fails, the current graph is left unchanged — nothing is lost by trying. On Neo4j a failed load can leave the current graph gone, so take a backup of it first.
+
+### `… is a Neo4j dump; this deployment runs Memgraph` / `… is a Memgraph snapshot; this deployment runs Neo4j`
+
+> `error: backups/….dump is a Neo4j dump; this deployment runs Memgraph, which restores its own snapshots only.`
+
+**Cause.** The backup was made by the other database engine. Each engine restores only its own format, and nothing converts between them.
+
+**Fix.** Restore a backup taken on this engine. To use that backup, restore it onto a deployment that runs the engine it came from.
 
 ### `RECOVER SNAPSHOT failed — the current graph was left unchanged`
 
-**Cause.** The database refused the snapshot. A version mismatch is the usual reason; a truncated or corrupt file is the other.
+**Cause.** Memgraph refused the snapshot. A version mismatch is the usual reason; a truncated or corrupt file is the other.
 
 **Fix.** Try a different snapshot, or pin the deployment back to the version the snapshot was taken on and restore there. Your current graph is intact either way.
+
+### `neo4j-admin could not dump the database`
+
+> `error: neo4j-admin could not dump the database. If it says the store needs recovery, the database did not shut down cleanly: start it ('byodt up'), let it finish starting, and run the backup again.`
+
+**Cause.** Neo4j only. `neo4j-admin` refuses to dump a store that was not shut down cleanly; its own output above the message says why. `byodt` starts the database again either way.
+
+**Fix.** Do what the message says: `./byodt up`, wait until `./byodt status` shows `db` healthy, then `./byodt backup` again.
+
+### `neo4j-admin could not load the dump`
+
+> `error: neo4j-admin could not load the dump — see its output above. The load replaces the graph, so the current one may be gone: restore again from a backup you know is good.`
+
+**Cause.** Neo4j only. `neo4j-admin` failed while loading the dump; its own output above the message says why. A version mismatch and a truncated or corrupt file are the usual reasons. The load replaces the graph, so unlike on Memgraph the current graph may already be gone. `byodt` starts the database again either way.
+
+**Fix.** Restore again from a backup you know is good — preferably one taken on the version this deployment runs. If the failed file was taken on another version, pin the deployment to that version and restore it there.
+
+### `Could not copy the dump to …`
+
+> `error: Could not copy the dump to backups/….dump.`
+
+**Cause.** Neo4j only. The dump was written, but `byodt` could not copy it into the destination directory — usually a directory you cannot write, or a full disk. The private working directory, with the dump in it, is removed on the way out, so nothing is left behind.
+
+**Fix.** Make sure the destination directory is writable by you and has room for the graph, then run `./byodt backup` again. The database is started again either way.
+
+### `Could not start the database — start it with 'byodt up'`
+
+> `warning: Could not start the database — start it with 'byodt up'.`
+
+**Cause.** Neo4j only. A backup or restore stopped the database, and starting it again failed.
+
+**Fix.**
+
+```sh
+./byodt up
+./byodt logs db
+```
 
 ### After a restore the app shows old or empty data
 
@@ -947,6 +1030,8 @@ Then in `.env`:
 ```
 DB_DATA=memgraph-data
 ```
+
+On Neo4j, set `NEO4J_DATA=neo4j-data` instead.
 
 ```sh
 ./byodt restart db

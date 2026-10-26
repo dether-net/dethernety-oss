@@ -11,13 +11,15 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-readonly BYODT_VERSION="1.2.0"
+readonly BYODT_VERSION="1.3.0"
 readonly ENV_FILE=".env"
 readonly SECRETS_FILE=".env.secrets"
 readonly MODE_FILE="mode/mode.env"
 # The database image this bundle was tested with. DB_IMAGE in .env is copied once from .env.example and
 # kept across upgrades, so a deployment can run another database than the bundle was tested with.
 readonly TESTED_DB_IMAGE="docker.io/memgraph/memgraph:3.13.2"
+# The Neo4j image this bundle was tested with, used when DB_ENGINE=neo4j. NEO4J_IMAGE in .env overrides it.
+readonly TESTED_NEO4J_IMAGE="docker.io/library/neo4j:5.26.32-community"
 SELF="$(basename "$0")"
 
 # --- output -------------------------------------------------------------------
@@ -49,9 +51,18 @@ die()  { printf '%serror:%s %s\n' "$RED" "$RST" "$*" >&2; exit 1; }
 #                   expand a nested ${VAR} inside a `:-default`, so a self-referencing default
 #                   reached the engine as a literal. Deriving it host-side keeps PLATFORM_VERSION
 #                   the single version knob without depending on nested interpolation.
+#   NEO4J_IMAGE     the same way, for the Neo4j database service.
+#
+# The files are named, never discovered: compose.yaml, then the database service of the engine
+# DB_ENGINE names (compose.memgraph.yaml or compose.neo4j.yaml), then compose.override.yaml when the
+# operator keeps local changes there. Naming any file stops compose from loading compose.override.yaml
+# by itself, so it is passed explicitly, last, which is the order compose would have used.
 compose() {
   resolve_engine
   local pw img dbu
+  local -a files
+  files=(-f compose.yaml -f "compose.${DBE}.yaml")
+  [ -f compose.override.yaml ] && files+=(-f compose.override.yaml)
   pw="$(secret_value NEO4J_PASSWORD "")"
   img="$(console_image)"
   # The verb is passed to db_user because it decides whether the probe may PULL, not whether it runs.
@@ -60,8 +71,49 @@ compose() {
   # one — makes the introspection command lie about the thing it exists to show. CI asserts a non-empty
   # user precisely to catch the derivation silently stopping.
   dbu="$(db_user "${1:-}")"
-  NEO4J_PASSWORD="$pw" CONSOLE_IMAGE="$img" DB_USER="$dbu" \
-    "$ENGINE" compose --env-file "$ENV_FILE" "$@"
+  NEO4J_PASSWORD="$pw" CONSOLE_IMAGE="$img" NEO4J_IMAGE="$(neo4j_image)" DB_USER="$dbu" \
+    "$ENGINE" compose --env-file "$ENV_FILE" "${files[@]}" "$@"
+}
+
+# The graph database the stack runs ("memgraph" or "neo4j"), settled once by resolve_db_engine.
+DBE=""
+
+# resolve_db_engine settles DBE, before any command runs. Precedence as for the container engine: an exported
+# DB_ENGINE (one-off override) > the value recorded in .env > memgraph. It runs in the main shell on purpose: a refusal
+# inside $(…) only ends that subshell, so a value checked there would be refused and then used anyway.
+resolve_db_engine() {
+  local choice="${DB_ENGINE:-}" src="your shell's environment"
+  if [ -z "$choice" ]; then choice="$(env_setting DB_ENGINE)"; src="$ENV_FILE"; fi
+  case "${choice:-memgraph}" in
+    memgraph|neo4j) DBE="${choice:-memgraph}" ;;
+    *) die "DB_ENGINE=$choice in $src is not a database this bundle runs — set memgraph or neo4j." ;;
+  esac
+}
+
+# neo4j_image — the Neo4j image reference: an exported NEO4J_IMAGE, else the one in .env, else the tested one.
+neo4j_image() {
+  local pin="${NEO4J_IMAGE:-$(env_value NEO4J_IMAGE "")}"
+  printf '%s' "${pin:-$TESTED_NEO4J_IMAGE}"
+}
+
+# db_data_of ENGINE — where ENGINE keeps its graph: DB_DATA for Memgraph, NEO4J_DATA for Neo4j. A path is a host bind
+# mount; anything else names a volume.
+db_data_of() {
+  case "$1" in
+    neo4j) env_value NEO4J_DATA ./data/neo4j ;;
+    *)     env_value DB_DATA ./data/memgraph ;;
+  esac
+}
+
+# db_data_setting — where the chosen engine keeps its graph.
+db_data_setting() { db_data_of "$DBE"; }
+
+# db_image — the image of the chosen engine's database.
+db_image() {
+  case "$DBE" in
+    neo4j) neo4j_image ;;
+    *)     env_value DB_IMAGE '' ;;
+  esac
 }
 
 # db_user — the uid:gid the database container runs as. Memgraph refuses to start unless its data
@@ -97,8 +149,8 @@ compose() {
 db_user() {
   db_is_bind || { printf ''; return 0; }
   local verb="${1:-}" dir image owner
-  dir="$(env_value DB_DATA ./data/memgraph)"
-  image="$(env_value DB_IMAGE '')"
+  dir="$(db_data_setting)"
+  image="$(db_image)"
   owner=""
   if [ -n "$image" ] && { [ "$verb" = "up" ] || "$ENGINE" image inspect "$image" >/dev/null 2>&1; }; then
     owner="$("$ENGINE" run --rm -v "$dir:/probe" --entrypoint sh "$image" \
@@ -185,7 +237,7 @@ env_value() {
 }
 
 # secret_value KEY DEFAULT — read a key from .env.secrets (mode 0600), falling back to DEFAULT.
-# Host-side only: the wrapper reads the secret to pass DB credentials to mgconsole; it never
+# Host-side only: the wrapper reads the secret to pass DB credentials to the database's shell; it never
 # exposes .env.secrets to a container (the console is deliberately walled off from it).
 secret_value() {
   local key="$1" def="$2" val=""
@@ -195,10 +247,10 @@ secret_value() {
   printf '%s' "${val:-$def}"
 }
 
-# db_is_bind — true when the database stores data in a host bind mount (DB_DATA is a path), false
+# db_is_bind — true when the database stores data in a host bind mount (DB_DATA, or NEO4J_DATA, is a path), false
 # when it uses a named volume. Governs whether ensure_layout makes the host dir and how destroy wipes.
 db_is_bind() {
-  case "$(env_value DB_DATA ./data/memgraph)" in
+  case "$(db_data_setting)" in
     .*|/*) return 0 ;;
     *)     return 1 ;;
   esac
@@ -232,6 +284,76 @@ ensure_engine() {
   info "Container engine: ${BOLD}$ENGINE${RST} (recorded CONTAINER_ENGINE in $ENV_FILE)."
 }
 
+# ensure_db_engine records the database engine in .env on first run, as ensure_engine does for the container
+# engine: a deployment started with `DB_ENGINE=neo4j ./byodt up` must still be a Neo4j deployment on the next
+# command run without the export. On Neo4j it records the image too, as .env.example does DB_IMAGE for Memgraph: the
+# image then stays what this deployment started on, and a later bundle that tests a newer one warns (check_db_image)
+# instead of moving the store forward on an update, which cannot be undone. No-op once the lines exist. Callers run
+# check_engine_switch first, so an export that would be refused is never recorded.
+ensure_db_engine() {
+  [ -f "$ENV_FILE" ] || return 0
+  local recorded=""
+  if [ -z "$(env_setting DB_ENGINE)" ]; then
+    recorded=1
+    printf '\n# Graph database engine, recorded by byodt on first run. Each engine keeps its own data; changing it\n# starts an empty graph, and byodt refuses while the other engine'"'"'s data is still in place.\nDB_ENGINE=%s\n' "$DBE" >> "$ENV_FILE"
+    info "Database engine: ${BOLD}$DBE${RST} (recorded DB_ENGINE in $ENV_FILE)."
+  fi
+  if [ "$DBE" = neo4j ] && [ -z "$(env_setting NEO4J_IMAGE)" ]; then
+    printf '\n# The Neo4j image this deployment runs, recorded by byodt on first run. Back up before you change it:\n# a store moved to a newer Neo4j cannot be moved back.\nNEO4J_IMAGE=%s\n' "$(neo4j_image)" >> "$ENV_FILE"
+    info "Neo4j image: ${BOLD}$(neo4j_image)${RST} (recorded NEO4J_IMAGE in $ENV_FILE)."
+    recorded=1
+  fi
+  if [ -n "$recorded" ]; then check_engine_settings; fi
+}
+
+# store_holds_data DIR: DIR exists and has an entry other than a desktop's .DS_Store. Any database file counts, even
+# empty directories an engine made on a short first start: that store was this deployment's.
+store_holds_data() {
+  [ -n "$(find "$1" -mindepth 1 ! -name .DS_Store -print 2>/dev/null | head -1)" ]
+}
+
+# check_engine_switch refuses to start an engine on an empty store while the other engine's store, in its own bind
+# directory, holds data: that is a deployment whose DB_ENGINE changed (or was exported for one command), and starting
+# would bring up an empty graph and ingest into it while the real one sits unused. Nothing converts one engine's data
+# into the other's, so a backup taken on one cannot be restored on the other. A store in a named volume cannot be
+# looked into from the host, so it is not checked.
+check_engine_switch() {
+  local other mine theirs
+  case "$DBE" in neo4j) other=memgraph ;; *) other=neo4j ;; esac
+  mine="$(db_data_of "$DBE")"
+  theirs="$(db_data_of "$other")"
+  case "$mine" in .*|/*) ;; *) return 0 ;; esac
+  case "$theirs" in .*|/*) ;; *) return 0 ;; esac
+  store_holds_data "$mine" && return 0
+  store_holds_data "$theirs" || return 0
+  die "DB_ENGINE is $DBE, but its data directory ($mine) is empty while $other's ($theirs) holds a graph. Starting would bring up an empty graph. To keep using $other, set DB_ENGINE=$other in $ENV_FILE (and unset an exported DB_ENGINE). To move to $DBE, move $theirs aside: the $DBE graph starts empty, and a backup taken on $other cannot be loaded into it."
+}
+
+# check_engine_settings says which .env values Neo4j does not use: the platform logs in to Neo4j as `neo4j`, its
+# administrator, to the one database Community serves, `neo4j` (compose.neo4j.yaml sets both, whatever .env says).
+# It speaks once, on the first run on Neo4j (the one that records DB_ENGINE or NEO4J_IMAGE), not on every start: the
+# template carries the Memgraph values.
+check_engine_settings() {
+  [ "$DBE" = neo4j ] || return 0
+  local k v
+  for k in NEO4J_USERNAME NEO4J_DATABASE; do
+    v="$(env_setting "$k")"
+    if [ -n "$v" ] && [ "$v" != neo4j ]; then
+      info "$k=$v in $ENV_FILE is not used on Neo4j: the platform connects with $k=neo4j. You can remove the line."
+    fi
+  done
+}
+
+# check_override_names: byodt names compose.override.yaml, and only that one. Compose reads the other override names
+# only when it picks the files itself; byodt names them, so those are not loaded.
+check_override_names() {
+  local f
+  for f in compose.override.yml docker-compose.override.yaml docker-compose.override.yml; do
+    [ -e "$f" ] && warn "$f is not loaded: byodt reads local changes from compose.override.yaml only. Rename it to use it."
+  done
+  return 0
+}
+
 # ensure_layout brings the on-disk bundle to a startable state: the .env file, the runtime directories
 # (world-writable, since the console one-shot and daemon write into them under an unprivileged uid that
 # need not match the operator's), and the pure open-source mode layer. It is idempotent and silent when
@@ -262,18 +384,24 @@ ensure_layout() {
   if [ ! -f "$ENV_FILE" ]; then
     cp .env.example "$ENV_FILE"
     info "Created $ENV_FILE from .env.example — review it before starting."
+    # The engine was settled before .env existed; settle it again from the file just made.
+    resolve_db_engine
   fi
   ensure_engine
+  # The switch guard runs before anything is recorded or created for the engine, so a refused start leaves .env and
+  # data/ as they were.
+  check_engine_switch
+  ensure_db_engine
 
   # Pre-create the runtime dirs a rootless engine (Podman) container must write as world-writable, so
-  # the container uid — which need not match the operator — can still write them. data/memgraph is a
-  # bind-mount dir only when DB_DATA is a path; a named volume needs no host dir, so make it only in
-  # bind mode. tls/ is deliberately NOT in this list: the proxy mounts it read-only and only the
+  # the container uid — which need not match the operator — can still write them. The database's data
+  # directory (data/memgraph, or data/neo4j) is a bind-mount dir only when DB_DATA (NEO4J_DATA) is a path;
+  # a named volume needs no host dir, so make it only in bind mode. tls/ is deliberately NOT in this list: the proxy mounts it read-only and only the
   # operator writes it (via `tls generate`), so a 0777 dir there would just let any local user replace
   # the private key and force the plaintext fallback. Keep it 0700, and don't re-widen it each `up`.
-  # data/memgraph-log is in this list for the reason the comment beside its mount in compose.yaml
-  # gives: the database image's log directory is writable only by the image's own user, and in bind
-  # mode the container runs as the operator instead. World-writable here covers both, and covers them
+  # The database's log directory is in this list for the reason the comment beside its mount in
+  # compose.memgraph.yaml gives: the database image's log directory is writable only by the image's own
+  # user, and in bind mode the container runs as the operator instead. Neo4j's image is the same. World-writable here covers both, and covers them
   # without this script having to know which mode is in play.
   #
   # data/ carries the STICKY BIT, and of its children only data/models does (below); the others do not, and
@@ -302,16 +430,24 @@ ensure_layout() {
   # data/models gets the sticky bit too: the platform loads what is in it as a model, after checking it by path, so
   # no account but an entry's owner may rename or delete one there. The platform refuses an entry below it that
   # another account owns or every account can write.
+  #
+  # The database's own directories depend on the engine: its log directory, and its data directory in bind mode —
+  # data/memgraph-log and data/memgraph for Memgraph, data/neo4j-logs and data/neo4j for Neo4j. A Neo4j backup's dump
+  # never passes through data/: it is written into a private directory of its own (see neo4j_backup).
   mkdir -p data && chmod 1777 data
-  local d
-  for d in data/content-cache data/memgraph-log data/models data/memgraph; do refuse_foreign_entry "$d"; done
-  mkdir -p modules schema data/content-cache data/memgraph-log data/models mode
-  if db_is_bind; then mkdir -p data/memgraph; fi
-  for d in data/content-cache data/memgraph-log data/models data/memgraph; do refuse_foreign_entry "$d"; done
-  chmod 0777 modules schema data/content-cache data/memgraph-log mode
+  local d db_dir db_log
+  case "$DBE" in
+    neo4j) db_dir=data/neo4j; db_log=data/neo4j-logs ;;
+    *)     db_dir=data/memgraph; db_log=data/memgraph-log ;;
+  esac
+  for d in data/content-cache data/models "$db_log" "$db_dir"; do refuse_foreign_entry "$d"; done
+  mkdir -p modules schema data/content-cache data/models mode "$db_log"
+  if db_is_bind; then mkdir -p "$db_dir"; fi
+  for d in data/content-cache data/models "$db_log" "$db_dir"; do refuse_foreign_entry "$d"; done
+  chmod 0777 modules schema data/content-cache mode "$db_log"
   chmod 1777 data/models
   mkdir -p tls && chmod 0700 tls
-  if db_is_bind; then chmod 0777 data/memgraph; fi
+  if db_is_bind; then chmod 0777 "$db_dir"; fi
 
   # compose.yaml bind-mounts this as a FILE. A container engine handed a bind source that does not
   # exist invents a DIRECTORY there — and then console-init, whose whole job is to write the file,
@@ -398,17 +534,20 @@ check_console_pin() {
   fi
 }
 
-# DB_IMAGE stays whatever .env says across upgrades. Say when it differs from the tested image — a warning,
-# never a block: moving the database forward is the operator's decision, and a newer database cannot be
-# downgraded, so it must not happen as a side effect of an update. Only the name:tag part is compared, so
-# the same image pulled through a mirror does not warn.
+# The database image stays whatever .env says across upgrades (DB_IMAGE for Memgraph, NEO4J_IMAGE for Neo4j). Say
+# when it differs from the tested image — a warning, never a block: moving the database forward is the operator's
+# decision, and a newer database cannot be downgraded, so it must not happen as a side effect of an update. Only the
+# name:tag part is compared, so the same image pulled through a mirror does not warn.
 check_db_image() {
-  local img
-  img="$(env_value DB_IMAGE '')"
+  local key img tested
+  case "$DBE" in
+    neo4j) key=NEO4J_IMAGE; tested="$TESTED_NEO4J_IMAGE"; img="${NEO4J_IMAGE:-$(env_value NEO4J_IMAGE '')}" ;;
+    *)     key=DB_IMAGE; tested="$TESTED_DB_IMAGE"; img="$(env_value DB_IMAGE '')" ;;
+  esac
   [ -n "$img" ] || return 0
-  if [ "${img##*/}" != "${TESTED_DB_IMAGE##*/}" ]; then
-    warn "DB_IMAGE in .env is ${BOLD}${img}${RST}; this bundle was tested with ${BOLD}${TESTED_DB_IMAGE}${RST}."
-    warn "To move to it: back up data/memgraph first (there is no downgrade), set DB_IMAGE, then run ${BOLD}$SELF update${RST}."
+  if [ "${img##*/}" != "${tested##*/}" ]; then
+    warn "$key in .env is ${BOLD}${img}${RST}; this bundle was tested with ${BOLD}${tested}${RST}."
+    warn "To move to it: back up first ('$SELF backup'; there is no downgrade), set $key, then run ${BOLD}$SELF update${RST}."
   fi
 }
 
@@ -528,6 +667,7 @@ cmd_up() {
   # runtime dir is fixed here instead of failing inside compose; the one-time password stays gated.
   ensure_layout
   ensure_password
+  check_override_names
   check_console_pin
   check_db_image
   check_embedding_env
@@ -579,6 +719,7 @@ cmd_update() {
   # The new bundle may mount a runtime dir the old one did not (data/models): without it, Docker creates it
   # root-owned and the platform cannot write its weights there, and Podman refuses the missing bind source.
   ensure_layout
+  check_override_names
   check_db_image
   check_embedding_env
   info "Pulling the pinned images…"; compose pull
@@ -588,22 +729,35 @@ cmd_update() {
   info "Updated."
 }
 
-# db_query runs a single Cypher statement through mgconsole in the db container, non-interactively.
-# -T so stdin pipes; credentials come from .env (user) and .env.secrets (password), host-side.
+# db_query runs a single Cypher statement in the db container, non-interactively, with the engine's own shell:
+# mgconsole for Memgraph, cypher-shell for Neo4j. -T so stdin pipes. Memgraph: credentials from .env (user) and
+# .env.secrets (password), host-side. Neo4j: the user is always neo4j (see check_engine_settings), and cypher-shell
+# reads the password from its environment, taken from NEO4J_AUTH inside the container, so it appears on no command
+# line — a JVM shell runs for seconds, long enough for another account's `ps` to see one.
 db_query() {
   local user pass
-  user="$(env_value NEO4J_USERNAME dethernety)"
   pass="$(secret_value NEO4J_PASSWORD "")"
   [ -n "$pass" ] || die "No database password in $SECRETS_FILE."
-  printf '%s\n' "$1" | compose exec -T db mgconsole --username "$user" --password "$pass"
+  if [ "$DBE" = neo4j ]; then
+    # The single quotes keep the expansion for the container's shell.
+    printf '%s\n' "$1" | compose exec -T db sh -c 'NEO4J_PASSWORD="${NEO4J_AUTH#neo4j/}" exec cypher-shell -u neo4j --format plain'
+  else
+    user="$(env_value NEO4J_USERNAME dethernety)"
+    printf '%s\n' "$1" | compose exec -T db mgconsole --username "$user" --password "$pass"
+  fi
 }
 
-# cmd_backup captures a consistent Memgraph snapshot and copies it OUT to a durable location.
+# cmd_backup captures a consistent Memgraph snapshot and copies it OUT to a durable location (on Neo4j, a dump:
+# neo4j_backup).
 # CREATE SNAPSHOT is hot and consistent (no downtime); the copy-out is the point — snapshots left in
 # the data dir are pruned by Memgraph's own retention (count 3). Auth is NOT in a snapshot (it is
 # separate system state), so a backup is graph-only: portable, and not a secret-bearing file.
 cmd_backup() {
   ensure_ready
+  # An exported DB_ENGINE that differs from the deployment's would stop the running database and act on the other
+  # engine's empty store.
+  check_engine_switch
+  if [ "$DBE" = neo4j ]; then neo4j_backup "$@"; return; fi
   # Reachability + credentials, the same probe the healthcheck uses.
   db_query 'RETURN 1;' >/dev/null 2>&1 \
     || die "Database is not reachable (running? credentials right?). Check '$SELF status'."
@@ -638,7 +792,31 @@ cmd_backup() {
   info "The whole graph is in here (no password) — keep it private and ${BOLD}copy it off-box${RST} so it survives losing this machine."
 }
 
-# cmd_restore replaces the current graph with a backup snapshot. DESTRUCTIVE: RECOVER SNAPSHOT ...
+# check_backup_version FILE KIND PREFIX SUFFIX: a best-effort version guard. Our backup filenames encode the
+# PLATFORM_VERSION they were taken on (PREFIX<version>-<date>-<time>SUFFIX); a mismatch warns, never blocks.
+check_backup_version() {
+  local file="$1" kind="$2" prefix="$3" suffix="$4" cur base rest bkv=""
+  cur="$(env_value PLATFORM_VERSION 0)"
+  base="${file##*/}"
+  case "$base" in
+    "$prefix"*"$suffix")
+      rest="${base#"$prefix"}"; rest="${rest%"$suffix"}"
+      rest="${rest%-*}"; bkv="${rest%-*}" ;;
+  esac
+  if [ -n "$bkv" ] && [ "$bkv" != "$cur" ]; then
+    warn "That backup was taken on version $bkv; this deployment is $cur — a $kind may not load across versions."
+  fi
+}
+
+# confirm_restore FILE asks the operator to type "restore", and stops with nothing changed otherwise.
+confirm_restore() {
+  warn "This REPLACES the current graph with '$1'. All current graph data is cleared."
+  printf 'Type %srestore%s to confirm: ' "$BOLD" "$RST"
+  local reply=""; read -r reply || true
+  [ "$reply" = "restore" ] || die "Aborted — nothing was changed."
+}
+
+# cmd_restore replaces the current graph with a backup snapshot (on Neo4j, a dump: neo4j_restore). DESTRUCTIVE: RECOVER SNAPSHOT ...
 # FORCE clears all current data first (Memgraph moves existing WAL/snapshots aside to a hidden .old,
 # so it cannot load the wrong, newer state). Auth is untouched (separate store), so the platform
 # keeps using this deployment's own password. Snapshots are graph-only and version-sensitive.
@@ -647,24 +825,14 @@ cmd_restore() {
   local file="${1:-}"
   [ -n "$file" ] || die "usage: $SELF restore <backup-file>"
   [ -f "$file" ] || die "No such backup file: $file"
-
-  # Best-effort version guard: our filenames encode the PLATFORM_VERSION the snapshot was taken on.
-  local cur bkv="" base rest
-  cur="$(env_value PLATFORM_VERSION 0)"
-  base="${file##*/}"
-  case "$base" in
-    byodt-snapshot-*.snapshot)
-      rest="${base#byodt-snapshot-}"; rest="${rest%.snapshot}"
-      rest="${rest%-*}"; bkv="${rest%-*}" ;;
+  check_engine_switch
+  if [ "$DBE" = neo4j ]; then neo4j_restore "$file"; return; fi
+  case "$file" in
+    *.dump) die "$file is a Neo4j dump; this deployment runs Memgraph, which restores its own snapshots only." ;;
   esac
-  if [ -n "$bkv" ] && [ "$bkv" != "$cur" ]; then
-    warn "That backup was taken on version $bkv; this deployment is $cur — a snapshot may not load across versions."
-  fi
 
-  warn "This REPLACES the current graph with '$file'. All current graph data is cleared."
-  printf 'Type %srestore%s to confirm: ' "$BOLD" "$RST"
-  local reply=""; read -r reply || true
-  [ "$reply" = "restore" ] || die "Aborted — nothing was changed."
+  check_backup_version "$file" snapshot byodt-snapshot- .snapshot
+  confirm_restore "$file"
 
   db_query 'RETURN 1;' >/dev/null 2>&1 \
     || die "Database is not reachable — start it with '$SELF up' first."
@@ -687,6 +855,102 @@ cmd_restore() {
   fi
 }
 
+# --- Neo4j backup and restore ----------------------------------------------------
+#
+# Neo4j Community dumps and loads only an offline database, so both stop the db service, run neo4j-admin in a one-off
+# container of the same service (same image, user and data mounts; --no-deps so nothing else starts), and start it
+# again, from an EXIT trap set before the stop, so the database comes back whatever happens in between. The platform
+# stays up and loses its connection meanwhile.
+#
+# THE DUMP NEVER TOUCHES A SHARED DIRECTORY. It is the whole graph, and every directory under data/ is writable by every
+# local account — sticky or not, readable by them too. So each backup or restore makes a private directory of its own
+# (mktemp -d in the bundle root, mode 0700, the operator's), mounts it into that one-off container only, and removes
+# it on the way out. For the container to use a directory only the operator can enter, neo4j-admin runs as the
+# service's own user, which byodt derives to map to the operator in bind mode (db_user; with a named volume it is the
+# image's default, root): the image's entrypoint is bypassed because, started as root (rootless Podman, a named
+# volume), it would drop to the image's own user first. A one-off
+# container mounts the directory when it starts, so a file the host wrote just before is there, which is not true of
+# the long-running container cmd_restore copies a Memgraph snapshot into.
+#
+# A dump holds the `neo4j` database only; users live in the `system` database, so the deployment keeps its own password
+# across a restore.
+
+readonly NEO4J_ADMIN=/var/lib/neo4j/bin/neo4j-admin
+
+# NEO4J_WORK: the private directory of the backup or restore in progress, removed by the EXIT trap.
+NEO4J_WORK=""
+
+# neo4j_work_begin makes the private directory and sets the trap that removes it and starts the database again.
+neo4j_work_begin() {
+  NEO4J_WORK="$(mktemp -d "$PWD/.byodt-dump.XXXXXX")" || die "Could not make a private working directory in $PWD."
+  trap neo4j_work_end EXIT
+}
+
+neo4j_work_end() {
+  # The database first: nothing that fails afterwards may leave it stopped.
+  info "Starting the database again…"
+  compose start db >/dev/null 2>&1 || warn "Could not start the database — start it with '$SELF up'."
+  if [ -n "$NEO4J_WORK" ]; then
+    rm -rf -- "$NEO4J_WORK" || warn "Could not remove $NEO4J_WORK — it holds a copy of the graph; remove it by hand."
+  fi
+  NEO4J_WORK=""
+}
+
+# neo4j_admin [MOUNT-OPTION] ARGS… runs neo4j-admin in a one-off container of the stopped db service, with the private
+# directory mounted at /dumps (read-only for a load).
+neo4j_admin() {
+  local mount="$NEO4J_WORK:/dumps"
+  if [ "$1" = --read-only ]; then mount="$mount:ro"; shift; fi
+  compose run --rm --no-deps -T --entrypoint "$NEO4J_ADMIN" -v "$mount" db "$@"
+}
+
+neo4j_backup() {
+  db_query 'RETURN 1;' >/dev/null 2>&1 \
+    || die "Database is not reachable (running? credentials right?). Check '$SELF status'."
+  local destdir="${1:-backups}" out dump
+  # As for a Memgraph backup: the operator's umask governs the directory, and the file is created private below.
+  mkdir -p "$destdir"
+  out="${destdir%/}/byodt-dump-$(env_value PLATFORM_VERSION 0)-$(date +%Y%m%d-%H%M%S).dump"
+
+  neo4j_work_begin
+  info "Stopping the database — Neo4j Community dumps an offline database…"
+  compose stop db >/dev/null || die "Could not stop the database; nothing was dumped."
+  info "Dumping the graph…"
+  if ! neo4j_admin database dump neo4j --to-path=/dumps; then
+    die "neo4j-admin could not dump the database. If it says the store needs recovery, the database did not shut down cleanly: start it ('$SELF up'), let it finish starting, and run the backup again."
+  fi
+  dump="$NEO4J_WORK/neo4j.dump"
+  [ -f "$dump" ] && [ ! -L "$dump" ] || die "The dump did not appear as a regular file in the working directory."
+  # Copied, not moved: the copy is the operator's own file, created private, whoever wrote the dump.
+  ( umask 077; cp -- "$dump" "$out" ) || die "Could not copy the dump to $out."
+  trap - EXIT
+  neo4j_work_end
+  info "Backup written: ${BOLD}$out${RST} ($(du -h "$out" 2>/dev/null | cut -f1 | tr -d ' '))"
+  info "The whole graph is in here (no password) — keep it private and ${BOLD}copy it off-box${RST} so it survives losing this machine."
+}
+
+neo4j_restore() {
+  local file="$1"
+  case "$file" in
+    *.snapshot) die "$file is a Memgraph snapshot; this deployment runs Neo4j, which restores its own dumps only." ;;
+  esac
+  check_backup_version "$file" dump byodt-dump- .dump
+  confirm_restore "$file"
+
+  neo4j_work_begin
+  # Staged under the name neo4j-admin loads, in the private directory: nobody else can read it, or put anything there.
+  ( umask 077; cp -- "$file" "$NEO4J_WORK/neo4j.dump" ) || die "Could not stage the dump; nothing was changed."
+  info "Stopping the database — Neo4j Community loads into an offline database…"
+  compose stop db >/dev/null || die "Could not stop the database; nothing was changed."
+  info "Restoring — replacing the graph with the dump…"
+  if ! neo4j_admin --read-only database load neo4j --from-path=/dumps --overwrite-destination=true; then
+    die "neo4j-admin could not load the dump — see its output above. The load replaces the graph, so the current one may be gone: restore again from a backup you know is good."
+  fi
+  trap - EXIT
+  neo4j_work_end
+  info "Restore complete. If the app still shows old or empty data, run '$SELF restart platform'."
+}
+
 cmd_destroy() {
   ensure_ready
   # Deliberately does NOT delete data. Tears the stack down (containers + network) and hands the
@@ -703,9 +967,16 @@ cmd_destroy() {
   printf 'the graph exists locks you out of your own data.\n\n'
   if db_is_bind; then
     printf 'To reset the graph and re-ingest (a fresh graph adopts the kept password):\n'
-    printf '  rm -rf data/memgraph data/content-cache\n'
+    printf '  rm -rf %s %s data/content-cache\n' "$(db_data_setting)" "$( [ "$DBE" = neo4j ] && echo data/neo4j-logs || echo data/memgraph-log )"
+    # The Neo4j image, started as root (rootless Podman runs it so), drops to its own user before it writes: the
+    # store then belongs to a uid of Podman's range, which only Podman's user namespace may remove. Memgraph runs as
+    # the derived user throughout, so it has no such files.
+    if [ "$DBE" = neo4j ] && [ "$ENGINE" = podman ]; then
+      printf 'Under rootless Podman the database files belong to the container'"'"'s user; remove them with:\n'
+      printf '  podman unshare rm -rf %s\n' "$(db_data_setting)"
+    fi
   else
-    local vol; vol="$(env_value DB_DATA memgraph-data)"
+    local vol; vol="$(db_data_setting)"
     printf 'The graph lives in the named volume %s%s%s. To reset it and re-ingest, remove it:\n' "$BOLD" "$vol" "$RST"
     printf '  %s volume rm dethernety_%s   # find the exact name with: %s volume ls | grep %s\n' "$ENGINE" "$vol" "$ENGINE" "$vol"
   fi
@@ -722,7 +993,10 @@ cmd_version() {
   printf '%sbyodt%s %s\n' "$BOLD" "$RST" "$BYODT_VERSION"
   if [ -f "$ENV_FILE" ]; then
     printf 'Pinned release (from %s):\n' "$ENV_FILE"
-    grep -E '^(PLATFORM_VERSION|[A-Z_]*_IMAGE)=' "$ENV_FILE" | grep -v '^OLLAMA_IMAGE=' | sed 's/^/  /' || true
+    grep -E '^(PLATFORM_VERSION|DB_ENGINE|[A-Z0-9_]*_IMAGE)=' "$ENV_FILE" | grep -v '^OLLAMA_IMAGE=' | sed 's/^/  /' || true
+    if [ "$DBE" = neo4j ] && ! grep -Eq '^NEO4J_IMAGE=' "$ENV_FILE"; then
+      printf '  NEO4J_IMAGE=%s (the tested image; not set in %s)\n' "$TESTED_NEO4J_IMAGE" "$ENV_FILE"
+    fi
   fi
 }
 
@@ -800,8 +1074,9 @@ ${BOLD}Usage:${RST} $SELF <command> [args]
   logs [service]     Follow logs (all, or one service)
   update             Pull the pinned images and apply
   models pull        Download and verify the embedding model ahead of the first start
-  backup [dir]       Snapshot the graph and copy it out (default: backups/)
-  restore <file>     Replace the graph from a backup snapshot (asks to confirm)
+  backup [dir]       Back up the graph and copy it out (default: backups/); on Neo4j
+                     the database stops while it is dumped
+  restore <file>     Replace the graph from a backup (asks to confirm)
   bootstrap          First-run setup (dirs, database password, mode seed)
   destroy            Remove the stack (containers + network); data on disk is kept
   console            Print (and open) the console URL
@@ -816,6 +1091,12 @@ EOF
 
 # --- dispatch -----------------------------------------------------------------
 cmd="${1:-help}"; shift || true
+# Settle the database engine for the commands that run the stack. help, version, console, tls and an unknown command
+# do not need it, and a bad DB_ENGINE must not stand in their way.
+case "$cmd" in
+  up|start|down|stop|restart|status|ps|logs|update|pull|upgrade|backup|restore|bootstrap|init|destroy|nuke|compose|models)
+    resolve_db_engine ;;
+esac
 case "$cmd" in
   up|start)            require_engine; cmd_up "$@" ;;
   down|stop)           require_engine; cmd_down "$@" ;;

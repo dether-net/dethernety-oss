@@ -102,7 +102,7 @@ markedly slower than subsequent starts.
 
 | Path | What it is |
 |---|---|
-| [`deploy/compose/`](../../../deploy/compose/) | The deployment bundle: `compose.yaml`, the `byodt` control script, `.env.example` (the release manifest), the proxy config and its TLS entrypoint, `NOTICE` |
+| [`deploy/compose/`](../../../deploy/compose/) | The deployment bundle: `compose.yaml`, the database service per engine (`compose.memgraph.yaml`, `compose.neo4j.yaml`), the `byodt` control script, `.env.example` (the release manifest), the proxy config and its TLS entrypoint, `NOTICE` |
 | [`apps/byodt-console/`](../../../apps/byodt-console/) | The console: one Go binary (`internal/initcmd`, `internal/daemoncmd`) plus the Vue SPA under `ui/`, embedded into the image |
 | [`pkg/moduleverify/`](../../../pkg/moduleverify/) | Sigstore bundle verification against a pinned signer identity |
 | [`pkg/extract/`](../../../pkg/extract/) | Confined archive extraction with the limits the trust boundary requires |

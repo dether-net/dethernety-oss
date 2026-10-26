@@ -98,10 +98,7 @@ describe('model-level controls round-trip', () => {
     await dtModel.createModel({ name: 'M', description: '', modules: [], folderId: undefined, controls: ['ctl1', 'ctl2'] });
 
     const input = dtModel.dtUtils.performMutation.mock.calls[0][0].variables.input[0];
-    expect(input.controls.connect).toEqual([
-      { where: { node: { id: { eq: 'ctl1' } } } },
-      { where: { node: { id: { eq: 'ctl2' } } } },
-    ]);
+    expect(input.controls.connect).toEqual([{ where: { node: { id: { in: ['ctl1', 'ctl2'] } } } }]);
     expect(input.controls.disconnect).toBeUndefined(); // create-only: never clears
   });
 

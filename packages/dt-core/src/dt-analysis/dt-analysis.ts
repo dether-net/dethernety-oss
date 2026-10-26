@@ -106,38 +106,31 @@ export class DtAnalysis {
           single?: {
             id?: { eq?: string }
             type?: { eq?: string }
+            module?: { single?: { id?: { eq?: string } } }
           }
         } | null,
         element?: {
-          single?: {
+          some?: {
             id?: { eq?: string }
           }
         },
-        module?: {
-          single?: {
-            id?: { eq?: string }
-          }
-        }
       } = {}
       if (name) condition.name = { eq: name }
       if (analysisId) condition.id = { eq: analysisId }
-      if (classId) {
-        condition.analysisClass = { single: { id: { eq: classId } } }
-      }
-      if (classType) {
-        if (!condition.analysisClass) {
-          condition.analysisClass = { single: { type: { eq: classType } } }
-        } else if (condition.analysisClass.single) {
-          condition.analysisClass.single.type = { eq: classType }
-        }
+      // An analysis belongs to a module through its class (Analysis has no module relationship of its own).
+      if (classId || classType || moduleId) {
+        const classFilter: NonNullable<NonNullable<typeof condition.analysisClass>['single']> = {}
+        if (classId) classFilter.id = { eq: classId }
+        if (classType) classFilter.type = { eq: classType }
+        if (moduleId) classFilter.module = { single: { id: { eq: moduleId } } }
+        condition.analysisClass = { single: classFilter }
       }
       if (elementId) {
-        condition.element = { single: { id: { eq: elementId } } }
+        // `some`, never `single`: `element` is a relationship to the Element interface, and `single` there renders as a
+        // XOR across all of its member types, which Neo4j cannot plan (the platform refuses it). Ids are unique, so
+        // `some` matches the same analyses.
+        condition.element = { some: { id: { eq: elementId } } }
       }
-      if (moduleId) {
-        condition.module = { single: { id: { eq: moduleId } } }
-      }
-
       const response = await this.dtUtils.performQuery<{ analyses: Analysis[] }>({
         query: FIND_ANALYSES,
         variables: { condition: { "AND": condition } },

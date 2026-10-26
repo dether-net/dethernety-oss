@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
-import { DatabaseService, EngineInfo } from '../database/database.service';
+import { buildConstraintDdl, ConstraintKind } from '@dethernety/dt-module';
+import { DatabaseService } from '../database/database.service';
 
 /**
  * Idempotent per-label id-constraint creation at application bootstrap.
@@ -13,9 +14,9 @@ import { DatabaseService, EngineInfo } from '../database/database.service';
  * **Dual-engine DDL.** Both Neo4j 5 and Memgraph are supported production
  * engines. The two dialects share no constraint syntax: Memgraph only parses
  * the legacy `CREATE CONSTRAINT ON … ASSERT …` form, Neo4j 5 only the
- * `CREATE CONSTRAINT [IF NOT EXISTS] FOR … REQUIRE …` form. The engine is
+ * `CREATE CONSTRAINT <name> IF NOT EXISTS FOR … REQUIRE …` form. The engine is
  * probed once via {@link DatabaseService.getEngineInfo} and the statement is
- * built per dialect by {@link buildConstraintDdl}. Property-existence
+ * built per dialect by dt-module's `buildConstraintDdl`. Property-existence
  * constraints are Neo4j-Enterprise-only — on community editions the `exists`
  * kinds are skipped proactively with a warning (structurally unavailable, so
  * they do NOT count against `isHealthy()`).
@@ -42,17 +43,15 @@ import { DatabaseService, EngineInfo } from '../database/database.service';
  *
  * **Idempotency.** Memgraph constraint creation is naturally idempotent —
  * re-creating the same constraint produces no error and no duplicate (verified
- * empirically against Memgraph 3.8.1). Neo4j gets `IF NOT EXISTS`. Any error
- * surfacing from `executeImplicitWrite` is a genuine failure and is logged but
- * does not crash bootstrap.
+ * empirically against Memgraph 3.8.1). Neo4j gets `IF NOT EXISTS`. A transient
+ * error is retried inside `executeSchemaWrite`; any error surfacing from it is
+ * a genuine failure and is logged but does not crash bootstrap.
  *
  * **Transaction mode.** Same as `EnsureIndexesService` — Memgraph rejects DDL
  * inside multi-command transactions, so this service routes through
- * {@link DatabaseService.executeImplicitWrite} which uses `session.run`
+ * {@link DatabaseService.executeSchemaWrite} which uses `session.run`
  * (auto-commit). Do NOT switch to `executeWrite` — DDL would silently fail.
  */
-
-export type ConstraintKind = 'unique' | 'exists';
 
 /**
  * Per-label constraint specification. The seven platform `*Class` labels
@@ -92,35 +91,6 @@ export const UNIQUE_CONSTRAINT_COVERED_PAIRS: ReadonlyArray<{
   { label: 'Module', property: 'name' },
 ];
 
-/**
- * Build the engine-correct constraint DDL statement.
- *
- * Returns `null` when the constraint kind is structurally unavailable on the
- * probed engine: property-existence constraints require Neo4j Enterprise, so
- * on any non-enterprise Neo4j edition (including unknown editions — safe
- * skip) `exists` yields `null` and the caller skips it with a warning.
- */
-export function buildConstraintDdl(
-  engineInfo: EngineInfo,
-  label: string,
-  property: string,
-  kind: ConstraintKind,
-): string | null {
-  if (engineInfo.engine === 'memgraph') {
-    return kind === 'unique'
-      ? `CREATE CONSTRAINT ON (n:${label}) ASSERT n.${property} IS UNIQUE`
-      : `CREATE CONSTRAINT ON (n:${label}) ASSERT EXISTS (n.${property})`;
-  }
-  if (kind === 'unique') {
-    return `CREATE CONSTRAINT IF NOT EXISTS FOR (n:${label}) REQUIRE n.${property} IS UNIQUE`;
-  }
-  // Neo4j property-existence constraints are Enterprise-only.
-  if ((engineInfo.edition ?? '').toLowerCase() === 'enterprise') {
-    return `CREATE CONSTRAINT IF NOT EXISTS FOR (n:${label}) REQUIRE n.${property} IS NOT NULL`;
-  }
-  return null;
-}
-
 @Injectable()
 export class EnsureConstraintsService implements OnApplicationBootstrap {
   private readonly logger = new Logger(EnsureConstraintsService.name);
@@ -154,9 +124,21 @@ export class EnsureConstraintsService implements OnApplicationBootstrap {
     return this.skippedLabels;
   }
 
+  private finished?: Promise<void>;
+
   constructor(private readonly databaseService: DatabaseService) {}
 
-  async onApplicationBootstrap(): Promise<void> {
+  /** Settles when the bootstrap pass has run (successfully or not); for services that must not overlap it. */
+  whenBootstrapped(): Promise<void> {
+    return this.finished ?? Promise.resolve();
+  }
+
+  onApplicationBootstrap(): Promise<void> {
+    this.finished = this.bootstrap();
+    return this.finished;
+  }
+
+  private async bootstrap(): Promise<void> {
     try {
       await this.ensureConstraints();
     } catch (error) {
@@ -227,7 +209,7 @@ export class EnsureConstraintsService implements OnApplicationBootstrap {
         skippedLabels.push('Module(name)');
       } else {
         try {
-          await this.databaseService.executeImplicitWrite(
+          await this.databaseService.executeSchemaWrite(
             buildConstraintDdl(engineInfo, 'Module', 'name', 'unique')!,
           );
           created += 1;
@@ -263,7 +245,15 @@ export class EnsureConstraintsService implements OnApplicationBootstrap {
       }
 
       for (const kind of kinds) {
-        const cypher = buildConstraintDdl(engineInfo, label, 'id', kind);
+        let cypher: string | null;
+        try {
+          cypher = buildConstraintDdl(engineInfo, label, 'id', kind);
+        } catch (error) {
+          failed += 1;
+          const message = error instanceof Error ? error.message : String(error);
+          this.logger.error(`Cannot build ${kind} constraint on :${label}(id): ${message}`);
+          continue;
+        }
         if (cypher === null) {
           // Structurally unavailable on this engine/edition (existence
           // constraints are Neo4j-Enterprise-only) — not a health failure.
@@ -274,7 +264,7 @@ export class EnsureConstraintsService implements OnApplicationBootstrap {
           continue;
         }
         try {
-          await this.databaseService.executeImplicitWrite(cypher);
+          await this.databaseService.executeSchemaWrite(cypher);
           created += 1;
           this.logger.debug(`Ensured ${kind} constraint on :${label}(id)`);
         } catch (error) {

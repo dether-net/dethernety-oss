@@ -8,6 +8,7 @@ import * as path from 'path';
 import { ResolverService, ResolverMap, ResolverFunction, SchemaService as ISchemaService } from '../interfaces/resolver.interface';
 import { GqlConfig } from '../gql.config';
 import { populateAuthoredByOnCreate, stampCreatedByUserOnCreate } from '../populated-by/authored-by';
+import { registerCypherFields } from '../utils/query-guards';
 
 /**
  * Upstream refusal codes a module may surface, and the GraphQL code each maps to.
@@ -198,7 +199,10 @@ export class SchemaService implements ISchemaService {
       features,
     });
 
-    return neoSchema.getSchema();
+    const schema = await neoSchema.getSchema();
+    // The query guards price filters on @cypher fields; the executable schema keeps no directives to find them by.
+    registerCypherFields(schema, typeDefs);
+    return schema;
   }
 
   /**

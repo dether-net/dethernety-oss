@@ -29,7 +29,7 @@ Five services, of which exactly one publishes a port.
 
 | Service | What it does | Published |
 |---|---|---|
-| `db` | The graph database. Every model, finding, and control lives here. | no |
+| `db` | The graph database — Memgraph by default, or Neo4j Community. Every model, finding, and control lives here. | no |
 | `console-init` | A one-shot that runs before the platform: places the schema, installs the signed modules, ingests the reference data, then exits. | no |
 | `platform` | The product — the API, the web application, and its runtime configuration. It also embeds in process for class and technique matching. | no |
 | `console` | The operator console: deployment status, cloud connect, content packages. | via the proxy |
@@ -73,7 +73,7 @@ Both move together if you change the port or bind address. See [Configuration](.
 ## What it needs
 
 - **A container engine** — Docker with the Compose plugin, or Podman 4.1+ with a Compose provider. The control script detects which you have and remembers the choice.
-- **Several gigabytes of free disk and memory.** The database container alone is started with a 4096 MiB memory limit, and the platform, which holds the embedding model in memory, runs alongside it. The model's weights take about 1.26 GB in `data/models`.
+- **Several gigabytes of free disk and memory.** The database alone needs several gigabytes: Memgraph is started with a 4096 MiB memory limit, Neo4j with a 2 GB heap plus a 1 GB page cache. The platform, which holds the embedding model in memory, runs alongside it. The model's weights take about 1.26 GB in `data/models`.
 - **A network connection for the first run** — to pull the container images, the embedding model's weights (from Hugging Face), and the signed module payloads.
 
 Full detail, including Podman specifics, is in [Installation](./INSTALLATION.md).
@@ -89,7 +89,11 @@ Full detail, including Podman specifics, is in [Installation](./INSTALLATION.md)
 ./byodt backup
 ```
 
-It operates on the bundle it lives in, so it can be run from anywhere. The full command reference is in [Operations](./OPERATIONS.md).
+It operates on the bundle it lives in, so it can be run from anywhere. Always go through it: the database service is in a separate file per engine, so a bare `docker compose up` does not start the stack. The full command reference is in [Operations](./OPERATIONS.md).
+
+## Choosing the database
+
+The deployment runs **Memgraph** by default, or **Neo4j 5.26 Community** if you set `DB_ENGINE=neo4j`. Choose before the first start: each engine keeps its own data, and nothing converts one into the other. See [Configuration → The database engine](./CONFIGURATION.md#the-database-engine).
 
 ## What is in the bundle
 
@@ -98,7 +102,8 @@ The release tarball extracts to a single directory containing these files:
 | Path | What it is |
 |---|---|
 | `byodt` | The control script. |
-| `compose.yaml` | The service definitions. |
+| `compose.yaml` | The service definitions, except the database. |
+| `compose.memgraph.yaml`, `compose.neo4j.yaml` | The database service, one file per engine. `byodt` uses the one `DB_ENGINE` names. |
 | `.env.example` | The configuration template, and the release manifest for the tested image set. |
 | `proxy/nginx.conf`, `proxy/40-tls.sh` | The front-door configuration and its TLS entrypoint. |
 | `README.md`, `LICENSE`, `NOTICE` | Quickstart, licence, and third-party notices. |
@@ -120,7 +125,7 @@ Your data never moves either way: the graph stays in your database in both modes
 | Guide | What it covers |
 |---|---|
 | [Installation](./INSTALLATION.md) | Prerequisites, getting the bundle, the first start, what happens during it, and how to confirm the deployment is healthy. **Start here.** |
-| [Configuration](./CONFIGURATION.md) | Every setting in `.env`, the generated secret file, where the database keeps its data, and how to apply a change. |
+| [Configuration](./CONFIGURATION.md) | Every setting in `.env`, the choice of database engine, the generated secret file, where the database keeps its data, and how to apply a change. |
 | [Operations](./OPERATIONS.md) | The `byodt` command reference and the day-to-day tasks: start, stop, inspect, back up, restore, TLS, upgrade, remove. |
 | [Cloud](./CLOUD.md) | Connecting the deployment to cloud sign-in and content packages from the console, and disconnecting again. |
 | [Troubleshooting](./TROUBLESHOOTING.md) | Symptom, cause, and fix for the failures this deployment actually produces. |
@@ -135,7 +140,7 @@ These guides cover running the deployment. For using the product it serves, see 
 
 The Dethernety platform and the operator console are licensed under the **GNU AGPL v3** (`LICENSE` in the bundle).
 
-The deployment also *references* third-party container images — the graph database and the proxy — which your container engine pulls directly from their publishers. The bundle does not redistribute them. Read `NOTICE` in the bundle for their licences and provenance; note in particular that **Memgraph is licensed BSL 1.1, whose production-use terms bind you as the operator directly**.
+The deployment also *references* third-party container images — the graph database and the proxy — which your container engine pulls directly from their publishers. The bundle does not redistribute them. Read `NOTICE` in the bundle for their licences and provenance; note in particular that **Memgraph is licensed BSL 1.1, whose production-use terms bind you as the operator directly**, and that **Neo4j Community Edition is licensed GPLv3**.
 
 The platform's embedding model, **EmbeddingGemma 300m** (Google), is not in the bundle or in any image either: the platform downloads its weights from Hugging Face on the first start. The model is licensed under the **[Gemma Terms of Use](https://ai.google.dev/gemma/terms)**; the platform logs the licence before it downloads, and `./byodt models pull` prints it.
 

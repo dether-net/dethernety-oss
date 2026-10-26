@@ -341,12 +341,27 @@ interface ResolverFunction {
 
 ### Query Protection
 ```typescript
-// Depth limiting prevents deeply nested queries
-const depthRule = depthLimit(10);
+// src/gql/utils/query-guards.ts — shared by /graphql, /graphql/stream and graphql-ws
 
-// Complexity limiting prevents expensive operations
-const complexityRule = createComplexityLimitRule(1000);
+// Depth limiting prevents deeply nested queries (a validation rule)
+const validationRules = buildValidationRules(config); // depthLimitRule(config.queryDepthLimit)
+
+// Per request, after parsing, with the request's variables (validation has none):
+// relationship-filter limits — refuses `single` on an interface or union
+// relationship (use `some`) and holds the request's arguments to RELATIONSHIP_FILTER_LIMITS
+assertRelationshipFiltersWithinLimits({ schema, document, variables });
+
+// complexity limit — no-op when the limit is 0
+assertComplexityWithinLimit({
+  schema,
+  operationName,
+  document,
+  variables,
+  limit: config.queryComplexityLimit, // GQL_QUERY_COMPLEXITY_LIMIT, default 1000
+});
 ```
+
+On `/graphql` both per-request checks run in the `didResolveOperation` hook of `buildApolloQueryGuardPlugin`; on `/graphql/stream` in the SSE controller's `onSubscribe`; on the WebSocket transport (`SUBSCRIPTION_TRANSPORT=ws`) in `buildGraphqlWsOnSubscribe`, which also runs the depth rules. On `/graphql` a refusal from either check is a `GraphQLError` with code `BAD_USER_INPUT` and HTTP status 400. `SchemaService` calls `registerCypherFields(schema, typeDefs)` when it composes the schema, so the relationship-filter check can price filters on `@cypher` fields: the executable schema keeps no directives. See [Query Protection](./GRAPHQL_MODULE.md#query-protection) for the limits.
 
 ### Authentication Integration
 ```typescript

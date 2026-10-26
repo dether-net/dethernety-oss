@@ -62,6 +62,9 @@ check "a directory another account made, byodt run through sudo by that account,
 # there before the run or appears between the check and the mkdir; data/ and data/models end sticky.
 eval "$(sed -n '/^ensure_layout() {$/,/^}$/p' "$BYODT")"
 ensure_engine() { :; }
+ensure_db_engine() { :; }
+check_engine_switch() { :; }
+DBE=memgraph
 info() { :; }
 ENV_FILE=.env
 MODE_FILE=mode/mode.env
@@ -84,19 +87,44 @@ if [ "$rc" -eq 0 ] && [ "$(mode_of "$work/b1/data")" = 1777 ] && [ "$(mode_of "$
   && [ "$(mode_of "$work/b1/tls")" = 700 ]; then echo "ok   ensure_layout: data/ and data/models sticky, the other runtime dirs 0777, tls 0700"
 else echo "FAIL ensure_layout modes (rc $rc): data $(mode_of "$work/b1/data") models $(mode_of "$work/b1/data/models") cache $(mode_of "$work/b1/data/content-cache") $(cat "$work/b1.out")"; fail=1; fi
 
+# Memgraph's layout makes no Neo4j directories.
+if [ ! -e "$work/b1/data/neo4j" ] && [ ! -e "$work/b1/data/neo4j-logs" ]; then
+  echo "ok   ensure_layout (memgraph): no Neo4j directories"
+else echo "FAIL ensure_layout (memgraph) made a Neo4j directory: $(ls "$work/b1/data")"; fail=1; fi
+
+# Neo4j's layout: its log and data directories 0777, no dumps directory (a dump never passes through data/), and no
+# Memgraph directories.
+DBE=neo4j
+rc="$(layout_run "$work/n1")"
+if [ "$rc" -eq 0 ] && [ "$(mode_of "$work/n1/data/neo4j")" = 777 ] && [ "$(mode_of "$work/n1/data/neo4j-logs")" = 777 ] \
+  && [ ! -e "$work/n1/data/neo4j-dumps" ] && [ "$(mode_of "$work/n1/data/models")" = 1777 ] \
+  && [ ! -e "$work/n1/data/memgraph" ] && [ ! -e "$work/n1/data/memgraph-log" ]; then
+  echo "ok   ensure_layout (neo4j): data/neo4j and data/neo4j-logs 0777, no dumps directory, no Memgraph directories"
+else echo "FAIL ensure_layout (neo4j) (rc $rc): $(cd "$work/n1/data" 2>/dev/null && for x in *; do printf '%s=%s ' "$x" "$(mode_of "$x")"; done) $(cat "$work/n1.out")"; fail=1; fi
+BIND=0
+rc="$(layout_run "$work/n2")"
+if [ "$rc" -eq 0 ] && [ ! -e "$work/n2/data/neo4j" ] && [ "$(mode_of "$work/n2/data/neo4j-logs")" = 777 ]; then
+  echo "ok   ensure_layout (neo4j, named volume): no data/neo4j, the log directory still made"
+else echo "FAIL ensure_layout (neo4j, named volume) (rc $rc): $(ls "$work/n2/data" 2>/dev/null) $(cat "$work/n2.out")"; fail=1; fi
+BIND=1
+DBE=memgraph
+
 # The upgrade that first creates data/models: a link another account planted there beforehand is refused, and its
 # target is not widened.
 mkdir -p "$work/b2"; rc=0
-for d in data/models data/content-cache data/memgraph-log data/memgraph; do
+for case in memgraph:data/models memgraph:data/content-cache memgraph:data/memgraph-log memgraph:data/memgraph \
+            neo4j:data/neo4j-logs neo4j:data/neo4j; do
+  DBE="${case%%:*}"; d="${case#*:}"
   rm -rf "$work/b2"; mkdir -p "$work/b2/target" "$work/b2/data"; chmod 0700 "$work/b2/target"; : > "$work/b2/.env"
   ln -s "$work/b2/target" "$work/b2/$d"
   OWNER=4242; OWNER_PATH="$d"
   rc=0; ( cd "$work/b2" && ensure_layout ) >"$work/b2.out" 2>&1 || rc=$?
   OWNER=""; OWNER_PATH=""
   if [ "$rc" -eq 3 ] && grep -q "die: $d is a symbolic link owned by uid 4242" "$work/b2.out" && [ "$(mode_of "$work/b2/target")" = 700 ]; then
-    echo "ok   ensure_layout refuses a foreign link planted at $d before the run, and widens nothing behind it"
-  else echo "FAIL ensure_layout with a link at $d: rc $rc, target $(mode_of "$work/b2/target"): $(cat "$work/b2.out")"; fail=1; fi
+    echo "ok   ensure_layout ($DBE) refuses a foreign link planted at $d before the run, and widens nothing behind it"
+  else echo "FAIL ensure_layout ($DBE) with a link at $d: rc $rc, target $(mode_of "$work/b2/target"): $(cat "$work/b2.out")"; fail=1; fi
 done
+DBE=memgraph
 
 # A plain directory another account made at data/models before the run (the upgrade that first creates it): refused,
 # and nothing is widened.
@@ -114,16 +142,19 @@ mkdir() {
   if [ -n "$RACE" ] && [ "$*" != "-p data" ] && [ ! -e "$RACE" ]; then ln -s "$PWD/target" "$RACE"; fi
   "$real_mkdir" "$@"
 }
-for d in data/models data/content-cache data/memgraph-log data/memgraph; do
+for case in memgraph:data/models memgraph:data/content-cache memgraph:data/memgraph-log memgraph:data/memgraph \
+            neo4j:data/neo4j-logs neo4j:data/neo4j; do
+  DBE="${case%%:*}"; d="${case#*:}"
   rm -rf "$work/b3"; "$real_mkdir" -p "$work/b3/target"; chmod 0700 "$work/b3/target"; : > "$work/b3/.env"
   RACE="$d"; OWNER=4242; OWNER_PATH="$d"
   rc=0; ( cd "$work/b3" && ensure_layout ) >"$work/b3.out" 2>&1 || rc=$?
   RACE=""; OWNER=""; OWNER_PATH=""
   if [ "$rc" -eq 3 ] && grep -q "die: $d is a symbolic link owned by uid 4242" "$work/b3.out" && [ "$(mode_of "$work/b3/target")" = 700 ]; then
-    echo "ok   ensure_layout refuses a foreign link at $d that appears between the check and the mkdir, before any chmod"
-  else echo "FAIL ensure_layout race at $d: rc $rc, target $(mode_of "$work/b3/target"): $(cat "$work/b3.out")"; fail=1; fi
+    echo "ok   ensure_layout ($DBE) refuses a foreign link at $d that appears between the check and the mkdir, before any chmod"
+  else echo "FAIL ensure_layout ($DBE) race at $d: rc $rc, target $(mode_of "$work/b3/target"): $(cat "$work/b3.out")"; fail=1; fi
 done
 unset -f mkdir
+DBE=memgraph
 
 if [ "$fail" -ne 0 ]; then echo "refuse_foreign_entry: FAILED"; exit 1; fi
 echo "refuse_foreign_entry: all cases pass"

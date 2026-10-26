@@ -80,12 +80,9 @@ describe('DtComponent.updateComponent — controls / dataItems REPLACE guards (P
     await dtComponent.updateComponent({ updatedNode: node({ controls: ['c1'], dataItems: ['d1', 'd2'] }) as any, defaultBoundaryId: 'b0' });
     const input = inputOf(performMutation);
     expect(input.controls.disconnect).toEqual({});
-    expect(input.controls.connect).toEqual([{ where: { node: { id: { eq: 'c1' } } } }]);
+    expect(input.controls.connect).toEqual([{ where: { node: { id: { in: ['c1'] } } } }]);
     expect(input.dataItems.disconnect).toEqual({});
-    expect(input.dataItems.connect).toEqual([
-      { where: { node: { id: { eq: 'd1' } } } },
-      { where: { node: { id: { eq: 'd2' } } } },
-    ]);
+    expect(input.dataItems.connect).toEqual([{ where: { node: { id: { in: ['d1', 'd2'] } } } }]);
   });
 
 });

@@ -18,6 +18,7 @@ import {
   UpsertExposuresRequest,
 } from '../interfaces/set-instantiation-attributes.interface';
 import { SetInstantiationAttributesService } from './set-instantiation-attributes.service';
+import { lockElementInTx } from './shared/element-db-lock';
 
 /**
  * Atomic class-change resolver.
@@ -510,7 +511,8 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
           oldBinding = null;
           identityShortCircuit = false;
 
-          // 5a — authoritative current-binding read.
+          // 5a — authoritative current-binding read, under the element's lock.
+          await lockElementInTx(tx, elementId);
           const current = await this.readCurrentBindingInTx(tx, elementId);
           oldBinding = this.describeBindingForLog(current);
 

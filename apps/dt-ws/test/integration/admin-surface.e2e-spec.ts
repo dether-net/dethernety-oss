@@ -25,6 +25,7 @@ import { ClassIdentityResolverService } from '../../src/gql/resolver-services/cl
 import { ClassIdentityEventLog } from '../../src/gql/module-management-services/class-identity-event-log.service';
 import { ClassIdentityMigrationService } from '../../src/gql/module-management-services/class-identity-migration.service';
 import { ClassReconciler } from '../../src/gql/module-management-services/class-reconciler.service';
+import { engineSource } from './engine-source';
 
 jest.setTimeout(120_000);
 
@@ -94,7 +95,7 @@ function asNumber(v: unknown): number {
   return Number(v);
 }
 
-describe('class-identity admin GraphQL surface — end-to-end against Memgraph', () => {
+describe('class-identity admin GraphQL surface — end-to-end against the test database', () => {
   let mg: MemgraphHandle;
   let svc: ClassIdentityResolverService;
   let events: ClassIdentityEventLog;
@@ -120,7 +121,7 @@ describe('class-identity admin GraphQL surface — end-to-end against Memgraph',
     constraints = { isHealthy: jest.fn().mockReturnValue(true) };
     migration = new ClassIdentityMigrationService(db as any);
     jest.spyOn((migration as any).logger, 'log').mockImplementation(() => {});
-    reconciler = new ClassReconciler(mg.driver, events);
+    reconciler = new ClassReconciler(mg.driver, events, engineSource(mg.driver));
     // Force the fallback path so the test doesn't depend on MAGE
     // probe interaction patterns — semantically equivalent for our purposes.
     reconciler.setMageAvailableForTesting(false);

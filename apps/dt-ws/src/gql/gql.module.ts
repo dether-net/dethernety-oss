@@ -15,7 +15,8 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { createGraphQLContextFactory } from './utils/graphql-context.factory';
 import { maskedErrorCode } from './utils/masked-error-code';
 import {
-  assertComplexityWithinLimit,
+  buildApolloQueryGuardPlugin,
+  buildGraphqlWsOnSubscribe,
   buildValidationRules,
 } from './utils/query-guards';
 
@@ -64,40 +65,21 @@ import {
             },
           });
 
-          // Query complexity plugin — runs per-request with variables available.
-          // Using a static validation rule (createComplexityRule) fails because
-          // the validation phase doesn't have access to request variables yet.
-          // The check itself is the shared query-guards implementation.
-          const complexityPlugin = config.queryComplexityLimit > 0
-            ? {
-                async requestDidStart() {
-                  return {
-                    async didResolveOperation(requestContext: any) {
-                      const { request, document } = requestContext;
-                      assertComplexityWithinLimit({
-                        schema,
-                        operationName: request.operationName,
-                        document,
-                        variables: request.variables,
-                        limit: config.queryComplexityLimit,
-                      });
-                    },
-                  };
-                },
-              }
-            : null;
-
           return {
             schema,
             playground: config.playground,
             introspection: config.introspection,
             validationRules,
-            plugins: complexityPlugin ? [complexityPlugin] : [],
+            // The per-request guards (relationship-filter limits, complexity),
+            // which need the request's variables — the same ones the SSE and
+            // graphql-ws transports run (query-guards).
+            plugins: [buildApolloQueryGuardPlugin(schema, config)],
             // WebSocket subscriptions - only enabled when SUBSCRIPTION_TRANSPORT=ws
-            // SSE is always available via /graphql/stream endpoint
+            // SSE is always available via /graphql/stream endpoint. graphql-ws
+            // runs queries and mutations too, so it gets the same guards.
             subscriptions: useWebSocket && config.enableSubscriptions
               ? {
-                  'graphql-ws': true,
+                  'graphql-ws': { onSubscribe: buildGraphqlWsOnSubscribe(schema, config) },
                 }
               : undefined,
             context: createGraphQLContextFactory({ configService, jwtAuthGuard, neo4jDriver }),

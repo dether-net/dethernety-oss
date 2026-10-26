@@ -9,6 +9,7 @@ import * as path from 'path';
 import { Neo4jGraphQL } from '@neo4j/graphql';
 import { GraphQLSchema } from 'graphql';
 import { populateAuthoredByOnCreate, stampCreatedByUserOnCreate } from '../../src/gql/populated-by/authored-by';
+import { registerCypherFields } from '../../src/gql/utils/query-guards';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { stripAuthentication } = require('../../../../scripts/generate-noauth-schema.js');
@@ -26,7 +27,10 @@ export async function buildProductionSchema(variant: 'auth' | 'noauth', driver?:
   const warn = console.warn;
   console.warn = () => undefined; // "Custom resolver … has not been provided": the specs need none
   try {
-    return await new Neo4jGraphQL({ typeDefs, features, driver: driver as never }).getSchema();
+    const schema = await new Neo4jGraphQL({ typeDefs, features, driver: driver as never }).getSchema();
+    // As SchemaService does: the query guards price filters on @cypher fields from the type definitions.
+    registerCypherFields(schema, typeDefs);
+    return schema;
   } finally {
     console.warn = warn;
   }

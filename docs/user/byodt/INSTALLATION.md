@@ -58,14 +58,14 @@ Podman works fully, with three things to know:
    DB_DATA=memgraph-data
    ```
 
-   On native Linux, the default host bind mount (`./data/memgraph`) is fine and is easier to inspect and copy. See [Where the database keeps its data](./CONFIGURATION.md#where-the-database-keeps-its-data).
+   On Neo4j, set `NEO4J_DATA=neo4j-data` instead. On native Linux, the default host bind mount (`./data/memgraph`, or `./data/neo4j`) is fine and is easier to inspect and copy. See [Where the database keeps its data](./CONFIGURATION.md#where-the-database-keeps-its-data).
 
 3. **Rootless is expected.** The containers write into the bundle's runtime directories under an unprivileged user id that does not match yours, so the control script creates those directories world-writable on every start. You do not need to do anything, and you should not tighten them by hand — the next start would widen them again anyway.
 
 ### Disk, memory, and CPU
 
 - **Several gigabytes of free disk.** Four container images, the embedding model's weights (about 1.26 GB in `data/models`), the graph database's data directory, and the reference-data corpus.
-- **Several gigabytes of free memory.** The database container is started with a **4096 MiB** memory limit — that is the measured floor for the reference-data ingest, and the ingest is deliberately not retried when it runs out. The platform runs alongside it and holds the embedding model in its own memory, which adds roughly 0.8–0.9 GiB to it.
+- **Several gigabytes of free memory.** Memgraph is started with a **4096 MiB** memory limit — that is the measured floor for the reference-data ingest, and the ingest is deliberately not retried when it runs out. Neo4j is started with a **2 GB** heap and a **1 GB** page cache, and the JVM needs some memory beyond those. The platform runs alongside the database and holds the embedding model in its own memory, which adds roughly 0.8–0.9 GiB to it.
 
 On a VM-backed runtime (Docker Desktop, Podman machine), the limit that matters is the memory *the virtual machine itself* is allowed, not the memory of the host. If the VM is capped at 4 GB or less, raise it before you start.
 
@@ -118,7 +118,7 @@ The deployment bundle is published as a signed release asset.
    cd "byodt-${VERSION}"
    ```
 
-   You should see `byodt`, `compose.yaml`, `.env.example`, a `proxy/` directory, and the `LICENSE` and `NOTICE` files.
+   You should see `byodt`, `compose.yaml`, `compose.memgraph.yaml`, `compose.neo4j.yaml`, `.env.example`, a `proxy/` directory, and the `LICENSE` and `NOTICE` files.
 
 > **Where you extract it matters.** This directory becomes the deployment: your configuration, the database password, and — with the default storage setting — the graph itself all live inside it. Put it somewhere durable and backed up, not in a temporary directory.
 
@@ -126,9 +126,9 @@ The deployment bundle is published as a signed release asset.
 
 ## Optional: review the configuration first
 
-The first start creates `.env` from `.env.example` and starts immediately with those defaults. The defaults are sensible for a single operator on a trusted machine: the front door binds to loopback on port 3000, and the database stores its data under `data/memgraph`.
+The first start creates `.env` from `.env.example` and starts immediately with those defaults. The defaults are sensible for a single operator on a trusted machine: the front door binds to loopback on port 3000, and the database is Memgraph, storing its data under `data/memgraph`.
 
-If you already know you want something different — a different port, a different bind address, or the named volume for database storage — do it now, before the first start:
+If you already know you want something different — Neo4j instead of Memgraph, a different port, a different bind address, or the named volume for database storage — do it now, before the first start:
 
 ```sh
 cp .env.example .env
@@ -136,6 +136,14 @@ cp .env.example .env
 ```
 
 The control script will not overwrite an `.env` that already exists. Every setting is documented in [Configuration](./CONFIGURATION.md).
+
+**To run Neo4j**, add `DB_ENGINE=neo4j` to `.env`, or start the first time with:
+
+```sh
+DB_ENGINE=neo4j ./byodt up
+```
+
+The first start records the engine in `.env`, so later commands need no export. On Neo4j it records the Neo4j image too, as `NEO4J_IMAGE`. Choose now: switching engines later starts an empty graph. See [Configuration → The database engine](./CONFIGURATION.md#the-database-engine).
 
 ---
 
@@ -170,6 +178,7 @@ Expect output like this:
 ```
 ==> Created .env from .env.example — review it before starting.
 ==> Container engine: docker (recorded CONTAINER_ENGINE in .env).
+==> Database engine: memgraph (recorded DB_ENGINE in .env).
 ==> Seeded mode/mode.env with the pure open-source defaults.
 ==> Wrote a new database password to .env.secrets (mode 0600).
 ==> Starting the stack…
@@ -188,8 +197,8 @@ Expect output like this:
 
 | Step | What it creates |
 |---|---|
-| Configuration | `.env`, copied from `.env.example`, with the detected container engine appended as `CONTAINER_ENGINE`. |
-| Runtime directories | `modules/`, `schema/`, `data/`, `data/models/`, `data/content-cache/`, `data/memgraph-log/`, `mode/`, and `tls/`. |
+| Configuration | `.env`, copied from `.env.example`, with the detected container engine appended as `CONTAINER_ENGINE` and the database engine as `DB_ENGINE` (unless `.env` already sets them). On Neo4j, also the Neo4j image as `NEO4J_IMAGE`. |
+| Runtime directories | `modules/`, `schema/`, `data/`, `data/models/`, `data/content-cache/`, `mode/`, and `tls/`, plus the database's own: `data/memgraph/` and `data/memgraph-log/` on Memgraph; `data/neo4j/` and `data/neo4j-logs/` on Neo4j. The data directory is created only for a host bind mount. |
 | Database password | A freshly generated password written to `.env.secrets`, mode `0600`. This file is created once and never regenerated. |
 | Mode layer | `mode/mode.env`, seeded with the standalone defaults. |
 
@@ -299,7 +308,7 @@ Browse to <http://127.0.0.1:3000>. The Dethernety application loads, and you can
 ## Next steps
 
 - **Secure the front door.** The default is plain HTTP bound to loopback, which suits a single operator on a trusted machine. Anything else — a shared host, another machine on your network — should terminate TLS first. See [TLS at the front door](./OPERATIONS.md#tls-at-the-front-door).
-- **Set up backups.** `./byodt backup` takes a consistent snapshot of the graph with no downtime. Copy the result off the machine. See [Backing up and restoring](./OPERATIONS.md#backing-up-and-restoring-the-graph).
+- **Set up backups.** `./byodt backup` copies the graph out to `backups/` — with no downtime on Memgraph; on Neo4j the database stops while it is dumped. Copy the result off the machine. See [Backing up and restoring](./OPERATIONS.md#backing-up-and-restoring-the-graph).
 - **Learn the settings.** [Configuration](./CONFIGURATION.md) documents every value in `.env` and, importantly, which command applies which kind of change.
 - **Build your first model.** See [Building Your First Model](../BUILDING_YOUR_FIRST_MODEL.md).
 - **Connect the deployment** to cloud sign-in and content packages, if you want them. See [Cloud](./CLOUD.md).

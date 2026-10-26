@@ -1,4 +1,5 @@
 import { SetInstantiationAttributesService } from '../set-instantiation-attributes.service';
+import { LOCK_ELEMENT_CYPHER } from '../shared/element-db-lock';
 import { ConfigService } from '@nestjs/config';
 import { ModuleRegistryService } from '../../module-management-services/module-registry.service';
 import { AuthorizationService } from '../../services/authorization.service';
@@ -219,6 +220,7 @@ describe('SetInstantiationAttributesService — MITRE-link anchor scoping', () =
     const tx = {
       run: jest.fn(async (query: string, params: any) => {
         calls.push({ query, params });
+        if (query === LOCK_ELEMENT_CYPHER) return { records: [] };
         if (query.includes('pairIndex')) {
           // Reference pre-pass — T1078 exists.
           return { records: [toRecord({ pairIndex: 0, value: 'T1078', found: true })] };
@@ -365,6 +367,7 @@ describe('SetInstantiationAttributesService — reference pre-pass', () => {
     const tx = {
       run: jest.fn(async (query: string, params: any) => {
         calls.push({ query, params });
+        if (query === LOCK_ELEMENT_CYPHER) return { records: [] };
         if (query.includes('pairIndex')) {
           const records = existing
             .filter(([i, value]) => (params[`p${i}`] as string[]).includes(value))
@@ -411,7 +414,9 @@ describe('SetInstantiationAttributesService — reference pre-pass', () => {
     });
 
     expect(calls.filter(c => c.query.includes('pairIndex'))).toHaveLength(1);
-    expect(calls[0].query).toContain('pairIndex');
+    // The element's lock comes first, before the pre-pass and every read the upsert depends on.
+    expect(calls[0]).toEqual({ query: LOCK_ELEMENT_CYPHER, params: { elementId: 'comp-1' } });
+    expect(calls[1].query).toContain('pairIndex');
     expect(links(calls)).toEqual(['EXPLOITED_BY->T1078', 'EXPLOITED_BY->AML.T0051', 'EXPLOITED_BY->T1078']);
     const atlasLink = calls.find(c => c.params?.value === 'AML.T0051')!;
     expect(atlasLink.query).toContain('OPTIONAL MATCH (t:MitreAtlasTechnique) WHERE t.atlas_id = $value');
@@ -438,6 +443,56 @@ describe('SetInstantiationAttributesService — reference pre-pass', () => {
         { finding: 'A', field: 'exploitedBy', reference: 'T9999' },
       ],
     });
+  });
+
+  it('drops a finding attribute the database cannot store, with a warning, and keeps the finding', async () => {
+    const { service } = makeService();
+    const warnSpy = jest.spyOn((service as any).logger, 'warn').mockImplementation(() => undefined);
+    const { tx, calls } = makeTxWith([]);
+
+    const result = await service.upsertExposuresInTx(tx as any, {
+      componentId: 'comp-1',
+      classId: 'cls-1',
+      exposures: [{ name: 'A', type: 't', tags: ['x', null], mitigationTechniques: ['', 'M1'] } as any],
+    });
+
+    expect(upserts(calls)[0].params.attributes).toEqual({ name: 'A', type: 't', mitigationTechniques: ['', 'M1'] });
+    expect(result.instantiated).toEqual(['A']);
+    expect(warnSpy).toHaveBeenCalledWith(
+      'Dropping module finding attributes that cannot be stored',
+      expect.objectContaining({
+        findingKind: 'exposure',
+        finding: 'A',
+        violations: [{ key: 'tags', violation: expect.stringMatching(/list element 1 is null/) }],
+      }),
+    );
+  });
+
+  it('skips a finding whose name cannot be stored, before any read, and writes the others', async () => {
+    const { service } = makeService();
+    const warnSpy = jest.spyOn((service as any).logger, 'warn').mockImplementation(() => undefined);
+    const { tx, calls } = makeTxWith([]);
+
+    const result = await service.upsertCountermeasuresInTx(tx as any, {
+      componentId: 'ctl-1',
+      classId: 'ccls-1',
+      countermeasures: [{ name: { bad: true }, respondsWith: ['M9999'] } as any, { name: 'C', tags: [undefined], respondsWith: ['M1037'] } as any],
+    });
+
+    expect(upserts(calls).map(c => c.params.attributes)).toEqual([{ name: 'C' }]);
+    // The skipped finding reaches no read: every statement that takes the finding names gets only the kept one.
+    const nameLists = calls.filter(c => Array.isArray(c.params?.names)).map(c => JSON.stringify(c.params.names));
+    expect(nameLists.length).toBeGreaterThan(0);
+    expect(new Set(nameLists)).toEqual(new Set(['["C"]']));
+    // Nor do its references reach the resolve statement.
+    const resolve = calls.find(c => c.query.includes('pairIndex'))!;
+    expect(Object.values(resolve.params).flat()).toContain('M1037');
+    expect(Object.values(resolve.params).flat()).not.toContain('M9999');
+    expect(result.instantiated).toEqual(['C']);
+    expect(warnSpy).toHaveBeenCalledWith(
+      'Skipping a module finding whose name cannot be stored',
+      expect.objectContaining({ findingKind: 'countermeasure' }),
+    );
   });
 
   it('skips the resolve statement when no reference is allowed, and clears the marker', async () => {
@@ -480,6 +535,7 @@ describe('SetInstantiationAttributesService — reference pre-pass', () => {
       ],
     });
 
+    expect(calls[0]).toEqual({ query: LOCK_ELEMENT_CYPHER, params: { elementId: 'ctl-1' } });
     expect(calls.filter(c => c.query.includes('pairIndex'))).toHaveLength(1);
     expect(links(calls)).toEqual([
       'RESPONDS_WITH->M1037',
@@ -614,6 +670,17 @@ describe('SetInstantiationAttributesService — empty attributes evaluate the el
     const result = await service.setAttributes({ componentId: 'comp-1', classId: 'cls-1', attributes: { k: { nested: true } } as any });
     expect(result).toMatchObject({ success: false, errorCode: 'VALIDATION_ERROR' });
     expect(result.error).toContain('attributes.k');
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('rejects a list holding null, naming the attribute, and keeps an empty string or an empty list', async () => {
+    const { service } = makeService();
+    const run = withWrite(service, {});
+    const result = await service.setAttributes({ componentId: 'comp-1', classId: 'cls-1', attributes: { feeds: ['nvd', null], ok: [''], none: [] } as any });
+    expect(result).toMatchObject({ success: false, errorCode: 'VALIDATION_ERROR' });
+    expect(result.error).toContain('attributes.feeds: list element 1 is null');
+    expect(result.error).not.toContain('attributes.ok');
+    expect(result.error).not.toContain('attributes.none');
     expect(run).not.toHaveBeenCalled();
   });
 });

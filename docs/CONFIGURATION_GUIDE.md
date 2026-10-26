@@ -34,6 +34,8 @@ The URI scheme determines the connection type:
 
 When the URI scheme itself specifies encryption (`+s`/`+ssc`), the URL wins and `NEO4J_ENCRYPTED`/`NEO4J_TRUST_CERT` are ignored (the driver forbids configuring encryption in both places).
 
+**On Neo4j, APOC Core is required.** The GraphQL layer calls `apoc.date.convertFormat` (every DateTime field) and `apoc.util.validatePredicate` (the checks it writes into some mutations). Load APOC Core into the Neo4j you point `NEO4J_URI` at, and list both functions in `dbms.security.procedures.allowlist`, so that no other APOC procedure or function is loaded; if you use other plugins, their procedures need to be in the allowlist too. Without the two functions, every query that selects a DateTime field fails with `Unknown function 'apoc.date.convertFormat'`. One way, the one the compose bundle uses: the official Neo4j image ships the APOC Core jar in `/var/lib/neo4j/labs`; setting `server.directories.plugins` to that directory and `dbms.security.procedures.allowlist` to `apoc.date.convertFormat,apoc.util.validatePredicate` (`NEO4J_server_directories_plugins` and `NEO4J_dbms_security_procedures_allowlist` in the image's environment) loads those two functions only, without copying the jar or granting any procedure unrestricted access. On Neo4j, dt-ws checks at startup that both functions are listed and run, and logs an error naming any that are missing, or saying that they are listed but cannot run; it starts either way.
+
 ### Authentication (OIDC)
 
 All OIDC variables are configured on the backend. In production, the backend serves them to the frontend via the `/config` endpoint.

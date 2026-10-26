@@ -189,7 +189,7 @@ describe.each(['auth', 'noauth'] as const)('MITRE types are read-only — %s sch
   });
 });
 
-describe('MITRE types are read-only — the client write shapes still work (no-auth schema, Memgraph)', () => {
+describe('MITRE types are read-only — the client write shapes still work (no-auth schema, test database)', () => {
   let mg: MemgraphHandle;
   let schema: GraphQLSchema;
 

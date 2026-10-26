@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
+import { DatabaseService } from '../../../database/database.service';
 import { ModuleRegistryService } from '../module-registry.service';
 import { ModuleManagementService } from '../module-management.service';
 
@@ -42,6 +43,7 @@ describe('ModuleRegistryService — Resolver Validation', () => {
         { provide: 'NEO4J_DRIVER', useValue: mockNeo4jDriver },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: ModuleManagementService, useValue: mockModuleManagementService },
+        { provide: DatabaseService, useValue: {} },
       ],
     }).compile();
 

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import neo4j, { Driver, Session, Result, Integer } from 'neo4j-driver';
 import type { Config as Neo4jDriverConfig } from 'neo4j-driver';
 import { DatabaseConfig } from './database.config';
+import { EngineInfo, probeEngine } from '@dethernety/dt-module';
 
 export interface DatabaseMetrics {
   totalConnections: number;
@@ -17,6 +18,19 @@ export interface DatabaseMetrics {
   isHealthy: boolean;
 }
 
+/** How many times in all {@link DatabaseService.executeSchemaWrite} runs a statement that meets a transient error. */
+export const SCHEMA_WRITE_ATTEMPTS = 3;
+/** The pause before each retry of a schema write grows by this much per attempt. */
+export const SCHEMA_WRITE_RETRY_DELAY_MS = 200;
+
+/**
+ * An error the engine reports as transient: the statement can succeed if run again (a Neo4j deadlock, a Memgraph
+ * conflict). A lost connection is not one, so a database that cannot be reached fails at once.
+ */
+export function isTransientError(error: unknown): boolean {
+  return /^(Neo|Memgraph)\.TransientError\./.test(String((error as { code?: unknown } | null)?.code ?? ''));
+}
+
 export interface QueryMetrics {
   query: string;
   parameters?: any;
@@ -24,20 +38,6 @@ export interface QueryMetrics {
   success: boolean;
   timestamp: Date;
   error?: string;
-}
-
-/**
- * Which graph engine the configured Bolt endpoint actually is. Both engines
- * answer `CALL dbms.components()`: Neo4j with `name: "Neo4j Kernel"` and its
- * real edition, Memgraph with `name: "Memgraph"` (and a Neo4j-compat version
- * string — Memgraph's real version is only available via `SHOW VERSION`).
- * Consumers branch DDL dialects on `engine`; `edition` gates
- * Neo4j-Enterprise-only features (property-existence constraints).
- */
-export interface EngineInfo {
-  engine: 'neo4j' | 'memgraph';
-  edition: string | null;
-  version: string | null;
 }
 
 @Injectable()
@@ -355,6 +355,8 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       this.logger.error('Read query failed', {
         query: this.maskQuery(query),
         error: error.message,
+        // The database's error code (Neo.ClientError.Statement.SyntaxError, …): what the message leaves out.
+        code: error.code,
         duration,
       });
       throw error;
@@ -400,6 +402,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       this.logger.error('Write query failed', {
         query: this.maskQuery(query),
         error: error.message,
+        code: error.code,
         duration,
       });
       throw error;
@@ -418,14 +421,64 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
    * which is what `session.run(query)` (no surrounding `tx.*` call) gives.
    *
    * No retry on transient errors (the underlying `Session.executeWrite`
-   * retry semantics don't apply); DDL is typically idempotent at the
-   * application layer (catch the "already exists" error).
+   * retry semantics don't apply); for schema statements use
+   * {@link executeSchemaWrite}, which retries them.
    */
   async executeImplicitWrite<T = any>(
     query: string,
     parameters?: any,
     database?: string,
   ): Promise<Result<T>> {
+    const startTime = Date.now();
+    try {
+      return await this.runImplicitWrite<T>(query, parameters, database);
+    } catch (error) {
+      this.logImplicitWriteFailure(query, error, Date.now() - startTime);
+      throw error;
+    }
+  }
+
+  /**
+   * Execute a schema statement (`CREATE INDEX`, `CREATE CONSTRAINT`, `DROP INDEX`, …) in an implicit
+   * transaction, as {@link executeImplicitWrite} does, and run it again, in a new session, after a transient
+   * error: on Neo4j two schema statements on one label can deadlock, and the engine fails one of them.
+   * {@link SCHEMA_WRITE_ATTEMPTS} attempts in all; each retry is logged at warn, and only the last failure at
+   * error before it is thrown. Only for statements that are safe to run twice: `IF NOT EXISTS`, or an
+   * "already exists" the caller treats as done. Never a data write.
+   */
+  async executeSchemaWrite<T = any>(query: string): Promise<Result<T>> {
+    for (let attempt = 1; ; attempt += 1) {
+      const startTime = Date.now();
+      try {
+        return await this.runImplicitWrite<T>(query);
+      } catch (error) {
+        if (attempt < SCHEMA_WRITE_ATTEMPTS && isTransientError(error)) {
+          this.logger.warn('Schema write met a transient error; running it again', {
+            query: this.maskQuery(query),
+            error: error.message,
+            code: error.code,
+            attempt,
+          });
+          await new Promise((resolve) => setTimeout(resolve, SCHEMA_WRITE_RETRY_DELAY_MS * attempt));
+          continue;
+        }
+        this.logImplicitWriteFailure(query, error, Date.now() - startTime);
+        throw error;
+      }
+    }
+  }
+
+  private logImplicitWriteFailure(query: string, error: any, duration: number): void {
+    this.logger.error('Implicit write failed', {
+      query: this.maskQuery(query),
+      error: error.message,
+      code: error.code,
+      duration,
+    });
+  }
+
+  /** One run of an implicit write: its metrics and debug lines; the caller logs a failure. */
+  private async runImplicitWrite<T>(query: string, parameters?: any, database?: string): Promise<Result<T>> {
     const session = this.getSession(database);
     const startTime = Date.now();
 
@@ -449,12 +502,6 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       const duration = Date.now() - startTime;
       this.recordQueryMetrics(query, parameters, duration, false, error.message);
-
-      this.logger.error('Implicit write failed', {
-        query: this.maskQuery(query),
-        error: error.message,
-        duration,
-      });
       throw error;
     } finally {
       await session.close();
@@ -467,57 +514,48 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
    * Probes `CALL dbms.components()` (answered by both Neo4j and Memgraph —
    * verified empirically) and branches on the returned `name`. Successful
    * probes are memoized for the process lifetime; a **failed probe is NOT
-   * memoized** and this call returns the `memgraph` default for that call
-   * only, so a transient early failure cannot pin the wrong engine forever.
+   * memoized**, so a transient early failure cannot pin the wrong engine.
    *
    * Never rejects: any failure (driver not initialized, DB down, procedure
-   * missing) logs an error and falls back to `memgraph` — the historical
-   * implicit assumption of the bootstrap DDL, whose statements fail-open
-   * per statement anyway when the engine guess is wrong.
+   * missing, unrecognised engine) logs an error and falls back to `memgraph`
+   * for that call — the historical implicit assumption of the bootstrap DDL,
+   * whose statements fail-open per statement anyway when the guess is wrong.
+   * Callers that must not act on a guess use {@link getEngineInfoStrict}.
    */
   async getEngineInfo(): Promise<EngineInfo> {
+    try {
+      return await this.getEngineInfoStrict();
+    } catch (error) {
+      this.logger.error(
+        `Engine detection probe failed — assuming Memgraph for this call: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return { engine: 'memgraph', edition: null, version: null };
+    }
+  }
+
+  /**
+   * The same memoized probe as {@link getEngineInfo}, but a failure rejects
+   * instead of falling back. Concurrent callers share one probe; on failure
+   * the memo is cleared so the next caller probes again.
+   */
+  getEngineInfoStrict(): Promise<EngineInfo> {
     if (!this.engineInfoPromise) {
-      // The memoized promise never rejects (concurrent callers share it);
-      // on failure the memo is cleared so the NEXT caller re-probes, while
-      // in-flight callers get the fallback default.
       this.engineInfoPromise = this.probeEngine().catch((error) => {
         this.engineInfoPromise = undefined;
-        this.logger.error(
-          `Engine detection probe failed — assuming Memgraph for this call: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-        return { engine: 'memgraph' as const, edition: null, version: null };
+        throw error;
       });
     }
     return this.engineInfoPromise;
   }
 
   private async probeEngine(): Promise<EngineInfo> {
-    const session = this.getSession();
-    try {
-      const result = await session.run(
-        'CALL dbms.components() YIELD name, versions, edition RETURN name, versions, edition',
-      );
-      const record = result.records[0];
-      if (!record) {
-        throw new Error('dbms.components() returned no rows');
-      }
-      const name = String(record.get('name') ?? '');
-      const versions = record.get('versions');
-      const edition = record.get('edition');
-      const info: EngineInfo = {
-        engine: /memgraph/i.test(name) ? 'memgraph' : 'neo4j',
-        edition: edition != null ? String(edition) : null,
-        version: Array.isArray(versions) && versions.length > 0 ? String(versions[0]) : null,
-      };
-      this.logger.log(
-        `Graph engine detected: ${info.engine} (edition: ${info.edition ?? 'unknown'}, version: ${info.version ?? 'unknown'})`,
-      );
-      return info;
-    } finally {
-      await session.close();
-    }
+    const info = await probeEngine(this.getDriver(), this.config.name);
+    this.logger.log(
+      `Graph engine detected: ${info.engine} (edition: ${info.edition ?? 'unknown'}, version: ${info.version ?? 'unknown'})`,
+    );
+    return info;
   }
 
   /**

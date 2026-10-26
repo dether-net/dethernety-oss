@@ -134,9 +134,9 @@ describe('updateBoundaryNode — controls / dataItems REPLACE guards (P0)', () =
     await dtBoundary.updateBoundaryNode({ updatedNode: node({ label: 'B', controls: ['c1', 'c2'], dataItems: ['d1'] }), defaultBoundaryId: 'b0' })
     const input = inputOf(performMutation)
     expect(input.controls.disconnect).toEqual({})
-    expect(input.controls.connect).toEqual([{ where: { node: { id: { eq: 'c1' } } } }, { where: { node: { id: { eq: 'c2' } } } }])
+    expect(input.controls.connect).toEqual([{ where: { node: { id: { in: ['c1', 'c2'] } } } }])
     expect(input.dataItems.disconnect).toEqual({})
-    expect(input.dataItems.connect).toEqual([{ where: { node: { id: { eq: 'd1' } } } }])
+    expect(input.dataItems.connect).toEqual([{ where: { node: { id: { in: ['d1'] } } } }])
   })
 
 })

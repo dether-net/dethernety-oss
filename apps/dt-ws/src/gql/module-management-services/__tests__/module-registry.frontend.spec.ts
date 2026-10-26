@@ -6,6 +6,7 @@ import * as path from 'path';
 import { createHash } from 'crypto';
 import { ModuleRegistryService } from '../module-registry.service';
 import { ModuleManagementService } from '../module-management.service';
+import { DatabaseService } from '../../../database/database.service';
 
 /**
  * The registry reads each module's frontend once, at load and at reload, and serves only what it
@@ -86,6 +87,7 @@ async function registry(
         provide: ModuleManagementService,
         useValue: { updateAllModules: jest.fn() },
       },
+      { provide: DatabaseService, useValue: {} },
     ],
   }).compile();
   const service = moduleRef.get(ModuleRegistryService);

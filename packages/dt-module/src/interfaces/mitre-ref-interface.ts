@@ -5,7 +5,7 @@
  * (e.g. `MitreAttackTechnique` / `attack_id` / `T1078`). The relationship type
  * (edge name) is decided by the field/verb the ref sits under, not by the ref
  * itself. `attributes` is free-form provenance (e.g. `justification`) copied onto
- * the graph edge — values MUST be primitives (Memgraph property model).
+ * the graph edge — values MUST be primitives, as both supported databases store them.
  */
 export interface MitreRef {
   label: string;

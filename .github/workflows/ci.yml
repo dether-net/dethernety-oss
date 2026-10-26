@@ -106,6 +106,10 @@ jobs:
       - name: dt-ws (unit)
         run: pnpm --filter dt-ws test
 
+      # The Neo4j leg (neo4j-leg.yml) runs only by hand; its gate's own test runs here, so it cannot go stale.
+      - name: Neo4j leg log gate (fixture test)
+        run: bash .github/scripts/neo4j-log-gate.test.sh
+
       # The threat report module's suite, its frontend manifest contract test among them.
       - name: dethernety-threat-report
         run: pnpm --filter dethernety-threat-report test
@@ -502,15 +506,18 @@ jobs:
 
       # Every image must resolve to a real reference under each provider. An empty value, or one
       # still carrying a `${`, is the exact shape both shipped defects took.
+      # Under each database engine too: byodt adds compose.memgraph.yaml or compose.neo4j.yaml, and the
+      # database image comes from a different variable in each.
       - name: Images resolve under each provider
         run: |
           set -euo pipefail
+          for dbe in memgraph neo4j; do
           for engine in docker podman; do
-            echo "── $engine ──"
-            images=$(CONTAINER_ENGINE="$engine" ./byodt compose config 2>/dev/null \
+            echo "── $engine, $dbe ──"
+            images=$(DB_ENGINE="$dbe" CONTAINER_ENGINE="$engine" ./byodt compose config 2>/dev/null \
                      | sed -n 's/^[[:space:]]*image:[[:space:]]*//p' | tr -d "'\"" | sort -u)
             if [ -z "$images" ]; then
-              echo "::error::$engine: compose config produced no images at all"
+              echo "::error::$engine/$dbe: compose config produced no images at all"
               exit 1
             fi
             printf '%s\n' "$images" | sed 's/^/  /'
@@ -519,10 +526,10 @@ jobs:
             # reject a correct reference.
             while IFS= read -r img; do
               case "$img" in
-                ''|*'${'*) echo "::error::$engine: unresolved image reference '$img'"; exit 1 ;;
-                *:)        echo "::error::$engine: image '$img' has an empty tag"; exit 1 ;;
+                ''|*'${'*) echo "::error::$engine/$dbe: unresolved image reference '$img'"; exit 1 ;;
+                *:)        echo "::error::$engine/$dbe: image '$img' has an empty tag"; exit 1 ;;
                 *:*)       ;;
-                *)         echo "::error::$engine: image '$img' carries no tag"; exit 1 ;;
+                *)         echo "::error::$engine/$dbe: image '$img' carries no tag"; exit 1 ;;
               esac
               # And it must name its registry. Docker silently assumes Docker Hub for a short
               # name; Podman refuses one outright unless the host configured
@@ -534,43 +541,50 @@ jobs:
               # would otherwise read as a registry port and let a short name through.
               case "$img" in
                 */*) reg="${img%%/*}" ;;
-                *)   echo "::error::$engine: image '$img' is a short name — qualify it (docker.io/...)"; exit 1 ;;
+                *)   echo "::error::$engine/$dbe: image '$img' is a short name — qualify it (docker.io/...)"; exit 1 ;;
               esac
               case "$reg" in
                 *.*|*:*|localhost) ;;
-                *) echo "::error::$engine: image '$img' is a short name — qualify it (docker.io/...)"; exit 1 ;;
+                *) echo "::error::$engine/$dbe: image '$img' is a short name — qualify it (docker.io/...)"; exit 1 ;;
               esac
             done <<EOF
           $images
           EOF
           done
+          done
 
       # The platform embeds in process: the bundle runs no embedding server, under either provider.
-      - name: The bundle has no ollama service
+      - name: The bundle has no ollama service, and a db under each database engine
         run: |
           set -euo pipefail
+          for dbe in memgraph neo4j; do
           for engine in docker podman; do
-            services=$(CONTAINER_ENGINE="$engine" ./byodt compose config --services 2>/dev/null) \
-              || { echo "::error::$engine: compose config --services failed"; exit 1; }
-            if [ -z "$services" ]; then echo "::error::$engine: compose config listed no services"; exit 1; fi
-            if printf '%s\n' "$services" | grep -qx ollama; then echo "::error::$engine: the bundle still has an ollama service"; exit 1; fi
-            echo "ok   $engine: $(printf '%s ' $services)"
+            services=$(DB_ENGINE="$dbe" CONTAINER_ENGINE="$engine" ./byodt compose config --services 2>/dev/null) \
+              || { echo "::error::$engine/$dbe: compose config --services failed"; exit 1; }
+            if [ -z "$services" ]; then echo "::error::$engine/$dbe: compose config listed no services"; exit 1; fi
+            if printf '%s\n' "$services" | grep -qx ollama; then echo "::error::$engine/$dbe: the bundle still has an ollama service"; exit 1; fi
+            printf '%s\n' "$services" | grep -qx db || { echo "::error::$engine/$dbe: no db service"; exit 1; }
+            echo "ok   $engine/$dbe: $(printf '%s ' $services)"
+          done
           done
 
       # In bind mode the database container must be given a user, because Memgraph refuses a data
-      # directory it does not own and the correct uid differs per engine. An empty value here means
+      # directory it does not own and the correct uid differs per engine (on Neo4j it decides who owns
+      # the files the database writes). An empty value here means
       # the derivation stopped happening and the database will crash-loop on a fresh deployment,
       # printing only its banner — a failure with no error message to search for.
       - name: The database runs as an explicit user on a bind mount
         run: |
           set -euo pipefail
           grep -q '^DB_DATA=\./' .env || { echo "::error::expected .env to default to a bind mount"; exit 1; }
+          for dbe in memgraph neo4j; do
           for engine in docker podman; do
-            user=$(CONTAINER_ENGINE="$engine" ./byodt compose config 2>/dev/null \
+            user=$(DB_ENGINE="$dbe" CONTAINER_ENGINE="$engine" ./byodt compose config 2>/dev/null \
                    | sed -n '/^  db:/,/^  [a-z]/p' | sed -n "s/^[[:space:]]*user:[[:space:]]*//p" \
                    | tr -d "'\"" | head -1)
-            [ -n "$user" ] || { echo "::error::$engine: db has no user in bind mode — it will not start"; exit 1; }
-            echo "  $engine: db user=$user"
+            [ -n "$user" ] || { echo "::error::$engine/$dbe: db has no user in bind mode — it will not start"; exit 1; }
+            echo "  $engine/$dbe: db user=$user"
+          done
           done
 
       # The database credentials travel the same interpolation path as the images and were equally
@@ -586,12 +600,37 @@ jobs:
             echo "  $engine: MEMGRAPH_USER=$user"
           done
 
+      # Neo4j: the password reaches NEO4J_AUTH for the `neo4j` user, and the platform and the one-shot connect as
+      # neo4j to the `neo4j` database whatever .env says (the template carries the Memgraph values). They are set in
+      # compose.neo4j.yaml, so they must survive each provider's merge of the files.
+      - name: Neo4j credentials and connection values
+        run: |
+          set -euo pipefail
+          for engine in docker podman; do
+            cfg=$(DB_ENGINE=neo4j CONTAINER_ENGINE="$engine" ./byodt compose config 2>/dev/null)
+            auth=$(printf '%s\n' "$cfg" | sed -n '/^  db:/,/^  [a-z]/p' \
+                   | sed -n 's/^[[:space:]]*NEO4J_AUTH:[[:space:]]*//p' | tr -d "'\"" | head -1)
+            case "$auth" in
+              neo4j/?*) echo "  $engine: NEO4J_AUTH=neo4j/<password>" ;;
+              *) echo "::error::$engine: NEO4J_AUTH is '${auth:+set but not neo4j/<password>}' — the database would start without the password"; exit 1 ;;
+            esac
+            for svc in platform console-init; do
+              block=$(printf '%s\n' "$cfg" | sed -n "/^  $svc:/,/^  [a-z]/p")
+              for k in NEO4J_USERNAME NEO4J_DATABASE; do
+                v=$(printf '%s\n' "$block" | sed -n "s/^[[:space:]]*$k:[[:space:]]*//p" | tr -d "'\"" | head -1)
+                [ "$v" = neo4j ] || { echo "::error::$engine: $svc $k=$v, expected neo4j"; exit 1; }
+              done
+              echo "  $engine: $svc connects as neo4j to neo4j"
+            done
+          done
+
       # The wrapper must not leave the database password in a file beside the readable config —
       # merging the two env files would have done exactly that.
       - name: The password stays confined to .env.secrets
         run: |
           set -euo pipefail
           CONTAINER_ENGINE=docker ./byodt compose config >/dev/null 2>&1 || true
+          DB_ENGINE=neo4j CONTAINER_ENGINE=docker ./byodt compose config >/dev/null 2>&1 || true
           if grep -rl 'ci-not-a-real-password' . --exclude=.env.secrets 2>/dev/null | grep -q .; then
             echo "::error::the password reached a file other than .env.secrets"
             exit 1

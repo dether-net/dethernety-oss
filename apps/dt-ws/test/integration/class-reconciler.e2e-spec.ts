@@ -4,6 +4,7 @@
 import { ClassReconciler } from '../../src/gql/module-management-services/class-reconciler.service';
 import { ClassIdentityEventLog } from '../../src/gql/module-management-services/class-identity-event-log.service';
 import { startMemgraph, clearGraph, MemgraphHandle } from './memgraph-container';
+import { engineSource } from './engine-source';
 
 jest.setTimeout(60_000);
 
@@ -29,7 +30,7 @@ async function withRead(driver: any, fn: (tx: any) => Promise<any>): Promise<any
   }
 }
 
-describe('ClassReconciler — orphan/revive rename against Memgraph', () => {
+describe('ClassReconciler — orphan/revive rename against the test database', () => {
   let mg: MemgraphHandle;
   let log: ClassIdentityEventLog;
   let reconciler: ClassReconciler;
@@ -46,7 +47,7 @@ describe('ClassReconciler — orphan/revive rename against Memgraph', () => {
     await clearGraph(mg.driver);
     log = new ClassIdentityEventLog();
     jest.spyOn((log as any).logger, 'warn').mockImplementation(() => {});
-    reconciler = new ClassReconciler(mg.driver, log);
+    reconciler = new ClassReconciler(mg.driver, log, engineSource(mg.driver));
     // Force MAGE-detected for the happy path; individual fallback test flips this.
     reconciler.setMageAvailableForTesting(null);
   });

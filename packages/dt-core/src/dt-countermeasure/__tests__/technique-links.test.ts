@@ -173,7 +173,7 @@ describe('DtExposure technique links', () => {
 })
 
 describe('update flows write only the links that changed', () => {
-  const where = (id: string) => ({ where: { node: { id: { eq: id } } } })
+  const inWhere = (...ids: string[]) => ({ where: { node: { id: { in: ids } } } })
 
   it('updateExposure disconnects removed ids, connects added ids, and leaves kept links alone', async () => {
     const dt = new DtExposure({} as Apollo.ApolloClient)
@@ -192,7 +192,7 @@ describe('update flows write only the links that changed', () => {
     })
 
     const input = performMutation.mock.calls[0][0].variables.input
-    expect(input.exploitedBy).toEqual({ connect: [where('tech-new')], disconnect: [where('tech-gone')] })
+    expect(input.exploitedBy).toEqual({ connect: [inWhere('tech-new')], disconnect: [inWhere('tech-gone')] })
     // atlasTechniqueIds not given: the ATLAS links are not written at all.
     expect(input).not.toHaveProperty('exploitedByAtlas')
   })
@@ -213,7 +213,7 @@ describe('update flows write only the links that changed', () => {
 
     const input = performMutation.mock.calls[0][0].variables.input
     expect(input).not.toHaveProperty('exploitedBy')
-    expect(input.exploitedByAtlas).toEqual({ disconnect: [where('atlas-1')] })
+    expect(input.exploitedByAtlas).toEqual({ disconnect: [inWhere('atlas-1')] })
   })
 
   it('updateCountermeasure diffs mitigations, defendedTechniques and mitigationsAtlas; an absent list is untouched', async () => {
@@ -231,7 +231,7 @@ describe('update flows write only the links that changed', () => {
     })
 
     const input = performMutation.mock.calls[0][0].variables.input
-    expect(input.mitigations).toEqual({ connect: [where('mit-new')], disconnect: [where('mit-gone')] })
+    expect(input.mitigations).toEqual({ connect: [inWhere('mit-new')], disconnect: [inWhere('mit-gone')] })
     expect(input).not.toHaveProperty('defendedTechniques')
     expect(input).not.toHaveProperty('mitigationsAtlas')
     expect(input.name).toEqual({ set: 'MFA' })
@@ -247,7 +247,7 @@ describe('update flows write only the links that changed', () => {
     }))
     performMutation.mockImplementation(async ({ variables }: any) => {
       await new Promise(resolve => setTimeout(resolve, 5))
-      for (const c of variables.input.mitigations?.connect ?? []) linked.add(c.where.node.id.eq)
+      for (const c of variables.input.mitigations?.connect ?? []) for (const id of c.where.node.id.in) linked.add(id)
       return { id: 'cm-1' }
     })
     const save = (name: string) =>
@@ -256,7 +256,7 @@ describe('update flows write only the links that changed', () => {
     await Promise.all([save('first'), save('second')])
 
     const connects = performMutation.mock.calls.flatMap(([arg]: any) => arg.variables.input.mitigations?.connect ?? [])
-    expect(connects).toEqual([where('mit-new')])
+    expect(connects).toEqual([inWhere('mit-new')])
   })
 
   it('updateCountermeasure reads only the link fields it writes', async () => {

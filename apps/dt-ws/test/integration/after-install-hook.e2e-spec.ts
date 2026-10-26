@@ -13,6 +13,7 @@ import { ClassReconciler } from '../../src/gql/module-management-services/class-
 import { ClassIdentityEventLog } from '../../src/gql/module-management-services/class-identity-event-log.service';
 import type { DTMetadata, DTModule, ModuleInstallContext } from '@dethernety/dt-module';
 import { startMemgraph, clearGraph, MemgraphHandle } from './memgraph-container';
+import { engineSource } from './engine-source';
 
 jest.setTimeout(90_000);
 
@@ -118,7 +119,7 @@ describe('afterInstall post-commit hook — updateAllModules end-to-end', () => 
     await clearGraph(mg.driver);
     const log = new ClassIdentityEventLog();
     jest.spyOn((log as any).logger, 'warn').mockImplementation(() => {});
-    const reconciler = new ClassReconciler(mg.driver, log);
+    const reconciler = new ClassReconciler(mg.driver, log, engineSource(mg.driver));
     reconciler.setMageAvailableForTesting(null);
     service = new ModuleManagementService(
       mg.driver,

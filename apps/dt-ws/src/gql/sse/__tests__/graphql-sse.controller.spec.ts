@@ -97,6 +97,49 @@ describe('GraphQLSseController — shared-schema handler', () => {
       const onSubscribe = await capturedOnSubscribe();
       expect(onSubscribe({} as any, { query: '{ broken' })).toBeUndefined();
     });
+
+    it('refuses a request that selects no single operation with a structured 400', async () => {
+      const onSubscribe = await capturedOnSubscribe();
+      const response = onSubscribe({} as any, { query: 'query A { root { name } } query B { root { name } }' });
+      expect(response[1].status).toBe(400);
+      expect(JSON.parse(response[0]).errors[0].message).toMatch(/several operations/);
+    });
+
+    // graphql-sse calls onSubscribe before its own validation: the guards must not walk a document validation refuses.
+    it('leaves a document validation refuses to graphql-sse, without running the guards', async () => {
+      const onSubscribe = await capturedOnSubscribe();
+      // Over the complexity limit too, so a guard that ran would answer a 400 naming it.
+      const tooDeep = '{ ' + Array.from({ length: 101 }, (_, i) => `f${i}: root { child { child { child { child { child { name } } } } } }`).join(' ') + ' }';
+      expect(onSubscribe({} as any, { query: tooDeep })).toBeUndefined();
+      expect(onSubscribe({} as any, { query: OVER_LIMIT.replace('f0: root { name }', 'f0: root { nope }') })).toBeUndefined();
+    });
+  });
+
+  describe('onSubscribe relationship-filter wiring (invoked directly)', () => {
+    // The smallest schema with the shape @neo4j/graphql generates for a relationship to an interface: the guard logic
+    // itself is pinned against the production schema in query-guards.relationship-filters.spec.
+    const schema = buildSchema(`
+      interface E { id: ID }
+      type A implements E { id: ID }
+      input EWhere { id: ID }
+      input ERelationshipFilters { single: EWhere, some: EWhere }
+      input AWhere { e: ERelationshipFilters }
+      type Query { as(where: AWhere): [A] }
+    `);
+
+    it('refuses `single` on a relationship to an interface, in the variables, with a structured 400', async () => {
+      const controller = makeController(schema);
+      await controller.onModuleInit();
+      const onSubscribe = (mockCreateHandler.mock.calls[0][0] as any).onSubscribe;
+
+      const query = 'query ($w: AWhere) { as(where: $w) { id } }';
+      const response = onSubscribe({} as any, { query, variables: { w: { e: { single: { id: 'x' } } } } });
+
+      expect(Array.isArray(response)).toBe(true);
+      expect(response[1].status).toBe(400);
+      expect(JSON.parse(response[0]).errors[0].message).toMatch(/uses "single" on a relationship to an interface/);
+      expect(onSubscribe({} as any, { query, variables: { w: { e: { some: { id: 'x' } } } } })).toBeUndefined();
+    });
   });
 
   it.each(['streamGet', 'streamPost'] as const)(

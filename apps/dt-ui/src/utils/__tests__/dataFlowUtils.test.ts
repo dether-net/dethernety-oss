@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { flattenProperties, unflattenProperties, getNewName, getPageDisplayName, withClearedAttributes } from '../dataFlowUtils'
+import { flattenProperties, unflattenProperties, getNewName, getPageDisplayName, withClearedAttributes, withoutEmptiedListEntries } from '../dataFlowUtils'
 
 describe('flattenProperties', () => {
   it('should flatten a simple nested object', () => {
@@ -132,5 +132,32 @@ describe('withClearedAttributes', () => {
 
   it('works on flattened keys, so a shortened list clears its dropped entries', () => {
     expect(withClearedAttributes({ 'l[0]': 'a', 'l[1]': 'b' }, { 'l[0]': 'a' })).toEqual({ 'l[0]': 'a', 'l[1]': null })
+  })
+})
+
+describe('withoutEmptiedListEntries', () => {
+  it('drops null, undefined and holes from every list, and keeps empty strings and empty lists', () => {
+    const sparse: string[] = ['a']
+    sparse[2] = 'c'
+    expect(withoutEmptiedListEntries({
+      feeds: ['nvd', null, undefined],
+      sparse,
+      blanks: ['', 'x'],
+      none: [],
+    })).toEqual({ feeds: ['nvd'], sparse: ['a', 'c'], blanks: ['', 'x'], none: [] })
+  })
+
+  it('sends a fully emptied list as an empty list, so the key is not cleared', () => {
+    expect(withoutEmptiedListEntries({ feeds: [null] })).toEqual({ feeds: [] })
+  })
+
+  it('keeps a __proto__ key as an own key', () => {
+    const out = withoutEmptiedListEntries(JSON.parse('{"__proto__": ["a", null], "b": 1}'))
+    expect(Object.getPrototypeOf(out)).toBe(Object.prototype)
+    expect(Object.keys(out)).toEqual(['__proto__', 'b'])
+  })
+
+  it('leaves every other value alone, a top-level null included', () => {
+    expect(withoutEmptiedListEntries({ a: null, b: 0, c: false, d: 'x' })).toEqual({ a: null, b: 0, c: false, d: 'x' })
   })
 })

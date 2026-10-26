@@ -82,19 +82,38 @@ func ingestWithCorpus(ctx context.Context, cfg Config, c corpus) IngestState {
 	// unit-testable offline; readMarker stays on the concrete driver (integration-tested).
 	opener := neoDriverOpener{driver: driver, database: cfg.Neo4jDatabase}
 
+	// Key indexes first, so the corpus MERGEs do not scan their labels.
+	engine, probeErr := probeEngine(ctx, driver, cfg)
+	keys := corpusNodeKeys(c)
+	var indexFailures []string
+	if probeErr == nil {
+		indexFailures = ensureCorpusIndexes(ctx, opener, engine, keys)
+	}
+	indexNote := corpusIndexNote(engine, probeErr, indexFailures, len(keys))
+
 	start := time.Now()
 	count, err := runCorpus(ctx, opener, c)
 	elapsed := time.Since(start).Milliseconds()
 	if err != nil {
-		return IngestState{Status: statusFailed, ContentHash: c.hash, Statements: count, ElapsedMs: elapsed, Detail: classifyIngestErr(err)}
+		return IngestState{Status: statusFailed, ContentHash: c.hash, Statements: count, ElapsedMs: elapsed, Detail: joinDetail(classifyIngestErr(err, engine), indexNote)}
 	}
 
 	if err := writeMarker(ctx, opener, c.hash, count, elapsed); err != nil {
 		// The data is in; only the marker write failed. Not fatal — a re-run re-ingests,
 		// which is a MERGE no-op. Record it so the daemon can surface it.
-		return IngestState{Status: statusOK, ContentHash: c.hash, Statements: count, ElapsedMs: elapsed, Detail: fmt.Sprintf("marker write failed (harmless): %v", err)}
+		return IngestState{Status: statusOK, ContentHash: c.hash, Statements: count, ElapsedMs: elapsed, Detail: joinDetail(fmt.Sprintf("marker write failed (harmless): %v", err), indexNote)}
 	}
-	return IngestState{Status: statusOK, ContentHash: c.hash, Statements: count, ElapsedMs: elapsed}
+	return IngestState{Status: statusOK, ContentHash: c.hash, Statements: count, ElapsedMs: elapsed, Detail: indexNote}
+}
+
+func joinDetail(parts ...string) string {
+	var kept []string
+	for _, p := range parts {
+		if p != "" {
+			kept = append(kept, p)
+		}
+	}
+	return strings.Join(kept, "; ")
 }
 
 // writeSessionOpener opens Bolt write sessions — the seam runCorpus and writeMarker depend on
@@ -218,18 +237,39 @@ func boltAuth(cfg Config) neo4j.AuthToken {
 	return neo4j.NoAuth()
 }
 
-// classifyIngestErr turns a driver error into a diagnostic. A memory-limit error is
-// called out specifically: Memgraph returns it classified as a retriable transient error,
-// but under the autocommit pattern it is never retried, and it means the database needs a
-// larger memory limit — not that the console should try again.
-func classifyIngestErr(err error) string {
+// neo4jMemoryCodes are the codes Neo4j answers a statement that ran out of memory with: the JVM heap, the
+// global transaction memory pool, one transaction's own limit, and that limit's older name.
+var neo4jMemoryCodes = map[string]bool{
+	"Neo.TransientError.General.OutOfMemoryError":            true,
+	"Neo.TransientError.General.MemoryPoolOutOfMemoryError":  true,
+	"Neo.TransientError.General.TransactionOutOfMemoryError": true,
+	"Neo.TransientError.General.TransactionMemoryLimit":      true,
+}
+
+// classifyIngestErr turns a driver error into a diagnostic. A memory error is called out
+// specifically: both engines return it classified as a retriable transient error, but under
+// the autocommit pattern it is never retried, and it means the database needs more memory —
+// not that the console should try again. Memgraph says so in its message; Neo4j in its code.
+// engine, when known, names the setting to raise.
+func classifyIngestErr(err error, engine string) string {
 	if nErr, ok := errors.AsType[*neo4j.Neo4jError](err); ok {
-		if strings.Contains(strings.ToLower(nErr.Msg), "memory limit") {
-			return fmt.Sprintf("memory limit exceeded (%s) — the database needs a larger memory limit; this is terminal and was not retried: %v", nErr.Code, err)
+		if neo4jMemoryCodes[nErr.Code] || strings.Contains(strings.ToLower(nErr.Msg), "memory limit") {
+			return fmt.Sprintf("memory limit exceeded (%s) — %s; this is terminal and was not retried: %v", nErr.Code, memoryHint(engine), err)
 		}
 		return fmt.Sprintf("%s: %v", nErr.Code, err)
 	}
 	return err.Error()
+}
+
+// memoryHint names what to raise on the engine the ingest ran against.
+func memoryHint(engine string) string {
+	switch engine {
+	case "memgraph":
+		return "the database needs a larger memory limit (Memgraph's --memory-limit, set in the bundle's compose.memgraph.yaml; override it in compose.override.yaml)"
+	case "neo4j":
+		return "the database needs more memory (Neo4j's heap, NEO4J_HEAP_SIZE in the bundle's .env)"
+	}
+	return "the database needs a larger memory limit"
 }
 
 // loadCorpus walks the embedded data modules and returns their .cypher files in sorted

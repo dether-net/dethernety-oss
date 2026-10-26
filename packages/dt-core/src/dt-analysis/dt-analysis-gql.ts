@@ -220,14 +220,3 @@ export const START_ANALYSIS_CHAT = gql`
     }
   }
 `
-
-export const SUBSCRIBE_ANALYSIS_CHAT = gql`
-  subscription SubscribeAnalysisChat($sessionId: String!) {
-    chatResponse(
-      sessionId: $sessionId
-    ) {
-      content
-      id
-    }
-  }
-`

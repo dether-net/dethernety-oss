@@ -130,6 +130,9 @@ export class ControlGapsResolverService {
       // structural legs collapse to one row BEFORE the Data leg runs, so
       // model-level Data never cross-joins the boundary/component/flow
       // path rows (peak cardinality stays additive, not multiplicative).
+      // The Data list is added in a WITH of its own: Neo4j refuses an
+      // aggregating column that also reads a variable the clause does not
+      // project as a key (`structural + collect(...)`).
       const query = `
         MATCH (model:Model {id: $modelId})
         OPTIONAL MATCH (model)-[:CONTAINS]->(topB:SecurityBoundary)
@@ -138,7 +141,8 @@ export class ControlGapsResolverService {
         OPTIONAL MATCH (comp)-[:FLOWS]-(df:DataFlow)
         WITH model, collect(DISTINCT boundary) + collect(DISTINCT comp) + collect(DISTINCT df) AS structural
         OPTIONAL MATCH (model)-[:CONTAINS]->(d:Data)
-        WITH structural + collect(DISTINCT d) AS allElements
+        WITH model, structural, collect(DISTINCT d) AS modelData
+        WITH structural + modelData AS allElements
         UNWIND allElements AS element
         MATCH (element)-[:HAS_EXPOSURE]->(exp:Exposure)
         OPTIONAL MATCH (exp)-[:EXPLOITED_BY]->(tech:MitreAttackTechnique)

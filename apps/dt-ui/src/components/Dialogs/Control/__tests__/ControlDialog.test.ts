@@ -177,4 +177,17 @@ describe('ControlDialog — saving attributes', () => {
       expect.objectContaining({ attributes: { feeds: ['nvd'], mfa: true } }),
     )
   })
+
+  it('drops emptied list rows across the whole map, an earlier null-holding list included, and stores that as the baseline', async () => {
+    mocks.store.setInstantiationAttributes.mockResolvedValue(true)
+    const w = mountDialog()
+    vm(w).lastLoadedAttributes = { feeds: ['nvd', 'osv'], owners: ['a', null] }
+    const cleared: string[] = ['nvd']
+    cleared[2] = 'ghsa'
+    await vm(w).saveAttributes({ feeds: cleared, owners: ['a', null], tags: [''] })
+    expect(mocks.store.setInstantiationAttributes).toHaveBeenCalledWith(
+      expect.objectContaining({ attributes: { feeds: ['nvd', 'ghsa'], owners: ['a'], tags: [''] } }),
+    )
+    expect(vm(w).lastLoadedAttributes).toEqual({ feeds: ['nvd', 'ghsa'], owners: ['a'], tags: [''] })
+  })
 })

@@ -16,14 +16,43 @@ func TestClassifyIngestErrMemoryLimitIsTerminal(t *testing.T) {
 	// The classifier must name it as terminal, not as something to retry.
 	err := fmt.Errorf("03-relationships.cypher statement 12: %w",
 		&neo4j.Neo4jError{Code: "Memgraph.TransientError", Msg: "Memory limit exceeded! Failed to allocate..."})
-	got := classifyIngestErr(err)
-	if !strings.Contains(got, "memory limit exceeded") || !strings.Contains(got, "terminal") {
+	got := classifyIngestErr(err, "memgraph")
+	if !strings.Contains(got, "memory limit exceeded") || !strings.Contains(got, "terminal") || !strings.Contains(got, "--memory-limit") {
 		t.Fatalf("memory-limit error not classified as terminal: %q", got)
 	}
 
 	other := &neo4j.Neo4jError{Code: "Neo.ClientError.Statement.SyntaxError", Msg: "bad cypher"}
-	if got := classifyIngestErr(other); strings.Contains(got, "memory limit") {
+	if got := classifyIngestErr(other, "memgraph"); strings.Contains(got, "memory limit") {
 		t.Fatalf("non-memory error misclassified: %q", got)
+	}
+}
+
+func TestClassifyIngestErrNeo4jMemoryCodesAreTerminal(t *testing.T) {
+	// Neo4j's memory failures carry no "memory limit" in their message; the code says what they are.
+	for _, code := range []string{
+		"Neo.TransientError.General.OutOfMemoryError",
+		"Neo.TransientError.General.MemoryPoolOutOfMemoryError",
+		"Neo.TransientError.General.TransactionOutOfMemoryError",
+		"Neo.TransientError.General.TransactionMemoryLimit",
+	} {
+		err := fmt.Errorf("05-mitre-embeddings.cypher statement 3: %w",
+			&neo4j.Neo4jError{Code: code, Msg: "There is not enough memory to perform the current task."})
+		got := classifyIngestErr(err, "neo4j")
+		if !strings.Contains(got, "memory limit exceeded") || !strings.Contains(got, "terminal") || !strings.Contains(got, "NEO4J_HEAP_SIZE") {
+			t.Fatalf("%s not classified as a terminal memory error: %q", code, got)
+		}
+	}
+
+	// Another transient error is not a memory error.
+	other := &neo4j.Neo4jError{Code: "Neo.TransientError.General.DatabaseUnavailable", Msg: "Database 'neo4j' is unavailable."}
+	if got := classifyIngestErr(other, "neo4j"); strings.Contains(got, "memory limit") {
+		t.Fatalf("non-memory transient error misclassified: %q", got)
+	}
+
+	// With the engine unknown the diagnosis still stands, without naming a setting.
+	err := &neo4j.Neo4jError{Code: "Neo.TransientError.General.OutOfMemoryError", Msg: "Java heap space"}
+	if got := classifyIngestErr(err, ""); !strings.Contains(got, "memory limit exceeded") || strings.Contains(got, "NEO4J_HEAP_SIZE") {
+		t.Fatalf("memory error with no engine: %q", got)
 	}
 }
 

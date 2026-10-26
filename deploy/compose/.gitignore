@@ -1,6 +1,7 @@
 # Everything here is generated on first run and owned by the operator — never
-# committed. The tracked bundle is only compose.yaml, .env.example, byodt,
-# proxy/nginx.conf, README.md, LICENSE and NOTICE.
+# committed. The tracked bundle is only compose.yaml, the database engine files
+# (compose.memgraph.yaml, compose.neo4j.yaml), .env.example, byodt, proxy/,
+# README.md, LICENSE and NOTICE.
 .env
 .env.secrets
 modules/
@@ -10,3 +11,5 @@ backups/
 tls/
 console/
 mode/
+# A Neo4j backup's or restore's private working directory, removed when it ends.
+.byodt-dump.*

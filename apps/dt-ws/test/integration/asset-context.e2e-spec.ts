@@ -8,7 +8,7 @@
 //      existing fields untouched + the new fields/query/enums present with the
 //      right nullability.
 //   2. `@cypher / nullable contract` — a minimal Neo4jGraphQL schema against a
-//      real Memgraph (mirrors cypher-mutation-canary.e2e-spec.ts): proves the
+//      real test database (mirrors cypher-mutation-canary.e2e-spec.ts): proves the
 //      dataInRegulatoryScope @cypher query, that un-set nodes read the new
 //      fields as null without GraphQL non-null errors, and that
 //      the dt-core push `{ set }` / `{ set: null }` / `{ set: [] }` wire shapes
@@ -114,7 +114,7 @@ describe('asset-context schema additions are additive', () => {
   });
 });
 
-// ── Half 2: @cypher query + nullable contract — Memgraph ─────────────────────
+// ── Half 2: @cypher query + nullable contract — test database ─────────────────────
 //
 // Minimal schema: the same `dataInRegulatoryScope` @cypher statement that ships
 // in production, plus the auto-generated CRUD for Model/Data/Component (the
@@ -172,7 +172,7 @@ const ctx = {
   sessionConfig: { database: 'memgraph' },
 };
 
-describe('dataInRegulatoryScope @cypher + nullable contract (Memgraph)', () => {
+describe('dataInRegulatoryScope @cypher + nullable contract (test database)', () => {
   let mg: MemgraphHandle;
   let schema: GraphQLSchema;
 
@@ -348,8 +348,8 @@ describe('dataInRegulatoryScope @cypher + nullable contract (Memgraph)', () => {
   });
 });
 
-// ── Data origin and credential flag (Memgraph) ──────────────────────────────
-describe('Data.origin + Data.isCredential on Memgraph', () => {
+// ── Data origin and credential flag (test database) ──────────────────────────────
+describe('Data.origin + Data.isCredential on the test database', () => {
   let mg: MemgraphHandle;
   let schema: GraphQLSchema;
 

@@ -45,7 +45,6 @@
     "class-validator": "^0.15.1",
     "express": "5.2.1",
     "graphql": "^16.14.2",
-    "graphql-depth-limit": "^1.1.0",
     "graphql-query-complexity": "^1.1.1",
     "graphql-sse": "^2.6.2",
     "graphql-subscriptions": "^3.0.0",

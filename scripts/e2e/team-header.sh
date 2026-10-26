@@ -191,7 +191,9 @@ else
   BUNDLE="${WORK}/bundle"
   mkdir -p "${BUNDLE}/mode" "${BUNDLE}/modules" "${BUNDLE}/data/content-cache" "${BUNDLE}/schema"
   # A throwaway bundle. The operator's own deploy/compose/ holds real state and is never touched.
-  cp "${OSS_ROOT}/deploy/compose/compose.yaml" "${BUNDLE}/"
+  # compose.yaml names the database only as a dependency; the engine file defines it, and compose validates
+  # the dependency even for a --no-deps run.
+  cp "${OSS_ROOT}/deploy/compose/compose.yaml" "${OSS_ROOT}/deploy/compose/compose.memgraph.yaml" "${BUNDLE}/"
   cp "${OSS_ROOT}/deploy/compose/.env.example" "${BUNDLE}/.env"
   : >"${BUNDLE}/schema/schema-noauth.graphql"
   printf 'NEO4J_PASSWORD=not-a-real-password\nCONSOLE_IMAGE=ghcr.io/dether-net/byodt-console:0.6.1\n' >>"${BUNDLE}/.env"
@@ -205,7 +207,7 @@ else
     note "engine: ${ENGINE}"
     # --no-deps so the database and the one-shot are not dragged in; the stock image, because this
     # tests compose's plumbing rather than our code.
-    if OUT="$(cd "$BUNDLE" && "$ENGINE" compose --env-file .env run --rm --no-deps \
+    if OUT="$(cd "$BUNDLE" && "$ENGINE" compose --env-file .env -f compose.yaml -f compose.memgraph.yaml run --rm --no-deps \
         --entrypoint sh platform -c 'printenv DEPLOYMENT_TEAM_ID' 2>"${WORK}/compose.err")"; then
       OUT="$(printf '%s' "$OUT" | tr -d '\r' | tail -n 1)"
       if [ "$OUT" = "$TEAM_ID" ]; then

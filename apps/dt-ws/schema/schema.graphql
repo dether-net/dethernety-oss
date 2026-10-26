@@ -2426,7 +2426,10 @@ type Query {
       // Branch 2: DataFlow supports reach a Model via FLOWS-attached Components.
       OPTIONAL MATCH (c)-[:SUPPORTS]->(df:DataFlow)
       OPTIONAL MATCH (df)-[:FLOWS]-(:Component)-[:BELONGS_TO*0..50]->(:SecurityBoundary)<-[:CONTAINS]-(m2:Model)
-      WITH cid, ids1 + collect(DISTINCT m2.id) AS combined
+      // The two lists are added in a WITH of their own: Neo4j refuses
+      // `ids1 + collect(...)` in one column unless ids1 is a key there.
+      WITH cid, ids1, collect(DISTINCT m2.id) AS ids2
+      WITH cid, ids1 + ids2 AS combined
       // List-comprehension dedup preserves empty-result rows (UNWIND of [] would drop the cid row).
       // Index-based dedup is the Memgraph-3.x-compatible alternative to apoc.coll.toSet().
       WITH cid, [m IN combined WHERE m IS NOT NULL] AS filtered

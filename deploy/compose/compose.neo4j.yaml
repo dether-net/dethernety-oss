@@ -1,0 +1,80 @@
+# Dethernety — the Neo4j database service, for compose.yaml.
+#
+# byodt runs compose with compose.yaml plus the file of the engine DB_ENGINE names (memgraph, the
+# default, or neo4j). Both engine files define the same service, `db`, so the rest of the stack does not
+# change with the engine — apart from the two connection values set at the end of this file.
+
+services:
+  # --- Graph database ---------------------------------------------------------
+  # Neo4j Community. NEO4J_IMAGE is exported by byodt (from .env, or the image this bundle was tested
+  # with), the same way the console image is: compose sees one resolved reference.
+  db:
+    image: ${NEO4J_IMAGE}
+    # The uid:gid the database runs as, derived by byodt the same way as for Memgraph (see db_user). Neo4j
+    # checks only that its directories are writable, never who owns them; ensure_layout creates them
+    # writable for any uid. Under Docker on Linux the files it writes belong to the operator. Started as root
+    # (rootless Podman, where root is the operator), the image drops to its own user before it starts, so
+    # there the files belong to a uid of Podman's range (byodt destroy says how to remove them).
+    user: ${DB_USER}
+    environment:
+      # The initial password of the `neo4j` user, applied on the first start only (an existing store
+      # keeps its own). Neo4j Community has no roles, and `neo4j` is its administrator, so the platform
+      # connects as `neo4j`.
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD}
+      # Memory. The heap holds query planning and the transaction state; the MITRE ingest sends
+      # statements of about 2.5 MB of literals, which are parsed on the heap. Tunable in .env.
+      NEO4J_server_memory_heap_initial__size: ${NEO4J_HEAP_SIZE:-2G}
+      NEO4J_server_memory_heap_max__size: ${NEO4J_HEAP_SIZE:-2G}
+      NEO4J_server_memory_pagecache_size: ${NEO4J_PAGECACHE_SIZE:-1G}
+      # The same cap the Memgraph service sets with --query-execution-timeout-sec.
+      NEO4J_db_transaction_timeout: 600s
+      # APOC Core, which the platform's GraphQL layer calls on Neo4j (DateTime fields, and the checks it
+      # writes into mutations), loaded from the jar the image ships in labs/: the plugins directory points
+      # there, so nothing is copied, written or downloaded. The allowlist loads only the two functions the
+      # layer calls; no other APOC procedure (the URL-fetching ones among them) can be called, and none is
+      # granted unrestricted access. NEO4J_PLUGINS would instead copy the jar into plugins/ and set
+      # dbms.security.procedures.unrestricted=apoc.*, which these two functions do not need.
+      NEO4J_server_directories_plugins: /var/lib/neo4j/labs
+      NEO4J_dbms_security_procedures_allowlist: apoc.date.convertFormat,apoc.util.validatePredicate
+    volumes:
+      # NEO4J_DATA selects the store, like DB_DATA does for Memgraph: the default host bind mount
+      # `./data/neo4j`, or the `neo4j-data` named volume.
+      - "${NEO4J_DATA:-./data/neo4j}:/data"
+      # From the host for the same reason as Memgraph's log directory: the image's own log directory is
+      # writable only by the image's user, and in bind mode the database runs as another uid.
+      - "./data/neo4j-logs:/logs"
+    ulimits:
+      nofile: { soft: 65536, hard: 65536 }
+    # A clean shutdown matters: neo4j-admin refuses to dump a store that needs recovery, and `byodt
+    # backup` stops the database before it dumps. The engines' default grace (10 s) can cut Neo4j off.
+    stop_grace_period: 120s
+    healthcheck:
+      # Healthy means "answers a query". cypher-shell takes the password from its environment, taken from
+      # NEO4J_AUTH inside the container, so it is on no command line: each probe is a JVM that runs for
+      # seconds, and container processes are visible to the host's `ps`. The $$ escapes keep the variables
+      # for the container shell rather than compose. The JVM start is also why the timeout is longer.
+      test: ["CMD-SHELL", "NEO4J_PASSWORD=\"$${NEO4J_AUTH#neo4j/}\" cypher-shell -u neo4j 'RETURN 1;' >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 20s
+      retries: 30
+      start_period: 30s
+    networks: [dethernety]
+    restart: unless-stopped
+
+  # Neo4j Community serves one database, `neo4j`, and the platform logs in as its administrator. Set here
+  # rather than through .env, which may still carry the Memgraph values, so nothing depends on which of
+  # the two the compose provider prefers.
+  console-init:
+    environment:
+      NEO4J_USERNAME: neo4j
+      NEO4J_DATABASE: neo4j
+
+  platform:
+    environment:
+      NEO4J_USERNAME: neo4j
+      NEO4J_DATABASE: neo4j
+
+# Declared so NEO4J_DATA can point the database at a named volume instead of a host bind mount. Unused —
+# and harmless — when NEO4J_DATA is a bind path (the default).
+volumes:
+  neo4j-data:

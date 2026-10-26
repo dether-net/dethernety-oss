@@ -53,6 +53,7 @@ export interface KgThreat {
   techniqueIds: string[] | null;
   /** JSON text, passed through unparsed — see the note on `KgRule.conditionGroups`. */
   techniqueProvenance: string | null;
+  /** Ordered by id, in code-unit order. */
   derivedFrom: KgCorpusEntry[];
 }
 
@@ -81,6 +82,7 @@ export interface KgRule {
   conditionGroups: string | null;
   /** JSON text, passed through unparsed — as `conditionGroups`. */
   mitreRefs: string | null;
+  /** Ordered by name, in code-unit order. */
   reads: KgAttribute[];
 }
 

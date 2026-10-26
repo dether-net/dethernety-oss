@@ -1,4 +1,5 @@
 import { ElementBindingService } from '../element-binding.service';
+import { LOCK_ELEMENT_CYPHER } from '../shared/element-db-lock';
 
 /**
  * Unit pins for ElementBindingService's class-scope guards:
@@ -51,6 +52,7 @@ interface FixtureOptions {
 
 function makeFixture(opts: FixtureOptions) {
   const writeStatements: string[] = [];
+  const writeParams: any[] = [];
 
   const readTx = {
     run: async (query: string, params: any) => {
@@ -89,8 +91,10 @@ function makeFixture(opts: FixtureOptions) {
   };
 
   const writeTx = {
-    run: async (query: string, _params: any) => {
+    run: async (query: string, params: any) => {
       writeStatements.push(query);
+      writeParams.push(params);
+      if (query === LOCK_ELEMENT_CYPHER) return { records: [] };
       if (query.includes('currentClassIds')) {
         return {
           records: [
@@ -158,7 +162,7 @@ function makeFixture(opts: FixtureOptions) {
     setInstantiation as any,
   );
 
-  return { service, executeWrite, getModuleByName, writeStatements, moduleInstance, setInstantiation };
+  return { service, executeWrite, getModuleByName, writeStatements, writeParams, moduleInstance, setInstantiation };
 }
 
 const CTX = { user: { sub: 'tester' } };
@@ -699,5 +703,20 @@ describe('ElementBindingService — stale flips from link changes', () => {
 
     expect(result.success).toBe(true);
     expect(log).toHaveBeenCalledWith('Element binding changed', expect.objectContaining({ linkStaleFlipped: 3 }));
+  });
+});
+
+describe('ElementBindingService — the element lock', () => {
+  it('locks the element first in the write, before it reads the current binding', async () => {
+    const { service, writeStatements, writeParams } = makeFixture({
+      elementLabels: ['Component'],
+      currentClassIds: ['cls-old'],
+      classStatus: { 'cls-new': { exists: true, moduleName: 'mod-1', labels: ['ComponentClass'] } },
+      singleRewireBound: 1,
+    });
+    await service.changeElementBinding({ elementId: 'comp-1', target: { kind: 'CLASS', classIds: ['cls-new'] } }, CTX);
+    expect(writeStatements[0]).toBe(LOCK_ELEMENT_CYPHER);
+    expect(writeParams[0]).toEqual({ elementId: 'comp-1' });
+    expect(writeStatements[1]).toContain('currentClassIds');
   });
 });

@@ -112,7 +112,7 @@ describe('DtBoundary.updateBoundaryNode — a whole node still writes the whole 
 });
 
 describe('DtBoundary.updateBoundaryNode — replace without a baseline, delta with one', () => {
-  const ids = (v: any, key: string) => (v?.[key] ?? []).map((o: any) => o.where.node.id.eq);
+  const ids = (v: any, key: string) => (v?.[key] ?? []).flatMap((o: any) => o.where.node.id.in);
 
   it('REPLACES when no baseline is given', async () => {
     const input = await send({ id: 'b1', data: { controls: ['ctl-1'] } });
@@ -189,7 +189,7 @@ describe('DtBoundary.updateBoundaryNode — an empty parent needs a root to mean
 // A list may hold an entry that is not an id — the shared types make the id optional — and such an entry
 // builds an operand whose filter carries no condition, attaching every control in the deployment.
 describe('DtBoundary.updateBoundaryNode — a list writes the entries it can name', () => {
-  const linkIds = (v: any, key: string) => (v?.[key] ?? []).map((o: any) => o.where.node.id.eq);
+  const linkIds = (v: any, key: string) => (v?.[key] ?? []).flatMap((o: any) => o.where.node.id.in);
 
   it('connects only the nameable entries', async () => {
     const input = await send({ id: 'b1', data: { controls: ['ctl-1', undefined] } });

@@ -529,7 +529,7 @@ All clients share the same GraphQL operation implementations, so a bug fix in dt
 | Principle | Implementation |
 |-----------|----------------|
 | **Authentication** | OIDC/OAuth2 with PKCE; JWT validated against JWKS endpoints on every request |
-| **API Protection** | GraphQL query depth limiting, complexity scoring, input validation |
+| **API Protection** | GraphQL query depth limiting, complexity scoring, relationship-filter limits, input validation |
 | **Module Security** | Module allowlisting via `ALLOWED_MODULES`; file permission and size validation |
 | **Encryption** | TLS 1.2+ in transit; encryption at rest for stored data |
 
@@ -552,6 +552,7 @@ All clients share the same GraphQL operation implementations, so a bug fix in dt
 │  ─────────────────────                                                      │
 │  • GraphQL query depth limiting                                             │
 │  • Complexity scoring to prevent DoS                                        │
+│  • Relationship-filter limits (no `single` on interface/union relations)    │
 │  • Input validation on all parameters                                       │
 │  • Sanitized error responses (no internal leakage)                          │
 │                                                                             │

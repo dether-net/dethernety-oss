@@ -683,7 +683,7 @@ Other consumers of the MITRE vectors must embed their queries with the same prof
 | Gap analysis (multi-hop Cypher) | Yes | Yes |
 | `findControls` / `assignControlToElements` | Yes | Yes |
 | Vector similarity tier | **Yes** (5.26 Community; `vector.similarity.cosine`) | **Yes** (3.6+, tested on 3.13.2; `vector_search.cosine_similarity`) |
-| Vector index | Not used | Not used by class or MITRE technique search (both exact). dt-ws still keeps HNSW indexes on the MITRE technique labels, which its own search does not read. |
+| Vector index | Not used | Not used by class or MITRE technique search (both exact). dt-ws still keeps HNSW indexes on the MITRE labels on Memgraph, which its own search does not read, and drops at startup the class indexes earlier versions kept. |
 
 ---
 

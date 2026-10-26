@@ -18,10 +18,7 @@ import { GQL_SCHEMA } from '../resolvers.constants';
 import { Inject } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { extractBearerToken } from '../../common/utils/extract-bearer-token';
-import {
-  assertComplexityWithinLimit,
-  buildGuardedValidate,
-} from '../utils/query-guards';
+import { assertRequestGuards, buildGuardedValidate } from '../utils/query-guards';
 import { buildMaskedExecutors } from '../utils/sse-error-masking';
 import { GqlConfig } from '../gql.config';
 
@@ -38,8 +35,8 @@ import { GqlConfig } from '../gql.config';
  * - Better compatibility with VPC Origins
  *
  * Serves the SAME schema instance as /graphql (the shared GQL_SCHEMA —
- * module types/resolvers included) and applies the same depth/complexity
- * guards, so a query behaves identically on both transports.
+ * module types/resolvers included) and applies the same query guards, so a
+ * query behaves identically on both transports.
  */
 @Controller('graphql')
 @UseGuards(JwtAuthGuard)
@@ -61,14 +58,18 @@ export class GraphQLSseController implements OnModuleInit {
       const gqlConfig = this.configService.get<GqlConfig>('gql')!;
       const schema = this.schema;
 
-      // Create the graphql-sse handler on the shared schema, with the
-      // shared depth rules (validate), the complexity gate (onSubscribe —
-      // the earliest hook where the operation + variables are available),
-      // and production error-masking on execution results (the SSE
-      // counterpart of Apollo's formatError).
+      // Create the graphql-sse handler on the shared schema, with the shared
+      // depth rules (validate), the per-request guards — the relationship-
+      // filter limits and the complexity gate — in onSubscribe (the earliest
+      // hook where the operation and variables are available), and production
+      // error-masking on execution results (the SSE counterpart of Apollo's
+      // formatError). graphql-sse calls onSubscribe before it validates, so
+      // onSubscribe validates first, as the other transports do: the guards
+      // walk only a document that validation accepts.
+      const guardedValidate = buildGuardedValidate(gqlConfig);
       this.handler = createHandler({
         schema,
-        validate: buildGuardedValidate(gqlConfig),
+        validate: guardedValidate,
         ...buildMaskedExecutors(process.env.NODE_ENV === 'production'),
         onSubscribe: (_req, params) => {
           // A syntactically-invalid query falls through untouched — the
@@ -80,19 +81,23 @@ export class GraphQLSseController implements OnModuleInit {
           } catch {
             return;
           }
+          // A document validation refuses is left to graphql-sse, whose own
+          // validation (the same rules) answers it in the client's shape;
+          // the guards walk only a document validation accepts.
+          if (guardedValidate(schema, document).length > 0) return;
           try {
-            assertComplexityWithinLimit({
+            assertRequestGuards({
               schema,
-              operationName: params.operationName,
               document,
+              operationName: params.operationName,
               variables: params.variables as Record<string, unknown> | null,
-              limit: gqlConfig.queryComplexityLimit,
+              config: gqlConfig,
             });
           } catch (error: any) {
             // A thrown onSubscribe error would escape the handler and
             // surface as an opaque 500 — return graphql-sse's Response
             // tuple instead so the client gets a structured 400 naming the
-            // limit (same message Apollo's plugin returns on /graphql).
+            // refusal (same message Apollo's plugin returns on /graphql).
             return [
               JSON.stringify({ errors: [{ message: error?.message }] }),
               {

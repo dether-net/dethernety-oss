@@ -4,7 +4,9 @@
 #
 #   db ─────────▶ console-init ─────▶ platform ──▶ proxy
 #
-#   db            graph database (Bolt), reachable only inside the stack network
+#   db            graph database (Bolt), reachable only inside the stack network. It is
+#                 not in this file: compose.memgraph.yaml and compose.neo4j.yaml each
+#                 define it, and byodt adds the one DB_ENGINE names (memgraph by default)
 #   console-init  ONE-SHOT: places the no-auth schema, fetches + verifies the code
 #                 modules, ingests the MITRE data — then exits. The platform is held
 #                 back until it has completed (see depends_on below).
@@ -13,8 +15,8 @@
 #   proxy         the single published entry point (TLS terminator in a later step)
 #
 # Only the proxy publishes a host port. The database never leaves the stack
-# network — no distribution artifact ships database engine bits; ${DB_IMAGE} is a
-# reference the operator's runtime resolves.
+# network — no distribution artifact ships database engine bits; the database image is
+# a reference the operator's runtime resolves.
 #
 # Quickstart — the byodt control script wraps compose and carries the config layer plus the
 # generated secret layer on every command:
@@ -27,74 +29,6 @@
 name: dethernety
 
 services:
-  # --- Graph database ---------------------------------------------------------
-  # Plain image, pinned. The heavier MAGE variant is not required: class matching
-  # uses the built-in vector search, and the one procedure that is MAGE-only has a
-  # built-in fallback. Pinning avoids a silent multi-gigabyte difference in the
-  # first-run pull.
-  db:
-    image: ${DB_IMAGE}
-    command:
-      - "--bolt-num-workers=4"
-      - "--query-plan-cache-max-size=100"
-      - "--query-execution-timeout-sec=600"
-      - "--query-max-plans=100"
-      - "--cartesian-product-enabled=true"
-      - "--storage-gc-cycle-sec=300"
-      # How often the database writes an in-place snapshot for crash recovery. Tunable via
-      # SNAPSHOT_INTERVAL_SEC in .env (0 disables). These live in the data dir and are pruned by
-      # retention — not a substitute for `byodt backup`, which captures one and copies it out.
-      - "--storage-snapshot-interval-sec=${SNAPSHOT_INTERVAL_SEC:-300}"
-      # 4096 MiB is the measured floor — the embedding-bearing statements fail
-      # below it, and the ingest is deliberately not retried on a memory error.
-      - "--memory-limit=4096"
-      - "--query-vertex-count-to-expand-existing=10"
-    # Memgraph refuses to start unless its data directory is owned by the uid it runs as —
-    # an ownership check, which no chmod satisfies. On a host bind mount that uid has to be
-    # the one that owns the directory on the host, and which uid that is depends on the
-    # engine: under rootless Podman the operator appears inside the container as root, under
-    # Docker as their own uid. byodt resolves the engine already, so it derives this value
-    # (see db_user) rather than compose.yaml guessing. A named volume needs none of it —
-    # the engine creates it owned correctly — so the value is empty in that mode.
-    user: ${DB_USER}
-    environment:
-      MEMGRAPH_USER: ${NEO4J_USERNAME}
-      MEMGRAPH_PASSWORD: ${NEO4J_PASSWORD}
-    volumes:
-      # DB_DATA (see .env) selects the store: the default host bind mount `./data/memgraph`
-      # (visible on disk) or the `memgraph-data` named volume (robust on VM-backed runtimes).
-      - "${DB_DATA:-./data/memgraph}:/var/lib/memgraph"
-      # THE LOG DIRECTORY HAS TO COME FROM THE HOST, and it is not a convenience.
-      #
-      # The image ships /var/log/memgraph as mode 0750 owned by its own user, so ONLY that user can
-      # write it. In bind mode the container runs as whoever owns the data directory (see db_user),
-      # which on a Linux host is the operator — not the image's user — and the database then dies on
-      # its very first log line, reporting a permission error that names the log file while the data
-      # directory it was really asking about goes unmentioned. On macOS the same derivation yields
-      # root, which can write anywhere, so the fault is invisible there: one bug, visible on one
-      # platform, and that asymmetry is what hid it.
-      #
-      # A NAMED VOLUME WOULD NOT DO. The engine seeds one from the image, ownership included, so it
-      # arrives 0750 owned by the image's user and the operator's uid still cannot write it.
-      #
-      # Mounted unconditionally rather than only in bind mode, because ensure_layout creates it
-      # world-writable: that satisfies the image's own user in named-volume mode and the operator's
-      # uid in bind mode, without compose needing to know which one is in play.
-      - "./data/memgraph-log:/var/log/memgraph"
-    ulimits:
-      nofile: { soft: 65536, hard: 65536 }
-      memlock: { soft: -1, hard: -1 }
-    healthcheck:
-      # Healthy means "answers a query", not merely "process is up". The $$ escapes
-      # keep the variables for the container shell rather than compose.
-      test: ["CMD-SHELL", "echo 'RETURN 1;' | mgconsole --username \"$$MEMGRAPH_USER\" --password \"$$MEMGRAPH_PASSWORD\" || exit 1"]
-      interval: 5s
-      timeout: 10s
-      retries: 30
-      start_period: 15s
-    networks: [dethernety]
-    restart: unless-stopped
-
   # --- Pre-start one-shot -----------------------------------------------------
   # Same image as the (future) console daemon, run with its default `init`
   # entrypoint. It writes into the shared modules/ and schema/ mounts, so those
@@ -290,8 +224,3 @@ services:
 networks:
   dethernety:
     driver: bridge
-
-# Declared so DB_DATA (see .env) can point the database at a named volume instead of a host bind
-# mount. Unused — and harmless — when DB_DATA is a bind path (the default).
-volumes:
-  memgraph-data:

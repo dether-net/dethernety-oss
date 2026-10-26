@@ -17,6 +17,7 @@ import { DatabaseService } from '../../src/database/database.service';
 import { EnsureConstraintsService } from '../../src/bootstrap/ensure-constraints.service';
 import { EnsureIndexesService } from '../../src/bootstrap/ensure-indexes.service';
 import { startNeo4j, Neo4jHandle } from './neo4j-container';
+import { describeWithNeo4j } from './test-engine';
 
 jest.setTimeout(240_000);
 
@@ -57,7 +58,7 @@ async function runRead(handle: Neo4jHandle, cypher: string): Promise<any[]> {
   }
 }
 
-describe('bootstrap DDL on Neo4j 5 (e2e)', () => {
+describeWithNeo4j('bootstrap DDL on Neo4j 5 (e2e)', () => {
   let handle: Neo4jHandle;
   let databaseService: DatabaseService;
 
@@ -115,7 +116,7 @@ describe('bootstrap DDL on Neo4j 5 (e2e)', () => {
   });
 
   it('installs plain indexes for non-covered pairs only; covered pairs have constraint-owned indexes', async () => {
-    const indexes = new EnsureIndexesService(databaseService);
+    const indexes = new EnsureIndexesService(databaseService, { whenBootstrapped: async () => {} } as any);
     await indexes.onApplicationBootstrap();
 
     const rows = await runRead(handle, 'SHOW INDEXES');
@@ -166,7 +167,7 @@ describe('bootstrap DDL on Neo4j 5 (e2e)', () => {
 
   it('re-running both hooks is idempotent (IF NOT EXISTS) and stays healthy', async () => {
     const constraints = new EnsureConstraintsService(databaseService);
-    const indexes = new EnsureIndexesService(databaseService);
+    const indexes = new EnsureIndexesService(databaseService, constraints);
     await constraints.onApplicationBootstrap();
     await indexes.onApplicationBootstrap();
 

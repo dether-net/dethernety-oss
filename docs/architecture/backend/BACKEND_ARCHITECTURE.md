@@ -123,7 +123,7 @@ The backend implements a layered architecture with clear separation of concerns:
 | Technology | Purpose |
 |------------|---------|
 | **OIDC/JWT** | Standards-based authentication via JWKS |
-| **Query Limiting** | Depth and complexity protection against abuse |
+| **Query Limiting** | Depth, complexity and relationship-filter limits against abuse, on every GraphQL transport |
 | **Input Validation** | Parameter validation on all mutations and queries |
 
 ---
@@ -139,6 +139,8 @@ The central API layer providing all GraphQL functionality.
 - Custom resolver integration for business logic
 - Real-time subscriptions via WebSocket or SSE (Server-Sent Events)
 - Query depth and complexity limiting
+- Relationship-filter limits: refusal of `single` on interface or union relationships, a filter budget, and caps on a request's input objects, relationship operands and scalar size, which bound the Cypher dt-ws translates on its event loop
+- The same guards on HTTP, SSE and, with `SUBSCRIPTION_TRANSPORT=ws`, the graphql-ws WebSocket transport
 - Automatic authentication integration
 
 **Production Features:**
@@ -218,7 +220,7 @@ Request → JWT Validation → Query Protection → Authorization → Execution 
 **Security Layers:**
 - **Transport Security**: HTTPS/WSS encryption
 - **Authentication**: OIDC JWT validation via JWKS endpoint
-- **Query Protection**: Depth limiting (default: 10) and complexity scoring (default: 1000)
+- **Query Protection**: Depth limiting (default: 10), complexity scoring (default: 1000), and relationship-filter limits: a `single` filter on an interface or union relationship is refused (use `some`), a request's filters are held to a budget of 300, and its arguments to 2,500 input objects, 640 relationship operands and 4,000,000 characters of scalar values (see the [Security Model](../../SECURITY_MODEL.md#query-limits)). The guards run on `/graphql`, `/graphql/stream` and, with `SUBSCRIPTION_TRANSPORT=ws`, the WebSocket transport
 - **Error Sanitization**: Internal errors hidden in production
 - **Input Validation**: All inputs validated before processing
 

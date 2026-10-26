@@ -45,6 +45,7 @@
 // alone is sufficient for the static-analysis assertion this spec makes.
 
 import { startMemgraph, clearGraph, MemgraphHandle } from './memgraph-container';
+import { describeMemgraphOnly } from './test-engine';
 
 jest.setTimeout(120_000);
 
@@ -91,7 +92,8 @@ async function captureExplainPlan(driver: any, params: any): Promise<string> {
   });
 }
 
-describe('scoped exposure upsert — query plan inspection', () => {
+// Memgraph-only (it reads Memgraph's EXPLAIN plan): skipped on the Neo4j leg (DT_TEST_ENGINE=neo4j).
+describeMemgraphOnly('scoped exposure upsert — query plan inspection', () => {
   let mg: MemgraphHandle;
 
   beforeAll(async () => {

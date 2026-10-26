@@ -7,21 +7,121 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.13.0] - Unreleased
 
+The platform runs on Neo4j 5 as well as Memgraph. The compose bundle picks the database with
+`DB_ENGINE` (Memgraph stays the default), dt-ws builds its schema in each engine's dialect, and the
+Cypher statements Neo4j refused now run on both engines. `@dethernety/dt-module` gains the engine,
+schema and write-lock helpers modules need to do the same. byodt is 1.3.0.
+
 dt-ui no longer fetches every module frontend before it mounts. A module frontend is now a bundle
 and a manifest naming the component keys it registers, and dt-ui fetches a module's bundle the first
 time one of those keys is needed, from a content-addressed URL the browser caches. dt-ws reads each
 bundle once, when it loads the module, and serves it from memory.
 
-**Upgrading:** no configuration change. **Module authors:** a module frontend without
-`frontend/frontend-manifest.json` is no longer loaded; see *Changed*. `dethernety-threat-report`
-ships its manifest. **API clients:** `getAvailableFrontendModules` and `getModuleFrontendBundle` are
-removed; see *Removed*. **A CDN or reverse proxy in front of dt-ws** must honour
-`Cache-Control: private` on `/module-bundles/` and must not cache it by path; see *Security*.
-**Dethereal:** 0.4.16 carries the updated data layer: dt-core's module queries gain
-`getFrontendModuleManifest` and lose `getAvailableFrontendModules` and `getModuleFrontendBundle`.
+**Upgrading:** an existing deployment stays on Memgraph: the first `byodt` command that runs the
+stack records `DB_ENGINE=memgraph` in `.env`. **Run the stack through `byodt` only:** `compose.yaml`
+no longer holds the `db` service, so a bare `docker compose up` does not start the stack. Local
+compose changes are read from `compose.override.yaml` only; rename a `compose.override.yml` or
+`docker-compose.override.*`. **API callers and module authors:** a list property value that holds
+null is now refused (see *Changed*), and so are a `single` filter on a relationship to an interface
+or union and requests past the new request limits (see *Security*); `getAvailableFrontendModules`
+and `getModuleFrontendBundle` are removed (see *Removed*). **Module authors:** a module frontend
+without `frontend/frontend-manifest.json` is no longer loaded (see *Changed*);
+`dethernety-threat-report` ships its manifest. **A CDN or reverse proxy in front of dt-ws** must
+honour `Cache-Control: private` on `/module-bundles/` and must not cache it by path (see
+*Security*). **Dethereal users:** builds before the next Dethereal release send a filter the
+platform now refuses, so listing analyses from them fails until you update Dethereal, and they send
+one operand per element when they assign a control, so assigning one to some 200 elements or more in
+one call is refused too; Dethereal 0.4.17 bundles the fixed dt-core and carries the updated data
+layer: dt-core's module queries gain `getFrontendModuleManifest` and lose
+`getAvailableFrontendModules` and `getModuleFrontendBundle`. 0.4.16 was never published: its changes
+ship in 0.4.17.
 
 ### Added
 
+- **Neo4j 5 as the bundle's database.** Set `DB_ENGINE=neo4j` in `.env` before the first start, or
+  run `DB_ENGINE=neo4j ./byodt up` once, to run Neo4j 5.26 Community instead of Memgraph. `byodt`
+  records the engine in `.env` on the first run, and `NEO4J_IMAGE` on the first Neo4j run; an
+  exported `DB_ENGINE` overrides `.env` for one command. New optional settings: `NEO4J_HEAP_SIZE`
+  (default `2G`), `NEO4J_PAGECACHE_SIZE` (default `1G`) and `NEO4J_DATA` (`./data/neo4j`, or the
+  `neo4j-data` named volume). On Neo4j the platform connects as user `neo4j` to database `neo4j`;
+  `NEO4J_USERNAME` and `NEO4J_DATABASE` in `.env` apply to Memgraph only. See the deploy README,
+  *Choosing the database*.
+- **Each engine keeps its own data.** Nothing converts one engine's graph into the other. `byodt`
+  refuses to start an engine whose bind-mounted store is empty while the other engine's store holds
+  data, and runs the same check before a backup or a restore. A refused start leaves `.env` and
+  `data/` as they were. A store in a named volume is not checked.
+- **Backup and restore on Neo4j.** Neo4j Community dumps and loads an offline database only, so
+  `./byodt backup` and `./byodt restore` stop `db`, run `neo4j-admin` in a one-off container through
+  a private (`0700`) working directory in the bundle, and start `db` again, also when the dump or load
+  fails. The platform loses its database connection meanwhile. Each engine refuses the other
+  engine's backup file. A failed Neo4j load may leave the graph empty: restore again from a backup
+  you know is good.
+- **Engine detection in `@dethernety/dt-module`.** `probeEngine(driver, databaseName?)` reads
+  `dbms.components()` and returns an `EngineInfo` (`engine`: `'memgraph' | 'neo4j'`, `edition`,
+  `version`). It throws `EngineProbeError` for a component that names neither engine, rather than
+  guessing. `resolveEngine(context)` returns a module resolver context's engine: through
+  `getEngine` when the platform supplies it, otherwise through one probe of the context's driver,
+  kept per driver. It always rejects on failure, never throws synchronously.
+- **`ModuleResolverContext.getEngine`** (optional). dt-ws now supplies it to every module's
+  `getResolvers()`, backed by the platform's single engine probe. It rejects when the engine cannot
+  be determined. Call `resolveEngine(context)` to also work on a platform that predates it.
+- **Per-engine schema DDL builders in `@dethernety/dt-module`.** `buildIndexDdl`,
+  `buildDropIndexDdl`, `buildRelationshipIndexDdl`, `buildDropRelationshipIndexDdl`,
+  `buildConstraintDdl` (single or composite uniqueness, or existence) and `buildDropConstraintDdl`
+  return the statement for the given `EngineInfo`. Every Neo4j index and constraint gets a
+  deterministic name (`indexName`, `relationshipIndexName`, `constraintName`), because Neo4j 5
+  drops schema objects by name only. Labels and properties must be plain identifiers. An unknown
+  constraint kind throws. An existence constraint builds as `null` on Neo4j editions other than
+  Enterprise.
+- **`ensureSchema(run, engineInfo, plan)` and `dropSchemaObject(run, engineInfo, target)`** apply
+  and drop a module's declared indexes, relationship indexes and constraints on either engine, and
+  return a `SchemaReport` (`applied`, `existed`, `skipped`, `failed`). `ensureSchema` checks every
+  spec before it runs anything. On Memgraph "already exists" counts as present. On Neo4j a plain
+  index that a uniqueness constraint or node key covers is skipped, and one in the way of a declared
+  constraint is dropped first and put back if the constraint fails. Before each uniqueness
+  constraint it counts duplicate key values and nodes missing the key; with duplicates the
+  constraint is not attempted and is reported as failed with both counts. Applying the same plan
+  twice changes nothing. On Neo4j `dropSchemaObject` looks up every matching object with
+  `SHOW INDEXES` / `SHOW CONSTRAINTS` and drops it by its actual name, so unnamed objects from
+  earlier versions go too; a name that is not a plain word is refused and reported, not quoted.
+- **`writeLockClause(variable)`** in `@dethernety/dt-module` returns `SET v._lock = true REMOVE
+  v._lock`. Put it right after the `MATCH` of a node that a statement reads and then writes: on
+  Neo4j a concurrent writer waits and then reads the committed state; on Memgraph it conflicts, and
+  a driver-managed write transaction retries it. Nothing is left on the node.
+- **`@dethernety/dt-module/cypher-lint`** (dev and test tooling): a text-based check for the one
+  aggregation rule Neo4j 5 enforces and Memgraph does not ("Aggregation column contains implicit
+  grouping expressions"). It exports `aggregationKeyViolations`, `aggregationKeyViolationsInFiles`,
+  `cypherStringsInSource`, `cypherStatementsInSchema`, `cypherLintFiles`, `cypherProjections` and
+  `formatAggregationKeyViolation`. The dt-ws, threat-report and coverage-tools lint tests run it
+  over their sources and schema `@cypher` statements.
+- **The integration suites run on Neo4j.** `DT_TEST_ENGINE=memgraph|neo4j` picks the engine of the
+  test database for the dt-ws and threat-report suites; any other value is refused. On `neo4j` the
+  suites start Neo4j 5.26 Community, skip the Memgraph-only suites with their reason, and write
+  every server failure to stderr. See the backend LLD architecture, *Running the suites on Neo4j*.
+- **CI: a Neo4j test leg, run by hand.** The `neo4j-leg` workflow (`workflow_dispatch` only) runs
+  the dt-ws and threat-report suites on Memgraph and on Neo4j. Its log gate
+  (`.github/scripts/neo4j-log-gate.sh`) fails the leg when a suite's output is missing, shows no
+  passed test, or holds a `Neo.ClientError.Statement`, `.Procedure` or `.Schema` code that no line
+  of `.github/neo4j-log-gate-allow.txt` allows. The gate's own fixture test runs on every pull
+  request, and the bundle job now checks the compose configuration under both engines.
+- **Integration suites can run against an external test database.** On a machine where containers
+  cannot run, the dt-ws and threat-report integration suites share one throwaway database instead of
+  starting a container per suite: `MEMGRAPH_TEST_URI` names a test Memgraph, `NEO4J_TEST_URI` a test
+  Neo4j (with `DT_TEST_ENGINE=neo4j`). The check and the reset live in the new
+  `@dethernety/dt-module/test-database` subpath (dev/test only; nothing in the package's main entry
+  imports it). Each suite resets the database when it connects, so run the suites one at a time (jest
+  `--runInBand`, vitest `--no-file-parallelism`) and one package at a time. See the backend LLD
+  architecture, *Running the suites against an external test database*.
+- **A guard runs before anything is wiped.** The URI must be a plain `bolt://host:port`, must not use
+  port 7687 (always refused) and must be listed exactly in `DT_TEST_EXTERNAL_WIPE`. The server must
+  identify itself as a test database: a Memgraph by the server name it was started with, a Neo4j
+  (the weaker check) by running without auth and with its default database named `memgraph`. A
+  database holding an index or constraint kind the suites never create is refused untouched.
+- **Every dt-core GraphQL document is checked against the schema.**
+  `apps/dt-ws/src/gql/__tests__/dt-core-documents.spec.ts` validates each document dt-core exports
+  against the schema the platform serves, built in process with no database, and checks the `where`
+  shapes dt-core's filter builders produce with the same variable coercion a request goes through.
+  A field or argument the schema does not have fails the test instead of the request.
 - **The module frontend manifest.** `frontend/frontend-manifest.json`, beside `frontend/bundle.js`:
   `manifestVersion` (`1`), `components` (the component keys `install()` registers, exactly: 1 to 256
   unique keys matching `^[A-Za-z][A-Za-z0-9_-]{0,127}$`) and `hostApi` (`{ min, max }`, integers
@@ -49,6 +149,64 @@ removed; see *Removed*. **A CDN or reverse proxy in front of dt-ws** must honour
 
 ### Changed
 
+- **Breaking (API callers and module authors): a list property value may not hold null.** Neo4j
+  refuses such a list and Memgraph stores it, so dt-ws now refuses it on every write path, before the
+  database sees it. A list element that is `null`, `undefined` or an array hole is refused; an empty
+  list, an empty string in a list, and a top-level `null` (which clears the attribute) are still
+  accepted.
+  - `setInstantiationAttributes` fails with `VALIDATION_ERROR`, naming the attribute and the element:
+    `Invalid request: attributes.<key>: list element <i> is null; remove the empty entry (a list
+    cannot hold null)`. Nothing is written.
+  - A module finding's attribute holding such a list is dropped with a warning and the finding is
+    still written; a finding whose name cannot be stored is skipped. The same goes for a MITRE
+    edge attribute.
+  - At module install, a class whose properties hold such a list fails, which leaves the install
+    partial as any class failure does; module metadata holding one fails the install.
+- **Breaking (operators who run compose directly or keep another override file name): the bundle's
+  `db` service moved out of `compose.yaml`** into `compose.memgraph.yaml` and `compose.neo4j.yaml`,
+  under the same service name. `byodt` passes `compose.yaml`, the engine's file, then
+  `compose.override.yaml` when there is one, last. A bare `docker compose up` on `compose.yaml` no
+  longer starts the stack: use `./byodt compose …` for anything `byodt` has no command for.
+  `compose.override.yml` and `docker-compose.override.*` are no longer loaded; `byodt` warns when it
+  finds one.
+- **The tested Neo4j image names its patch release: `docker.io/library/neo4j:5.26.32-community`.**
+  The first Neo4j run records it as `NEO4J_IMAGE` in `.env`, where `byodt` used to record the
+  floating `docker.io/library/neo4j:5.26-community`. A deployment that recorded the floating tag
+  keeps it: `./byodt up` and `./byodt update` warn that it differs from the tested image, and start
+  as before. Moving is your call: back up first (`./byodt backup`; there is no downgrade), set
+  `NEO4J_IMAGE`, then run `./byodt update`.
+- **The platform asks the database once which engine it is.** dt-ws's `DatabaseService` holds the
+  only engine probe, now dt-module's `probeEngine`; the module registry, the class reconciler and
+  the schema bootstrap share it. A `dbms.components()` answer that names neither engine is now an
+  error, where it used to be taken for Neo4j: `getEngine` rejects, and the schema bootstrap, as on
+  any failed probe, assumes Memgraph and logs the error. On Neo4j the class reconciler no longer
+  calls `mg.procedures()`.
+- **Bootstrap schema statements come from dt-module's builders.** dt-ws's index and constraint
+  bootstrap builds each statement with the dt-module DDL builders, so every index and constraint it
+  creates on Neo4j now carries its deterministic `dt_…` name. A builder error counts against that
+  statement, and the rest of the bootstrap still runs.
+- **Bootstrap drops the old class vector indexes on Memgraph.** Earlier versions kept a vector index
+  on each class label (`component_`, `control_`, `dataflow_`, `boundary_` and
+  `data_class_embeddings`). Class matching is an exact scan and reads none of them; they only held
+  memory and slowed every class write. Those that `vector_search.show_index_info()` lists are dropped
+  once the index and constraint bootstrap has finished. A MITRE vector index is never touched. A
+  failed listing or drop is a warning and never stops startup; Neo4j never had these indexes.
+- **The MITRE vector-index upkeep says when it skips.** It runs on Memgraph only, as before; on
+  another engine it now logs that it is skipped, once per process.
+- **The console indexes the reference-data keys before the ingest.** `console-init` probes the
+  engine and creates an index on every label and key the MITRE corpus is looked up by, in that
+  engine's dialect and, on Neo4j, under the name the platform gives the same index, so the ingest's
+  writes no longer scan whole labels. A failed index, or an engine it cannot tell, never fails the
+  ingest; it is noted in the ingest state's detail. The MITRE embeddings build's loader
+  (`modules/mitre-frameworks/scripts/load_committed_data.py`) creates its key indexes per engine the
+  same way.
+- **The console names a Neo4j memory failure as one.** Neo4j's out-of-memory codes (heap,
+  transaction pool, transaction limit) are terminal and not retried, like Memgraph's memory-limit
+  error, and the hint names the setting to raise on the engine the ingest ran against
+  (`NEO4J_HEAP_SIZE` on Neo4j).
+- **Breaking (anyone using `MEMGRAPH_TEST_URI`):** the variable now also needs the URI listed in
+  `DT_TEST_EXTERNAL_WIPE`, a port other than 7687, and a Memgraph started with
+  `--bolt-server-name-for-init=dt-test-memgraph`. A target that does not meet all three is refused.
 - **Breaking (module authors): a module frontend needs `frontend/frontend-manifest.json`.** Without
   a valid manifest, dt-ws does not load the frontend and logs `Module frontend not loaded` with the
   module name and the reason; the module itself still loads. To add one, list the keys your
@@ -84,13 +242,163 @@ removed; see *Removed*. **A CDN or reverse proxy in front of dt-ws** must honour
 
 ### Removed
 
+- **Two unused dt-core GraphQL documents:** `SUBSCRIBE_ANALYSIS_CHAT` and `GET_DUMP_MODEL_DATA`.
+  Both queried fields the schema does not have, and nothing used them.
 - **Breaking: the `getAvailableFrontendModules` and `getModuleFrontendBundle` queries.** Use
   `getFrontendModuleManifest` and the bundle route. dt-core's `DtModule.getAvailableFrontendModules()`
   and `DtModule.getModuleFrontendBundle()`, and the `GET_AVAILABLE_FRONTEND_MODULES` and
   `GET_MODULE_FRONTEND_BUNDLE` documents, are removed with them.
 
+### Fixed
+
+- **Statements Neo4j refused now run on both engines.** Neo4j 5 refuses an aggregating column that
+  reads a variable its clause does not also project as a key; Memgraph runs it. Model deletion
+  (`deleteModel`'s analysis lookup), `controlGaps`, `getControlsAssignedModels` and the threat
+  report's ledger had that shape and failed on Neo4j. Each now collects in one `WITH` and adds the
+  lists in the next, with the same rows on both engines.
+- **Concurrent finding writes for one element no longer duplicate a finding or a binding.** Within
+  one platform process these writes were already serialised per element; across processes, two
+  writers could both find a finding absent and create it twice, or both rewire the same class
+  binding. The exposure and countermeasure upserts and the class rebind now take the element's
+  database lock (`writeLockClause`) before they read. On Neo4j the second writer waits and reads
+  what the first committed; on Memgraph it conflicts and its write transaction is retried.
+- **A threat report snapshot write retries a conflict.** Two runs of one analysis write the report
+  snapshot to the same Analysis node. On Memgraph the second met a transient conflict and failed,
+  because it ran as an auto-commit. It now runs in a write transaction: the conflict is retried and
+  the last run to commit wins. A missing Analysis node still fails loudly.
+- **Knowledge-graph answers are the same on both engines.** Each engine returned a rule's reads
+  (`KgRule.reads`) and a threat's sources (`KgThreat.derivedFrom`) in an order of its own.
+  dt-module's knowledge-graph normalisation now orders reads by name and sources by id, in
+  code-unit order, so the local and remote clients answer alike on either engine.
+- **The control dialog no longer saves a list with an empty row.** Clearing a row of a list in the
+  control dialog's attribute form left a hole that reached the server as null, which the server now
+  refuses. The dialog drops emptied entries from every list before it saves, so a list stored
+  earlier with a null heals on its next save. An empty string stays: it is a value.
+- **`byodt version` lists `NEO4J_IMAGE`.** Its pattern for the image lines in `.env` missed a name
+  with a digit in it, so a Neo4j deployment's `version` did not show the image it runs.
+- **On Neo4j a bootstrap index could go missing until the next restart.** dt-ws ran its index
+  bootstrap and its constraint bootstrap side by side, and on Neo4j an index and a uniqueness
+  constraint on the same label (`:Module(id)` and `:Module(name)`) could deadlock; the index lost
+  that way stayed missing, and the lookups it serves scanned the label. The index bootstrap now
+  starts once the constraint bootstrap has finished, on either engine.
+- **On Neo4j, GraphQL queries that select a DateTime field no longer fail.** The GraphQL layer reads
+  every DateTime field through `apoc.date.convertFormat` and writes `apoc.util.validatePredicate` into
+  the checks of some mutations, and the bundle's Neo4j loaded no APOC, so such a query failed with
+  `Unknown function 'apoc.date.convertFormat'`. `compose.neo4j.yaml` now sets
+  `NEO4J_server_directories_plugins` to `/var/lib/neo4j/labs`, where the image ships the APOC Core
+  jar, and `NEO4J_dbms_security_procedures_allowlist` to the two functions. Only those two load: no
+  other APOC procedure or function can be called, none is granted unrestricted access, and nothing is
+  copied, written or downloaded. At startup on Neo4j, dt-ws now lists both functions and, when both
+  are listed, calls each once. It logs one error naming the missing functions, or saying they are
+  listed but cannot run, and starts either way. A Neo4j you run yourself needs APOC Core loaded and
+  both functions in `dbms.security.procedures.allowlist` (see the configuration guide, *Database
+  (Bolt/Cypher)*).
+- **Bootstrap schema statements run again after a transient error.** The new
+  `DatabaseService.executeSchemaWrite` runs a schema statement as an auto-commit write and, when the
+  engine answers with a transient code (`Neo.TransientError.*` or `Memgraph.TransientError.*`),
+  runs it again: three attempts in all, pausing 200 ms and then 400 ms. Each retry logs a warning;
+  only the last failure is logged as an error and thrown. Every schema statement of the index,
+  constraint and old vector-index bootstrap goes through it. Any other error, including a lost
+  connection or a database that cannot be reached, fails at once. `executeImplicitWrite` is
+  unchanged: one attempt, no retry.
+- **On Neo4j, opening a model no longer hangs.** Opening a model runs dt-core's `findAnalyses`,
+  which filtered the analysed element with `single`. `element` points at the `Element` interface,
+  and on Neo4j `@neo4j/graphql` renders `single` there as a XOR of one predicate per member type;
+  with `Element`'s 28 member types, Neo4j ran out of heap while it was still planning the query, and
+  the database answered nothing until it was restarted. `findAnalyses` now filters with `some`.
+  Element ids are unique, so it finds the same analyses, on either engine.
+- **dt-core's issue search by element or by module works.** `findIssues` filtered the model link
+  and the module with fields the schema does not have (`model`, `module`), so a search by element
+  or by module failed. It now filters the model link with `models`, and the module through the
+  issue class, since an issue has no module link of its own.
+- **dt-core's analyses lookup by module works.** `findAnalyses` filtered the module with a `module`
+  field the schema does not have, so a lookup by module failed. It now filters the module through
+  the analysis class.
+- **Dethereal's control-class suggestion works.** When a control's `class_ids` names a class that is
+  not a CONTROL class, the error lists the CONTROL classes of the same module. The lookup behind it
+  filtered the module by a bare id instead of `{ eq: <id> }`, so it failed and the error came
+  without the list.
+
 ### Security
 
+- **One GraphQL request could exhaust a Neo4j database's memory, or stall dt-ws on either engine;
+  dt-ws now refuses it.** A `single` filter on a relationship to an interface or union type renders
+  on Neo4j as a XOR of one predicate per member type, and Neo4j's planner rewrites a XOR chain into
+  a form that grows exponentially with its length. On a relationship to `Element`, one such request
+  exhausted the database's heap while the query was still being planned, and the database answered
+  nothing until a restart. With authentication off, anyone who could reach the API could send it;
+  with authentication on, any signed-in user could. Every GraphQL transport now refuses, per
+  request, any `single` filter, or deprecated `<field>_SINGLE` / `<field>Connection_SINGLE` field,
+  on a relationship to an interface or union, with an error that names the filter's path and says to
+  use `some`. `some`, `all` and `none` render as one predicate per member type joined by OR or AND,
+  which grows linearly, and stay allowed, within new limits on what a request can make dt-ws
+  translate and the database plan:
+  - a **filter budget of 300**: each relationship or connection filter quantifier (`some`, `all`,
+    `none`, and their deprecated `_SOME` … forms) costs the number of types it can match (28 on
+    `Element`, 1 on a concrete type), and `all` costs twice that; an aggregate filter costs what a
+    `some` on the same relationship does; a filter on a `@cypher` field costs 2, or 10 when the
+    field's statement walks a variable-length path; a condition on a stored property, `in` lists
+    included, costs nothing. The largest any platform client sends is 58;
+  - at most **2,500 input objects** in all of a request's arguments, and **1,000** in its `where`
+    arguments. A platform client's request grows only with links that carry a justification (a
+    countermeasure create reaches 2,500 at 495 technique links), and sends at most 42 in `where`;
+  - at most **640 relationship operands** in a request's mutation inputs: each item of a connect,
+    disconnect, create, update or delete under a relationship counts once per type its target can be
+    (28 on `Element`). A platform client's operands grow only with the same justified links;
+  - at most **4,000,000 characters** of scalar values: a string counts its length, any other scalar
+    one, a list or JSON value its entries summed;
+  - input nested at most **64 levels** deep;
+  - at most **10,000 selections** once fragments are expanded.
+
+  dt-ws translates GraphQL into Cypher on its event loop, which is single-threaded, on either
+  engine, and the statement grows with the request's arguments: one mutation with 24,000
+  relationship operands held the event loop for 58 seconds, and dt-ws answered no other request
+  meanwhile. This affects released versions on both engines; the input-object, operand and
+  scalar-size limits bound what one request makes dt-ws translate. dt-core sends a link write that
+  carries nothing but its target (`assignControlToElements`, an element's controls and data items, a
+  model's modules and controls, the technique-link updates of exposures and countermeasures) as one
+  operand per relationship with the ids in an `in` list, so the write stays the same size however
+  long the list is.
+
+  The limits count an input as often as `@neo4j/graphql` renders it: everything under a filter or an
+  operand on an interface or union counts once per member type (28 times on `Element`), and under
+  `all` twice that; a value counts once for every place it is used, as the library writes a value
+  into a Cypher parameter of its own each time a variable is referenced, so one large list
+  referenced from hundreds of places counts hundreds of times. A fragment counts once for every
+  place it is spread, the filters are checked whether they are written in the query or sent in its
+  variables, and a variable's default value is checked as execution applies it.
+
+  On `/graphql` a refusal is a GraphQL error with code `BAD_USER_INPUT` and HTTP status 400, and so
+  is a complexity-limit refusal, which was an internal error with HTTP status 500; on the
+  `/graphql/stream` SSE endpoint it is a 400 whose error names the refusal; on the WebSocket
+  transport it is GraphQL errors, sent with nothing run. In production `/graphql` replaces the
+  message with "Internal server error", as for every error, and keeps the `BAD_USER_INPUT` code. The
+  checks run on both engines. Neo4j support is unreleased, so no released version is affected by the
+  Neo4j failure. **API callers:** a query that used `single` on such a relationship is now refused
+  on Memgraph too; use `some` (a filter on a unique `id` matches the same nodes).
+- **The WebSocket transport runs the query guards.** With `SUBSCRIPTION_TRANSPORT=ws`, the opt-in
+  graphql-ws transport carries queries and mutations as well as subscriptions, and it ran none of
+  the query guards: no depth limit, no complexity limit. It now runs the depth rules, the
+  relationship-filter limits and the complexity limit for every operation, as `/graphql` and
+  `/graphql/stream` do, and answers a refusal with GraphQL errors without running anything. This
+  affects released versions on a deployment that set `SUBSCRIPTION_TRANSPORT=ws`; the default,
+  `sse`, is unchanged.
+- **Deeply nested fragment spreads could stall request validation.** The query-depth rule came from
+  the `graphql-depth-limit` package, which re-measured a fragment at every place it was spread, so a
+  small document of fragments that spread one another took exponential time to validate, and any
+  client could send one. dt-ws now enforces the depth limit with its own rule, which measures each
+  fragment once. The limit (`GQL_QUERY_DEPTH_LIMIT`, default 10), the way depth is counted and the
+  refusal text are unchanged, and the `graphql-depth-limit` dependency is removed. This affects
+  released versions.
+- **Request guards are stricter and ordered the same on every transport.** The relationship-filter
+  check refuses, with `BAD_USER_INPUT` and HTTP status 400, a value that is not an object where an
+  input object is expected and a field the input type does not define, as variable coercion does; a
+  null entry in a list of input objects counts as one input object. The check reads only the
+  operation the request runs, selected by `operationName` as execution selects it, with only the
+  variables that operation declares; a request that selects no single operation, because it holds
+  several operations and no `operationName` or because no operation has the `operationName` it
+  names, is refused with `BAD_USER_INPUT` and HTTP status 400. `/graphql/stream` validates the
+  operation before the per-request guards run, as `/graphql` and the WebSocket transport do.
 - **The bundle route's authentication** is `JwtAuthGuard` (a valid JWT, then `DEPLOYMENT_ALLOWLIST`),
   then the module allow-list (`ALLOWED_MODULES`). Without OIDC and with `NODE_ENV` other than
   `production`, the guard's development bypass leaves the route open, as it leaves every guarded route.
