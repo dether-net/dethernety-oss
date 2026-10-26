@@ -36,6 +36,8 @@ services:
       # dbms.security.procedures.unrestricted=apoc.*, which these two functions do not need.
       NEO4J_server_directories_plugins: /var/lib/neo4j/labs
       NEO4J_dbms_security_procedures_allowlist: apoc.date.convertFormat,apoc.util.validatePredicate
+      # The database sends no usage data to its vendor (Neo4j reports usage unless this is off).
+      NEO4J_dbms_usage__report_enabled: "false"
     volumes:
       # NEO4J_DATA selects the store, like DB_DATA does for Memgraph: the default host bind mount
       # `./data/neo4j`, or the `neo4j-data` named volume.

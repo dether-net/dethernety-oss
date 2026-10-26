@@ -27,6 +27,8 @@ services:
       # below it, and the ingest is deliberately not retried on a memory error.
       - "--memory-limit=4096"
       - "--query-vertex-count-to-expand-existing=10"
+      # The database sends no usage data to its vendor (the image turns Memgraph's telemetry on).
+      - "--telemetry-enabled=false"
     # Memgraph refuses to start unless its data directory is owned by the uid it runs as —
     # an ownership check, which no chmod satisfies. On a host bind mount that uid has to be
     # the one that owns the directory on the host, and which uid that is depends on the

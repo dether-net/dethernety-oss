@@ -149,6 +149,10 @@ ship in 0.4.17.
 
 ### Changed
 
+- **The bundle's database sends no usage data to its vendor.** `compose.memgraph.yaml` starts
+  Memgraph with `--telemetry-enabled=false`, and `compose.neo4j.yaml` sets Neo4j's
+  `dbms.usage_report.enabled` to `false`; both images report usage by default. `./byodt restart db`
+  applies it to a running deployment.
 - **Breaking (API callers and module authors): a list property value may not hold null.** Neo4j
   refuses such a list and Memgraph stores it, so dt-ws now refuses it on every write path, before the
   database sees it. A list element that is `null`, `undefined` or an array hole is refused; an empty
