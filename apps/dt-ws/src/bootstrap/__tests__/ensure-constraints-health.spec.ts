@@ -43,7 +43,7 @@ function makeMockDb(opts: {
       ];
       return Promise.resolve({ records });
     }),
-    executeImplicitWrite: jest.fn().mockImplementation(() => {
+    executeSchemaWrite: jest.fn().mockImplementation(() => {
       if (opts.ddlError) return Promise.reject(new Error('CREATE CONSTRAINT failed'));
       return Promise.resolve({ records: [] });
     }),
@@ -106,10 +106,10 @@ describe('EnsureConstraintsService — engine branch', () => {
     const svc = new EnsureConstraintsService(db as any);
     await svc.onApplicationBootstrap();
 
-    const statements = db.executeImplicitWrite.mock.calls.map((call) => String(call[0]));
+    const statements = db.executeSchemaWrite.mock.calls.map((call) => String(call[0]));
     expect(statements.length).toBeGreaterThan(0);
     for (const stmt of statements) {
-      expect(stmt).toContain('CREATE CONSTRAINT IF NOT EXISTS FOR');
+      expect(stmt).toMatch(/^CREATE CONSTRAINT dt_(uniq|exists)__\w+ IF NOT EXISTS FOR /);
       expect(stmt).not.toContain('ASSERT');
     }
     // Enterprise gets the existence constraints too (7 exists + 8 unique + Module.name).
@@ -122,7 +122,7 @@ describe('EnsureConstraintsService — engine branch', () => {
     const svc = new EnsureConstraintsService(db as any);
     await svc.onApplicationBootstrap();
 
-    const statements = db.executeImplicitWrite.mock.calls.map((call) => String(call[0]));
+    const statements = db.executeSchemaWrite.mock.calls.map((call) => String(call[0]));
     // Only uniques: 7 *Class + Analysis + Module(name) = 9. No IS NOT NULL.
     expect(statements.filter((s) => s.includes('IS NOT NULL'))).toHaveLength(0);
     expect(statements.filter((s) => s.includes('IS UNIQUE'))).toHaveLength(9);
@@ -136,7 +136,7 @@ describe('EnsureConstraintsService — engine branch', () => {
     const svc = new EnsureConstraintsService(db as any);
     await svc.onApplicationBootstrap();
 
-    const statements = db.executeImplicitWrite.mock.calls.map((call) => String(call[0]));
+    const statements = db.executeSchemaWrite.mock.calls.map((call) => String(call[0]));
     expect(statements).toContain('CREATE CONSTRAINT ON (n:Module) ASSERT n.name IS UNIQUE');
     expect(statements).toContain('CREATE CONSTRAINT ON (n:ControlClass) ASSERT n.id IS UNIQUE');
     expect(statements).toContain('CREATE CONSTRAINT ON (n:ControlClass) ASSERT EXISTS (n.id)');
@@ -154,7 +154,7 @@ describe('EnsureConstraintsService — pre-flight guard', () => {
     await expect(svc.onApplicationBootstrap()).resolves.toBeUndefined();
 
     // Every label (and Module(name)) skipped, nothing created.
-    expect(db.executeImplicitWrite).not.toHaveBeenCalled();
+    expect(db.executeSchemaWrite).not.toHaveBeenCalled();
     expect(svc.isHealthy()).toBe(false);
     expect(svc.getSkippedLabels()).toContain('Module(name)');
     expect(svc.getSkippedLabels().length).toBeGreaterThan(1);

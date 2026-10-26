@@ -45,13 +45,21 @@ const harness = (attached: {
   return { dt, performQuery, performMutation }
 }
 
-/** The ids offered to each of the three typed connect paths. */
+/**
+ * The ids offered to each of the three typed connect paths. Each path gets one operand with the ids in an `in`
+ * list: the platform translates each operand into its own subqueries, so one operand per id would grow the
+ * statement with the element count.
+ */
 const connectedIds = (performMutation: ReturnType<typeof vi.fn>) => {
   const input = performMutation.mock.calls[0][0].variables.input
+  const idsOf = (connect: any[]) => {
+    expect(connect).toHaveLength(1)
+    return connect[0].where.node.id.in
+  }
   return {
-    components: input.supportedComponents.connect.map((c: any) => c.where.node.id.eq),
-    boundaries: input.supportedBoundaries.connect.map((c: any) => c.where.node.id.eq),
-    dataFlows: input.supportedDataFlows.connect.map((c: any) => c.where.node.id.eq),
+    components: idsOf(input.supportedComponents.connect),
+    boundaries: idsOf(input.supportedBoundaries.connect),
+    dataFlows: idsOf(input.supportedDataFlows.connect),
   }
 }
 
@@ -84,7 +92,7 @@ describe('DtControl.assignControlToElements — idempotent across sequential cal
     })
   })
 
-  it('dedupes the incoming list — the same id twice must not yield two connects', async () => {
+  it('dedupes the incoming list — the same id three times is listed once', async () => {
     const { dt, performMutation } = harness()
 
     await dt.assignControlToElements({ controlId: 'ctrl-1', elementIds: ['e1', 'e1', 'e1'] })

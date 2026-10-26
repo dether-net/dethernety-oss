@@ -102,7 +102,7 @@ element** names one item among many, so it is dropped and the rest of the write 
 
 ### Link deltas — `controls` and `dataItems`
 
-**Source:** `packages/dt-core/src/dt-utils/link-delta.ts` → `linkInput`, `buildLinkOps`
+**Source:** `packages/dt-core/src/dt-utils/link-delta.ts` → `linkInput`, `buildLinkOps`, `idOperands`
 
 The four writers that carry link lists (`updateComponent`, `updateBoundaryNode`, `updateDataFlow` for
 `controls` + `dataItems`; `updateModel` for `controls`) all route them through `linkInput`, which decides
@@ -112,7 +112,7 @@ absences, and collapsing them is the one mistake that turns a bulk write into a 
 | List | Baseline | Shape emitted |
 |------|----------|---------------|
 | absent | — | **Key omitted.** The element does not define this list, so it was not edited and must not be written. The conduit and import "safe node" passes rely on this to preserve associations. |
-| present | absent | **Replace:** `{ disconnect: {}, connect: [...ids] }`. The caller is asserting the whole list — correct for an import or a bulk write. |
+| present | absent | **Replace:** `{ disconnect: {}, connect: idOperands(ids) }`. The caller is asserting the whole list — correct for an import or a bulk write. |
 | present | present | **Delta:** `buildLinkOps(current, baselines[key] ?? [])` — connect only what was added, disconnect only what was removed, and omit the key entirely when nothing changed. A baseline holding nothing for the key is a delta against an empty list, not a missing baseline. |
 
 The replace shape's `disconnect` stays **unconditional** on purpose: `connect` compiles to a bare
@@ -133,6 +133,18 @@ and [`buildConduitOps`](./DATA_ACCESS_LAYER.md#buildconduitops--baseline-delta-r
 `updateModel`'s asymmetry is worth naming: its `controls` take the delta treatment, its `modules` are
 **always** a replace. Nothing edits a model's modules except the push path, which asserts them whole and
 has no earlier state to compare against.
+
+**One operand per relationship, the ids in an `in` list.** `idOperands` turns a list of ids into a single
+`{ where: { node: { id: { in: [...] } } } }` operand (none for an empty list). Every link write that
+carries nothing but its target sends its ids that way: `buildLinkOps` and `linkInput` for both halves,
+so the element `controls` / `dataItems` links and the technique-link deltas of `updateExposure` and
+`updateCountermeasure`; `createModel` / `updateModel` for `modules` and `controls`; and
+`assignControlToElements`, which builds the same shape for each typed path. dt-ws translates each
+operand into subqueries of its own and holds a request to 640 relationship operands (see
+[Query limits](../../SECURITY_MODEL.md#query-limits)), so one operand per id would grow the write with
+the list; one `in` operand keeps it the same size however long the list is. Links that carry an edge
+`justification` (technique links on `createExposure` / `createCountermeasure`, boundary conduits) stay
+one operand per id, since each carries its own edge properties.
 
 ---
 
@@ -247,8 +259,8 @@ UPDATE_MODEL                 // Update properties
 DELETE_MODEL                 // Delete by ID
 ```
 
-`dt-model-gql.ts` also exports `GET_DUMP_MODEL_DATA`, `GET_MODEL_BOUNDARIES`, `GET_MODEL_DATAFLOWS`, and
-`GET_MODEL_DATAITEMS`. No `DtModel` method issues them today.
+`dt-model-gql.ts` also exports `GET_MODEL_BOUNDARIES`, `GET_MODEL_DATAFLOWS`, and `GET_MODEL_DATAITEMS`. No
+`DtModel` method issues them today.
 
 ---
 
@@ -711,7 +723,8 @@ Manages security controls.
 > **`assignControlToElements` reads before it writes.** `connect` compiles to a bare relationship
 > `CREATE`, so connecting an already-attached pair appends a parallel `SUPPORTS` edge. The method reads
 > the current set and connects only the difference — the same non-idempotence that drives the
-> [link deltas](#link-deltas--controls-and-dataitems) and the conduit reconcile.
+> [link deltas](#link-deltas--controls-and-dataitems) and the conduit reconcile. The difference goes as
+> one `in` operand on each typed path, so the write stays the same size however many elements it names.
 
 > **`setInstantiationAttributes` delegates.** It calls `DtClass.setInstantiationAttributesWithStaleCount`
 > with the control id as `componentId` and narrows the result to `{ success, errorMessage }`.

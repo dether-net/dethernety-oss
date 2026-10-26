@@ -16,6 +16,8 @@ interface DeletionStats {
  * Enumerate the ids of every `Analysis` owned by the model — from the model
  * node and from each owned structural element (via `ANALYZED_BY`). Collected
  * first (bounded) so module hooks receive the full set without re-enumerating.
+ * `m` joins the list in a WITH of its own: Neo4j refuses `[m] + collect(...)`
+ * in an aggregating column unless `m` is also a key of that clause.
  */
 const ENUMERATE_MODEL_ANALYSES = `
 MATCH (m:Model {id: $modelId})
@@ -27,9 +29,11 @@ OPTIONAL MATCH (m)-[:CONTAINS]->(md:Data)
 OPTIONAL MATCH (sb)-[:HANDLES]->(bd:Data)
 OPTIONAL MATCH (c)-[:HANDLES]->(cd:Data)
 OPTIONAL MATCH (df)-[:HANDLES]->(fd:Data)
-WITH [m] + collect(DISTINCT sb) + collect(DISTINCT c) + collect(DISTINCT df)
-   + collect(DISTINCT md) + collect(DISTINCT bd) + collect(DISTINCT cd)
-   + collect(DISTINCT fd) AS owned
+WITH m,
+  collect(DISTINCT sb) + collect(DISTINCT c) + collect(DISTINCT df)
+  + collect(DISTINCT md) + collect(DISTINCT bd) + collect(DISTINCT cd)
+  + collect(DISTINCT fd) AS elems
+WITH [m] + elems AS owned
 UNWIND owned AS el
 OPTIONAL MATCH (el)-[:ANALYZED_BY]->(a:Analysis)
 RETURN collect(DISTINCT a.id) AS analysisIds

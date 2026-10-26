@@ -10,6 +10,7 @@ import {
 import { AnalysisSession, AnalysisStatus } from '@dethernety/dt-core';
 import type { ZoningFinding, EffectiveZone } from '@dethernety/dt-core';
 import { computeZoning, type ZoningEngine } from './zoning-adapter';
+import { writeThreatReportSnapshot } from './snapshot-write';
 
 /**
  * Normalize a graph-engine numeric value to a plain JS number (or null).
@@ -466,6 +467,10 @@ class DethernetyThreatReportModule implements DTModule {
    * Neo4j/Memgraph portability; toString() the timestamp; Integer score is
    * normalized to a JS number below so the doc JSON-stringifies cleanly.
    *
+   * The element lists are added in a WITH of their own: Neo4j refuses an
+   * aggregating column that reads a variable the clause does not project as a
+   * key (`bs + collect(...)`).
+   *
    * SHAPE IS LOAD-BEARING — three engine behaviours, each measured on Memgraph
    * 3.8.1 (see test/compute-ledger.e2e.spec.ts), and each of which silently
    * returns plausible-but-wrong data rather than erroring:
@@ -509,7 +514,8 @@ class DethernetyThreatReportModule implements DTModule {
          OPTIONAL MATCH (m)-[:CONTAINS]->(d:Data)
          WITH m, bs, cs, collect(DISTINCT d) AS ds
          OPTIONAL MATCH (m)-[:CONTAINS]->(:SecurityBoundary)<-[:BELONGS_TO*0..50]-(:SecurityBoundary)<-[:BELONGS_TO]-(:Component)-[:FLOWS]-(df:DataFlow)
-         WITH bs + cs + ds + collect(DISTINCT df) AS els
+         WITH m, bs, cs, ds, collect(DISTINCT df) AS dfs
+         WITH bs + cs + ds + dfs AS els
          UNWIND (CASE WHEN size(els) = 0 THEN [null] ELSE els END) AS el
          WITH el WHERE el IS NOT NULL
          WITH el, [lbl IN labels(el) WHERE lbl IN ['Component', 'DataFlow', 'SecurityBoundary', 'Data']][0] AS elType
@@ -892,23 +898,14 @@ class DethernetyThreatReportModule implements DTModule {
 
     const session = this.session();
     try {
-      // Single-statement SET ⇒ atomic snapshot replacement. Fail loud if the
-      // Analysis node is missing: MATCH yields zero rows, the SET silently
-      // no-ops, and we must NOT report success for a write that didn't land.
-      const result = await session.run(
-        `MATCH (a:Analysis {id: $analysisId})
-         SET a.threatReportDoc = $doc,
-             a.threatReportGeneratedAt = $generatedAt,
-             a.threatReportFingerprint = $fingerprint
-         RETURN a.id AS id`,
-        {
-          analysisId,
-          doc: JSON.stringify(doc),
-          generatedAt,
-          fingerprint,
-        },
-      );
-      if (result.records.length === 0) {
+      // A missing Analysis node must fail loud, not report success.
+      const written = await writeThreatReportSnapshot(session, {
+        analysisId,
+        doc: JSON.stringify(doc),
+        generatedAt,
+        fingerprint,
+      });
+      if (!written) {
         const message = `threat-report: cannot generate snapshot — Analysis node '${analysisId}' not found`;
         this.logger.error(message);
         throw new Error(message);

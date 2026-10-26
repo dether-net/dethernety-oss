@@ -186,7 +186,7 @@ the documentation of what that decision costs.
 
 | Secret | Where it lives | Handling |
 |---|---|---|
-| Database password | `.env.secrets`, mode `0600`, created with `umask 077` | Generated once on first run (24 random bytes, hex). Never written into `.env`. Reaches `db`, `console-init`, and `platform` through Compose interpolation only |
+| Database password | `.env.secrets`, mode `0600`, created with `umask 077` | Generated once on first run (24 random bytes, hex). Never written into `.env`. Reaches `db`, `console-init`, and `platform` through Compose interpolation only. On Neo4j, `cypher-shell` (the health check and `byodt`'s own queries) reads it from its environment inside the container, so it is on no command line; Memgraph's `mgconsole` takes it as an argument |
 | TLS private key | `tls/key.pem`, mode `0600`, in a `0700` directory | Mounted read-only into the proxy. The control script never widens that directory |
 | Operator ID token (cloud) | Browser memory only | Never persisted, never written to disk by the console, never logged |
 | Operator access token (cloud) | Browser memory; the daemon holds it for the duration of one request | Minted in the same exchange as the ID token. Never persisted, never written to disk, never logged. Reaches the daemon on `X-Console-Cloud-Token` from every route that asks the content service something on the operator's behalf: the catalog read, which asks what the subscription includes; the artifact install, which asks for entitled bytes; the roster relay, which asks for the team's members; the routes that change the deployment, where the admin gate spends it asking who is acting; and the read of the deployment's own access list, gated the same way. It is sent upstream as an ordinary bearer — the console's own header name never travels outbound |
@@ -205,8 +205,9 @@ Four consequences are worth stating plainly:
 - **The console is never given the database password.** Its service definition passes neither the
   variable nor the secrets file, so a flaw in the console cannot yield database credentials.
 - **A backup is not a secret-bearing file, but it is your whole graph.** Database authentication is
-  separate system state and is not inside a snapshot, so a backup carries no password — and restores
-  cleanly onto another deployment of the same version. Protect it as you would the models it contains.
+  separate system state and is not inside a Memgraph snapshot or a Neo4j dump, so a backup carries no
+  password — and restores cleanly onto another deployment of the same version and engine. Protect it as
+  you would the models it contains; `byodt` writes a Neo4j dump's copy mode `0600`.
 - **`.env.secrets` is not disposable.** The database's stored authentication was created with that
   password. Deleting the file while the graph exists locks the operator out of their own data, which is
   why `destroy` deletes nothing and says so.
@@ -500,9 +501,20 @@ keep another local account from swapping a file between the two, or planting one
 its owner can write it without the sticky bit, and `byodt` sets that bit each time it prepares the
 layout (`up`, `restart`, `update`, `models pull`).
 
-`byodt` also refuses a `data/*` runtime directory (`content-cache`, `memgraph-log`, `models`,
-`memgraph`) that exists and is owned by neither the operator (the account running `byodt`, or the one
-that ran it through `sudo`) nor root, whether it is a symbolic link or a plain directory. A link
+On Neo4j, a backup's dump — the whole graph — never passes through the world-writable `data/` tree.
+Each `byodt backup` or `restore` makes a private working directory in the bundle root
+(`.byodt-dump.XXXXXX`, mode `0700`, owned by the operator), mounts it into the one-off `neo4j-admin`
+container only, and removes it when the command ends, on failure too. For that container to enter a
+directory only the operator can, `neo4j-admin` runs as the database service's own user — the uid
+`byodt` derives to map to the operator — with the image's entrypoint bypassed, since that entrypoint,
+started as root, would drop to the image's own user first. A backup refuses a dump that is a symbolic
+link or not a regular file, and copies it to `backups/` as a new file, mode `0600`. A restore copies
+the backup file into the directory (mode `0600`) and mounts it read-only for the load.
+
+`byodt` also refuses a `data/*` runtime directory (`content-cache`, `models`, and the database's own:
+`memgraph-log` and `memgraph` on Memgraph; `neo4j-logs` and `neo4j` on Neo4j) that
+exists and is owned by neither the operator (the account running `byodt`, or the one that ran it
+through `sudo`) nor root, whether it is a symbolic link or a plain directory. A link
 another account planted would redirect the directory elsewhere, and the owner of a directory under the
 sticky `data/` can still swap it for a link, or rename what is in it, after any check. `byodt` checks
 before it creates the directory and again before it changes any permission, so an entry planted

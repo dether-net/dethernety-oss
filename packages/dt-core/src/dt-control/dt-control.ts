@@ -1,4 +1,5 @@
 import { DtUtils } from '../dt-utils/dt-utils.js'
+import { idOperands } from '../dt-utils/link-delta.js'
 import { DtClass, ChangeElementBindingResult } from '../dt-class/dt-class.js'
 import * as Apollo from '@apollo/client'
 import { Class, Control, ControlCandidate, ControlGapsResult, Element as DtElement } from '../interfaces/core-types-interface.js'
@@ -453,8 +454,7 @@ export class DtControl {
           .filter((id): id is string => Boolean(id)),
       )
 
-      // Dedupe the incoming list too: a caller passing the same id twice would
-      // otherwise get two parallel edges from a single call.
+      // Dedupe the incoming list too, so the `in` list names each element once.
       const toConnect = Array.from(new Set(elementIds)).filter(id => !attached.has(id))
 
       // Everything already attached — the repeat-call case this read exists for.
@@ -474,10 +474,9 @@ export class DtControl {
       // Each connect's WHERE filter is type-scoped (e.g. supportedComponents
       // only matches Component nodes), so non-matching IDs are silently
       // skipped. This avoids a pre-flight type lookup and works because the
-      // SUPPORTS edge is the same regardless of the target node's label.
-      const connects = toConnect.map(id => ({
-        where: { node: { id: { eq: id } } },
-      }))
+      // SUPPORTS edge is the same regardless of the target node's label. Each
+      // path gets one operand with the ids in an `in` list (idOperands).
+      const connects = idOperands(toConnect)
 
       const variables = {
         controlId,

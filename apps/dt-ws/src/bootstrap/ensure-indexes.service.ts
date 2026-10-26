@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
-import { DatabaseService, EngineInfo } from '../database/database.service';
-import { UNIQUE_CONSTRAINT_COVERED_PAIRS } from './ensure-constraints.service';
+import { buildIndexDdl } from '@dethernety/dt-module';
+import { DatabaseService } from '../database/database.service';
+import { EnsureConstraintsService, UNIQUE_CONSTRAINT_COVERED_PAIRS } from './ensure-constraints.service';
 
 /**
  * Idempotent per-label id-index creation at application bootstrap.
@@ -18,9 +19,10 @@ import { UNIQUE_CONSTRAINT_COVERED_PAIRS } from './ensure-constraints.service';
  * engines and share no index syntax: Memgraph only parses the legacy
  * `CREATE INDEX ON :L(p)` form (and errors on an existing index — no
  * `IF NOT EXISTS`; the "already exists" error is caught and treated as
- * success), Neo4j 5 only `CREATE INDEX [IF NOT EXISTS] FOR (n:L) ON (n.p)`.
+ * success), Neo4j 5 only `CREATE INDEX <name> IF NOT EXISTS FOR (n:L) ON (n.p)`.
  * The engine is probed once via {@link DatabaseService.getEngineInfo} and the
- * statement built per dialect by {@link buildIndexDdl}.
+ * statement built per dialect by dt-module's `buildIndexDdl`, which gives
+ * every Neo4j index it creates a deterministic name.
  *
  * **Neo4j constraint interaction.** On Neo4j a uniqueness constraint
  * auto-creates its backing index, and a *plain* index on the same
@@ -38,20 +40,18 @@ import { UNIQUE_CONSTRAINT_COVERED_PAIRS } from './ensure-constraints.service';
  * **Transaction mode.** Memgraph rejects DDL (`CREATE INDEX`, `CREATE
  * CONSTRAINT`, etc.) inside multi-command (explicit) transactions with the
  * message `Index manipulation is not allowed in multicommand transactions`.
- * The bootstrap routes through {@link DatabaseService.executeImplicitWrite},
+ * The bootstrap routes through {@link DatabaseService.executeSchemaWrite},
  * which runs the statement via `session.run` (auto-commit) instead of
  * `session.executeWrite` (explicit BEGIN/COMMIT). Do NOT switch this back
  * to `executeWrite` — it will silently fail-open every restart and the
  * shared-ownership safety query in CL §6 will run full label scans on
  * every push (the fail-open the bootstrap exists to prevent).
+ *
+ * **After the constraints.** The pass waits for {@link EnsureConstraintsService}
+ * to finish: run side by side on Neo4j, an index and a constraint on the same
+ * label (`:Module(id)` and `:Module(name)`) can deadlock. `executeSchemaWrite`
+ * also retries a transient error.
  */
-
-/** Build the engine-correct index DDL statement. */
-export function buildIndexDdl(engineInfo: EngineInfo, label: string, property: string): string {
-  return engineInfo.engine === 'neo4j'
-    ? `CREATE INDEX IF NOT EXISTS FOR (n:${label}) ON (n.${property})`
-    : `CREATE INDEX ON :${label}(${property})`;
-}
 
 /**
  * True when the pair receives a UNIQUE constraint at bootstrap — on Neo4j
@@ -135,10 +135,29 @@ export class EnsureIndexesService implements OnApplicationBootstrap {
     { label: 'MitreAtlasMitigation', property: 'atlas_id' },
   ];
 
-  constructor(private readonly databaseService: DatabaseService) {}
+  private finished?: Promise<void>;
 
-  async onApplicationBootstrap(): Promise<void> {
+  constructor(
+    private readonly databaseService: DatabaseService,
+    private readonly ensureConstraints: EnsureConstraintsService,
+  ) {}
+
+  /** Settles when the bootstrap pass has run (successfully or not); for services that must not overlap it. */
+  whenBootstrapped(): Promise<void> {
+    return this.finished ?? Promise.resolve();
+  }
+
+  onApplicationBootstrap(): Promise<void> {
+    this.finished = this.bootstrap();
+    return this.finished;
+  }
+
+  private async bootstrap(): Promise<void> {
     try {
+      // Nest starts every bootstrap hook of a module in one synchronous pass: yield once so the constraint pass has
+      // started, whatever order the providers are listed in, then wait for it (it never rejects).
+      await Promise.resolve();
+      await this.ensureConstraints.whenBootstrapped();
       await this.ensureIndexes();
     } catch (error) {
       // Belt-and-braces: a rejected bootstrap hook makes main.ts exit the
@@ -177,9 +196,8 @@ export class EnsureIndexesService implements OnApplicationBootstrap {
     let failed = 0;
 
     for (const { label, property } of targets) {
-      const cypher = buildIndexDdl(engineInfo, label, property);
       try {
-        await this.databaseService.executeImplicitWrite(cypher);
+        await this.databaseService.executeSchemaWrite(buildIndexDdl(engineInfo, label, property));
         created += 1;
         this.logger.debug(`Created index on :${label}(${property})`);
       } catch (error) {

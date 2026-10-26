@@ -51,7 +51,7 @@ The Browser is your primary interface for creating and managing reusable control
 
 **5. Configure each control class**:
 - Click the **tune** button on a class row to open its attributes form
-- Fill in the attributes the class defines, then **Save**. A yes/no attribute answers **Yes**, **No**, or **Not answered**, and an answer can be taken back — see [Answering yes-or-no attributes](COMPONENT_CONFIGURATION_GUIDE.md#answering-yes-or-no-attributes)
+- Fill in the attributes the class defines, then **Save**. A yes/no attribute answers **Yes**, **No**, or **Not answered**, and an answer can be taken back — see [Answering yes-or-no attributes](COMPONENT_CONFIGURATION_GUIDE.md#answering-yes-or-no-attributes). A list row you clear is removed from the list when you save
 - **Only configured classes generate countermeasures.** A class's policy fires on the attribute values you set — an unconfigured class contributes nothing
 - Attributes are saved by their own form, separately from the control's name, description, and class list
 

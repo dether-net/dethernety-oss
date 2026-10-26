@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
+import { DatabaseService } from '../../../database/database.service';
 import { ModuleRegistryService } from '../module-registry.service';
 import { ModuleManagementService } from '../module-management.service';
 import { DTMetadata, DTModule, deriveClassId } from '@dethernety/dt-module';
@@ -52,6 +53,7 @@ describe('ModuleRegistryService — id stamping', () => {
         { provide: 'NEO4J_DRIVER', useValue: mockNeo4jDriver },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: ModuleManagementService, useValue: mockModuleManagementService },
+        { provide: DatabaseService, useValue: {} },
       ],
     }).compile();
 

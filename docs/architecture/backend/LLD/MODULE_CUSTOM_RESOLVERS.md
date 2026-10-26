@@ -219,8 +219,14 @@ export interface ModuleResolverContext {
   driver: any;
   /** Logger scoped to the module */
   logger: Logger;
-  /** Database name for session creation */
-  databaseName: string;
+  /** Database name for session creation; `undefined` means the server's default database */
+  databaseName?: string;
+  /**
+   * The graph engine behind `driver`; rejects when it cannot be determined.
+   * Optional because older platforms do not supply it: call
+   * `resolveEngine(context)`, which probes the driver when it is absent.
+   */
+  getEngine?: () => Promise<EngineInfo>;
 }
 ```
 
@@ -287,9 +293,10 @@ if (
 ) {
   try {
     const resolverContext: ModuleResolverContext = {
-      driver: this.neo4jDriver,
+      driver: this.createSecureDriver(),
       logger: new Logger(`Module:${moduleName}:Resolvers`),
-      databaseName: this.configService.get('database.name') || 'neo4j',
+      databaseName: this.configService.get('database.name'),
+      getEngine: () => this.databaseService.getEngineInfoStrict(),
     };
     const resolverMap = await loadResult.module.getResolvers(resolverContext);
     if (resolverMap && Object.keys(resolverMap).length > 0) {

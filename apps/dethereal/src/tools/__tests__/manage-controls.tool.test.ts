@@ -367,6 +367,8 @@ describe('ManageControlsTool.execute — CONTROL class-kind validation', () => {
     expect(result.error).toContain('k8s-module')
     expect(result.error).toContain('Network Access Control (nac-1)')
     expect(mockCreateControl).not.toHaveBeenCalled()
+    // The same-module suggestion filters the module by id with the platform's filter shape (an `eq`, not a bare id).
+    expect(mockGetControlClasses).toHaveBeenCalledWith({ moduleWhere: { id: { eq: 'mod-k8s' } }, classWhere: {} })
   })
 
   it('proceeds with create when every class id is a CONTROL class', async () => {

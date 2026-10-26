@@ -1,0 +1,94 @@
+name: neo4j-leg
+
+# The platform suites on Neo4j 5.26 Community, beside the same suites on Memgraph as the baseline. Run by hand
+# (Actions → neo4j-leg → Run workflow): it starts a database per suite and is too slow for every pull request.
+#
+# DT_TEST_ENGINE selects the engine in every harness. Each suite runs whatever the others did; the gate at the end
+# then fails the leg when a suite did not run, reported no passed test, or holds a database statement error the
+# allowlist does not cover (.github/scripts/neo4j-log-gate.sh says what it reads and why a green run is not enough).
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  suites:
+    name: Platform suites on ${{ matrix.engine }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [memgraph, neo4j]
+    env:
+      DT_TEST_ENGINE: ${{ matrix.engine }}
+      # The harnesses dispose of their own containers.
+      TESTCONTAINERS_RYUK_DISABLED: 'true'
+      # Plain output for the log gate: the test runners colour it in CI otherwise.
+      NO_COLOR: '1'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.13.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # As in ci.yml: the suites import these packages' build output.
+      - name: Build the packages the suites import
+        run: pnpm turbo build --filter='@dethernety/dt-core' --filter='@dethernety/dt-module' --filter='@dethernety/embedder' --filter='dethernety-threat-report...'
+
+      # A cold pull inside a suite's beforeAll can outlast its hook; pull every harness image first.
+      - name: Pre-pull test database images
+        run: |
+          set -euo pipefail
+          images=$(grep -rhoE "^(export )?const [A-Z_]*(IMAGE|REF) *=[^;]*'[^']+'" apps/dt-ws/test modules/dethernety-threat-report/test \
+            | grep -oE "'[^']+'$" | tr -d "'" | sort -u)
+          [ -n "$images" ] || { echo "::error::no image constants found in the harnesses"; exit 1; }
+          for img in $images; do
+            for attempt in 1 2 3; do
+              if docker pull --quiet "$img"; then break; fi
+              if [ "$attempt" -eq 3 ]; then echo "::error::could not pull $img"; exit 1; fi
+              sleep $((attempt * 15))
+            done
+          done
+
+      - name: Make the log directory
+        run: mkdir -p test-logs
+
+      # Two workers: a Neo4j container takes far more memory and start time than a Memgraph one.
+      - name: dt-ws (end-to-end)
+        run: |
+          set -o pipefail
+          pnpm --filter dt-ws exec jest --config ./test/jest-e2e.json --maxWorkers=2 2>&1 | tee test-logs/dt-ws.log
+
+      - name: threat-report (end-to-end)
+        if: ${{ !cancelled() }}
+        run: |
+          set -o pipefail
+          pnpm --filter dethernety-threat-report test:e2e 2>&1 | tee test-logs/threat-report.log
+
+      - name: Log gate
+        if: ${{ !cancelled() }}
+        run: bash .github/scripts/neo4j-log-gate.sh --allow .github/neo4j-log-gate-allow.txt test-logs/dt-ws.log test-logs/threat-report.log
+
+      - name: Keep the suite logs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: suite-logs-${{ matrix.engine }}
+          path: test-logs/
+          retention-days: 14

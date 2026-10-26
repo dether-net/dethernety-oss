@@ -9,7 +9,7 @@ import { buildLinkOps, linkInput } from '../link-delta.js';
  */
 
 const ids = (ops: ReturnType<typeof buildLinkOps>, key: 'connect' | 'disconnect') =>
-  (ops?.[key] ?? []).map(o => o.where.node.id.eq);
+  (ops?.[key] ?? []).flatMap(o => o.where.node.id.in);
 
 describe('buildLinkOps', () => {
   it('connects what is new and disconnects nothing else', () => {
@@ -57,8 +57,7 @@ describe('buildLinkOps', () => {
     expect(ids(buildLinkOps(undefined, ['c1']), 'disconnect')).toEqual(['c1']);
   });
 
-  // `connect` compiles to a bare relationship CREATE, so a repeated id would append a parallel edge —
-  // the defect this whole write path was rebuilt to avoid.
+  // An id the buffer repeats is listed once in the `in` operand, so the write names each node once.
   it('de-duplicates a repeated id rather than connecting it twice', () => {
     expect(ids(buildLinkOps(['c1', 'c1', 'c2'], []), 'connect')).toEqual(['c1', 'c2']);
   });
@@ -67,13 +66,13 @@ describe('buildLinkOps', () => {
     expect(ids(buildLinkOps([], ['c1', 'c1']), 'disconnect')).toEqual(['c1']);
   });
 
-  it('emits the operand shape the writers already use', () => {
-    expect(buildLinkOps(['c1'], [])).toEqual({ connect: [{ where: { node: { id: { eq: 'c1' } } } }] });
+  it('emits one `in` operand per side', () => {
+    expect(buildLinkOps(['c1'], [])).toEqual({ connect: [{ where: { node: { id: { in: ['c1'] } } } }] });
   });
 });
 
 describe('linkInput — which shape, and the two different absences', () => {
-  const connectIds = (v: any) => (v?.connect ?? []).map((o: any) => o.where.node.id.eq);
+  const connectIds = (v: any) => (v?.connect ?? []).flatMap((o: any) => o.where.node.id.in);
 
   it('omits the key when the element does not define the list', () => {
     // The association is left alone. The import and conduit passes rely on exactly this.
@@ -168,7 +167,7 @@ describe('an id that cannot be named is not written, on either side', () => {
   it('filters the REPLACE shape too, where the whole list is being asserted', () => {
     const v: any = linkInput(['c1', undefined], undefined, 'controls');
     expect(v.disconnect).toEqual({});
-    expect((v.connect ?? []).map((o: any) => o.where.node.id.eq)).toEqual(['c1']);
+    expect((v.connect ?? []).flatMap((o: any) => o.where.node.id.in)).toEqual(['c1']);
   });
 
   it('clears the association when a caller asserts a whole list it cannot name', () => {

@@ -31,7 +31,7 @@ const send = async (over: Record<string, unknown> = {}) => {
   return performMutation.mock.calls[0][0].variables.input;
 };
 
-const ids = (v: any) => (v?.connect ?? []).map((o: any) => o.where.node.id.eq);
+const ids = (v: any) => (v?.connect ?? []).flatMap((o: any) => o.where.node.id.in);
 
 describe('DtModel.updateModel — a link list writes the entries it can name', () => {
   it('connects only the nameable modules', async () => {

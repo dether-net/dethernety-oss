@@ -27,9 +27,9 @@ import { connectIds } from './connect-id.js'
  */
 export type IdList = readonly (string | undefined | null)[] | undefined
 
-/** One `{ where: { node: { id: { eq } } } }` operand — the shape both halves of a link write use. */
+/** One `{ where: { node: { id: { in } } } }` operand — the shape both halves of a link write use. */
 export interface LinkWhere {
-  where: { node: { id: { eq: string } } }
+  where: { node: { id: { in: string[] } } }
 }
 
 export interface LinkOps {
@@ -37,7 +37,12 @@ export interface LinkOps {
   disconnect?: LinkWhere[]
 }
 
-const operand = (id: string): LinkWhere => ({ where: { node: { id: { eq: id } } } })
+/**
+ * A list of ids as the operands of one connect or disconnect: all of them in a single `in` operand, or none
+ * for an empty list. One operand per relationship keeps the statement the same size however long the list is.
+ */
+export const idOperands = (ids: readonly string[]): LinkWhere[] =>
+  ids.length ? [{ where: { node: { id: { in: [...ids] } } } }] : []
 
 /**
  * The operations that take `baseline` to `current`.
@@ -45,8 +50,8 @@ const operand = (id: string): LinkWhere => ({ where: { node: { id: { eq: id } } 
  * Returns `undefined` when nothing changed, so the caller omits the key entirely rather than sending an
  * empty operation — an element whose links were not edited must not have its links written at all.
  *
- * Both sides are de-duplicated: an id repeated in the buffer would otherwise connect twice and create
- * the parallel edge this shape exists to avoid.
+ * Both sides are de-duplicated before the delta is taken, so an id the buffer repeats is written once
+ * and an id present on both sides is no change.
  *
  * BOTH SIDES ARE ALSO VALIDATED, and the baseline side matters more than the current one. An unusable id
  * in `current` would build a connect that attaches every node of its type; an unusable id in `baseline`
@@ -60,8 +65,8 @@ export const buildLinkOps = (
   const cur = new Set(connectIds(current))
   const base = new Set(connectIds(baseline))
 
-  const connect = [...cur].filter(id => !base.has(id)).map(operand)
-  const disconnect = [...base].filter(id => !cur.has(id)).map(operand)
+  const connect = idOperands([...cur].filter(id => !base.has(id)))
+  const disconnect = idOperands([...base].filter(id => !cur.has(id)))
 
   if (!connect.length && !disconnect.length) return undefined
 
@@ -106,7 +111,7 @@ export const linkInput = (
     // A list asserted whole, minus the entries that cannot be named. The disconnect stays unconditional,
     // so a list of nothing usable clears the association rather than attaching everything — which is the
     // honest reading of "this is the whole list" when none of it resolves.
-    return { disconnect: {}, connect: [...new Set(connectIds(current))].map(operand) }
+    return { disconnect: {}, connect: idOperands([...new Set(connectIds(current))]) }
   }
   return buildLinkOps(current, baselines[key] ?? [])
 }

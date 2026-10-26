@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import type { EngineInfo } from '../engine';
 
 /**
  * Context passed to a module's getResolvers() at startup.
@@ -19,6 +20,13 @@ export interface ModuleResolverContext {
    * through conditionally: `databaseName ? { database: databaseName } : {}`.
    */
   databaseName?: string;
+  /**
+   * The graph engine behind `driver`. Rejects when the engine cannot be
+   * determined, so a module never builds DDL for a guessed dialect. Optional
+   * because older platforms do not supply it: call `resolveEngine(context)`,
+   * which probes the driver directly when this is absent.
+   */
+  getEngine?: () => Promise<EngineInfo>;
 }
 
 /**

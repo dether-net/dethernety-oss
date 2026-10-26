@@ -9,6 +9,11 @@
       "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./cypher-lint": {
+      "types": "./dist/cypher-lint.d.ts",
+      "require": "./dist/cypher-lint.js",
+      "default": "./dist/cypher-lint.js"
+    },
     "./embedding": {
       "types": "./dist/embedding.d.ts",
       "require": "./dist/embedding.js",
@@ -29,6 +34,11 @@
       "require": "./dist/rego-mapping.js",
       "default": "./dist/rego-mapping.js"
     },
+    "./test-database": {
+      "types": "./dist/test-database.d.ts",
+      "require": "./dist/test-database.js",
+      "default": "./dist/test-database.js"
+    },
     "./frontend-manifest": {
       "types": "./dist/frontend-manifest.d.ts",
       "require": "./dist/frontend-manifest.js",
@@ -43,6 +53,9 @@
   },
   "typesVersions": {
     "*": {
+      "cypher-lint": [
+        "dist/cypher-lint.d.ts"
+      ],
       "embedding": [
         "dist/embedding.d.ts"
       ],
@@ -54,6 +67,9 @@
       ],
       "rego-mapping": [
         "dist/rego-mapping.d.ts"
+      ],
+      "test-database": [
+        "dist/test-database.d.ts"
       ],
       "frontend-manifest": [
         "dist/frontend-manifest.d.ts"

@@ -23,8 +23,9 @@ The console's own design is in [`CONSOLE.md`](./CONSOLE.md); how modules arrive 
 | **Network** | One bridge network, `dethernety`; services address each other by service name |
 | **Published ports** | Exactly one: the front door, bound to loopback by default |
 | **Persistent state** | Host directories under the bundle (or one named volume for the graph) |
-| **Images** | Pinned by `.env`: `PLATFORM_VERSION` selects both of Dethernety's own images — platform and console — while the two third-party images carry their own references |
-| **Control surface** | The `byodt` script — a wrapper over the engine's `compose` that carries both env files |
+| **Images** | Pinned by `.env`: `PLATFORM_VERSION` selects both of Dethernety's own images — platform and console — while the third-party images carry their own references |
+| **Graph database** | Memgraph (default) or Neo4j 5.26 Community, selected by `DB_ENGINE`; each defined in its own compose file |
+| **Control surface** | The `byodt` script — a wrapper over the engine's `compose` that carries both env files and names the compose files |
 
 ---
 
@@ -76,6 +77,16 @@ the daemon is started with `command: ["daemon"]`.
 Holds every model, the reference corpus, and the module-derived class registry. Reached over Bolt at
 `db:7687`; never published.
 
+The service is not in `compose.yaml`. `compose.memgraph.yaml` and `compose.neo4j.yaml` each define it
+under the same name, and `byodt` runs compose with `compose.yaml`, the file of the engine `DB_ENGINE`
+names, and `compose.override.yaml` when present, last. The rest of the stack does not change with the
+engine. `DB_ENGINE` resolves as `CONTAINER_ENGINE` does: an exported value wins for one command, then
+`.env` (read as compose reads it: an `export ` prefix and a trailing ` # comment` are allowed), then
+`memgraph`; the first run records it in `.env`, and on Neo4j records `NEO4J_IMAGE` too. Both are
+recorded only after the switch guard (below) has passed.
+
+#### Memgraph (`DB_ENGINE=memgraph`, the default)
+
 | | |
 |---|---|
 | Image | `${DB_IMAGE}` — a third-party reference resolved by your runtime |
@@ -84,7 +95,7 @@ Holds every model, the reference corpus, and the module-derived class registry. 
 | Health | Answers a query (`RETURN 1;` through `mgconsole`) — not merely "the process is up": 5 s interval, 30 retries, 15 s start period |
 | Restart | `unless-stopped` |
 
-Notable startup flags, all set in `compose.yaml`:
+Notable startup flags, all set in `compose.memgraph.yaml`:
 
 | Flag | Why |
 |---|---|
@@ -96,6 +107,51 @@ Notable startup flags, all set in `compose.yaml`:
 The plain image is used rather than the extended variant: class matching uses the built-in vector
 search, and the one procedure that would otherwise require the extended build has a built-in fallback.
 Pinning avoids a silent multi-gigabyte difference in the first-run pull.
+
+#### Neo4j (`DB_ENGINE=neo4j`)
+
+| | |
+|---|---|
+| Image | `${NEO4J_IMAGE}` — exported by `byodt` from `.env`, where the first Neo4j run records the image the bundle was tested with (`docker.io/library/neo4j:5.26.32-community`) |
+| Credentials | User `neo4j`, the Community administrator; `NEO4J_AUTH` sets its initial password from `NEO4J_PASSWORD` on the first start only |
+| Storage | `${NEO4J_DATA}` (default `./data/neo4j`) mounted at `/data` |
+| Memory | `NEO4J_HEAP_SIZE` (default `2G`) as initial and maximum heap; `NEO4J_PAGECACHE_SIZE` (default `1G`) |
+| Timeout | `db.transaction.timeout` 600 s — the same cap as Memgraph's |
+| Plugins | `server.directories.plugins` is `/var/lib/neo4j/labs`, which loads APOC Core from the jar the image ships there (see below) |
+| Procedure allowlist | `dbms.security.procedures.allowlist` is `apoc.date.convertFormat,apoc.util.validatePredicate`: only the two APOC Core functions the platform calls are loaded |
+| Health | Answers a query (`RETURN 1;` through `cypher-shell`, which reads the password from its environment inside the container, so it is on no command line): 10 s interval, 20 s timeout, 30 retries, 30 s start period |
+| Shutdown | 120 s grace, so a stop is clean: `neo4j-admin` refuses to dump a store that needs recovery |
+| Restart | `unless-stopped` |
+
+Neo4j Community serves one database, `neo4j`, and has no roles, so the platform logs in as `neo4j`.
+`compose.neo4j.yaml` sets `NEO4J_USERNAME=neo4j` and `NEO4J_DATABASE=neo4j` on `console-init` and
+`platform` itself, so the Memgraph values `.env` may still carry do not reach them; on the first Neo4j
+run `byodt` prints a notice for each that `.env` sets to something else. When the reference-data ingest runs out of memory,
+the one-shot names `NEO4J_HEAP_SIZE` in its diagnosis.
+
+The platform's GraphQL layer needs two APOC Core functions on Neo4j: it reads every DateTime field
+through `apoc.date.convertFormat`, and writes `apoc.util.validatePredicate` into the checks of some
+mutations (list push and pop, arithmetic operators, single-cardinality relationships). The official
+Neo4j image ships the APOC Core jar in `/var/lib/neo4j/labs`, and `compose.neo4j.yaml` sets
+`NEO4J_server_directories_plugins` to that directory, so Neo4j loads the jar where it lies: nothing is
+copied, written or downloaded. `NEO4J_dbms_security_procedures_allowlist` names the two functions, so
+only they load: no other APOC procedure or function, the URL-fetching ones among them, can be called,
+and none is granted unrestricted access. The image's own `NEO4J_PLUGINS=["apoc"]` mechanism would
+instead copy the jar into `plugins/` and set `dbms.security.procedures.unrestricted=apoc.*`, which
+these two functions do not need. On Neo4j the bootstrap service `CheckApocFunctionsService` checks
+them at startup: it lists them (`SHOW FUNCTIONS`) and, when both are listed, calls each once. It logs
+one error naming the missing functions, or saying they are listed but cannot run. The check never
+stops startup, and a check that cannot run is logged as a warning.
+
+#### Switching engines
+
+Each engine keeps its own store, and nothing converts one into the other; each refuses the other's
+backup file. `up`, `restart`, `update` and `bootstrap` refuse to start an engine whose bind-mounted
+store is empty while the other engine's bind-mounted store holds data — that is a changed `DB_ENGINE`,
+and starting would bring up an empty graph and ingest into it while the real one sits unused. The guard
+runs before `byodt` records or creates anything for the engine, so a refused start leaves `.env` and
+`data/` as they were, and an exported `DB_ENGINE` that is refused is never recorded. A named volume
+cannot be looked into from the host, so it is not checked.
 
 ### `console-init` — the pre-start one-shot
 
@@ -259,8 +315,11 @@ console* to your network; the consequences of that are the subject of
 
 | Host path | Mounted at | By | Mode | Contents |
 |---|---|---|---|---|
-| `${DB_DATA}` (default `./data/memgraph`) | `/var/lib/memgraph` | `db` | rw | The graph, plus the database's own in-place snapshots |
-| `./data/memgraph-log` | `/var/log/memgraph` | `db` | rw | The database's own log. Mounted from the host because the image's log directory is writable only by the image's user, and on a bind mount the container runs as whoever owns the data directory instead |
+| `${DB_DATA}` (default `./data/memgraph`) | `/var/lib/memgraph` | `db` (Memgraph) | rw | The graph, plus the database's own in-place snapshots |
+| `./data/memgraph-log` | `/var/log/memgraph` | `db` (Memgraph) | rw | The database's own log. Mounted from the host because the image's log directory is writable only by the image's user, and on a bind mount the container runs as whoever owns the data directory instead |
+| `${NEO4J_DATA}` (default `./data/neo4j`) | `/data` | `db` (Neo4j) | rw | The graph |
+| `./data/neo4j-logs` | `/logs` | `db` (Neo4j) | rw | The database's own logs |
+| `./.byodt-dump.XXXXXX` (one per run) | `/dumps` | the one-off `neo4j-admin` container of `db` (Neo4j) | rw for a dump, **ro** for a load | The private working directory of a `byodt backup` or `restore`: mode `0700`, the operator's, removed when the command ends. See [Backup and restore](#backup-and-restore) |
 | `./data/models` | `/models` | `platform` | rw | The embedding model's weights, downloaded and verified on the first start (or by `byodt models pull`) |
 | `./modules` | `/app/apps/dt-ws/custom_modules` | `console-init`, `console` | rw | Installed module payloads, the console's state file, content-mount stubs |
 | `./modules` | `/app/apps/dt-ws/custom_modules` | `platform` | **ro** | The platform loads what was placed; it never writes here |
@@ -278,11 +337,12 @@ schema when no-auth is on, an **empty file** when it is off — so the mount tar
 regular file. If the source were missing, the container runtime would create a *directory* there, and a
 later flip back to no-auth would fail trying to write over it.
 
-**`DB_DATA` selects the store.** The default host bind mount is visible on disk and easy to inspect and
-copy. On VM-backed runtimes (a Podman machine, or Docker Desktop on macOS/Windows) the file-sharing
-layer can corrupt a database under a bind mount; setting `DB_DATA=memgraph-data` moves the graph into
-the declared named volume, inside the engine's own storage. The two are separate stores — switching is
-a fresh database, not a migration.
+**`DB_DATA` selects the store** (`NEO4J_DATA` on Neo4j). The default host bind mount is visible on disk
+and easy to inspect and copy. On VM-backed runtimes (a Podman machine, or Docker Desktop on
+macOS/Windows) the file-sharing layer can corrupt a database under a bind mount; setting
+`DB_DATA=memgraph-data` (or `NEO4J_DATA=neo4j-data`) moves the graph into the declared named volume,
+inside the engine's own storage. The two are separate stores — switching is a fresh database, not a
+migration.
 
 The runtime directories are created world-writable by the control script, `data/` and `data/models`
 with the sticky bit, so another local account cannot replace an entry there that it does not own (see
@@ -364,7 +424,7 @@ Three layers, with different owners and different lifetimes.
 
 | Layer | File | Owner | Read by |
 |---|---|---|---|
-| Configuration | `.env` | The operator | Compose interpolation (image pins, ports, database name, embedding settings, `DB_DATA`) |
+| Configuration | `.env` | The operator | Compose interpolation (image pins, ports, database name, embedding settings, `DB_DATA`, the Neo4j settings) and `byodt` itself (`CONTAINER_ENGINE`, `DB_ENGINE`) |
 | Secret | `.env.secrets`, mode `0600` | Generated once by the control script | Compose interpolation (the database password only) |
 | Mode | `mode/mode.env` | The **console** | `env_file` on `platform` and `console-init` |
 
@@ -372,13 +432,14 @@ Both env files are passed on every command — that is the control script's main
 stays out of the readable configuration layer while still reaching interpolation.
 
 `.env.example` is also the **release manifest**. Its image and version keys name the tested set that
-ships together, and their names are a contract — `compose.yaml` interpolates exactly these names, so
+ships together, and their names are a contract — the compose files interpolate exactly these names, so
 renaming one breaks the bundle.
 
 | Key | What it selects |
 |---|---|
 | `PLATFORM_VERSION` | The platform image tag, the console image tag, and the release the console fetches modules from |
 | `DB_IMAGE`, `PROXY_IMAGE` | Third-party image references, pinned separately so each can be repointed at a mirror you operate |
+| `NEO4J_IMAGE` | The Neo4j image. `byodt` records the image the bundle was tested with on the first Neo4j run, so, like `DB_IMAGE`, it stays put across upgrades |
 | `CONSOLE_IMAGE` | An optional override for the console image, shipped commented out. Set it only to repoint at a mirror, and keep its tag equal to `PLATFORM_VERSION` |
 
 **Upgrading is a one-line change: move `PLATFORM_VERSION` to a published release.** Both of
@@ -408,19 +469,19 @@ map of the mechanism; the guide has the procedures.
 
 | Command | Mechanism |
 |---|---|
-| `up` | Repairs the on-disk layout (idempotent), generates the database password if absent, refuses an `.env` with `EMBEDDING_MODEL=embeddinggemma`, removes an older bundle's `ollama` container, then `compose up -d`; fails when `console-init` stopped the start (see below) |
+| `up` | Repairs the on-disk layout (idempotent), generates the database password if absent, refuses a switched engine on an empty store (see [Switching engines](#switching-engines)), warns about an override file it does not load, refuses an `.env` with `EMBEDDING_MODEL=embeddinggemma`, removes an older bundle's `ollama` container, then `compose up -d`; fails when `console-init` stopped the start (see below) |
 | `bootstrap` | The layout + password steps alone |
 | `down` | `compose down`; refuses `-v`/`--volumes`/`--rmi` rather than forwarding them |
-| `restart [service]` | `compose up -d --force-recreate` (with `--no-deps` when services are named) |
+| `restart [service]` | Repairs the layout and refuses a switched engine on an empty store, then `compose up -d --force-recreate` (with `--no-deps` when services are named) |
 | `status`, `logs [service]` | `compose ps`, `compose logs -f` |
-| `update` | Repairs the layout, refuses `EMBEDDING_MODEL=embeddinggemma`, `compose pull`, removes an older bundle's `ollama` container, then `compose up -d` — the pinned images, not floating tags |
+| `update` | Repairs the layout, refuses a switched engine on an empty store, warns about an override file it does not load, refuses `EMBEDDING_MODEL=embeddinggemma`, `compose pull`, removes an older bundle's `ollama` container, then `compose up -d` — the pinned images, not floating tags |
 | `models pull` | Downloads and verifies the embedding model's weights into `data/models` ahead of the first start: `compose run --rm --no-deps platform node dist/scripts/models-pull.js` |
 | `backup [dir]`, `restore <file>` | See below |
 | `destroy` | `compose down` only. Deliberately deletes no data; prints the exact wipe commands instead |
 | `tls {generate\|status}` | Manages `tls/cert.pem` + `tls/key.pem` |
 | `console` | Prints (and opens) the console URL |
 | `version` | The script's own version plus the pinned release keys read from `.env` |
-| `compose …` | The escape hatch — the engine's compose with this bundle's env files |
+| `compose …` | The escape hatch — the engine's compose with this bundle's env files and compose files. A bare `compose` call on `compose.yaml` alone has no `db` service |
 
 **Upgrading from a bundle that ran Ollama.** Compose leaves a container running once its service has
 left the file, so `up`, `update`, `restart`, `down` and `destroy` remove the old `ollama` container
@@ -441,7 +502,7 @@ inside a compose call.
 
 ### Backup and restore
 
-`backup` asks the database for a fresh snapshot (`CREATE SNAPSHOT`, hot and consistent — no downtime),
+On Memgraph, `backup` asks the database for a fresh snapshot (`CREATE SNAPSHOT`, hot and consistent — no downtime),
 then copies **that exact file** out through the container to `backups/`. It copies through the
 container rather than reading the host path, so it works identically for a bind mount and a named
 volume. If no writes have occurred since the last snapshot the request fails benignly, and the newest
@@ -459,6 +520,28 @@ warns when the version encoded in the backup's filename differs from the deploym
 
 The database's own in-place snapshots (`SNAPSHOT_INTERVAL_SEC`) are for crash recovery. They live in
 the data directory and are pruned by retention — they are not backups.
+
+On Neo4j, Community dumps and loads only an offline database, so both commands stop the `db` service,
+run `neo4j-admin` in a one-off container of that service (same image, user and mounts; `--no-deps`, so
+nothing else starts), and start it again — on failure too. The platform stays up and loses its
+connection meanwhile.
+
+The dump never passes through `data/`. Each backup or restore makes a private working directory in the
+bundle root (`.byodt-dump.XXXXXX`, mode `0700`, the operator's) and mounts it at `/dumps` into the
+one-off container only. `neo4j-admin` runs as the service's own user — the uid `byodt` derives to map
+to the operator — with the image's entrypoint bypassed, since started as root the entrypoint would drop
+to the image's own user, which cannot enter the directory. The directory and the `EXIT` trap that
+removes it and starts `db` again are set up before the stop, so a failed stop dumps nothing and still
+asks the database to start.
+
+`backup` dumps into the directory, refuses the result unless it is a regular file, and copies it to
+`backups/byodt-dump-<version>-<time>.dump`, created mode `0600`. `restore` asks for the same typed
+confirmation, stages the backup file into the directory (mode `0600`), mounts the directory read-only,
+and loads it over the `neo4j` database. The load replaces the graph, so a failed load may leave no
+current graph — unlike Memgraph's `RECOVER SNAPSHOT`, which leaves it in place — and `byodt` says to
+restore again from a known-good backup. A dump holds the `neo4j` database only; users live in the
+`system` database, so a restore leaves the deployment's password in place. Each engine refuses the
+other's backup file.
 
 ---
 

@@ -289,3 +289,19 @@ export function withClearedAttributes (
   }
   return out
 }
+
+/**
+ * The attributes with every emptied entry taken out of their lists. Clearing a row of a list in the attributes form
+ * leaves a hole (or undefined) in that list, which is sent as null, and the server refuses a list that holds null.
+ * An emptied row is the user's "no value here", so it is dropped. An empty string stays: it is a value. Applied to
+ * the whole map before a save, so a list stored earlier with a null in it heals on the next save. Top-level lists only,
+ * for a caller that saves the map in its top-level shape (a flattened map holds no lists).
+ */
+export function withoutEmptiedListEntries (attributes: Record<string, unknown>): Record<string, unknown> {
+  // Built with fromEntries, so a `__proto__` key stays an own key instead of hitting the prototype setter.
+  return Object.fromEntries(Object.entries(attributes ?? {}).map(([key, value]) => [
+    key,
+    // filter skips holes, and the predicate drops null and undefined.
+    Array.isArray(value) ? value.filter(entry => entry !== null && entry !== undefined) : value,
+  ]))
+}

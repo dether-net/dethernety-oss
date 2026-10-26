@@ -71,3 +71,7 @@ The vector tier no longer searches HNSW indexes. It is an **exact cosine search*
 - **`NO_INDEX_MODULE` is removed** from `VectorDisabledReason`. `EMBEDDING_DISABLED` now also covers an embedder that is not ready and a database that fails the vector self-test.
 
 A later ADR will record the full embedding-profile design. It is [ADR-013: In-process embedding replaces the Ollama embedding server](013-in-process-embedding.md).
+
+## Update (2026-10-22)
+
+The class vector indexes earlier versions created are dropped at application bootstrap on Memgraph, since class matching reads none. The MITRE vector indexes stay on Memgraph for consumers that search the corpus by index name; on any other engine the upkeep is skipped with one info log.

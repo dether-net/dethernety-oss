@@ -8,6 +8,7 @@ import { ClassIdentityEventLog } from './class-identity-event-log.service';
 import { CLASS_LABELS, slugifyModelName, vectorDefect } from '@dethernety/dt-module/embedding';
 import { EmbeddingService } from '../services/embedding.service';
 import { GqlConfig } from '../gql.config';
+import { assertStorableProperties } from '../utils/property-values';
 import neo4j from 'neo4j-driver';
 import {
   ModuleClassDefinition,
@@ -455,6 +456,9 @@ export class ModuleManagementService {
           ? { embedding, embeddingModel: this.embeddingService.getModel() }
           : {}),
       };
+      // Before any write, so a value the database cannot store fails this class alone, with its key named,
+      // instead of failing at Bolt (a null list element fails on Neo4j only) and taking the transaction with it.
+      assertStorableProperties(nodeProperties);
 
       // 2. Cross-module collision check — only when this is a new
       //    registration (no existing node by name in *this* module).
@@ -924,6 +928,8 @@ export class ModuleManagementService {
         ...(vectors === 'pending' ? {} : { embeddingProfile: this.embedderFingerprint() }),
         updatedAt: new Date().toISOString(),
       };
+      // The same guard for the module node; here a failure fails the install.
+      assertStorableProperties(nodeProperties);
 
       // Upsert module
       this.logger.debug('Upserting module node', {

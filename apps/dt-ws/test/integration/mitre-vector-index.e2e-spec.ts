@@ -13,6 +13,7 @@
 import { EmbeddingService } from '../../src/gql/services/embedding.service';
 import neo4j, { Driver } from 'neo4j-driver';
 import { startMemgraph, clearGraph, MemgraphHandle } from './memgraph-container';
+import { describeMemgraphContainerOnly } from './test-engine';
 import { LOOPBACK_HOST } from './loopback-container';
 import { MatchMitreTechniquesResolverService } from '../../src/gql/resolver-services/match-mitre-techniques-resolver.service';
 import { VectorSearchService } from '../../src/gql/services/vector-search.service';
@@ -87,7 +88,8 @@ async function heldTechniques(driver: Driver): Promise<string[]> {
   return held.records.map((r) => r.get('id'));
 }
 
-describe(`MITRE vector indexes on ${REKEYING_IMAGE}, which re-keys a vector index on snapshot recovery`, () => {
+// Memgraph-only, on its own image and flags, with a restart: skipped on the Neo4j leg and in an external run.
+describeMemgraphContainerOnly(`MITRE vector indexes on ${REKEYING_IMAGE}, which re-keys a vector index on snapshot recovery`, () => {
   let mg: MemgraphHandle;
 
   const config: any = { get: (key: string) => (key === 'database.name' ? 'memgraph' : undefined) };

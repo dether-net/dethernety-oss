@@ -13,7 +13,7 @@ function makeService(runImpl: () => Promise<any>) {
   } as any);
   const run = jest.fn(runImpl);
   const close = jest.fn(async () => {});
-  (service as any).getSession = jest.fn(() => ({ run, close }));
+  (service as any).getDriver = jest.fn(() => ({ session: jest.fn(() => ({ run, close })) }));
   return { service, run, close };
 }
 
@@ -78,16 +78,60 @@ describe('DatabaseService.getEngineInfo', () => {
     expect(run).toHaveBeenCalledTimes(2);
   });
 
-  it('never rejects even when getSession throws synchronously (driver not initialized)', async () => {
+  it('never rejects even when getDriver throws synchronously (driver not initialized)', async () => {
     const service = new DatabaseService({
       get: () => ({ uri: 'bolt://test:7687', username: '', password: '' }),
     } as any);
-    // Real getSession throws synchronously before initialization — the
+    // Real getDriver throws synchronously before initialization — the
     // public API must swallow it into the fallback, not reject.
     await expect(service.getEngineInfo()).resolves.toEqual({
       engine: 'memgraph',
       edition: null,
       version: null,
     });
+  });
+
+  it('an unrecognised engine is not read as Neo4j: the lenient call falls back to memgraph', async () => {
+    const { service } = makeService(async () => componentsRow('SomeGraph', ['1.0'], 'x'));
+    await expect(service.getEngineInfo()).resolves.toEqual({
+      engine: 'memgraph',
+      edition: null,
+      version: null,
+    });
+  });
+});
+
+describe('DatabaseService.getEngineInfoStrict', () => {
+  it('rejects on a failed probe, then probes again', async () => {
+    let failFirst = true;
+    const { service, run } = makeService(async () => {
+      if (failFirst) {
+        failFirst = false;
+        throw new Error('db unreachable');
+      }
+      return componentsRow('Neo4j Kernel', ['5.26.0'], 'community');
+    });
+    await expect(service.getEngineInfoStrict()).rejects.toThrow('db unreachable');
+    await expect(service.getEngineInfoStrict()).resolves.toMatchObject({ engine: 'neo4j' });
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects an unrecognised engine', async () => {
+    const { service } = makeService(async () => componentsRow('SomeGraph', ['1.0'], 'x'));
+    await expect(service.getEngineInfoStrict()).rejects.toThrow(/unrecognised graph engine/);
+  });
+
+  it('rejects when getDriver throws synchronously', async () => {
+    const service = new DatabaseService({
+      get: () => ({ uri: 'bolt://test:7687', username: '', password: '' }),
+    } as any);
+    await expect(service.getEngineInfoStrict()).rejects.toThrow();
+  });
+
+  it('shares one probe with getEngineInfo', async () => {
+    const { service, run } = makeService(async () => componentsRow('Memgraph', ['5.9.0'], 'community'));
+    await service.getEngineInfo();
+    await service.getEngineInfoStrict();
+    expect(run).toHaveBeenCalledTimes(1);
   });
 });

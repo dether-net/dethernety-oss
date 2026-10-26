@@ -1,0 +1,15 @@
+# Expected database statement errors for the Neo4j leg's log gate (.github/scripts/neo4j-log-gate.sh):
+# one per line, `<suite|*> <extended regex>`, where <suite> is a suite log's name without .log. A line here says the
+# code under test answers that error on purpose; anything else in a suite's log fails the leg.
+# A pattern that names the message lets the GQL status through between code and message: the server's FAILURE
+# record puts it after the message, an error the driver reports (a spec that logs one) between the two.
+
+# An engine fact runs a WITH that adds a variable to an aggregate, which Neo4j 5 refuses; the fact pins that refusal.
+dt-ws Neo\.ClientError\.Statement\.SyntaxError",("gqlStatus":"[^"]*",)?"message":"Aggregation column contains implicit grouping expressions\..*Illegal expression\(s\): aks \(
+# The @cypher mutation canary declares a columnName its statement does not return, to show that such a mutation fails.
+dt-ws Neo\.ClientError\.Statement\.SyntaxError",("gqlStatus":"[^"]*",)?"message":"Variable `wrong` not defined
+# dt-ws's engine-facts spec pins two schema refusals: the composite uniqueness constraint refuses a duplicate, and a
+# plain index blocks a constraint on its key until it is dropped. The lines name that spec's own labels, so the same
+# refusal elsewhere stays a hit.
+dt-ws Neo\.ClientError\.Schema\.ConstraintValidationFailed",("gqlStatus":"[^"]*",)?"message":"Node\([0-9]+\) already exists with label `FactComp`
+dt-ws Neo\.ClientError\.Schema\.IndexAlreadyExists",("gqlStatus":"[^"]*",)?"message":"There already exists an index \(:FactBlock \{k\}\)

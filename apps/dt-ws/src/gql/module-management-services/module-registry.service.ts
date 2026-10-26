@@ -6,6 +6,7 @@ import * as path from 'path';
 import { DTModule, DTMetadata, ModuleResolverContext, ResolverMap, deriveClassId, ClassKind } from '@dethernety/dt-module';
 import { parse, Kind, type DocumentNode, type DirectiveDefinitionNode, type ObjectTypeDefinitionNode } from 'graphql';
 import { safeErrorMessage } from '../../common/utils/safe-error-message';
+import { DatabaseService } from '../../database/database.service';
 import { ModuleManagementService } from './module-management.service';
 import { GqlConfig } from '../gql.config';
 import { extractDeclaredFields } from '../utils/sdl-parser';
@@ -46,6 +47,7 @@ export class ModuleRegistryService implements OnModuleInit {
     @Inject('NEO4J_DRIVER') private readonly neo4jDriver: any,
     private readonly moduleManagementService: ModuleManagementService,
     private readonly configService: ConfigService,
+    private readonly databaseService: DatabaseService,
   ) {
     this.config = this.configService.get<GqlConfig>('gql')!;
     this.allowedModules = new Set(this.config.allowedModules.map(m => m.toLowerCase()));
@@ -716,6 +718,8 @@ export class ModuleRegistryService implements OnModuleInit {
                     driver: this.createSecureDriver(),
                     logger: new Logger(`Module:${moduleName}:Resolvers`),
                     databaseName: this.configService.get('database.name'),
+                    // The platform's own memoized probe; rejects rather than guessing.
+                    getEngine: () => this.databaseService.getEngineInfoStrict(),
                   };
                   const resolverMap = await loadResult.module.getResolvers(resolverContext);
                   if (resolverMap && Object.keys(resolverMap).length > 0) {

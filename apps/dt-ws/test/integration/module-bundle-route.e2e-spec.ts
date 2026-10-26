@@ -24,6 +24,7 @@ import { JwtAuthGuard } from '../../src/common/guards/jwt-auth.guard';
 import { ModuleBundleController } from '../../src/modules/module-bundle.controller';
 import { ModuleRegistryService } from '../../src/gql/module-management-services/module-registry.service';
 import { ModuleManagementService } from '../../src/gql/module-management-services/module-management.service';
+import { DatabaseService } from '../../src/database/database.service';
 
 jest.setTimeout(60_000);
 
@@ -90,6 +91,7 @@ async function startApp(
         provide: ModuleManagementService,
         useValue: { updateAllModules: jest.fn(), enableCatchUp: jest.fn() },
       },
+      { provide: DatabaseService, useValue: {} },
     ],
   }).compile();
   await moduleRef.get(ModuleRegistryService).loadModules();

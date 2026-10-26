@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { DatabaseService } from '../../database/database.service';
 import { DatabaseTransaction } from '../interfaces/module-management.interface';
 import { ClassIdentityEventLog } from './class-identity-event-log.service';
 
@@ -8,7 +9,9 @@ import { ClassIdentityEventLog } from './class-identity-event-log.service';
 // deployments. Note the BYODt deployment's default database image
 // (memgraph/memgraph) does NOT ship the refactor module — only the
 // memgraph-mage variant does — so the fallback is the hot path there.
-// MAGE availability is probed once per process and cached.
+// Neo4j has neither MAGE nor `mg.procedures()`, so it always takes the
+// fallback without probing. MAGE availability is probed once per process
+// and cached.
 
 @Injectable()
 export class ClassReconciler {
@@ -22,15 +25,30 @@ export class ClassReconciler {
   constructor(
     @Inject('NEO4J_DRIVER') private readonly neo4jDriver: any,
     public readonly events: ClassIdentityEventLog,
+    private readonly databaseService: DatabaseService,
   ) {}
 
   /**
-   * Probe Memgraph for MAGE's `refactor.rename_type` procedure. Cached
-   * for the process lifetime — the procedure set doesn't change at runtime.
-   * Runs in its own session to keep clear of caller transactions.
+   * Whether MAGE's `refactor.rename_type` procedure is available. A Neo4j
+   * answer from the engine probe settles it (no MAGE) without calling
+   * `mg.procedures()`; otherwise Memgraph is asked for the procedure, in its
+   * own session to keep clear of caller transactions. A definite answer is
+   * cached for the process lifetime — the procedure set doesn't change at
+   * runtime.
    */
   private async probeMage(): Promise<boolean> {
     if (this.mageAvailable !== null) return this.mageAvailable;
+    // A failed engine probe decides nothing: the MAGE probe below still runs
+    // and keeps its own rule for transient failures.
+    const engine = await this.databaseService.getEngineInfoStrict().then(
+      (info) => info.engine,
+      () => null,
+    );
+    if (engine === 'neo4j') {
+      this.mageAvailable = false;
+      this.logger.log('Neo4j has no MAGE refactor.rename_type — using DELETE+CREATE fallback');
+      return false;
+    }
     const session = this.neo4jDriver.session();
     try {
       // Use `WITH` to interpose between YIELD and WHERE — Memgraph's

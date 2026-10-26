@@ -1089,8 +1089,14 @@ export interface ModuleResolverContext {
   driver: any;
   /** Logger scoped to the module */
   logger: Logger;
-  /** Database name for session creation */
-  databaseName: string;
+  /** Database name for session creation; `undefined` means the server's default database */
+  databaseName?: string;
+  /**
+   * The graph engine behind `driver`; rejects when it cannot be determined.
+   * Optional because older platforms do not supply it: call
+   * `resolveEngine(context)`, which probes the driver when it is absent.
+   */
+  getEngine?: () => Promise<EngineInfo>;
 }
 ```
 

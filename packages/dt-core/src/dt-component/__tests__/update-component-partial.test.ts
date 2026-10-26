@@ -131,8 +131,8 @@ describe('DtComponent.updateComponent — a whole node still writes the whole co
 
   it('carries the associations when the pass does name them', async () => {
     const input = await send(wholeNode({ data: { controls: ['ctl-1'], dataItems: ['di-1'] } }));
-    expect(input.controls.connect).toEqual([{ where: { node: { id: { eq: 'ctl-1' } } } }]);
-    expect(input.dataItems.connect).toEqual([{ where: { node: { id: { eq: 'di-1' } } } }]);
+    expect(input.controls.connect).toEqual([{ where: { node: { id: { in: ['ctl-1'] } } } }]);
+    expect(input.dataItems.connect).toEqual([{ where: { node: { id: { in: ['di-1'] } } } }]);
   });
 });
 
@@ -140,7 +140,7 @@ describe('DtComponent.updateComponent — a whole node still writes the whole co
 // before. The bulk passes cannot, so they keep replace; an interactive save can, so it sends a delta and
 // stops disconnecting attachments it never knew about.
 describe('DtComponent.updateComponent — replace without a baseline, delta with one', () => {
-  const ids = (v: any, key: string) => (v?.[key] ?? []).map((o: any) => o.where.node.id.eq);
+  const ids = (v: any, key: string) => (v?.[key] ?? []).flatMap((o: any) => o.where.node.id.in);
 
   it('REPLACES when no baseline is given — the shape the import and update passes rely on', async () => {
     const input = await send({ id: 'c1', data: { controls: ['ctl-1', 'ctl-2'] } });
@@ -226,7 +226,7 @@ describe('DtComponent.updateComponent — an empty parent needs a root to mean',
 // type makes the id optional — and such an entry builds a second operand whose filter carries no
 // condition, attaching every control in the deployment.
 describe('DtComponent.updateComponent — a list writes the entries it can name', () => {
-  const ids = (v: any, key: string) => (v?.[key] ?? []).map((o: any) => o.where.node.id.eq);
+  const ids = (v: any, key: string) => (v?.[key] ?? []).flatMap((o: any) => o.where.node.id.in);
 
   it('connects only the nameable entries', async () => {
     const input = await send({ id: 'c1', data: { controls: ['ctl-1', undefined] } });

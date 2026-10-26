@@ -232,7 +232,7 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
       if (moduleId) {
         try {
           const modules = await dtClass.getControlClasses({
-            moduleWhere: { id: moduleId },
+            moduleWhere: { id: { eq: moduleId } },
             classWhere: {},
           })
           const controlClasses = modules.flatMap(

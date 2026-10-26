@@ -4,7 +4,7 @@ import * as Apollo from '@apollo/client'
 import { Model, ComponentData, BoundaryData, DataFlowData, DataItem, Module } from '../interfaces/core-types-interface.js'
 import { flattenConduits } from '../dt-boundary/boundary-zoning-utils.js'
 import { connectIds, assertConnectId } from '../dt-utils/connect-id.js'
-import { linkInput, LinkBaselines } from '../dt-utils/link-delta.js'
+import { idOperands, linkInput, LinkBaselines } from '../dt-utils/link-delta.js'
 import { ModelScopeLocal, localScopeToPlatform } from '../schemas/index.js'
 import { Node, Edge } from '@vue-flow/core'
 
@@ -352,21 +352,13 @@ export class DtModel {
             },
           },
         },
-        modules: {
-          connect: modules.map(module => ({
-            where: { node: { id: { eq: module } } },
-          })),
-        },
+        modules: { connect: idOperands(modules) },
         // Model-level controls connected at create time (SUPPORTS). Create-only
         // connect — no disconnect — so it never clears anything and never touches
         // the folder relationship. Omitted when there are none.
         ...(controls && controls.length > 0
           ? {
-              controls: {
-                connect: controls.map(id => ({
-                  where: { node: { id: { eq: id } } },
-                })),
-              },
+              controls: { connect: idOperands(controls) },
             }
           : {}),
         folder: { }
@@ -463,9 +455,7 @@ export class DtModel {
         ...(modules !== undefined && {
           modules: {
             disconnect: {},
-            connect: connectIds(modules).map(module => ({
-              where: { node: { id: { eq: module } } },
-            })),
+            connect: idOperands([...new Set(connectIds(modules))]),
           },
         }),
         ...(controlsInput !== undefined && { controls: controlsInput }),

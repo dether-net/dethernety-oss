@@ -13,7 +13,9 @@
  * the caller's `int` factory, because this package carries no neo4j-driver.
  */
 
-export type Dialect = 'memgraph' | 'neo4j';
+import type { Dialect } from './engine';
+
+export type { Dialect };
 
 /** Cosine of two lists on either engine. */
 export function cosineExpr(dialect: Dialect, stored: string, query: string): string {

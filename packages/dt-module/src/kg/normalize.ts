@@ -106,6 +106,11 @@ export function toCorpusEntry(value: unknown): KgCorpusEntry {
   };
 }
 
+/** Code-unit order, the same in every runtime and locale. */
+const codeUnitOrder = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+const byName = (a: KgAttribute, b: KgAttribute): number => codeUnitOrder(a.name, b.name);
+const byId = (a: KgCorpusEntry, b: KgCorpusEntry): number => codeUnitOrder(a.id, b.id);
+
 export function toRule(get: FieldGetter): KgRule {
   return {
     id: requireStr(get('id'), 'KgRule.id'),
@@ -119,7 +124,9 @@ export function toRule(get: FieldGetter): KgRule {
     attackVector: str(get('attackVector')),
     conditionGroups: str(get('conditionGroups')),
     mitreRefs: str(get('mitreRefs')),
-    reads: list(get('reads')).map(toAttribute),
+    // Each engine returns a rule's reads in an order of its own (Memgraph in the edges' insertion order), and the
+    // local and cloud clients must answer alike.
+    reads: list(get('reads')).map(toAttribute).sort(byName),
   };
 }
 
@@ -132,6 +139,7 @@ export function toThreat(get: FieldGetter): KgThreat {
     attackSurface: str(get('attackSurface')),
     techniqueIds: strList(get('techniqueIds')),
     techniqueProvenance: str(get('techniqueProvenance')),
-    derivedFrom: list(get('derivedFrom')).map(toCorpusEntry),
+    // The engines return a threat's sources in an order of their own too; ordered by id for the same reason.
+    derivedFrom: list(get('derivedFrom')).map(toCorpusEntry).sort(byId),
   };
 }

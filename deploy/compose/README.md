@@ -32,6 +32,41 @@ Compose that carries the two env files every command needs: the readable configu
 (`.env`) and the generated secret (`.env.secrets`, mode 0600), so the password
 stays out of the readable layer. Run `./byodt help` for all commands.
 
+Always go through `byodt`. The `db` service is not in `compose.yaml`: it is in
+`compose.memgraph.yaml` or `compose.neo4j.yaml`, and `byodt` passes compose the
+right one. A bare `docker compose up` on `compose.yaml` alone does not start the
+stack; use `./byodt compose …` for anything `byodt` has no command for.
+
+## Choosing the database
+
+The bundle runs one of two graph databases:
+
+| `DB_ENGINE` | Database | Image |
+|-------------|----------|-------|
+| `memgraph` (default) | Memgraph | `DB_IMAGE` in `.env` |
+| `neo4j` | Neo4j 5.26 Community | `NEO4J_IMAGE` in `.env`; on the first Neo4j run `byodt` records the image it was tested with, `docker.io/library/neo4j:5.26.32-community` |
+
+Set `DB_ENGINE` in `.env` before the first start, or run `DB_ENGINE=neo4j ./byodt up`
+once: `byodt` records the engine in `.env` on the first run. An exported `DB_ENGINE`
+overrides `.env` for that one command. `byodt` reads `DB_ENGINE` in `.env` as compose
+does, so an `export ` prefix or a trailing ` # comment` on the line is fine.
+
+Each engine keeps its own data, and nothing converts one into the other. A change of
+engine starts an empty graph (the reference data is ingested again; your models are
+not carried across). `byodt` refuses to start an engine whose bind-mounted store is
+empty while the other engine's store holds data, and a refused start (`bootstrap`
+included) leaves `.env` and `data/` as they were: an export that would be refused is
+never recorded. To switch anyway: back up, run
+`./byodt down`, move the current engine's data directory aside, set `DB_ENGINE` to the
+new engine, then `./byodt up`. A store in a named volume is not checked.
+
+On Neo4j the platform needs two APOC Core functions, `apoc.date.convertFormat` and
+`apoc.util.validatePredicate`. `compose.neo4j.yaml` loads APOC Core from the jar the
+Neo4j image ships in `labs/`, by pointing the plugins directory there, and its procedure
+allowlist names only those two functions: no other APOC procedure or function can be
+called, and none is granted unrestricted access. Nothing is copied or downloaded. An
+image set in `NEO4J_IMAGE` must ship APOC Core in `labs/`, as the official Neo4j images do.
+
 ## What runs
 
 | Service        | Role                                              | Published |
@@ -85,16 +120,30 @@ refuse an `.env` that still sets `EMBEDDING_MODEL=embeddinggemma` (the old
 `DB_IMAGE` is copied into `.env` on the first run and kept across upgrades;
 `./byodt up` and `./byodt update` warn when it differs from the tested image. Moving
 is optional (release 0.10.1 fixes existing Memgraph 3.8.1 deployments as they are)
-and one-way: back up `data/memgraph` first (there is no downgrade), set `DB_IMAGE`,
-then run `./byodt update`.
+and one-way: back up first (`./byodt backup`; there is no downgrade), set `DB_IMAGE`,
+then run `./byodt update`. On Neo4j the same applies to `NEO4J_IMAGE`, which `byodt`
+records in `.env` on the first Neo4j run: a later bundle tested with a newer Neo4j
+image warns, and does not move the store on `./byodt update`.
 
 The container engine is auto-detected on the first run (Docker first, then Podman)
 and recorded as `CONTAINER_ENGINE` in `.env`; set it there yourself to force one.
 
-The database stores its data in a host bind mount (`data/memgraph`) by default — visible and easy to
-back up. On VM-backed runtimes (Podman machine, Docker Desktop on macOS/Windows), a host bind mount
-can corrupt a database under the file-sharing layer; if you hit that, set `DB_DATA` to the
-`memgraph-data` named volume, which lives in the engine's own storage. See `.env` for the trade-offs.
+The database stores its data in a host bind mount (`data/memgraph`, or `data/neo4j`
+on Neo4j) by default — visible and easy to back up. On VM-backed runtimes (Podman
+machine, Docker Desktop on macOS/Windows), a host bind mount can corrupt a database
+under the file-sharing layer; if you hit that, set `DB_DATA` to the `memgraph-data`
+named volume (on Neo4j: `NEO4J_DATA` to `neo4j-data`), which lives in the engine's own
+storage. See `.env` for the trade-offs.
+
+Neo4j settings, all optional in `.env`: `NEO4J_HEAP_SIZE` (default `2G`) and
+`NEO4J_PAGECACHE_SIZE` (default `1G`). A statement may run for 600 s on either
+engine. On Neo4j the platform always connects as user `neo4j` to database `neo4j`,
+and does not use `NEO4J_USERNAME` or `NEO4J_DATABASE` from `.env`; on the first Neo4j
+run `byodt` prints a notice for each one that says otherwise, and you can remove the line.
+
+Local changes to the compose configuration go in `compose.override.yaml`, which
+`byodt` loads last. It loads no other override file name (`compose.override.yml`,
+`docker-compose.override.*`) and warns when it finds one.
 
 The platform's authentication posture is not in `.env`: it is the console-managed
 mode layer (`mode/mode.env`, seeded on the first `./byodt up`). Pure open-source,
@@ -111,8 +160,8 @@ enable authentication (see below). Either change is applied on the next `./byodt
 ./byodt models pull         # download + verify the embedding model ahead of the first start
 ./byodt down                # stop (data kept)
 ./byodt destroy             # remove the stack; data on disk is kept (rm it yourself to wipe)
-./byodt backup              # snapshot the graph into backups/ (copy it off-box)
-./byodt restore <file>      # replace the graph from a backup snapshot (asks to confirm)
+./byodt backup              # back up the graph into backups/ (copy it off-box)
+./byodt restore <file>      # replace the graph from a backup (asks to confirm)
 ```
 
 `./byodt help` lists every command. Each wraps your container engine's `compose` with
@@ -133,10 +182,11 @@ class once. The full procedure, and rolling back, are in the
 
 ## Backups
 
-`./byodt backup` takes a consistent snapshot of the graph (no downtime) and copies it into
-`backups/`. A snapshot is the **graph only** — no password inside — so it is safe to move and is
-not a secret-bearing file. **Copy backups off this machine**: one sitting next to the data it
-protects is lost with the machine.
+`./byodt backup` copies the graph into `backups/`. A backup is the **graph only** — no password
+inside — so you can move it between machines, and it is not a secret-bearing file. **Copy backups off this machine**:
+one sitting next to the data it protects is lost with the machine.
+
+On **Memgraph** it takes a consistent snapshot with no downtime:
 
 ```sh
 ./byodt backup                           # → backups/byodt-snapshot-<version>-<timestamp>.snapshot
@@ -144,11 +194,29 @@ protects is lost with the machine.
 ./byodt restore backups/<file>.snapshot  # replace the current graph (asks to confirm)
 ```
 
-`restore` **clears the current graph** and applies the snapshot; your config and the database
-password (`.env.secrets`) are untouched, so the restored graph opens with this deployment's own
-credentials — a backup restores cleanly onto any deployment of the same version.
+On **Neo4j** the database is stopped while it is dumped: Neo4j Community dumps and loads an
+offline database only. `byodt` makes a private working directory in the bundle root
+(`.byodt-dump.XXXXXX`, mode `0700`, yours), stops `db`, writes the dump into that directory
+with `neo4j-admin` in a one-off container, copies it out as a file only you can read, removes
+the directory, and starts `db` again, also when the dump fails. A restore stages your backup
+file into such a directory and mounts it read-only. The platform loses its database connection
+meanwhile.
 
-The database also keeps automatic in-place snapshots for crash recovery, every
+```sh
+./byodt backup                           # → backups/byodt-dump-<version>-<timestamp>.dump
+./byodt restore backups/<file>.dump      # stops db, loads the dump, starts db (asks to confirm)
+```
+
+`restore` **clears the current graph** and applies the backup; your config and the database
+password (`.env.secrets`) are untouched, so the restored graph opens with this deployment's own
+credentials — a backup restores cleanly onto any deployment of the same version and engine. Each
+engine refuses the other's backup file. On Neo4j the load replaces the graph, so if it fails the
+current graph may be gone: restore again from a backup you know is good.
+
+Under rootless Podman, the Neo4j database files belong to the container's user: remove them with
+`podman unshare rm -rf data/neo4j` (`./byodt destroy` prints it).
+
+Memgraph also keeps automatic in-place snapshots for crash recovery, every
 `SNAPSHOT_INTERVAL_SEC` seconds (`.env`, default 300; applied on `byodt restart db`; `0` disables).
 Those live in the data dir and are pruned over time — use `byodt backup` for anything you want to keep.
 
@@ -214,5 +282,5 @@ The Dethernety platform and console are licensed under the GNU AGPL v3 — see
 The stack also *references* third-party images (graph database, proxy) that your
 runtime pulls directly from their publishers; this bundle does not
 redistribute them. See [NOTICE](./NOTICE) for their licenses and provenance — note
-that Memgraph (the graph database) is **BSL 1.1**, whose production-use terms are
-yours to satisfy.
+that Memgraph (the default graph database) is **BSL 1.1**, whose production-use terms are
+yours to satisfy, and that Neo4j Community Edition (the other choice) is **GPLv3**.

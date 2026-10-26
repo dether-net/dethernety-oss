@@ -9,6 +9,7 @@ import { DatabaseService } from '../../src/database/database.service';
 import { EnsureConstraintsService } from '../../src/bootstrap/ensure-constraints.service';
 import { EnsureIndexesService } from '../../src/bootstrap/ensure-indexes.service';
 import { startMemgraph, MemgraphHandle } from './memgraph-container';
+import { describeMemgraphOnly } from './test-engine';
 
 jest.setTimeout(120_000);
 
@@ -52,7 +53,8 @@ async function runRead(handle: MemgraphHandle, cypher: string): Promise<any[]> {
   }
 }
 
-describe('bootstrap DDL on Memgraph (e2e)', () => {
+// Memgraph-only (it reads SHOW INDEX INFO / SHOW CONSTRAINT INFO): skipped on the Neo4j leg (DT_TEST_ENGINE=neo4j).
+describeMemgraphOnly('bootstrap DDL on Memgraph (e2e)', () => {
   let handle: MemgraphHandle;
   let databaseService: DatabaseService;
 
@@ -90,7 +92,7 @@ describe('bootstrap DDL on Memgraph (e2e)', () => {
   });
 
   it('installs the full index set (constraint-covered pairs NOT filtered on Memgraph)', async () => {
-    const indexes = new EnsureIndexesService(databaseService);
+    const indexes = new EnsureIndexesService(databaseService, { whenBootstrapped: async () => {} } as any);
     await indexes.onApplicationBootstrap();
 
     const rows = await runRead(handle, 'SHOW INDEX INFO');
@@ -114,7 +116,7 @@ describe('bootstrap DDL on Memgraph (e2e)', () => {
 
   it('re-running both hooks is idempotent and stays healthy', async () => {
     const constraints = new EnsureConstraintsService(databaseService);
-    const indexes = new EnsureIndexesService(databaseService);
+    const indexes = new EnsureIndexesService(databaseService, constraints);
     await constraints.onApplicationBootstrap();
     await indexes.onApplicationBootstrap();
 

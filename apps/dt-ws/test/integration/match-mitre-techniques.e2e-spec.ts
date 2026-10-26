@@ -15,6 +15,7 @@
 import { EmbeddingService } from '../../src/gql/services/embedding.service';
 import { ConfigService } from '@nestjs/config';
 import { startMemgraph, clearGraph, MemgraphHandle } from './memgraph-container';
+import { TEST_ENGINE, itMemgraphOnly } from './test-engine';
 import { MatchMitreTechniquesResolverService } from '../../src/gql/resolver-services/match-mitre-techniques-resolver.service';
 import { VectorSearchService } from '../../src/gql/services/vector-search.service';
 
@@ -46,7 +47,8 @@ function makeStubConfigService(): ConfigService {
 
 function makeVectorSearch(driver: any): VectorSearchService {
   return new VectorSearchService(driver, makeStubConfigService(), {
-    getEngineInfo: async () => ({ engine: 'memgraph', edition: null, version: null }),
+    // The engine the suite runs on (DT_TEST_ENGINE), so the search speaks that engine's dialect.
+    getEngineInfo: async () => ({ engine: TEST_ENGINE, edition: null, version: null }),
   } as any);
 }
 
@@ -593,7 +595,8 @@ describe('MatchMitreTechniquesResolverService (e2e)', () => {
     expect(out.matches[0].candidates[0].similarityScore).toBeGreaterThan(THRESHOLD);
   });
 
-  it('vector index is created with the dimension+metric config (no rejected HNSW keys)', async () => {
+  // Memgraph-only (vector_search): skipped on the Neo4j leg.
+  itMemgraphOnly('vector index is created with the dimension+metric config (no rejected HNSW keys)', async () => {
     await seedBaseFixture(mg.driver, { withEmbeddings: true });
     stubEmbedding.setFixedVector(V_MATCH);
 
@@ -882,7 +885,8 @@ describe('MatchMitreTechniquesResolverService (e2e)', () => {
     expect(out.matches[0].candidates[0]).toMatchObject({ mitreId: 'AML.M0015', tactic: null, tacticOrder: null, kind: 'ATLAS_MITIGATION' });
   });
 
-  it('a kind with no nodes is skipped: ATT&CK keeps its vector tier, the absent kind reports NO_VECTORS', async () => {
+  // Memgraph-only (vector_search): skipped on the Neo4j leg.
+  itMemgraphOnly('a kind with no nodes is skipped: ATT&CK keeps its vector tier, the absent kind reports NO_VECTORS', async () => {
     await seedBaseFixture(mg.driver, { withEmbeddings: true });
     stubEmbedding.setFixedVector(V_MATCH);
 
@@ -904,7 +908,8 @@ describe('MatchMitreTechniquesResolverService (e2e)', () => {
 
   // A kind whose nodes are loaded but whose embeddings are missing or made with another model is
   // unhealthy on its own: it reports its reason, and the healthy kinds keep their vector tier.
-  it.each([
+  // Memgraph-only (vector_search): skipped on the Neo4j leg.
+  itMemgraphOnly.each([
     ['without embeddings', 'NO_VECTORS', false],
     ['with another model', 'MODEL_MISMATCH', true],
   ] as const)(
@@ -938,7 +943,8 @@ describe('MatchMitreTechniquesResolverService (e2e)', () => {
     },
   );
 
-  it('ATLAS_TECHNIQUE: the vector tier answers, and the kind keeps its own index', async () => {
+  // Memgraph-only (vector_search): skipped on the Neo4j leg.
+  itMemgraphOnly('ATLAS_TECHNIQUE: the vector tier answers, and the kind keeps its own index', async () => {
     await seedBaseFixture(mg.driver, { withEmbeddings: true });
     await seedAtlasFixture(mg.driver, { withEmbeddings: true });
     stubEmbedding.setFixedVector(V_MATCH);

@@ -57,7 +57,7 @@ const linkConnect = (link: { id: string; justification: string | null }) => ({
   ...(link.justification != null ? { edge: { justification: link.justification } } : {}),
 });
 
-describe('MITRE technique links with their justification (production schema, Memgraph)', () => {
+describe('MITRE technique links with their justification (production schema, test database)', () => {
   let mg: MemgraphHandle;
   let schema: GraphQLSchema;
   let writer: SetInstantiationAttributesService;

@@ -135,6 +135,10 @@ unchanged corpus is skipped.
 The marker is an optimisation, not the correctness control — every ingest statement is a `MERGE`, so
 re-running is a safe no-op. That is why any doubt about the marker resolves toward re-ingesting.
 
+Before loading, the one-shot probes the graph engine and creates, in its dialect, an index on every
+label and key property the corpus `MERGE`s or `MATCH`es a node by, so the load does not scan each label
+per statement; an unknown engine or a failed index is noted in the ingest detail and never fails the ingest.
+
 Execution mirrors the platform's own installer: one session per file, one autocommit transaction per
 statement, fail-fast with the file name and a 1-based statement index. Two choices are deliberate:
 
@@ -142,9 +146,12 @@ statement, fail-fast with the file name and a 1-based statement index. Two choic
   memory-limit a large `MERGE` can hit part-way — arrive on the result stream and never surface unless
   it is consumed. Dropping the result would record a partial ingest as complete and lock it in behind
   the marker.
-- **No managed transactions.** A managed transaction would *retry* a memory-limit error, which the
-  database classifies as transient. Under this workload it is terminal: it means the database needs a
-  larger memory limit. The error is classified and reported as such rather than retried.
+- **No managed transactions.** A managed transaction would *retry* a memory-limit error, which both
+  engines classify as transient. Under this workload it is terminal: it means the database needs more
+  memory. The error is classified and reported as such rather than retried — Memgraph's by its message,
+  Neo4j's by its error code — and the diagnosis names what to raise on the engine the ingest ran
+  against: Memgraph's `--memory-limit` (set in the bundle's `compose.memgraph.yaml`, overridden in
+  `compose.override.yaml`), or Neo4j's heap, `NEO4J_HEAP_SIZE` in the bundle's `.env`.
 
 ### The two exit disciplines
 

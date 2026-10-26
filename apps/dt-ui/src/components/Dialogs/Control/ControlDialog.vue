@@ -3,7 +3,7 @@
   import { useControlsStore } from '@/stores/controlsStore'
   import { useClassSuggestionsStore } from '@/stores/classSuggestionsStore'
   import { Class, Control, Countermeasure, type DispositionMutationResult } from '@dethernety/dt-core'
-  import { unflattenProperties, withClearedAttributes } from '@/utils/dataFlowUtils'
+  import { unflattenProperties, withClearedAttributes, withoutEmptiedListEntries } from '@/utils/dataFlowUtils'
   import { emitBindingChangeFeedback } from '@/utils/bindingChangeFeedback'
   import { mitreUrl } from '@/utils/mitreUrl'
   import type { UISchemaElement } from '@jsonforms/core'
@@ -646,16 +646,18 @@
   }
 
   const saveAttributes = (pending: object): Promise<boolean> => {
+    // A list row the user emptied is dropped rather than sent as null, which the server refuses.
+    const attributes = withoutEmptiedListEntries(pending as Record<string, unknown>)
     return controlsStore.setInstantiationAttributes({
       classId: selectedClassId.value,
       componentId: props.id,
       // An answer taken back (Not answered) is sent as null, so the server clears it. The map stays in its
       // top-level shape, as the control library stores it: a list is one value, replaced whole.
-      attributes: withClearedAttributes(lastLoadedAttributes.value as Record<string, unknown>, pending as Record<string, unknown>),
+      attributes: withClearedAttributes(lastLoadedAttributes.value as Record<string, unknown>, attributes),
     }).then(ret => {
       if (ret) {
-        lastLoadedAttributes.value = pending
-        if (Object.keys(pending).length > 0) {
+        lastLoadedAttributes.value = attributes
+        if (Object.keys(attributes).length > 0) {
           classesWithAttributes.value.add(selectedClassId.value)
         } else {
           classesWithAttributes.value.delete(selectedClassId.value)

@@ -295,12 +295,6 @@ export const DUMP_MODEL_DATA = gql`
   }
 `
 
-export const GET_DUMP_MODEL_DATA = gql`
-  query GetDumpModelData($modelId: ID!) {
-    getDumpModelData(modelId: $modelId)
-  }
-`
-
 export const GET_MODEL_BOUNDARIES = gql`
   query GetModelBoundaries($modelId: ID!) {
     models(where: { id: { eq: $modelId } }) {

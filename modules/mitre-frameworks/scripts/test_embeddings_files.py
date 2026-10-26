@@ -26,7 +26,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from check_embeddings_files import DIMENSIONS, EXPECTED_ROWS, check_file, check_module, parse_statements  # noqa: E402
-from load_committed_data import LOAD_FILES, node_keys, parse_cypher_statements  # noqa: E402
+from load_committed_data import LOAD_FILES, detect_engine, index_statement, node_keys, parse_cypher_statements  # noqa: E402
 
 MODULE_DIR = Path(__file__).resolve().parent.parent
 PROFILE = "embeddinggemma-300m-retrieval-v1"
@@ -249,6 +249,41 @@ def finds_the_node_keys_of_the_committed_files() -> None:
     assert ("MitreAttackTechnique", "attack_id") in keys and ("MitreAtlasTechnique", "atlas_id") in keys
 
 
+def writes_the_node_key_index_per_engine() -> None:
+    assert index_statement("memgraph", "MitreAttackTechnique", "attack_id") == "CREATE INDEX ON :MitreAttackTechnique(attack_id)"
+    assert index_statement("neo4j", "MitreAttackTechnique", "attack_id") == (
+        "CREATE INDEX dt_idx__MitreAttackTechnique__attack_id IF NOT EXISTS FOR (n:MitreAttackTechnique) ON (n.attack_id)"
+    )
+
+    class _Session:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def run(self, _cypher: str):
+            name = self.name
+
+            class _Result:
+                def single(self):
+                    return {"name": name}
+
+            return _Result()
+
+    try:
+        index_statement("other", "A", "id")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("an unknown engine got a statement")
+
+    assert detect_engine(_Session("Memgraph")) == "memgraph"
+    assert detect_engine(_Session("Neo4j Kernel")) == "neo4j"
+    try:
+        detect_engine(_Session("SomeGraph"))
+    except ValueError:
+        return
+    raise AssertionError("an unknown engine was accepted")
+
+
 def main_tests() -> int:
     cases: List[Callable[[], None]] = [
         a_matching_file_passes,
@@ -271,6 +306,7 @@ def main_tests() -> int:
         splits_like_the_go_reference,
         the_check_splits_like_the_go_edge_cases,
         finds_the_node_keys_of_the_committed_files,
+        writes_the_node_key_index_per_engine,
     ]
     failures = 0
     for case in cases:

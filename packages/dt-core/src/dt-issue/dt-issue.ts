@@ -95,9 +95,10 @@ export class DtIssue {
           single?: {
             id?: { eq?: string }
             type?: { eq?: string }
+            module?: { single?: { id?: { eq?: string }, name?: { eq?: string } } }
           }
         },
-        model?: { some?: { id?: { in?: string[] } } },
+        models?: { some?: { id?: { in?: string[] } } },
         components?: { some?: { id?: { in?: string[] } } },
         dataFlows?: { some?: { id?: { in?: string[] } } },
         securityBoundaries?: { some?: { id?: { in?: string[] } } },
@@ -106,19 +107,20 @@ export class DtIssue {
         analyses?: { some?: { id?: { in?: string[] } } },
         exposures?: { some?: { id?: { in?: string[] } } },
         countermeasures?: { some?: { id?: { in?: string[] } } },
-        module?: {
-          single?: {
-            id?: { eq?: string },
-            name?: { eq?: string },
-          }
-        },
       } = {}
       if (issueId) condition.id = { eq: issueId }
       if (name) condition.name = { eq: name }
-      if (classId || classType) {
-        const classFilter: { id?: { eq?: string }, type?: { eq?: string } } = {}
+      // An issue belongs to a module through its class (Issue has no module relationship of its own).
+      if (classId || classType || moduleId || moduleName) {
+        const classFilter: NonNullable<NonNullable<typeof condition.issueClass>['single']> = {}
         if (classId) classFilter.id = { eq: classId }
         if (classType) classFilter.type = { eq: classType }
+        if (moduleId || moduleName) {
+          const moduleFilter: { id?: { eq?: string }, name?: { eq?: string } } = {}
+          if (moduleId) moduleFilter.id = { eq: moduleId }
+          if (moduleName) moduleFilter.name = { eq: moduleName }
+          classFilter.module = { single: moduleFilter }
+        }
         condition.issueClass = { single: classFilter }
       }
       if (elementIds) {
@@ -127,7 +129,7 @@ export class DtIssue {
         // wrapper below, so nine sibling `some` filters required the element in ALL
         // nine collections simultaneously.) The OR still AND's with the other filters.
         condition.OR = [
-          { model: { some: { id: { in: elementIds } } } },
+          { models: { some: { id: { in: elementIds } } } },
           { components: { some: { id: { in: elementIds } } } },
           { dataFlows: { some: { id: { in: elementIds } } } },
           { securityBoundaries: { some: { id: { in: elementIds } } } },
@@ -137,12 +139,6 @@ export class DtIssue {
           { exposures: { some: { id: { in: elementIds } } } },
           { countermeasures: { some: { id: { in: elementIds } } } },
         ]
-      }
-      if (moduleId || moduleName) {
-        const moduleFilter: { id?: { eq?: string }, name?: { eq?: string } } = {}
-        if (moduleId) moduleFilter.id = { eq: moduleId }
-        if (moduleName) moduleFilter.name = { eq: moduleName }
-        condition.module = { single: moduleFilter }
       }
       if (issueStatus !== undefined) {
         condition.issueStatus = { eq: issueStatus }

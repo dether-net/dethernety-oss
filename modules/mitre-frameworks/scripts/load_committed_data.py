@@ -9,7 +9,8 @@ the files beside them, and no file but 05 and 09 changes.
 
 Statements are split the way the module installer splits them (semicolons outside string
 literals and comments; the reference is oss/scripts/module-manager/database.ts). An index
-on each node key comes first, so the MERGEs do not scan.
+on each node key comes first, so the MERGEs do not scan; it is written in the dialect of
+the engine at the URI (Memgraph or Neo4j), named on Neo4j the way dt-module names it.
 
 Usage: load_committed_data.py <bolt_uri> [<data dir>]
 """
@@ -90,6 +91,25 @@ def node_keys(texts: Iterable[str]) -> List[tuple]:
     return sorted(keys)
 
 
+def detect_engine(session) -> str:
+    """'memgraph' or 'neo4j', from dbms.components(); anything else is an error."""
+    name = str(session.run("CALL dbms.components() YIELD name RETURN name").single()["name"])
+    if "memgraph" in name.lower():
+        return "memgraph"
+    if "neo4j" in name.lower():
+        return "neo4j"
+    raise ValueError(f"unrecognised graph engine component {name!r}")
+
+
+def index_statement(engine: str, label: str, key: str) -> str:
+    """The node-key index in the engine's dialect (labels and keys come from node_keys)."""
+    if engine == "neo4j":
+        return f"CREATE INDEX dt_idx__{label}__{key} IF NOT EXISTS FOR (n:{label}) ON (n.{key})"
+    if engine == "memgraph":
+        return f"CREATE INDEX ON :{label}({key})"
+    raise ValueError(f"unknown graph engine {engine!r}")
+
+
 def load(bolt_uri: str, data_dir: Path) -> int:
     from neo4j import GraphDatabase  # type: ignore[import-untyped]
 
@@ -100,8 +120,9 @@ def load(bolt_uri: str, data_dir: Path) -> int:
             if session.run("MATCH (n) RETURN count(n) AS c").single()["c"] != 0:
                 print("[error] refusing to load into a non-empty database", file=sys.stderr)
                 return 1
+            engine = detect_engine(session)
             for label, key in node_keys(texts.values()):
-                session.run(f"CREATE INDEX ON :{label}({key})").consume()
+                session.run(index_statement(engine, label, key)).consume()
             for name in LOAD_FILES:
                 statements = parse_cypher_statements(texts[name])
                 for stmt in statements:

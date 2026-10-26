@@ -6,6 +6,7 @@
 - [DtLgAnalysisOps - LangGraph Analysis Operations](#dtlganalysisops---langgraph-analysis-operations)
 - [DtLgDocumentOps - LangGraph Document Operations](#dtlgdocumentops---langgraph-document-operations)
 - [Ad-hoc Rego Evaluation (rego-adhoc)](#ad-hoc-rego-evaluation-rego-adhoc)
+- [Graph Engine and Schema Helpers](#graph-engine-and-schema-helpers)
 - [Utility Class Patterns](#utility-class-patterns)
 
 ## Overview
@@ -469,6 +470,101 @@ Two properties keep the authoring verdict aligned with the runtime:
 - **`checkRegoSource` is a superset of the packaging gate.** It combines `lintPolicySource` (builtin partition, length limits, isolation — defects a parse cannot see, because the engine resolves function names lazily) with a real parse (syntax errors the static lint cannot see). A policy that passes here cannot later fail packaging for a reason its author never saw.
 
 **No resource bounds.** Rego's strong normalization guarantees termination, not bounded time or memory. The caller owns input-size caps, and should consider `worker_threads` isolation (with `resourceLimits`) before wiring these functions to untrusted policy or input.
+
+---
+
+## Graph Engine and Schema Helpers
+
+Functions for modules that create their own indexes and constraints, or write the graph directly, and must run on either supported graph engine. Memgraph and Neo4j share no schema DDL syntax, so a module declares what it needs and these helpers write the statements in the engine's dialect.
+
+These functions and types are part of dt-module's public API. They are exported from the package root (`@dethernety/dt-module`), and any module can use them.
+
+**Source Files:**
+- `packages/dt-module/src/engine.ts` — engine detection
+- `packages/dt-module/src/ddl.ts` — per-engine DDL builders
+- `packages/dt-module/src/schema.ts` — apply and drop a declared schema
+- `packages/dt-module/src/locks.ts` — a node write lock for check-then-write statements
+
+### Engine detection (engine.ts)
+
+```typescript
+probeEngine(driver: any, databaseName?: string): Promise<EngineInfo>
+resolveEngine(context: Pick<ModuleResolverContext, 'driver' | 'databaseName' | 'getEngine'>): Promise<EngineInfo>
+// EngineInfo = { engine: Dialect ('memgraph' | 'neo4j'), edition: string | null, version: string | null }
+```
+
+`probeEngine` runs `CALL dbms.components()` once in a session of its own. An unrecognised component name throws `EngineProbeError` rather than guessing. `resolveEngine` uses the resolver context's `getEngine` when the platform supplies it, and otherwise probes the context's driver, memoized per driver (see [ModuleResolverContext](./DT_MODULE_INTERFACE.md#moduleresolvercontext)).
+
+### DDL builders (ddl.ts)
+
+| Function | Builds |
+|----------|--------|
+| `buildIndexDdl` / `buildDropIndexDdl` | Range index on `label(property)` |
+| `buildRelationshipIndexDdl` / `buildDropRelationshipIndexDdl` | Range index on a relationship type's property (an edge index on Memgraph) |
+| `buildConstraintDdl` / `buildDropConstraintDdl` | Uniqueness (single or composite) or existence constraint; `null` for an existence constraint on Neo4j other than Enterprise |
+| `indexName` / `relationshipIndexName` / `constraintName` | The deterministic Neo4j name (`dt_idx__…`, `dt_ridx__…`, `dt_uniq__…`, `dt_exists__…`) |
+
+Neo4j statements carry the deterministic name and `IF NOT EXISTS` / `IF EXISTS`; Memgraph statements use its unnamed legacy forms. Labels, relationship types and properties are interpolated into the statement, so each must be a plain identifier; anything else throws.
+
+### Declared schema (schema.ts)
+
+```typescript
+ensureSchema(run: CypherRunner, engineInfo: EngineInfo, plan: SchemaPlan): Promise<SchemaReport>
+dropSchemaObject(run: CypherRunner, engineInfo: EngineInfo, target: SchemaTarget): Promise<SchemaReport>
+// SchemaPlan  = { indexes?: IndexSpec[], relationshipIndexes?: RelationshipIndexSpec[], constraints?: ConstraintSpec[] }
+// SchemaReport = { applied: string[], existed: string[], skipped: string[], failed: { statement, error }[] }
+```
+
+`run` executes one statement and must use an auto-commit (implicit) transaction: Memgraph rejects schema changes inside an explicit one. `ensureSchema` validates every spec before it runs anything and throws on an invalid one; once statements run, it never throws for one: each failure lands in `failed` and the rest still run. It absorbs the engine differences a module would otherwise handle itself:
+
+- **Memgraph** answers an existing index with "already exists"; that counts as `existed`, not `failed`.
+- **Neo4j** backs a uniqueness constraint with its own index, so a plain index on a key that already has a uniqueness constraint or node key (declared or existing) is skipped, and a plain index in the way of a declared constraint is dropped first (and restored if the constraint then fails).
+- **Duplicate keys block a uniqueness constraint on both engines.** Before each uniqueness constraint it attempts, `ensureSchema` scans the label once and counts the key values held by more than one node and the nodes that lack a key property. With duplicates, the constraint is not run: it lands in `failed` with the counts, and on Neo4j the plain index in its way is left alone. Nodes lacking a key property do not stop the constraint; their count is appended to the error if it then fails. On Neo4j a constraint `SHOW CONSTRAINTS` already lists is not checked. If the scan itself fails, the constraint is attempted as is.
+- **Neo4j drops by name only.** `dropSchemaObject` looks the name up with `SHOW INDEXES` / `SHOW CONSTRAINTS` and drops every matching object by its actual name, so objects created before names were deterministic are dropped too. A name read back that is not a plain word (a letter or underscore, then letters, digits, underscores, as every name Neo4j generates) is refused and reported in `failed` rather than quoted into the statement.
+
+```typescript
+import { ensureSchema, resolveEngine, type SchemaPlan } from '@dethernety/dt-module';
+
+const PLAN: SchemaPlan = {
+  indexes: [{ label: 'MyNode', property: 'kind' }],
+  constraints: [{ label: 'MyNode', properties: ['id'], kind: 'unique' }],
+};
+
+const engineInfo = await resolveEngine(context);
+const report = await ensureSchema(
+  async (cypher) => {
+    const session = context.driver.session({ database: context.databaseName });
+    try { return await session.run(cypher); } finally { await session.close(); }
+  },
+  engineInfo,
+  PLAN,
+);
+```
+
+### Write lock (locks.ts)
+
+```typescript
+writeLockClause(variable: string): string
+// 'SET v._lock = true REMOVE v._lock' for the bound node variable v
+```
+
+A statement that reads a node and then writes based on what it read (compare a revision, check that a key is free) needs the node locked first, and the two engines differ here:
+
+- **Neo4j** runs read-committed. Without a lock, two writers can both pass the same check, and a read can act on a value another transaction has already changed. Writing a property takes the node's exclusive lock until commit. A concurrent writer that took it first makes this one wait, and every read after the lock sees the latest committed state.
+- **Memgraph** runs snapshot isolation. The same write makes a concurrent writer of the node fail with a conflict instead of waiting.
+
+The clause sets a property and removes it again, so nothing is left on the node. Put it right after the `MATCH` that binds the node and before any read the write depends on. The variable must be a plain identifier; anything else throws.
+
+```typescript
+import { writeLockClause } from '@dethernety/dt-module';
+
+await tx.run(
+  `MATCH (n:MyNode {id: $id}) ${writeLockClause('n')}
+   WITH n WHERE n.rev = $expectedRev
+   SET n.value = $value, n.rev = n.rev + 1`,
+  { id, expectedRev, value },
+);
+```
 
 ---
 

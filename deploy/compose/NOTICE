@@ -10,12 +10,12 @@ its own licenses (see the last entry below).
 
 This deployment additionally *references* the third-party container images listed
 below. It does NOT redistribute them. Dethernety does not host, mirror, or embed
-these images: the compose file names them, and at run time (`byodt up` /
-`docker compose up`) your container runtime pulls each one directly from its
-publisher's own registry to the machine running the stack. Naming an image is a
-pointer, not distribution.
+these images: the compose files name them, and at run time (`byodt up`) your
+container runtime pulls each one directly from its publisher's own registry to
+the machine running the stack. Naming an image is a pointer, not distribution.
 
-The references live in .env (DB_IMAGE, PROXY_IMAGE). If you repoint
+The references live in .env (DB_IMAGE, PROXY_IMAGE, and on Neo4j NEO4J_IMAGE,
+which byodt records there on the first Neo4j run as the image listed below). If you repoint
 any of them to a registry you operate (for example, an air-gapped mirror), that
 copy is made by you, under your own responsibility and the component's license.
 
@@ -25,7 +25,7 @@ images also bundle a base operating system and packages that carry their own
 licenses; consult each image for its complete bill of materials.
 
 ------------------------------------------------------------------------------
-Memgraph — graph database (compose service: db)
+Memgraph — graph database (compose service: db, the default DB_ENGINE=memgraph)
   Image:     memgraph/memgraph:3.13.2  (Docker Hub, published by Memgraph)
   License:   Business Source License 1.1 (BSL 1.1)
   Homepage:  https://memgraph.com
@@ -36,6 +36,16 @@ Memgraph — graph database (compose service: db)
   your use falls within Memgraph's Additional Use Grant, or obtain a commercial
   license from Memgraph. The full license text ships inside the image and is
   published by Memgraph at https://memgraph.com.
+
+------------------------------------------------------------------------------
+Neo4j Community Edition — graph database (compose service: db, when DB_ENGINE=neo4j)
+  Image:     neo4j:5.26-community  (Docker Hub Official Image)
+  License:   GNU General Public License v3 (GPLv3)
+  Homepage:  https://neo4j.com
+
+  Used only when you select it with DB_ENGINE=neo4j. This bundle ships no Neo4j
+  code: your container runtime pulls the image from its publisher. Your use of
+  it is governed by its license, which ships inside the image.
 
 ------------------------------------------------------------------------------
 EmbeddingGemma — embedding model weights (downloaded by the platform; not in this bundle)
@@ -72,5 +82,6 @@ MITRE ATT&CK, MITRE ATLAS, MITRE D3FEND — reference data (inside the byodt-con
 
 ------------------------------------------------------------------------------
 
-The versions above are the tested set pinned in .env.example for this release.
+The versions above are the tested set for this release, pinned in .env.example
+(the Neo4j image in byodt).
 If you repoint or re-pin any image, its license is whatever that image carries.

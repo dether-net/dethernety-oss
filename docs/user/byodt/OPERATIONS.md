@@ -30,15 +30,15 @@ Run it from the bundle directory. It always operates on the bundle it lives in, 
 | `./byodt logs [service]` | Follow the logs — all services, or one. |
 | `./byodt update` | Pull the pinned images and apply them. |
 | `./byodt models pull` | Download and verify the embedding model's weights into `data/models` ahead of the first start. |
-| `./byodt backup [dir]` | Snapshot the graph and copy it out. Defaults to `backups/`. |
-| `./byodt restore <file>` | Replace the graph from a backup snapshot. Asks you to confirm. |
+| `./byodt backup [dir]` | Back up the graph and copy it out. Defaults to `backups/`. On Neo4j the database stops while it is dumped. |
+| `./byodt restore <file>` | Replace the graph from a backup. Asks you to confirm. |
 | `./byodt bootstrap` | First-run setup only: directories, database password, mode layer. `up` does this for you. |
 | `./byodt destroy` | Remove the containers and the network. Data on disk is kept. |
 | `./byodt console` | Print the console URL, and open it where the platform supports that. |
 | `./byodt tls generate [hostname]` | Generate a self-signed front-door certificate. |
 | `./byodt tls status` | Show the installed certificate, or report that there is none. |
 | `./byodt version` | Show the control script's version and the pinned release set. |
-| `./byodt compose [args]` | Run your engine's `compose` with this bundle's configuration files. |
+| `./byodt compose [args]` | Run your engine's `compose` with this bundle's configuration and compose files. |
 
 Several commands accept a familiar alias: `start`, `stop`, `ps`, `pull`, `upgrade`, `init`, `nuke`, `open`. They do exactly what the primary name does.
 
@@ -72,7 +72,7 @@ Which command applies a change depends on what you changed. The full table is in
 ./byodt restart               # after connecting or disconnecting the cloud
 ./byodt restart platform      # after mounting or unmounting a content module, or updating the knowledge graph
 ./byodt restart proxy         # after adding, replacing, or removing a certificate
-./byodt restart db            # after changing DB_DATA or SNAPSHOT_INTERVAL_SEC
+./byodt restart db            # after changing DB_DATA, SNAPSHOT_INTERVAL_SEC, or a NEO4J_DATA/_HEAP_SIZE/_PAGECACHE_SIZE
 ```
 
 Naming a service recreates only that service, not its dependencies — `./byodt restart proxy` re-reads the front-door configuration without bouncing the database underneath it.
@@ -105,14 +105,15 @@ Logs are followed. `Ctrl-C` stops the stream and nothing else.
 ```
 
 ```
-byodt 1.2.0
+byodt 1.3.0
 Pinned release (from .env):
   PLATFORM_VERSION=X.Y.Z
   DB_IMAGE=…
   PROXY_IMAGE=…
+  DB_ENGINE=memgraph
 ```
 
-The first line is the control script's own version, which is independent of the platform release. The rest is exactly what this deployment is pinned to.
+The first line is the control script's own version, which is independent of the platform release. The rest is exactly what this deployment is pinned to, in the order the lines appear in `.env`. On Neo4j `byodt` records `NEO4J_IMAGE` in `.env` on the first run; before that, it adds the image `byodt` would use, marked as the tested image, not set in `.env`.
 
 The console image is not listed, because it follows `PLATFORM_VERSION` rather than being pinned separately. It appears here only if you have uncommented `CONSOLE_IMAGE` to point at a mirror. A leftover `OLLAMA_IMAGE` line from an older release is not listed: this bundle no longer uses it.
 
@@ -146,19 +147,25 @@ While the platform is downloading or loading the model, `/health` reports `degra
 
 ### What a backup is
 
-`./byodt backup` asks the database for a fresh, consistent snapshot — taken hot, with no downtime — and copies that file out of the container to a durable location.
+What `./byodt backup` does depends on the database engine:
 
-A snapshot is the **graph only**: every model, finding, control, and the reference corpus. It does **not** contain the database password, which is separate state. Two consequences:
+- **Memgraph:** it asks the database for a fresh, consistent snapshot — taken hot, with no downtime — and copies that file out of the container to a durable location.
+- **Neo4j:** Neo4j Community dumps an offline database only. `byodt` makes a private working directory for the dump, stops `db`, dumps the graph with `neo4j-admin` in a one-off container, copies the dump out, removes the directory, and starts `db` again — also when the stop or the dump fails. The platform loses its database connection meanwhile; plan the backup for a quiet moment.
 
-- It is safe to move between machines, and it restores cleanly onto any deployment **of the same version**.
+A backup is the **graph only**: every model, finding, control, and the reference corpus. It does **not** contain the database password, which is separate state. Two consequences:
+
+- You can move it between machines, and it restores cleanly onto any deployment **of the same version and engine**. Each engine refuses the other's backup file.
 - It is not a secret-bearing file in the credential sense — but it is your entire threat-modelling estate, so keep it private.
 
 ### Taking one
 
 ```sh
-./byodt backup                    # → backups/byodt-snapshot-<version>-<timestamp>.snapshot
+./byodt backup                    # Memgraph → backups/byodt-snapshot-<version>-<timestamp>.snapshot
+                                  # Neo4j    → backups/byodt-dump-<version>-<timestamp>.dump
 ./byodt backup /path/to/archive   # write somewhere else
 ```
+
+On Memgraph:
 
 ```
 ==> Requesting a snapshot…
@@ -166,28 +173,43 @@ A snapshot is the **graph only**: every model, finding, control, and the referen
 ==> The whole graph is in here (no password) — keep it private and copy it off-box so it survives losing this machine.
 ```
 
-The filename records the version the snapshot was taken on, which is what lets `restore` warn you about a mismatch later.
+On Neo4j:
 
-The database must be running and reachable — the command probes it first and stops with a clear message if it is not.
+```
+==> Stopping the database — Neo4j Community dumps an offline database…
+==> Dumping the graph…
+    …neo4j-admin output…
+==> Starting the database again…
+==> Backup written: backups/byodt-dump-X.Y.Z-20260814-101112.dump (12M)
+==> The whole graph is in here (no password) — keep it private and copy it off-box so it survives losing this machine.
+```
+
+The filename records the version the backup was taken on, which is what lets `restore` warn you about a mismatch later. A Neo4j dump is created readable by you only.
+
+The database must be running and reachable when you start a backup — the command probes it first and stops with a clear message if it is not.
+
+On Neo4j the dump goes through a private working directory that `byodt` makes in the bundle root for each backup or restore — `.byodt-dump.XXXXXX`, mode `0700`, owned by you — and mounts into the one-off `neo4j-admin` container only. It is removed when the command ends, also on failure. The dump never passes through `data/`.
 
 > **Copy backups off this machine.** A backup sitting next to the data it protects is lost with the machine. This is the single most valuable thing on this page.
 
 ### Automatic snapshots are not backups
 
-The database also writes in-place snapshots every `SNAPSHOT_INTERVAL_SEC` seconds (default 300) for crash recovery. They live inside the data directory and are pruned over time by the database's own retention. They protect you from a crash; they do not protect you from losing the disk, the directory, or the machine. Use `./byodt backup` for anything you want to keep.
+Memgraph also writes in-place snapshots every `SNAPSHOT_INTERVAL_SEC` seconds (default 300) for crash recovery. They live inside the data directory and are pruned over time by the database's own retention. They protect you from a crash; they do not protect you from losing the disk, the directory, or the machine. Use `./byodt backup` for anything you want to keep.
 
 ### Restoring
 
 ```sh
-./byodt restore backups/byodt-snapshot-X.Y.Z-20260814-101112.snapshot
+./byodt restore backups/byodt-snapshot-X.Y.Z-20260814-101112.snapshot   # Memgraph
+./byodt restore backups/byodt-dump-X.Y.Z-20260814-101112.dump           # Neo4j
 ```
 
-**This replaces the current graph.** All current graph data is cleared first, then the snapshot is applied. The command:
+**This replaces the current graph.** All current graph data is cleared, and the backup takes its place. The command:
 
-1. Warns you that the current graph will be cleared, and asks you to type `restore` to confirm. Anything else aborts and changes nothing.
-2. Warns first if the filename says the snapshot was taken on a different version than this deployment runs — a snapshot may not load across versions.
-3. Requires the database to be running.
-4. Stages the file into the database container and applies it.
+1. Refuses a backup made by the other engine: a `.dump` on Memgraph, a `.snapshot` on Neo4j.
+2. Warns first if the filename says the backup was taken on a different version than this deployment runs — a backup may not load across versions.
+3. Warns you that the current graph will be cleared, and asks you to type `restore` to confirm. Anything else aborts and changes nothing.
+4. On **Memgraph**, requires the database to be running, stages the file into the database container, and applies it.
+5. On **Neo4j**, copies the file into a private working directory (as for a backup), stops `db`, loads the dump with `neo4j-admin` in a one-off container that mounts the directory read-only, removes the directory, and starts `db` again — also when the load fails. The platform loses its database connection meanwhile.
 
 Your configuration and the database password are untouched, so the restored graph opens with this deployment's own credentials.
 
@@ -195,7 +217,7 @@ Your configuration and the database password are untouched, so the restored grap
 ==> Restore complete. If the app still shows old or empty data, run 'byodt restart platform'.
 ```
 
-If a failure occurs partway, the current graph is left unchanged and the command says so.
+On Memgraph, if a failure occurs partway, the current graph is left unchanged and the command says so. On Neo4j the load replaces the graph, so a failed load may already have removed the current one: the command stops with `neo4j-admin could not load the dump — see its output above. The load replaces the graph, so the current one may be gone: restore again from a backup you know is good.`, and the database is started again. A failure before the load — staging the file, or stopping `db` — changes nothing.
 
 ---
 
@@ -260,7 +282,7 @@ Browsers only expose the cryptography the cloud sign-in flow needs on a secure c
 
 ## Upgrading to a new release
 
-A release moves as one unit: the platform image, the console image, and the module payloads all follow `PLATFORM_VERSION`. The graph database image is the exception — an update deliberately leaves it where it is (see step 4).
+A release moves as one unit: the platform image, the console image, and the module payloads all follow `PLATFORM_VERSION`. The graph database image is the exception — an update leaves `DB_IMAGE`, or `NEO4J_IMAGE` on Neo4j, where it is (see step 4).
 
 ### 1. Back up first
 
@@ -268,7 +290,7 @@ A release moves as one unit: the platform image, the console image, and the modu
 ./byodt backup
 ```
 
-Copy the file off the machine. A snapshot may not load across versions, so treat it as protection against a failed upgrade, not a guaranteed rollback.
+Copy the file off the machine. A backup may not load across versions, so treat it as protection against a failed upgrade, not a guaranteed rollback.
 
 ### 2. Get the new bundle
 
@@ -276,7 +298,7 @@ Download and verify it exactly as in [Installation → Get the bundle](./INSTALL
 
 ### 3. Replace the bundle files, keep your own
 
-The tarball contains only the shipped files — the control script, the compose file, the configuration template, the proxy configuration, and the notices. It contains none of your generated files, so unpacking it over your existing bundle directory replaces the former and leaves the latter alone:
+The tarball contains only the shipped files — the control script, the compose files, the configuration template, the proxy configuration, and the notices. It contains none of your generated files, so unpacking it over your existing bundle directory replaces the former and leaves the latter alone:
 
 ```sh
 VERSION=X.Y.Z    # the release you are moving to
@@ -293,9 +315,9 @@ Your `.env`, `.env.secrets`, `mode/`, `tls/`, `data/`, and `backups/` are untouc
 diff .env .env.example
 ```
 
-**Set `PLATFORM_VERSION` to the new version.** That is the whole version change — the platform image, the console image, and the module payloads all follow it. Also take any changes to `PROXY_IMAGE`, and read the new file's comments for settings that were added or retired. `./byodt update` never edits `.env` for you. Keep your current `DB_IMAGE`, even if the new file names a newer database, unless you decide to move the database (below).
+**Set `PLATFORM_VERSION` to the new version.** That is the whole version change — the platform image, the console image, and the module payloads all follow it. Also take any changes to `PROXY_IMAGE`, and read the new file's comments for settings that were added or retired. `./byodt update` never edits `.env` for you. Keep your current `DB_IMAGE` (on Neo4j, `NEO4J_IMAGE`, which `byodt` recorded on the first run), even if the new bundle names a newer database, unless you decide to move the database (below).
 
-> **Moving the database to a newer image is your choice, and it is one-way.** A newer database writes data that an older one cannot open, so there is no downgrade. `./byodt up` and `./byodt update` warn when `DB_IMAGE` differs from the image this bundle was tested with; the warning never blocks the start. To move: back up first — `./byodt backup`, or a copy of `data/memgraph` taken with the deployment down — then set `DB_IMAGE` to the tested image and run `./byodt update`.
+> **Moving the database to a newer image is your choice, and it is one-way.** A newer database writes data that an older one cannot open, so there is no downgrade. `./byodt up` and `./byodt update` warn when `DB_IMAGE` (or `NEO4J_IMAGE`) differs from the image this bundle was tested with; the warning never blocks the start. To move: back up first — `./byodt backup`, or a copy of the data directory (`data/memgraph` or `data/neo4j`) taken with the deployment down — then set `DB_IMAGE` (or `NEO4J_IMAGE`) to the tested image and run `./byodt update`.
 
 > **If you have uncommented `CONSOLE_IMAGE` to use a mirror**, move its tag to the new version too. The console refuses to serve a platform version it was not built for, so an override left on the old tag aborts the start. Leaving the key commented out — the default — makes this impossible.
 
@@ -386,7 +408,7 @@ sudo rm -rf data/models
 
 Removes the containers and the network. **Nothing on disk is deleted** — not your data, not your configuration, not your certificate. `./byodt up` brings it all back as it was.
 
-The command then prints the exact commands to wipe the graph *if you want to*, correct for your storage setting — either removing the data directory, or removing the named volume with your engine. Read what it prints; it is generated for your deployment, not a generic example.
+The command then prints the exact commands to wipe the graph *if you want to*, correct for your storage setting — either removing the data directory, or removing the named volume with your engine. On Neo4j under rootless Podman it adds the `podman unshare rm -rf` form, because the database files belong to the container's user. Read what it prints; it is generated for your deployment, not a generic example.
 
 > **Keep `.env.secrets`.** It holds the database password. Deleting it while the graph still exists locks you out of your own data. If you want a clean graph, delete the data and keep the password — a fresh database adopts the password already on disk.
 
@@ -409,7 +431,7 @@ Anything the named commands do not cover:
 ./byodt compose exec platform sh
 ```
 
-This runs your engine's `compose` with the bundle's configuration and secret files already supplied — which is the part that is tedious to get right by hand.
+This runs your engine's `compose` with the bundle's configuration and secret files already supplied, and with the compose files for your database engine: `compose.yaml`, then `compose.memgraph.yaml` or `compose.neo4j.yaml`, then `compose.override.yaml` if you have one. That is the part that is tedious to get right by hand, and a bare `compose` call without the engine's file has no database service.
 
 > **The safety rails do not apply here.** `./byodt compose down -v` will delete a named-volume graph, where `./byodt down -v` refuses. Use the escape hatch when you know what you are doing.
 

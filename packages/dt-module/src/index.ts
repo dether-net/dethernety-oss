@@ -14,6 +14,20 @@ export * from './interfaces/module-resolver-interface';
 export * from './interfaces/kg-client-interface';
 
 export * from './db-ops';
+export { EngineProbeError, probeEngine, resolveEngine } from './engine';
+export type { Dialect, EngineInfo } from './engine';
+export * from './ddl';
+export { ensureSchema, dropSchemaObject } from './schema';
+export { writeLockClause } from './locks';
+export type {
+  ConstraintSpec,
+  CypherRunner,
+  IndexSpec,
+  RelationshipIndexSpec,
+  SchemaPlan,
+  SchemaReport,
+  SchemaTarget,
+} from './schema';
 export { createKgClient } from './kg/factory';
 export type { KgClientContext, KgClientDeps } from './kg/factory';
 export { KgUnavailableError } from './kg/unavailable-client';

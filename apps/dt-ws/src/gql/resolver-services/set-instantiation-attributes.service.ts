@@ -52,34 +52,8 @@ import { AuthorizationContext } from '../interfaces/authorization.interface';
 import { GqlConfig } from '../gql.config';
 import type { Countermeasure, DTModule } from '@dethernety/dt-module';
 import { STAMP_POLICY_CYPHER, stampPolicyParams } from './shared/policy-stamp';
-
-// Pre-validate attribute value shapes against the Memgraph property model.
-// Memgraph properties are primitives or homogeneous lists of primitives;
-// nested objects fail at Bolt level with an unhelpful protocol error.
-// Returns a violation message or null when the value is acceptable.
-// Exported for unit testing.
-export function describeNonPrimitiveValue(value: unknown): string | null {
-  if (value === null || value === undefined) return null;
-  const t = typeof value;
-  if (t === 'string' || t === 'number' || t === 'boolean') return null;
-  if (Array.isArray(value)) {
-    let elemType: string | null = null;
-    for (const elem of value) {
-      if (elem === null || elem === undefined) continue;
-      const et = typeof elem;
-      if (et !== 'string' && et !== 'number' && et !== 'boolean') {
-        return `array elements must be primitives (string|number|boolean|null); got ${et === 'object' ? (Array.isArray(elem) ? 'nested array' : 'nested object') : et}`;
-      }
-      if (elemType === null) {
-        elemType = et;
-      } else if (elemType !== et) {
-        return `array must be homogeneous; saw both ${elemType} and ${et}`;
-      }
-    }
-    return null;
-  }
-  return `value must be a primitive or a list of primitives (Memgraph property model); got ${t === 'object' ? 'nested object' : t}`;
-}
+import { lockElementInTx } from './shared/element-db-lock';
+import { describeNonPrimitiveValue, propertyViolations } from '../utils/property-values';
 
 /**
  * Narrow an unknown thrown value to a structured SetInstantiationError. Errors
@@ -634,6 +608,39 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
   }
 
   /**
+   * The module's findings, each with the attributes to write: allowlisted (`sanitise`) and without the values the
+   * database cannot store (see describeNonPrimitiveValue). Each such value is dropped with a warning, not thrown,
+   * as sanitiseEdgeAttributes does, so one malformed tag list does not cost the element its other findings; a
+   * finding that already holds a value for that key keeps it (`SET += ` leaves an absent key alone). A finding
+   * whose name is such a value cannot be matched or created, so it is skipped whole, before any read.
+   */
+  private storableFindings<F extends { name: string }>(
+    findings: F[],
+    sanitise: (finding: F) => Record<string, unknown>,
+    context: { componentId: string; classId: string; findingKind: 'exposure' | 'countermeasure' },
+  ): { finding: F; attributes: Record<string, unknown> }[] {
+    const out: { finding: F; attributes: Record<string, unknown> }[] = [];
+    for (const finding of findings) {
+      const attributes = sanitise(finding);
+      const violations = propertyViolations(attributes);
+      if (violations.some(v => v.key === 'name')) {
+        this.logger.warn('Skipping a module finding whose name cannot be stored', { ...context, violations });
+        continue;
+      }
+      if (violations.length > 0) {
+        this.logger.warn('Dropping module finding attributes that cannot be stored', {
+          ...context,
+          finding: attributes.name,
+          violations,
+        });
+        for (const { key } of violations) delete attributes[key];
+      }
+      out.push({ finding, attributes });
+    }
+    return out;
+  }
+
+  /**
    * The links each of the given SYSTEM findings has now, of the writer's own types and
    * targets, keyed by `linkKey`; and whether the finding carries a disposition not yet
    * flagged for review. Keyed by node id, so two same-named findings (the upsert race)
@@ -789,10 +796,16 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
     tx: DatabaseTransaction,
     request: UpsertExposuresRequest,
   ): Promise<UpsertFindingsResult> {
+    await lockElementInTx(tx, request.componentId);
+    const exposures = this.storableFindings(request.exposures, sanitiseExposureAttrs, {
+      componentId: request.componentId,
+      classId: request.classId,
+      findingKind: 'exposure',
+    });
     const plan = await this.planReferences(
       tx,
       { componentId: request.componentId, classId: request.classId, findingKind: 'exposure' },
-      request.exposures.flatMap(exposure =>
+      exposures.flatMap(({ finding: exposure }) =>
         (exposure.exploitedBy || []).map(ref => ({
           finding: exposure.name,
           field: 'exploitedBy',
@@ -809,13 +822,11 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       findingRelation: 'HAS_EXPOSURE',
       linkTypes: EXPOSURE_LINK_TYPES,
     };
-    const names = [...new Set(request.exposures.map(exposure => exposure.name))];
+    const names = [...new Set(exposures.map(({ finding }) => finding.name))];
     const before = await this.readFindingLinks(tx, scope, names);
 
     const instantiated: string[] = [];
-    for (const exposure of request.exposures) {
-      const attributes = sanitiseExposureAttrs(exposure);
-
+    for (const { finding: exposure, attributes } of exposures) {
       // Scoped exposure upsert: USER-authored same-name nodes are
       // invisible to the OPTIONAL MATCH (scoped to SYSTEM-or-null
       // createdBy), so a class-derived exposure named "X" coexists with
@@ -989,13 +1000,19 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
     tx: DatabaseTransaction,
     request: UpsertCountermeasuresRequest,
   ): Promise<UpsertFindingsResult> {
+    await lockElementInTx(tx, request.componentId);
+    const countermeasures = this.storableFindings(request.countermeasures, sanitiseCountermeasureAttrs, {
+      componentId: request.componentId,
+      classId: request.classId,
+      findingKind: 'countermeasure',
+    });
     // respondsWith is the identity block (mitigations, D3FEND techniques, regulatory
     // requirements); each verb block → COUNTERMEASURE_<VERB> edges to techniques.
     // relationName comes only from the closed COUNTERMEASURE_VERB_EDGES map.
     const plan = await this.planReferences(
       tx,
       { componentId: request.componentId, classId: request.classId, findingKind: 'countermeasure' },
-      request.countermeasures.flatMap(countermeasure => [
+      countermeasures.flatMap(({ finding: countermeasure }) => [
         ...(countermeasure.respondsWith || []).map(ref => ({
           finding: countermeasure.name,
           field: 'respondsWith',
@@ -1021,13 +1038,11 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       findingRelation: 'HAS_COUNTERMEASURE',
       linkTypes: COUNTERMEASURE_LINK_TYPES,
     };
-    const names = [...new Set(request.countermeasures.map(countermeasure => countermeasure.name))];
+    const names = [...new Set(countermeasures.map(({ finding }) => finding.name))];
     const before = await this.readFindingLinks(tx, scope, names);
 
     const instantiated: string[] = [];
-    for (const countermeasure of request.countermeasures) {
-      const attributes = sanitiseCountermeasureAttrs(countermeasure);
-
+    for (const { finding: countermeasure, attributes } of countermeasures) {
       // Scoped countermeasure upsert (mirrors the exposure variant). See
       // upsertExposuresInTx sibling for full pattern rationale and the
       // `name` inline-set requirement.
@@ -1704,10 +1719,10 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
     if (!request.attributes || typeof request.attributes !== 'object' || Array.isArray(request.attributes)) {
       errors.push('attributes is required and must be an object');
     } else {
-      // Pre-validate value shapes. Memgraph property values are primitives
-      // or homogeneous lists of primitives — nested objects and mixed-type
-      // arrays fail at Bolt level with an unhelpful protocol error. Catch
-      // them here so the operator gets a clean VALIDATION_ERROR.
+      // Pre-validate value shapes. Property values are primitives or
+      // homogeneous lists of primitives with no null element — anything else
+      // fails at Bolt level with an unhelpful protocol error, or on one engine
+      // only. Catch it here so the operator gets a clean VALIDATION_ERROR.
       for (const [key, value] of Object.entries(request.attributes)) {
         const violation = describeNonPrimitiveValue(value);
         if (violation) {

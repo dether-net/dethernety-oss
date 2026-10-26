@@ -10,6 +10,7 @@ This package provides the core API and interfaces for creating modules for the D
 - **Exposure Detection**: Framework for implementing exposure detection rules
 - **Control Definition**: Utilities for defining security controls
 - **MITRE Framework Integration**: APIs for connecting to ATT&CK and D3FEND data
+- **Graph Engine and Schema API**: Engine detection, index and constraint DDL, and a write lock that work on both Memgraph and Neo4j
 
 ## Core Concepts
 
@@ -53,6 +54,17 @@ The package enables modules to define security controls that:
 - Link to MITRE D3FEND techniques
 - Provide implementation guidance
 - Support verification methods
+
+### Graph Engine and Schema API
+
+A module that creates its own indexes and constraints, or writes the graph directly, must run on either supported graph engine: Memgraph or Neo4j. The two share no schema DDL syntax and handle concurrent writes differently. These functions and types handle both engines. They are part of dt-module's public API, exported from the package root (`@dethernety/dt-module`), and any module can use them:
+
+- **Engine detection**: `probeEngine`, `resolveEngine`, `EngineProbeError`, and the types `EngineInfo` and `Dialect`. `resolveEngine` uses the optional `getEngine` on `ModuleResolverContext` when the platform supplies it, and probes the driver otherwise.
+- **DDL builders**: `buildIndexDdl`, `buildDropIndexDdl`, `buildRelationshipIndexDdl`, `buildDropRelationshipIndexDdl`, `buildConstraintDdl`, `buildDropConstraintDdl`, the name helpers `indexName`, `relationshipIndexName`, `constraintName`, and the type `ConstraintKind`.
+- **Declared schema**: `ensureSchema`, `dropSchemaObject`, and the types `SchemaPlan`, `SchemaReport`, `SchemaTarget`, `IndexSpec`, `RelationshipIndexSpec`, `ConstraintSpec`, `CypherRunner`.
+- **Write lock**: `writeLockClause`.
+
+See [Graph Engine and Schema Helpers](../../docs/architecture/modules/UTILITY_CLASSES.md#graph-engine-and-schema-helpers) for behaviour, signatures and examples.
 
 ## Usage
 

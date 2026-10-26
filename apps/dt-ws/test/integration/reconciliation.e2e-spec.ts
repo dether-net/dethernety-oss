@@ -8,6 +8,7 @@ import { ClassReconciler } from '../../src/gql/module-management-services/class-
 import { ClassIdentityEventLog } from '../../src/gql/module-management-services/class-identity-event-log.service';
 import type { DTMetadata } from '@dethernety/dt-module';
 import { startMemgraph, clearGraph, MemgraphHandle } from './memgraph-container';
+import { engineSource } from './engine-source';
 
 jest.setTimeout(90_000);
 
@@ -88,7 +89,7 @@ describe('module reconciliation — install / orphan / revive end-to-end', () =>
     await clearGraph(mg.driver);
     log = new ClassIdentityEventLog();
     jest.spyOn((log as any).logger, 'warn').mockImplementation(() => {});
-    reconciler = new ClassReconciler(mg.driver, log);
+    reconciler = new ClassReconciler(mg.driver, log, engineSource(mg.driver));
     reconciler.setMageAvailableForTesting(null);
     service = new ModuleManagementService(
       mg.driver,
