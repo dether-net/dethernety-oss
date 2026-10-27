@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.13.0] - Unreleased
+## [0.13.0] - 2026-10-27
 
 The platform runs on Neo4j 5 as well as Memgraph. The compose bundle picks the database with
 `DB_ENGINE` (Memgraph stays the default), dt-ws builds its schema in each engine's dialect, and the
@@ -26,13 +26,17 @@ null is now refused (see *Changed*), and so are a `single` filter on a relations
 or union and requests past the new request limits (see *Security*); `getAvailableFrontendModules`
 and `getModuleFrontendBundle` are removed (see *Removed*). **Module authors:** a module frontend
 without `frontend/frontend-manifest.json` is no longer loaded (see *Changed*);
-`dethernety-threat-report` ships its manifest. **A CDN or reverse proxy in front of dt-ws** must
-honour `Cache-Control: private` on `/module-bundles/` and must not cache it by path (see
-*Security*). **Dethereal users:** builds before the next Dethereal release send a filter the
-platform now refuses, so listing analyses from them fails until you update Dethereal, and they send
-one operand per element when they assign a control, so assigning one to some 200 elements or more in
-one call is refused too; Dethereal 0.4.17 bundles the fixed dt-core and carries the updated data
-layer: dt-core's module queries gain `getFrontendModuleManifest` and lose
+`dethernety-threat-report` 2.0.1 ships its manifest. **Operators:** update each installed module
+that has a frontend to a version that ships `frontend/frontend-manifest.json`, before you upgrade
+the platform or right after it: 0.13.0 no longer loads a module frontend without its manifest.
+Reload any browser tab left open across the upgrade: an old tab still runs the old dt-ui, which
+calls the removed frontend queries. **A CDN or reverse proxy in front of dt-ws** must honour
+`Cache-Control: private` on `/module-bundles/` and must not cache it by
+path (see *Security*). **Dethereal users:** builds before the next Dethereal release send a filter
+the platform now refuses, so listing analyses from them fails until you update Dethereal, and they
+send one operand per element when they assign a control, so assigning one to some 200 elements or
+more in one call is refused too; Dethereal 0.4.17 bundles the fixed dt-core and carries the updated
+data layer: dt-core's module queries gain `getFrontendModuleManifest` and lose
 `getAvailableFrontendModules` and `getModuleFrontendBundle`. 0.4.16 was never published: its changes
 ship in 0.4.17.
 
@@ -243,6 +247,15 @@ ship in 0.4.17.
 - **dt-ws reads module frontends once**, when it loads or reloads a module, and holds the bytes,
   their sha256 and gzip and brotli copies in memory. Files are opened without following symlinks
   and capped at 64 KiB (manifest) and 32 MiB (bundle).
+- **`@dethernety/dt-module` is 0.13.0, and every API change in it is additive.** The new parts are
+  the frontend-manifest helpers and subpaths, the engine probe, the schema and write-lock helpers,
+  and the `./test-database` and `./cypher-lint` dev/test subpaths (see *Added*). The one change in
+  behaviour is the knowledge-graph read order (see *Fixed*). A module that uses the new helpers
+  needs platform 0.13.0 and should declare `"compatibility": { "dtModule": "^0.13.0" }` in
+  `manifest.json`. For a 0.x version a caret range pins the minor version, so
+  `scripts/package-module.js` refuses a manifest that still declares `^0.12.0` against dt-module
+  0.13.0, and produces no package. `dethernety-general`, `dethernety-coverage-tools` and
+  `dethernety-threat-report` declare `^0.13.0`.
 
 ### Removed
 
@@ -377,8 +390,8 @@ ship in 0.4.17.
   `/graphql/stream` SSE endpoint it is a 400 whose error names the refusal; on the WebSocket
   transport it is GraphQL errors, sent with nothing run. In production `/graphql` replaces the
   message with "Internal server error", as for every error, and keeps the `BAD_USER_INPUT` code. The
-  checks run on both engines. Neo4j support is unreleased, so no released version is affected by the
-  Neo4j failure. **API callers:** a query that used `single` on such a relationship is now refused
+  checks run on both engines. Neo4j support is new in this release, so no earlier release is affected
+  by the Neo4j failure. **API callers:** a query that used `single` on such a relationship is now refused
   on Memgraph too; use `some` (a filter on a unique `id` matches the same nodes).
 - **The WebSocket transport runs the query guards.** With `SUBSCRIPTION_TRANSPORT=ws`, the opt-in
   graphql-ws transport carries queries and mutations as well as subscriptions, and it ran none of
