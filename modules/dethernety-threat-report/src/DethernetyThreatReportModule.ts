@@ -250,7 +250,7 @@ class DethernetyThreatReportModule implements DTModule {
     return {
       name: 'dethernety-threat-report',
       description: 'Query-based threat reporting with interactive dashboards.',
-      version: '2.0.0',
+      version: '2.0.1',
       author: 'Dethernety',
       analysisClasses: [
         {
