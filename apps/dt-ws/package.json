@@ -43,7 +43,7 @@
     "axios": "^1.20.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
-    "express": "5.2.1",
+    "express": "5.3.0",
     "graphql": "^16.14.2",
     "graphql-query-complexity": "^1.1.1",
     "graphql-sse": "^2.6.3",
