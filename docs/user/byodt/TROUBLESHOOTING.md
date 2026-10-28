@@ -29,7 +29,7 @@ Three commands and one page answer most questions:
 
 The console is the fastest diagnosis. It reports a verdict — **Healthy**, **Degraded**, or **Fault** — plus a banner for each specific problem, and it keeps working while the rest of the deployment is down. Read its banners before anything else.
 
-A note on reading `./byodt status`: `console-init` showing as **exited** is correct. It is a one-shot. What matters is its exit code — `0` is success.
+A note on reading `./byodt status`: `console-init` is a one-shot, so plain `status` does not list it once it has exited. Run `./byodt status -a` to see it. **Exited** is correct; what matters is its exit code — `Exited (0)` is success.
 
 ---
 

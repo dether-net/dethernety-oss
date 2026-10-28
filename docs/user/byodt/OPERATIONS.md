@@ -85,7 +85,13 @@ Naming a service recreates only that service, not its dependencies — `./byodt 
 ./byodt status
 ```
 
-Shows every service with its state and health. A healthy deployment shows `db`, `platform`, `proxy`, and `console` running, and `console-init` exited with code `0` — it is a one-shot, and exiting is what success looks like.
+Shows every running service with its state and health. A healthy deployment shows `db`, `platform`, `proxy`, and `console` running, with `db`, `platform`, and `proxy` healthy. `console-init` is a one-shot, so plain `status` does not list it once it has exited; add `-a` to see it:
+
+```sh
+./byodt status -a
+```
+
+Its line should read `Exited (0)` — exiting is what success looks like.
 
 ### Logs
 
