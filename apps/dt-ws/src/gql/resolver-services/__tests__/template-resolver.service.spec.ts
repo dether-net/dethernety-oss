@@ -1,5 +1,6 @@
 import { TemplateResolverService } from '../template-resolver.service';
 import { ConfigService } from '@nestjs/config';
+import { REMOTE_MODULE_CALL_TIMEOUT_MS } from '@dethernety/dt-module';
 import { ModuleRegistryService } from '../../module-management-services/module-registry.service';
 import { AuthorizationService } from '../../services/authorization.service';
 import { MonitoringService } from '../../services/monitoring.service';
@@ -24,7 +25,7 @@ type ModuleFixture = {
   isContentCallerVariant?: () => boolean;
 };
 
-function makeService(moduleFixture?: ModuleFixture) {
+function makeService(moduleFixture?: ModuleFixture, gqlConfig: Record<string, unknown> = {}) {
   const fixture: ModuleFixture =
     moduleFixture ?? {
       getClassTemplate: jest.fn(async () => 'TPL'),
@@ -33,7 +34,7 @@ function makeService(moduleFixture?: ModuleFixture) {
 
   const getModuleByName = jest.fn(() => fixture);
   const moduleRegistry: any = { getModuleByName };
-  const configService: any = { get: jest.fn(() => ({})) }; // GqlConfig — truthy
+  const configService: any = { get: jest.fn(() => gqlConfig) }; // GqlConfig — truthy
   const authorizationService: any = {
     // Mirror the real extractAuthContext: copy the raw bearer + user off the context.
     extractAuthContext: (c: any) => ({ user: c?.user, token: c?.token, sessionId: c?.sessionId }),
@@ -51,7 +52,7 @@ function makeService(moduleFixture?: ModuleFixture) {
     monitoringService as MonitoringService,
     templateCache as TemplateCacheService,
   );
-  return { service, fixture, getModuleByName, templateCache };
+  return { service, fixture, getModuleByName, templateCache, monitoringService };
 }
 
 const MODULE = [{ name: 'mod-1' }];
@@ -155,5 +156,137 @@ describe('TemplateResolverService — caller-variance / caching', () => {
     expect(templateCache.get).not.toHaveBeenCalled();
     expect(templateCache.set).not.toHaveBeenCalled();
     expect(fixture.getClassGuide).toHaveBeenCalledWith('c1', 'A');
+  });
+});
+
+describe('TemplateResolverService — operation timeout', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  /** A module call that answers `value` after `ms`. */
+  const answersAfter = (ms: number, value: string) =>
+    jest.fn(() => new Promise<string>((resolve) => setTimeout(() => resolve(value), ms)));
+  /** A module call that never answers. */
+  const neverAnswers = () => jest.fn(() => new Promise<string>(() => undefined));
+  /** Whether the promise has settled yet. */
+  const settled = (promise: Promise<unknown>) => {
+    let done = false;
+    void promise.then(() => (done = true));
+    return () => done;
+  };
+  const errorLog = (service: unknown) =>
+    jest.spyOn((service as any).logger, 'error').mockImplementation(() => undefined);
+
+  it('a module that answers with its fallback at the remote call timeout reaches the caller', async () => {
+    const { service } = makeService({
+      getClassTemplate: answersAfter(REMOTE_MODULE_CALL_TIMEOUT_MS, 'FALLBACK'),
+      getClassGuide: answersAfter(REMOTE_MODULE_CALL_TIMEOUT_MS, 'FALLBACK-GUIDE'),
+    });
+
+    const template = service.getClassTemplate('c1', MODULE, undefined, 't');
+    const guide = service.getClassGuide('c1', MODULE, undefined, 't');
+    await jest.advanceTimersByTimeAsync(REMOTE_MODULE_CALL_TIMEOUT_MS);
+
+    await expect(template).resolves.toMatchObject({ success: true, content: 'FALLBACK', source: 'module' });
+    await expect(guide).resolves.toMatchObject({ success: true, content: 'FALLBACK-GUIDE', source: 'module' });
+  });
+
+  it('a module that never answers ends empty at the timeout, and the failure names the module', async () => {
+    const { service, monitoringService } = makeService(
+      { getClassTemplate: neverAnswers(), getClassGuide: neverAnswers() },
+      { templateOperationTimeout: 30_000 },
+    );
+    const error = errorLog(service);
+
+    const template = service.getClassTemplate('c1', MODULE, undefined, 't');
+    const guide = service.getClassGuide('c2', MODULE, undefined, 't');
+    const done = settled(template);
+    await jest.advanceTimersByTimeAsync(29_999);
+    expect(done()).toBe(false);
+    await jest.advanceTimersByTimeAsync(1);
+
+    await expect(template).resolves.toMatchObject({ success: false, content: '' });
+    await expect(guide).resolves.toMatchObject({ success: false, content: '' });
+    expect(error).toHaveBeenCalledWith(
+      'Failed to fetch class template',
+      expect.objectContaining({ moduleName: 'mod-1', id: 'c1', timedOut: true }),
+    );
+    expect(error).toHaveBeenCalledWith(
+      'Failed to fetch class guide',
+      expect.objectContaining({ moduleName: 'mod-1', id: 'c2', timedOut: true }),
+    );
+    expect(monitoringService.recordOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationName: 'getClassTemplate',
+        success: false,
+        metadata: expect.objectContaining({ moduleName: 'mod-1', id: 'c1', timedOut: true }),
+      }),
+    );
+  });
+
+  it('clears its timer once the module answers', async () => {
+    const { service } = makeService();
+
+    await service.getClassTemplate('c1', MODULE, undefined, 't');
+    await service.getClassGuide('c1', MODULE, undefined, 't');
+
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('a failure that is not a timeout says so', async () => {
+    const { service } = makeService({
+      getClassTemplate: jest.fn(async () => {
+        throw new Error('module failed');
+      }),
+      getClassGuide: neverAnswers(),
+    });
+    const error = errorLog(service);
+
+    await service.getClassTemplate('c1', MODULE, undefined, 't');
+
+    expect(error).toHaveBeenCalledWith(
+      'Failed to fetch class template',
+      expect.objectContaining({ moduleName: 'mod-1', timedOut: false }),
+    );
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('a module name that fails validation is left out of the failure log', async () => {
+    const { service } = makeService();
+    const error = errorLog(service);
+
+    await service.getClassTemplate('c1', [{ name: 'm'.repeat(101) }], undefined, 't');
+
+    expect(error).toHaveBeenCalledWith(
+      'Failed to fetch class template',
+      expect.objectContaining({ moduleName: undefined, id: 'c1' }),
+    );
+  });
+
+  it('takes the timeout from the configuration', async () => {
+    const { service } = makeService({ getClassTemplate: neverAnswers(), getClassGuide: neverAnswers() }, {
+      templateOperationTimeout: 60_000,
+    });
+    errorLog(service);
+
+    const done = settled(service.getClassTemplate('c1', MODULE, undefined, 't'));
+    await jest.advanceTimersByTimeAsync(59_999);
+    expect(done()).toBe(false);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(done()).toBe(true);
+  });
+
+  it('never times out before the remote call timeout plus its margin, whatever is configured', async () => {
+    const floor = REMOTE_MODULE_CALL_TIMEOUT_MS + 5_000;
+    const { service } = makeService({ getClassTemplate: neverAnswers(), getClassGuide: neverAnswers() }, {
+      templateOperationTimeout: 5_000,
+    });
+    errorLog(service);
+
+    const done = settled(service.getClassTemplate('c1', MODULE, undefined, 't'));
+    await jest.advanceTimersByTimeAsync(floor - 1);
+    expect(done()).toBe(false);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(done()).toBe(true);
   });
 });

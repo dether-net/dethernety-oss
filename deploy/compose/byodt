@@ -20,6 +20,9 @@ readonly MODE_FILE="mode/mode.env"
 readonly TESTED_DB_IMAGE="docker.io/memgraph/memgraph:3.13.2"
 # The Neo4j image this bundle was tested with, used when DB_ENGINE=neo4j. NEO4J_IMAGE in .env overrides it.
 readonly TESTED_NEO4J_IMAGE="docker.io/library/neo4j:5.26.32-community"
+# The shortest Memgraph password byodt treats as a long random value: Memgraph stores it with a fast hash (see
+# compose.memgraph.yaml). byodt generates 48 characters.
+readonly MIN_DB_PASSWORD_LENGTH=32
 SELF="$(basename "$0")"
 
 # --- output -------------------------------------------------------------------
@@ -511,6 +514,55 @@ ensure_password() {
   info "Wrote a new database password to $SECRETS_FILE (mode 0600)."
 }
 
+# check_password_length warns when the Memgraph password is shorter than MIN_DB_PASSWORD_LENGTH. Memgraph stores it
+# with a fast salted hash, which is safe for a long random value and not for a short one.
+check_password_length() {
+  [ "$DBE" = memgraph ] || return 0
+  local pass
+  pass="$(secret_value NEO4J_PASSWORD "")"
+  [ -n "$pass" ] || return 0
+  [ "${#pass}" -lt "$MIN_DB_PASSWORD_LENGTH" ] || return 0
+  warn "NEO4J_PASSWORD in $SECRETS_FILE is shorter than $MIN_DB_PASSWORD_LENGTH characters. Memgraph stores it with a fast hash, which is safe only for a long random value, such as the 48 characters '$SELF' generates. On an existing database, set a new password in the database before you change $SECRETS_FILE, or the platform is locked out."
+}
+
+# reapply_db_password sets the Memgraph user's password to the value it already has. Memgraph keeps each stored hash
+# in the algorithm it was made with, so a user created under the old default, bcrypt, moves to the hash
+# compose.memgraph.yaml names only when its password is set again. Setting a password to its own value changes
+# nothing, so this runs on every up and update and needs no marker. The statement is built inside the db container
+# from the container's own environment and reaches mgconsole on stdin, and mgconsole reads its login password from
+# the environment (gflags' --fromenv), so the password is on no command line. The user name and the password go into
+# the statement unescaped: the shape checks, on the values compose interpolates from the shell and .env (a hex
+# password, a user name of letters, digits and underscores that does not start with a digit), are what make that
+# safe. The length check keeps a short password on its old, slow hash. It needs a healthy database, which a full
+# start and a start of any service that depends on the database wait for; a start of only the console or the
+# database does not, so it skips those. Non-fatal: if it fails, logins keep working on the old hash.
+reapply_db_password() {
+  [ "$DBE" = memgraph ] || return 0
+  local s named="" waits="" pass user script
+  for s in "$@"; do
+    case "$s" in
+      -*) ;;
+      console|db) named=1 ;;
+      *) named=1; waits=1 ;;
+    esac
+  done
+  # Only the console or the database named: nothing waits for a healthy database.
+  if [ -n "$named" ] && [ -z "$waits" ]; then return 0; fi
+  pass="$(secret_value NEO4J_PASSWORD "")"
+  # Compose takes a variable from the shell's environment before .env, so an exported one is what the container gets.
+  if [ -n "${NEO4J_USERNAME+set}" ]; then user="$NEO4J_USERNAME"; else user="$(env_setting NEO4J_USERNAME)"; fi
+  case "$pass" in ''|*[!0-9a-f]*) return 0 ;; esac
+  [ "${#pass}" -ge "$MIN_DB_PASSWORD_LENGTH" ] || return 0
+  case "$user" in ''|[0-9]*|*[!A-Za-z0-9_]*) return 0 ;; esac
+  # Single-quoted, so every expansion is the container shell's; \047 is printf's single quote. The exec reads from
+  # /dev/null: compose would otherwise forward this command's stdin, and take input meant for what runs after it.
+  script='printf "SET PASSWORD FOR %s TO \047%s\047;\n" "$MEMGRAPH_USER" "$MEMGRAPH_PASSWORD" | FLAGS_password="$MEMGRAPH_PASSWORD" mgconsole --username "$MEMGRAPH_USER" --fromenv=password'
+  if compose exec -T db sh -c "$script" </dev/null >/dev/null 2>&1; then
+    return 0
+  fi
+  warn "Could not re-apply the database password, so Memgraph keeps its older, slower hash; logins still work. The next '$SELF up' or '$SELF update' tries again."
+}
+
 # do_bootstrap is full first-run setup: the explicit `bootstrap` command, and what `up` folds in.
 do_bootstrap() { ensure_layout; ensure_password; }
 
@@ -667,6 +719,7 @@ cmd_up() {
   # runtime dir is fixed here instead of failing inside compose; the one-time password stays gated.
   ensure_layout
   ensure_password
+  check_password_length
   check_override_names
   check_console_pin
   check_db_image
@@ -674,6 +727,7 @@ cmd_up() {
   remove_old_ollama
   info "Starting the stack…"
   start_stack "$@"
+  reapply_db_password "$@"
   info "Up. Console: ${BOLD}$(front_door_url)${RST}"
   info "First start downloads the embedding model once (about 1.26 GB; '$SELF models pull' does it ahead) and ingests reference data — '$SELF logs platform' and '$SELF logs console-init' to follow."
 }
@@ -719,6 +773,7 @@ cmd_update() {
   # The new bundle may mount a runtime dir the old one did not (data/models): without it, Docker creates it
   # root-owned and the platform cannot write its weights there, and Podman refuses the missing bind source.
   ensure_layout
+  check_password_length
   check_override_names
   check_db_image
   check_embedding_env
@@ -726,6 +781,7 @@ cmd_update() {
   # After the pull: a failed pull must not leave the running platform without its old embedding server.
   remove_old_ollama
   info "Applying…"; start_stack
+  reapply_db_password
   info "Updated."
 }
 

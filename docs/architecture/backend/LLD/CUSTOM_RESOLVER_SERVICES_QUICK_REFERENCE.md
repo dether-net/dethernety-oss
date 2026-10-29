@@ -400,7 +400,7 @@ console.log(`Cache Hit Rate: ${(cacheStats.hits / (cacheStats.hits + cacheStats.
 | `TEMPLATE_CACHE_SIZE` | 100 | Template cache max items |
 | `TEMPLATE_CACHE_TTL_MS` | 300000 | Template cache TTL (5 min) |
 | `ANALYSIS_CACHE_SIZE` | 50 | Analysis cache max items |
-| `TEMPLATE_OPERATION_TIMEOUT_MS` | 30000 | Template operation timeout |
+| `TEMPLATE_OPERATION_TIMEOUT_MS` | 30000 | Template and guide timeout; a value below 20000 is raised to 20000 |
 | `ISSUE_SYNC_TIMEOUT_MS` | 30000 | Issue sync timeout |
 | `ANALYSIS_NO_TIMEOUT` | true | Disable analysis timeouts |
 | `BATCH_PROCESSING_DEBOUNCE_MS` | 1000 | Batch processing debounce |

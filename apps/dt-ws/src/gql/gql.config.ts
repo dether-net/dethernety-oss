@@ -62,6 +62,13 @@ function validateConfig(config: any): ValidationResult {
   if (!Number.isFinite(config.moduleLoadTimeout) || config.moduleLoadTimeout < 1000) {
     errors.push('moduleLoadTimeout must be a number >= 1000ms');
   }
+  if (
+    !Number.isFinite(config.templateOperationTimeout) ||
+    config.templateOperationTimeout < 5000 ||
+    config.templateOperationTimeout > 300000
+  ) {
+    errors.push('templateOperationTimeout must be a number from 5000 to 300000ms');
+  }
   if (typeof config.enableModuleSecurityValidation !== 'boolean') {
     errors.push('enableModuleSecurityValidation must be a boolean');
   }
@@ -105,6 +112,7 @@ export class GqlConfig {
   allowedModules: string[] = [];
   enableModuleHotReload: boolean = false;
   moduleLoadTimeout: number = 30000; // 30 seconds
+  templateOperationTimeout: number = 30000; // 30 seconds; TemplateResolverService never uses less than the remote module call timeout + 5 s
   enableModuleSecurityValidation: boolean = true;
 
   // Deployment access allowlist — a set of `sub` values; empty = unrestricted
@@ -136,6 +144,7 @@ export default registerAs('gql', () => {
     allowedModules: process.env.ALLOWED_MODULES ? process.env.ALLOWED_MODULES.split(',').map(m => m.trim()) : [],
     enableModuleHotReload: process.env.ENABLE_MODULE_HOT_RELOAD === 'true',
     moduleLoadTimeout: parseInt(process.env.MODULE_LOAD_TIMEOUT || '30000', 10),
+    templateOperationTimeout: parseInt(process.env.TEMPLATE_OPERATION_TIMEOUT_MS || '30000', 10),
     enableModuleSecurityValidation: process.env.NODE_ENV === 'production',
 
     // Deployment access allowlist — comma-separated `sub` values, parsed like ALLOWED_MODULES.

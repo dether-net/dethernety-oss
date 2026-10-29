@@ -5,6 +5,76 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`REMOTE_MODULE_CALL_TIMEOUT_MS` in `@dethernety/dt-module`** (15000): how long a remote module
+  waits for one call to its content service before it gives up and serves its read-only fallback. A
+  host that limits how long it waits for a remote module's template or guide must allow longer.
+- **A remote module logs the read-only fallbacks it serves.** The warning `Serving the read-only
+  fallback` names the module, the class, whether it was the template or the guide, and the reason:
+  `no-credential`, `denied` or `unavailable` (a call that timed out is `unavailable`). It is logged
+  at most once a minute for each reason, with the count of fallbacks not logged since the last
+  warning.
+
+### Fixed
+
+- **A slow remote module's class template or guide now shows the module's read-only fallback.**
+  dt-ws stopped waiting for a template or guide after 10 s, before a remote module's own 15 s call
+  timeout let it answer with its fallback, so the settings window showed no attribute form, only
+  the warning "Form could not be rendered due to missing or invalid schema". dt-ws now reads
+  `TEMPLATE_OPERATION_TIMEOUT_MS` (default 30000, for local and remote modules alike), which was
+  documented but never read. A value outside 5000 to 300000 stops dt-ws at boot, and one below 20000
+  is raised to 20000. The template and guide failure logs now name the module and carry `timedOut`,
+  true when dt-ws stopped waiting.
+- **The settings window no longer shows or saves the previous element's attributes while a new one
+  loads.** After a change of selection, the Attributes tab kept the previous element's form until
+  the new element's class arrived, and an attribute save in that time sent the previous element's
+  class for the new element. The tab now shows a progress bar until the new class has loaded, saves
+  no attributes before then, and ignores a class or attributes answer that arrives for an earlier
+  selection. The class picker is disabled until the class has loaded.
+- **A save while the settings window loads no longer writes empty fields or the previous
+  element's links.** Until the element's class arrived, the window held empty name and description
+  fields and the previous element's controls and zoning, so a crown-jewel toggle, an added control
+  or a zoning save in that time wrote them to the new element. It now fills them from the element at
+  once and keeps an edit made while the class loads. A save of the General tab no longer drops an
+  unsaved zoning edit before the zoning save that follows it.
+- **A slow content service no longer takes a registered remote module out of service.** The detailed
+  health check (`GET /health`) gives each module's `getMetadata` 5 s. A `DtRemoteModule`
+  (`@dethernety/dt-module`) whose portal origin was not pinned at boot, or whose pin was not cached,
+  called its content service on every `getMetadata` call, with a 15 s timeout, so a slow service
+  failed the check. The platform then stopped using the module (its templates, guides, evaluation
+  and frontend) until a later check passed. Once registered, a remote module now answers
+  `getMetadata` at once from the entry it registered, and pins the portal origin and fetches the
+  document at its pin in the background, at most once a minute; a failed document fetch is logged
+  without server text. Concurrent calls share one registration, a failed registration is answered
+  again for a minute without the network, and a live module document with no name is refused before
+  it is cached. A module registered from another pin during an outage keeps serving that entry until
+  the background fetch of its own pin succeeds; the next install after that, at the latest the next
+  start, installs its own pin's classes.
+- **"Commit & change" no longer removes an element's class instead of changing it.** With unsaved
+  General edits, picking a new class or model and choosing "Commit & change" saved the edits first,
+  and the form reload that save started cleared the pick before the change ran: a class change
+  became a class removal, and a model pick was dropped. The pick is now taken before the edits are
+  saved, and the change is cancelled, with a message, if another element was selected or a new edit
+  was made while they were saved. Cancelling a class or model change now puts back only the pick,
+  instead of also discarding the other unsaved edits.
+- **Saving General and Attributes together no longer shows old attribute values.** The General
+  save's form reload ran during the attribute save and read the attributes before that save had
+  committed, so the form showed the old values over the new baseline and the next save sent them
+  back. The settings window now reloads the form once, after all of its saves, and only when no edit
+  is left unsaved. A failed save, or an edit made while a save was in flight, keeps its edit, as
+  does an unsaved attribute edit when a link is added or the crown jewel is toggled.
+- **Database logins on Memgraph are fast, so a burst of new connections no longer stalls the
+  database.** Memgraph's default password hash, bcrypt, holds a lock for each login. The compose
+  bundle now starts Memgraph with `--password-encryption-algorithm=sha256-multiple`. `./byodt up`
+  and `./byodt update` set the database password again to the value it already has, when it has
+  the generated shape, so an existing deployment moves to the new hash too; `.env.secrets` is
+  unchanged, and a failure only warns. Neo4j is unaffected. If you set your own password, use a
+  long random value, which the faster hash relies on: on Memgraph, `byodt` warns when it is
+  shorter than 32 characters. See *How Memgraph stores it* in the BYODt configuration guide.
+
 ## [0.13.0] - 2026-10-27
 
 The platform runs on Neo4j 5 as well as Memgraph. The compose bundle picks the database with

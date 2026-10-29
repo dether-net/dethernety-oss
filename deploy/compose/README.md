@@ -141,6 +141,11 @@ engine. On Neo4j the platform always connects as user `neo4j` to database `neo4j
 and does not use `NEO4J_USERNAME` or `NEO4J_DATABASE` from `.env`; on the first Neo4j
 run `byodt` prints a notice for each one that says otherwise, and you can remove the line.
 
+On Memgraph, a database password you set yourself must be long and random (`byodt` warns
+under 32 characters). The
+[Configuration guide](https://github.com/dether-net/dethernety-oss/blob/main/docs/user/byodt/CONFIGURATION.md#how-memgraph-stores-it)
+explains how it is stored.
+
 Local changes to the compose configuration go in `compose.override.yaml`, which
 `byodt` loads last. It loads no other override file name (`compose.override.yml`,
 `docker-compose.override.*`) and warns when it finds one.

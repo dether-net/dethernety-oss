@@ -102,7 +102,7 @@
               indeterminate
             />
             <json-forms
-              v-if="!props.isLoading && props.schema && props.uischema && props.itemId && props.itemClass"
+              v-else-if="props.schema && props.uischema && props.itemId && props.itemClass"
               class="h-100 json-forms"
               :data="internalAttributesData"
               :renderers="renderers"
@@ -116,7 +116,7 @@
             <v-alert v-else-if="!props.itemClass" dismissible type="info">
               No class information available for this item.
             </v-alert>
-            <v-alert v-if="props.templateWarning" dismissible type="warning">
+            <v-alert v-if="!props.isLoading && props.templateWarning" dismissible type="warning">
               Form could not be rendered due to missing or invalid schema.
             </v-alert>
           </v-sheet>

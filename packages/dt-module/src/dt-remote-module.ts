@@ -33,6 +33,24 @@ import { buildFallbackGuide, buildFallbackTemplate, sanitizeText } from './remot
 import { JsonSchema, stripToSchema } from './remote/strip';
 import { deploymentTeamId } from './remote/team-id';
 
+/** A burst of fallbacks logs one warn per reason in this window; the next warn carries how many went unlogged. */
+const FALLBACK_WARN_INTERVAL_MS = 60_000;
+
+/** Why a template or guide was served as the read-only fallback. */
+type FallbackReason = 'no-credential' | 'denied' | 'unavailable';
+
+/** At most one background refresh, or one retry of a failed registration, starts
+ * per interval, so a probe that calls getMetadata continuously cannot keep the
+ * content service busy. */
+const REFRESH_INTERVAL_MS = 60_000;
+
+/** Whether less than REFRESH_INTERVAL_MS has passed since `at`. A clock stepped
+ * back counts as elapsed, so it cannot hold a retry off. */
+function withinRefreshInterval(at: number): boolean {
+  const since = Date.now() - at;
+  return since >= 0 && since < REFRESH_INTERVAL_MS;
+}
+
 /** The per-module identity a mount stub supplies: which module, at which pinned
  * (immutable, content-hash) version. */
 export interface RemoteModuleConfig {
@@ -63,6 +81,18 @@ export class DtRemoteModule implements DTModule {
   protected portalOrigin?: string;
   /** slug → (className → vector), rebuilt from the registered document. */
   private vectors = new Map<string, Map<string, number[]>>();
+  /** Per fallback reason: when it was last logged, and how many fallbacks since went unlogged. */
+  private readonly fallbackWarns = new Map<FallbackReason, { at: number; unlogged: number }>();
+  /** The entry this module registered from: set by the first getMetadata that
+   * succeeds, and replaced when a background refresh fetches the configured pin. */
+  private registered?: CachedModule;
+  /** The registration in flight, shared by concurrent callers. */
+  private registering?: Promise<CachedModule>;
+  /** The last failed registration, answered again without the network
+   * within the interval. */
+  private lastFailure?: { at: number; error: unknown };
+  /** When the last background refresh started. */
+  private lastRefreshAt?: number;
 
   constructor(config: RemoteModuleConfig, driver: unknown, logger?: Logger, deps?: RemoteModuleDeps) {
     this.moduleKey = config.moduleKey;
@@ -95,36 +125,40 @@ export class DtRemoteModule implements DTModule {
   }
 
   /**
-   * Register the module's classes. Resolution order (never throws once the module
-   * has ever registered, so the platform's obsolescence sweep never fires):
+   * Register the module's classes. Resolution order until the module has
+   * registered (never throws once it has ever registered, so the platform's
+   * obsolescence sweep never fires):
    *   exact-pin cache (immutable → authoritative, offline-fast)
    *     → live fetch (module document + embeddings, persisted)
    *       → newest cached document for this module (offline pin-miss → stay registered)
    *         → throw only when nothing was ever cached (safe first boot).
+   * Concurrent calls share one registration, and a failed one is answered again
+   * for a minute without the network.
+   *
+   * Once registered it answers at once from the entry it registered, and leaves
+   * pinning the portal origin and fetching an uncached pin to a background
+   * refresh: the platform health-probes getMetadata against a short timeout, and
+   * a slow content service must not fail a registered module's probe. A module
+   * registered from another pin keeps serving that entry until the background
+   * fetch of its own pin succeeds; an install made before then installs that
+   * entry, and the next install after it (at the latest the next start) installs
+   * its own pin's classes.
    */
   async getMetadata(): Promise<DTMetadata> {
-    await this.pinPortalOrigin();
-
-    let liveError: unknown;
-    const entry =
-      this.cache.get(this.moduleKey, this.pin) ??
-      (await this.fetchAndCache().catch((err) => {
-        liveError = err;
-        return null;
-      })) ??
-      this.cache.newestFor(this.moduleKey);
-
-    if (!entry) {
-      // Nothing was ever cached: genuine first boot (no live class to orphan) or
-      // total cache loss (which, co-durable, means the graph is gone too). Rethrow
-      // the real live error so a bad pin surfaces as misconfigured, an outage as
-      // unavailable — never a blanket message. Sanitized: its message may carry
-      // server-authored text and reaches the platform's error banner.
-      throw sanitizeError(liveError ?? new RemoteModuleUnavailableError(this.moduleKey));
+    if (this.registered) {
+      this.refreshInBackground(this.registered);
+      return this.registered.document.module;
     }
-
-    this.loadVectors(entry);
-    return entry.document.module;
+    if (this.lastFailure && withinRefreshInterval(this.lastFailure.at)) throw this.lastFailure.error;
+    this.registering ??= this.register()
+      .catch((error: unknown) => {
+        this.lastFailure = { at: Date.now(), error };
+        throw error;
+      })
+      .finally(() => {
+        this.registering = undefined;
+      });
+    return (await this.registering).document.module;
   }
 
   /**
@@ -239,7 +273,7 @@ export class DtRemoteModule implements DTModule {
    * fallback on denial / absent token / transient outage. */
   private async serveContent(kind: ContentKind, id: string, token?: string): Promise<string> {
     // Old platform / dev-NOAUTH: no credential to forward — never fabricate one.
-    if (!token) return this.fallbackString(kind);
+    if (!token) return this.serveFallback(kind, id, 'no-credential');
 
     // Warm entitled memo + cached content → zero round trip. Gating the cached
     // return on THIS caller's entitled memo is what stops A's content reaching B.
@@ -257,8 +291,8 @@ export class DtRemoteModule implements DTModule {
       this.responseCache.rememberEntitled(token, id, this.pin);
       return str;
     } catch (err) {
-      if (err instanceof EvaluationNotEntitledError) return this.fallbackString(kind, err.denial);
-      if (err instanceof RemoteModuleUnavailableError) return this.fallbackString(kind);
+      if (err instanceof EvaluationNotEntitledError) return this.serveFallback(kind, id, 'denied', err.denial);
+      if (err instanceof RemoteModuleUnavailableError) return this.serveFallback(kind, id, 'unavailable');
       // A recall stops serving this pin's cached content the moment it is observed.
       if (err instanceof ContentRecalledError) this.responseCache.evictPin(this.pin);
       // 401 (re-authenticate), 410 (recalled), misconfiguration → propagate; a
@@ -269,6 +303,26 @@ export class DtRemoteModule implements DTModule {
     }
   }
 
+  /** The fallback for this call, logged so an outage or a denial stays visible to the operator: the host sees a
+   * served fallback as a successful call. The log carries no token and no server text. */
+  private serveFallback(kind: ContentKind, id: string, reason: FallbackReason, denial?: DenialInfo): string {
+    const now = Date.now();
+    const last = this.fallbackWarns.get(reason);
+    if (last && now - last.at < FALLBACK_WARN_INTERVAL_MS) {
+      last.unlogged++;
+    } else {
+      this.fallbackWarns.set(reason, { at: now, unlogged: 0 });
+      this.logger.warn('Serving the read-only fallback', {
+        moduleKey: this.moduleKey,
+        kind,
+        id,
+        reason,
+        unloggedSinceLastWarn: last?.unlogged ?? 0,
+      });
+    }
+    return this.fallbackString(kind, denial);
+  }
+
   private fallbackString(kind: ContentKind, denial?: DenialInfo): string {
     return kind === 'template'
       ? JSON.stringify(buildFallbackTemplate(denial, this.portalOrigin))
@@ -277,11 +331,63 @@ export class DtRemoteModule implements DTModule {
 
   // --- Registration internals ------------------------------------------------
 
+  private async register(): Promise<CachedModule> {
+    await this.pinPortalOrigin();
+
+    let liveError: unknown;
+    const entry =
+      this.cache.get(this.moduleKey, this.pin) ??
+      (await this.fetchAndCache().catch((err) => {
+        liveError = err;
+        return null;
+      })) ??
+      this.cache.newestFor(this.moduleKey);
+
+    if (!entry) {
+      // Nothing was ever cached: genuine first boot (no live class to orphan) or
+      // total cache loss (which, co-durable, means the graph is gone too). Rethrow
+      // the real live error so a bad pin surfaces as misconfigured, an outage as
+      // unavailable — never a blanket message. Sanitized: its message may carry
+      // server-authored text and reaches the platform's error banner.
+      throw sanitizeError(liveError ?? new RemoteModuleUnavailableError(this.moduleKey));
+    }
+
+    this.adopt(entry);
+    return entry;
+  }
+
+  /** Serve this entry from now on: its vectors and its document. */
+  private adopt(entry: CachedModule): void {
+    this.loadVectors(entry);
+    this.registered = entry;
+  }
+
+  /** Pin the portal origin, and take the configured pin if the module registered
+   * from another (`current` is the registered entry at the call): at most one
+   * start a minute. A failed document fetch keeps the registered entry and is
+   * logged without server text. */
+  private refreshInBackground(current: CachedModule): void {
+    const pinStale = current.pin !== this.pin;
+    if (!pinStale && this.portalOrigin) return;
+    if (this.lastRefreshAt !== undefined && withinRefreshInterval(this.lastRefreshAt)) return;
+    this.lastRefreshAt = Date.now();
+    void (async () => {
+      await this.pinPortalOrigin();
+      if (!pinStale) return;
+      this.adopt(this.cache.get(this.moduleKey, this.pin) ?? (await this.fetchAndCache()));
+    })().catch((err: unknown) => {
+      this.logger.warn('Background fetch of the module document failed; the registered entry stays', {
+        moduleKey: this.moduleKey,
+        pin: this.pin,
+        error: err instanceof Error ? err.name : 'Error',
+      });
+    });
+  }
+
   /** Best-effort /meta to pin the portal origin (bounds denial action URLs).
-   * Once pinned it never re-fetches — getMetadata is health-probed continuously,
-   * so an unguarded call would generate constant /meta traffic. Non-fatal: a
-   * failure leaves portalOrigin undefined (the action-URL check fails closed)
-   * and never blocks boot. */
+   * Called by each registration attempt and by the background refresh; once pinned
+   * it never re-fetches. Non-fatal: a failure leaves portalOrigin undefined (the
+   * action-URL check fails closed). */
   private async pinPortalOrigin(): Promise<void> {
     if (this.portalOrigin) return;
     try {
@@ -293,7 +399,8 @@ export class DtRemoteModule implements DTModule {
   }
 
   /** Fetch the module document and every listed embedding model, persist, return.
-   * A wire error propagates to getMetadata's catch and never past it. */
+   * A wire error propagates to register's fallback chain or the background
+   * refresh's catch, and never past either. */
   private async fetchAndCache(): Promise<CachedModule> {
     const document = await this.wire.moduleDocument(this.moduleKey, this.pin);
     // A live document with zero classes is corruption (a partial/wrong response),
@@ -303,6 +410,11 @@ export class DtRemoteModule implements DTModule {
     // before persisting so the bad document never poisons the cache or its memo.
     if (!document?.module || countClasses(document.module) === 0) {
       throw new RemoteModuleUnavailableError(`Content service returned no classes for ${this.moduleKey}`);
+    }
+    // The platform refuses metadata without a name, so such a document would fail
+    // registration and every probe.
+    if (typeof document.module.name !== 'string' || !document.module.name.trim()) {
+      throw new RemoteModuleUnavailableError(`Content service returned no module name for ${this.moduleKey}`);
     }
     const models = document.embeddings?.models ?? [];
     const embeddings = await Promise.all(

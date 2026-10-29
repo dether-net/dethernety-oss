@@ -27,6 +27,9 @@
     itemClass: Class | null;
     representedModel: Model | null;
     hasDirtyEdits?: boolean;
+    // The element's class is still loading, so whether it has a class or a model is not known yet: the class
+    // picker, the class-or-model switch and the model search wait for it.
+    classLoading?: boolean;
   }
 
   // Stores
@@ -133,7 +136,7 @@
 
   const onPickerCommitRequest = ({ classId }: { classId: string }) => {
     pendingClassId.value = classId
-    if (props.itemClass || props.representedModel) {
+    if (props.itemClass || props.representedModel || props.classLoading) {
       showClassOrModelChangeDialog.value = true
     } else {
       applyPendingClass()
@@ -162,7 +165,7 @@
       lastPickedClass.value = pendingClassId.value
       pendingClassId.value = null
       // The parent's class-change-commit / class-change-discard handler owns
-      // the resulting save via its own `if (isDirty) await onSubmit()` branch.
+      // the resulting save via its own `if (isDirty) await saveAll(...)` branch.
       // Clearing the queue here prevents the pickerActive watcher from firing
       // a second, redundant saveItem when the dialog closes.
       blurredFields.value.clear()
@@ -295,6 +298,7 @@
               <v-switch
                 v-if="selectedItem && selectedItem.type && 'position' in selectedItem"
                 :hide-details="componentType !== null"
+                :disabled="classLoading"
                 :label="isFromClass ? 'Inherited from a Class' : 'Represents a Model'"
                 :model-value="isFromClass"
                 @update:model-value="val => updateIsFromClass(val === true)"
@@ -333,6 +337,7 @@
             :current-class-category="itemClass?.category ?? null"
             :current-class-description="itemClass?.description ?? null"
             :current-class-module-name="itemClass?.module?.name ?? null"
+            :disabled="classLoading"
             :element-description="formData.description"
             :element-name="formData.name"
             :label="`${displayType} Class`"
@@ -355,6 +360,7 @@
             <v-btn
               class="mx-3 my-0"
               color="secondary"
+              :disabled="classLoading"
               icon="mdi-magnify"
               size="large"
               variant="plain"
