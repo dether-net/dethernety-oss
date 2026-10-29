@@ -1021,6 +1021,42 @@ This restart removes no module, so it does not touch your classes or the links t
 
 ---
 
+## Cloud content in use
+
+A mounted cloud module can be in one of four states other than working, and your deployment says which one it is in. The [three checks in Cloud](./CLOUD.md#check-the-connection) tell you which part of the connection works.
+
+One rule holds in all four: **an evaluation refuses rather than returning "no findings" when it could not evaluate.** An empty result is never a failure in disguise.
+
+### A cloud module registers nothing and reports itself unavailable
+
+**Cause.** Not configured: the deployment's content base URL is unset, so the module has nowhere to fetch from. Unless an earlier connected run cached its content, it registers nothing and reports itself unavailable. Nothing else breaks.
+
+**Fix.** The base URL arrives with the cloud configuration, so a deployment the console connected carries it. Check that the deployment is connected and the stack was recreated after the recipe was applied — see [`the content catalog is available only in cloud mode`](#the-content-catalog-is-available-only-in-cloud-mode) and [Cloud → Recreate the stack](./CLOUD.md#recreate-the-stack).
+
+### A class shows a generic form instead of its own
+
+**Cause.** Not entitled: there is no subscription to the package that provides the class, or it has ended. Forms and guides fall back to generic content with a link back to your account, and evaluation refuses outright rather than returning nothing. This is not an error.
+
+**Fix.** Subscribe to the package in the portal — again, if the subscription has ended. Your deployment reads the subscription as it needs it, so a package subscribed since reaches it without a reconnect: the portal's **Billing** page says your deployment picks it up within about a minute. For what the **Content** tab shows meanwhile, see [Cloud → Package and module states](./CLOUD.md#package-and-module-states).
+
+If the package is subscribed, the content service may be unreachable instead — see [Cloud content is slow or does not load](#cloud-content-is-slow-or-does-not-load).
+
+### A module reports its version was recalled, or does not exist
+
+**Cause.** Recalled or mis-pinned: a version you pinned was withdrawn, or does not exist. Your deployment surfaces the reason and what supersedes it.
+
+**Fix.** This one needs you to act. The deployment does not fall back to content cached for that version, so it stays this way until the module's pin moves. Moving a module to another published version is covered in [Cloud → Keep mounts current](./CLOUD.md#keep-mounts-current).
+
+The knowledge-graph connection has its own version and its own entry: see [The dashboard says **The knowledge graph's version has been withdrawn**](#the-dashboard-says-the-knowledge-graphs-version-has-been-withdrawn).
+
+### Cloud content is slow or does not load
+
+**Cause.** Unreachable: a network failure, a timeout, or a rate limit between your deployment and the content service.
+
+**Fix.** Check the machine's network access. Cached content keeps serving meanwhile, and retries are bounded. If the content service is down, your deployment still runs — only cloud content degrades. If the console's **Content** tab also reports `the content catalog is unavailable`, see [that entry](#the-content-catalog-is-unavailable).
+
+---
+
 ## Permissions and rootless engines
 
 ### Permission denied writing to `modules/`, `schema/`, or `data/`
