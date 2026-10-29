@@ -286,12 +286,7 @@ async getModuleTemplate(moduleName: string, context?: any): Promise<TemplateResp
 
   // Get module instance and generate template
   const moduleInstance = this.moduleRegistry.getModuleByName(moduleName);
-  const template = await Promise.race([
-    moduleInstance.getTemplate(),
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Template generation timeout')), this.operationTimeout)
-    ),
-  ]);
+  const template = await this.withTimeout(moduleInstance.getModuleTemplate(), 'Template fetch timeout');
 
   // Cache the result
   const response = {

@@ -147,7 +147,10 @@ export interface WireClientOptions {
   teamId?: string;
 }
 
-const DEFAULT_TIMEOUT_MS = 15_000;
+/** How long one call may take before it is aborted, unless `timeoutMs` says otherwise. A host that races a
+ * remote module's template or guide against its own timer must allow longer than this, or the module's
+ * read-only fallback for a call that timed out never reaches the caller. */
+export const REMOTE_MODULE_CALL_TIMEOUT_MS = 15_000;
 
 /** Static library-version User-Agent. Read from the package root at runtime so it
  * tracks the version bump without a second edit. It names the LIBRARY and nothing
@@ -174,7 +177,7 @@ export class WireClient {
     this.baseUrl = stripTrailingSlashes(options.baseUrl);
     // Bind so a bare global `fetch` keeps its expected `this`.
     this.fetchImpl = options.fetchImpl ?? ((url, init) => fetch(url, init));
-    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.timeoutMs = options.timeoutMs ?? REMOTE_MODULE_CALL_TIMEOUT_MS;
     // VALIDATED HERE, not only where the environment is read. This is the single point every sender
     // funnels through — the content client and the knowledge-graph client both — so a value handed in
     // through `options` is held to the same shape as one read from `DEPLOYMENT_TEAM_ID`. An unusable one

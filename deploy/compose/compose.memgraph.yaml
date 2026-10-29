@@ -29,6 +29,12 @@ services:
       - "--query-vertex-count-to-expand-existing=10"
       # The database sends no usage data to its vendor (the image turns Memgraph's telemetry on).
       - "--telemetry-enabled=false"
+      # How the database stores the password hash. Memgraph's default, bcrypt, takes a fraction of a second per
+      # login and holds a lock that queries also wait for, so a burst of new connections stalls the database. A
+      # salted, iterated SHA-256 suits this password: byodt generates it as 48 random hex characters (192 bits),
+      # too long to guess or crack with any hash. byodt re-applies the password on each up and update, so an existing
+      # deployment moves to this hash too (see reapply_db_password).
+      - "--password-encryption-algorithm=sha256-multiple"
     # Memgraph refuses to start unless its data directory is owned by the uid it runs as —
     # an ownership check, which no chmod satisfies. On a host bind mount that uid has to be
     # the one that owns the directory on the host, and which uid that is depends on the

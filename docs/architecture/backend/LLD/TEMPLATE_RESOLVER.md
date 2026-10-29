@@ -76,13 +76,8 @@ if (cached) {
 
 ### Error Handling
 ```typescript
-// Timeout protection for all module calls
-const template = await Promise.race([
-  moduleInstance.getModuleTemplate(),
-  new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('Template fetch timeout')), this.operationTimeout)
-  ),
-]);
+// Timeout protection for every template and guide call; the timer is cleared however the race ends
+const template = await this.withTimeout(moduleInstance.getModuleTemplate(), 'Template fetch timeout');
 
 // Graceful fallback mechanisms
 if (!moduleInfo.hasTemplate) {
@@ -267,7 +262,7 @@ getResolvers() {
 - **Cached capability detection** (hasTemplate, hasGuide)
 
 ### Operation Timeouts
-- **10-second timeout** for all module operations
+- **`TEMPLATE_OPERATION_TIMEOUT_MS`** (default 30 s; a value below 20 s is raised to 20 s) for each module template, class template and class guide call
 - **Prevents hanging requests**
 - **Graceful fallback** to empty content
 

@@ -64,6 +64,7 @@ export {
   RemoteModuleMisconfiguredError,
 } from './remote/errors';
 export type { DenialInfo, RecallInfo, WireErrorCode } from './remote/errors';
+export { REMOTE_MODULE_CALL_TIMEOUT_MS } from './remote/wire-client';
 export * from './rego-engine';
 export * from './rego-lint';
 export * from './rego-adhoc';

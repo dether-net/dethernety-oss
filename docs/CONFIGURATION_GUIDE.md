@@ -245,7 +245,7 @@ These variables have sensible defaults and typically don't need to be changed.
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `TEMPLATE_OPERATION_TIMEOUT_MS` | Number | `30000` | Template operation timeout (5000–300000) |
+| `TEMPLATE_OPERATION_TIMEOUT_MS` | Number | `30000` | How long, in ms, dt-ws waits for a module's template or guide (5000–300000). A value below 20000 is raised to 20000, so a remote module whose call times out can still answer with its read-only fallback. A module frontend that limits how long it waits for template reads should allow more than this value |
 | `ISSUE_SYNC_TIMEOUT_MS` | Number | `30000` | Issue sync timeout (5000–300000) |
 | `BATCH_PROCESSING_DEBOUNCE_MS` | Number | `1000` | Debounce delay for batch operations (100–10000) |
 | `BATCH_PROCESSING_MAX_SIZE` | Number | `50` | Maximum batch size (1–1000) |

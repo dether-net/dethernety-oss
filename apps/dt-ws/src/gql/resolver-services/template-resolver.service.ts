@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { REMOTE_MODULE_CALL_TIMEOUT_MS } from '@dethernety/dt-module';
 import { ModuleRegistryService } from '../module-management-services/module-registry.service';
 import { AuthorizationService } from '../services/authorization.service';
 import { MonitoringService } from '../services/monitoring.service';
@@ -18,12 +19,19 @@ import {
 } from '../interfaces/template-resolver.interface';
 import { GqlConfig } from '../gql.config';
 
+/** A remote module aborts its own call after REMOTE_MODULE_CALL_TIMEOUT_MS and answers with its read-only
+ * fallback. The race below must outlast that call by this margin, or the caller gets an empty template instead. */
+const REMOTE_CALL_MARGIN_MS = 5_000;
+
+/** The resolver's own timer won the race: the module had not answered. */
+class OperationTimeoutError extends Error {}
+
 @Injectable()
 export class TemplateResolverService {
   private readonly logger = new Logger(TemplateResolverService.name);
   private readonly config: GqlConfig;
   private readonly moduleHealthCache = new Map<string, ModuleTemplateInfo>();
-  private readonly operationTimeout = 10000; // 10 seconds
+  private readonly operationTimeout: number;
 
   constructor(
     @Inject('NEO4J_DRIVER') private readonly neo4jDriver: any,
@@ -34,7 +42,12 @@ export class TemplateResolverService {
     private readonly templateCache: TemplateCacheService,
   ) {
     this.config = this.configService.get<GqlConfig>('gql')!;
-    
+    // TEMPLATE_OPERATION_TIMEOUT_MS, never below what a remote module needs to answer with its fallback.
+    this.operationTimeout = Math.max(
+      this.config?.templateOperationTimeout ?? 30_000, // GqlConfig's default, for a config built without it
+      REMOTE_MODULE_CALL_TIMEOUT_MS + REMOTE_CALL_MARGIN_MS,
+    );
+
     this.logger.log('TemplateResolverService initialized', {
       operationTimeout: this.operationTimeout,
     });
@@ -77,6 +90,24 @@ export class TemplateResolverService {
       errors,
       warnings,
     };
+  }
+
+  /**
+   * Races a module call against the operation timeout, and clears the timer however the race ends. The caller
+   * makes the call before this runs, so a remote module's own timer is always armed before this one.
+   */
+  private async withTimeout<T>(call: Promise<T> | T, message: string): Promise<T> {
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      return await Promise.race([
+        Promise.resolve(call),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new OperationTimeoutError(message)), this.operationTimeout);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**
@@ -204,12 +235,7 @@ export class TemplateResolverService {
       }
 
       // Fetch template with timeout
-      const template = await Promise.race([
-        moduleInstance.getModuleTemplate(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Template fetch timeout')), this.operationTimeout)
-        ),
-      ]);
+      const template = await this.withTimeout(moduleInstance.getModuleTemplate(), 'Template fetch timeout');
 
       const content = template || '';
 
@@ -243,12 +269,13 @@ export class TemplateResolverService {
 
     } catch (error) {
       const duration = Date.now() - startTime;
+      const timedOut = error instanceof OperationTimeoutError;
       this.monitoringService.recordOperation({
         operationName,
         duration,
         success: false,
         timestamp: new Date(),
-        metadata: { moduleName, error: error.message },
+        metadata: { moduleName, error: error.message, timedOut },
       });
 
       this.logger.error('Failed to fetch module template', {
@@ -256,6 +283,7 @@ export class TemplateResolverService {
         error: error.message,
         stack: error.stack,
         duration,
+        timedOut,
       });
 
       return {
@@ -293,6 +321,8 @@ export class TemplateResolverService {
   ): Promise<TemplateOperationResult> {
     const startTime = Date.now();
     const operationName = 'getClassTemplate';
+    // Set once the module name has passed validation, so a failure can name the module.
+    let validModuleName: string | undefined;
 
     try {
       // Validate module parameter
@@ -314,6 +344,7 @@ export class TemplateResolverService {
       if (!validation.isValid) {
         throw new Error(`Validation failed: ${validation.errors.join(', ')}`);
       }
+      validModuleName = moduleName;
 
       // Authorization check (currently pass-through)
       if (context) {
@@ -381,12 +412,7 @@ export class TemplateResolverService {
       }
 
       // Fetch template with timeout
-      const template = await Promise.race([
-        moduleInstance.getClassTemplate(id, token),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Class template fetch timeout')), this.operationTimeout)
-        ),
-      ]);
+      const template = await this.withTimeout(moduleInstance.getClassTemplate(id, token), 'Class template fetch timeout');
 
       const content = template || '';
 
@@ -421,19 +447,22 @@ export class TemplateResolverService {
 
     } catch (error) {
       const duration = Date.now() - startTime;
+      const timedOut = error instanceof OperationTimeoutError;
       this.monitoringService.recordOperation({
         operationName,
         duration,
         success: false,
         timestamp: new Date(),
-        metadata: { id, error: error.message },
+        metadata: { moduleName: validModuleName, id, error: error.message, timedOut },
       });
 
       this.logger.error('Failed to fetch class template', {
+        moduleName: validModuleName,
         id,
         error: error.message,
         stack: error.stack,
         duration,
+        timedOut,
       });
 
       return {
@@ -470,6 +499,8 @@ export class TemplateResolverService {
   ): Promise<TemplateOperationResult> {
     const startTime = Date.now();
     const operationName = 'getClassGuide';
+    // Set once the module name has passed validation, so a failure can name the module.
+    let validModuleName: string | undefined;
 
     try {
       // Validate module parameter
@@ -491,6 +522,7 @@ export class TemplateResolverService {
       if (!validation.isValid) {
         throw new Error(`Validation failed: ${validation.errors.join(', ')}`);
       }
+      validModuleName = moduleName;
 
       // Authorization check (currently pass-through)
       if (context) {
@@ -569,12 +601,7 @@ export class TemplateResolverService {
       }
 
       // Fetch guide with timeout
-      const guide = await Promise.race([
-        moduleInstance.getClassGuide(id, token),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Class guide fetch timeout')), this.operationTimeout)
-        ),
-      ]);
+      const guide = await this.withTimeout(moduleInstance.getClassGuide(id, token), 'Class guide fetch timeout');
 
       const content = guide || '';
 
@@ -609,19 +636,22 @@ export class TemplateResolverService {
 
     } catch (error) {
       const duration = Date.now() - startTime;
+      const timedOut = error instanceof OperationTimeoutError;
       this.monitoringService.recordOperation({
         operationName,
         duration,
         success: false,
         timestamp: new Date(),
-        metadata: { id, error: error.message },
+        metadata: { moduleName: validModuleName, id, error: error.message, timedOut },
       });
 
       this.logger.error('Failed to fetch class guide', {
+        moduleName: validModuleName,
         id,
         error: error.message,
         stack: error.stack,
         duration,
+        timedOut,
       });
 
       return {

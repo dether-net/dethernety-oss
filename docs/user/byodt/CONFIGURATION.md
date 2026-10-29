@@ -212,6 +212,16 @@ The database's own credentials were created from this password when the database
 - **Never commit it.** The bundle ignores it, along with every other generated file.
 - **Do not delete it to "reset" anything.** If you want a clean graph, delete the *data* and keep the password — a fresh database adopts the password already on disk. `./byodt destroy` prints the exact commands for your storage setting.
 
+### How Memgraph stores it
+
+On Memgraph, the bundle stores the password with a salted, iterated SHA-256 hash (`--password-encryption-algorithm=sha256-multiple` in `compose.memgraph.yaml`), not Memgraph's default, bcrypt. A bcrypt login holds a lock that queries wait for, so a burst of new database connections — after a restart, for example — stalls queries for seconds; with this hash a login costs almost nothing. Neo4j is unaffected.
+
+Memgraph keeps each stored hash in the algorithm it was made with, so `./byodt up` and `./byodt update` set the database user's password again to the value it already has. They do it after a full start, or a start of a service that depends on the database; a start of only the console or only the database skips it. **No password changes:** `.env.secrets` is not touched, and the platform logs in as before. The re-apply takes the password from the database container's own environment, puts it on no command line, and never prints it. If it fails, `byodt` warns and carries on — logins still work, only slower — and the next `./byodt up` or `./byodt update` tries again. Going back to an older bundle is safe: it still verifies the stored hash.
+
+The re-apply covers only a password of the generated shape — lowercase hex, 32 characters or more — and a user name of letters, digits and underscores that does not start with a digit. On an existing deployment, any other password keeps the hash it has; a new deployment stores any password with the faster hash from the start.
+
+**If you set your own password, make it long and random.** The generated one is 48 random hex characters (192 bits), too long to guess or crack whatever the hash; generate yours the same way, with `openssl rand -hex 24`. On Memgraph, `./byodt up` and `./byodt update` warn when `NEO4J_PASSWORD` is shorter than 32 characters. On an existing deployment, set the new password in the database first and only then in `.env.secrets`: changing the file alone locks the platform out (see [Why it must be kept](#why-it-must-be-kept)).
+
 ---
 
 ## The database engine

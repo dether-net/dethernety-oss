@@ -30,7 +30,7 @@ const stubs = {
       + '<button class="stub-sheet-open" @click="$emit(\'picker:sheet-open\')">sheet-open</button>'
       + '<button class="stub-sheet-close" @click="$emit(\'picker:sheet-close\')">sheet-close</button>'
       + '</div>',
-    props: ['modelValue', 'classLabel', 'componentType', 'elementName', 'elementDescription', 'modelId', 'currentClassName', 'label'],
+    props: ['modelValue', 'classLabel', 'componentType', 'elementName', 'elementDescription', 'modelId', 'currentClassName', 'label', 'disabled'],
     emits: ['commit-request', 'picker:focus', 'picker:blur', 'picker:sheet-open', 'picker:sheet-close'],
   },
   ConfirmClassOrModelChangeDialog: {
@@ -125,6 +125,20 @@ describe('SettingsGeneralTab — commit-request flow (no prior class)', () => {
     expect(formDataEvents).toBeTruthy()
     expect((formDataEvents!.at(-1)![0] as { class: string }).class).toBe('cls-new')
     expect(wrapper.emitted('class-change-commit')).toBeTruthy()
+  })
+})
+
+describe('SettingsGeneralTab — commit-request flow (class still loading)', () => {
+  // Whether the element has a class is not known yet, so a pick is a possible rebind: confirm it.
+  it('disables the picker, and a pick still asks for confirmation', async () => {
+    const wrapper = await mountAndSettle({ classLoading: true })
+    expect(wrapper.findComponent({ name: 'ClassPicker' }).props('disabled')).toBe(true)
+
+    await wrapper.find('.stub-commit').trigger('click')
+    await nextTick()
+
+    expect(wrapper.find('.confirm-dialog-stub').exists()).toBe(true)
+    expect(wrapper.emitted('class-change-commit')).toBeFalsy()
   })
 })
 
@@ -299,7 +313,7 @@ describe('SettingsGeneralTab — confirm dialog gates save-on-blur (UX review B2
     expect((wrapper.emitted('saveItem')?.length ?? 0)).toBe(baselineEvents)
 
     // Resolve the dialog with commit — child does NOT flush its own queue;
-    // the parent's class-change-commit handler owns the save via onSubmit
+    // the parent's class-change-commit handler owns the save via saveAll
     // (verified independently in SettingsWindow). From the child's perspective
     // in isolation, no additional saveItem is emitted on the commit path.
     await wrapper.find('.stub-dlg-commit').trigger('click')

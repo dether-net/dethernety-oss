@@ -58,6 +58,9 @@
   const attributesSchema = shallowRef<object | null>(null)
   const attributesUiSchema = shallowRef<UISchemaElement | null>(null)
   const attributesLoading = ref(false)
+  // The selected element's class (with its template) is still loading after a change of selection.
+  const classLoading = ref(false)
+  const attributesFormLoading = computed(() => attributesLoading.value || classLoading.value)
   const attributesTemplateWarning = ref(false)
 
   // Dialogs
@@ -209,6 +212,7 @@
     // safely deferred (applied once the create resolves), not persisted now — so
     // don't claim outright success for it.
     const deferred = flowStore.isPendingNode(selectedItem.value.id)
+    const sentZoning = pendingZoning.value
     const res = await flowStore.updateNode({
       nodeId: selectedItem.value.id,
       updates: {
@@ -221,13 +225,16 @@
       },
     })
     if (res) {
-      clearDirty('zoning')
+      // A zoning edit made while this save was in flight replaced the buffer; it stays, and stays dirty.
+      if (pendingZoning.value === sentZoning) {
+        clearDirty('zoning')
+        seedZoningFromSelected()
+      }
       if (isFreshlyCreated.value) emit('clear-freshly-created')
       showSnackbar(
         deferred ? 'Zoning will be applied once the item finishes saving' : 'Zoning saved successfully',
         deferred ? 'info' : 'success',
       )
-      seedZoningFromSelected()
     } else {
       // Buffer stays dirty so the user can retry without losing their edit.
       showSnackbar('Failed to save zoning', 'error')
@@ -236,12 +243,23 @@
   }
 
   const loadExposures = async () => {
-    if (selectedItem.value) {
-      exposures.value = await flowStore.getExposures({ elementId: selectedItem.value.id })
-    }
+    const elementId = selectedItem.value?.id
+    if (!elementId) return
+    const loaded = await flowStore.getExposures({ elementId })
+    // An answer for an element no longer selected is dropped.
+    if (selectedItem.value?.id === elementId) exposures.value = loaded
   }
 
+  // Each attributes read takes the next number; only the latest one sets the attributes and ends the loading state.
+  let attributesRequest = 0
+
   const initializeAttributes = async () => {
+    // An answer from an older read, or for an element or class no longer shown, is dropped.
+    const request = ++attributesRequest
+    const forItem = selectedItem.value?.id
+    const forClass = itemClass.value?.id
+    const stillShown = () => selectedItem.value?.id === forItem && itemClass.value?.id === forClass
+
     // Set loading state to prevent rendering issues
     attributesLoading.value = true
     attributesSchema.value = null
@@ -255,7 +273,7 @@
     await nextTick()
 
     if (!selectedItem.value?.id || !itemClass.value) {
-      attributesLoading.value = false
+      if (request === attributesRequest) attributesLoading.value = false
       return
     }
 
@@ -271,7 +289,6 @@
       } else {
         console.warn('Invalid or missing schema/uischema in the class')
         attributesTemplateWarning.value = true
-        attributesLoading.value = false
         return
       }
 
@@ -280,21 +297,23 @@
         componentId: selectedItem.value.id,
         classId: itemClass.value.id,
       })
+      if (request !== attributesRequest || !stillShown()) return
 
       const loaded = unflattenProperties(rawProperties)
       lastLoadedAttributes.value = loaded
       pendingAttributes.value = loaded
       clearDirty('attributes')
     } catch (e) {
+      if (request !== attributesRequest || !stillShown()) return
       console.error('Failed to fetch attributes data', e)
       attributesTemplateWarning.value = true
     } finally {
-      attributesLoading.value = false
+      if (request === attributesRequest) attributesLoading.value = false
     }
   }
 
-  const saveAttributes = async () => {
-    if (!selectedItem.value?.id || !itemClass.value || attributesLoading.value) return
+  const saveAttributes = async (): Promise<boolean> => {
+    if (!selectedItem.value?.id || !itemClass.value || attributesFormLoading.value) return false
 
     try {
       // What this save sends. An edit made while it is in flight replaces pendingAttributes, so it stays unsaved.
@@ -314,7 +333,7 @@
       // A save the server refused keeps the baseline, so a retry sends the same changes (cleared answers included).
       if (!result?.success) {
         showSnackbar('Failed to save attributes', 'error')
-        return
+        return false
       }
 
       lastLoadedAttributes.value = sent
@@ -333,10 +352,12 @@
       } else {
         showSnackbar('Attributes saved successfully', 'success')
       }
+      return true
     } catch (e) {
       console.error('Failed to save attributes', e)
       // Buffer stays at the user's edit so they can retry; auto-save is gone, no fresh-reference dance needed.
       showSnackbar('Failed to save attributes', 'error')
+      return false
     }
   }
 
@@ -345,10 +366,45 @@
     markDirty('attributes')
   }
 
+  // A new element: its class loads first, and until it does the previous element's form, model and exposures must
+  // neither show nor be saved (the null class stops saveAttributes), and its class must not be changed unconfirmed.
+  // Not in updateForm itself, which also runs after a save of the same element, while that save may still go on to
+  // send its attributes.
+  const loadNewSelection = () => {
+    itemClass.value = null
+    representedModel.value = null
+    classLoading.value = true
+    exposures.value = []
+    updateForm()
+  }
+
+  // Each updateForm call takes the next number, and an answer for an older call is dropped: a slow class read
+  // for the previous selection must not land on the current one.
+  let formRequest = 0
+
   const updateForm = async () => {
+    const request = ++formRequest
     pendingFormData.value = { name: '', class: '', model: '', modelName: '', description: '', category: '' }
 
-    if (!selectedItem.value) return
+    if (!selectedItem.value) {
+      classLoading.value = false
+      return
+    }
+    // Name, description, crown jewel and controls are the element's own, not its class's: seeded before the class
+    // read, so a save while it runs sends what the element holds instead of empty fields or another element's
+    // controls, and an edit made meanwhile stays.
+    resetPendingFormDataFromSelectedItem()
+    initializeControls()
+    clearDirty('general')
+    // Don't auto-mark fresh drafts dirty — that artificial dirt makes the navigation guard fire
+    // on every click-away even when the user hasn't typed anything. The Save button stays
+    // enabled via isFreshlyCreated on its disabled binding; saveAll also keys off it.
+    // Seed the zoning buffer from the boundary's node data, unless it holds an unsaved edit (saves reload the form
+    // only when nothing is left unsaved, but other reloads, such as the Exposures tab's, can come while an edit is
+    // pending). For non-boundaries leave the tab inert, and never let the active tab rest on the (now-hidden)
+    // zoning tab.
+    if (!dirtyTabs.value.has('zoning')) seedZoningFromSelected()
+    if (!showZoningTab.value && tab.value === 'zoning') tab.value = 'general'
 
     try {
       let fetchedClass = null
@@ -373,50 +429,21 @@
         console.warn('Invalid item type')
         return
       }
+      if (request !== formRequest) return
       itemClass.value = fetchedClass || null
       representedModel.value = fetchedRepresentedModel || null
 
-      if (itemClass.value) {
-        isFromClass.value = true
-      } else if (isEdge(selectedItem.value)) {
-        isFromClass.value = true
-      } else if (representedModel.value) {
-        isFromClass.value = false
-      }
-
-      pendingFormData.value.class = itemClass.value?.id || ''
-      pendingFormData.value.model = representedModel.value?.id || ''
-      pendingFormData.value.modelName = representedModel.value?.name || ''
+      resetPendingPickFromBinding()
       pendingFormData.value.category = itemClass.value?.category || ''
       loadExposures()
       // Initialize attributes after loading the class
       initializeAttributes()
     } catch (e) {
+      if (request !== formRequest) return
       console.warn('Failed to fetch item data or class', e)
+    } finally {
+      if (request === formRequest) classLoading.value = false
     }
-
-    if (isNode(selectedItem.value)) {
-      pendingFormData.value.name = selectedItem.value.data.label || ''
-      pendingFormData.value.description = selectedItem.value.data.description || ''
-      crownJewel.value = selectedItem.value.data?.crownJewel === true
-    } else if (isEdge(selectedItem.value)) {
-      pendingFormData.value.name = typeof selectedItem.value.label === 'string' ? selectedItem.value.label : ''
-      pendingFormData.value.description = selectedItem.value.data?.description || ''
-    }
-
-    // Initialize controls for the selected item
-    initializeControls()
-
-    // Seed the zoning buffer from the boundary's node data; for non-boundaries leave the tab inert and
-    // never let the active tab rest on the (now-hidden) zoning tab.
-    seedZoningFromSelected()
-    if (!showZoningTab.value && tab.value === 'zoning') tab.value = 'general'
-    clearDirty('zoning')
-
-    clearDirty('general')
-    // Don't auto-mark fresh drafts dirty — that artificial dirt makes the navigation guard fire
-    // on every click-away even when the user hasn't typed anything. The Save button stays
-    // enabled via isFreshlyCreated on its disabled binding; onSubmit also keys off it.
   }
 
   // Confirm-on-remove state for Controls/Data unlinking. Adds bypass the dialog.
@@ -431,7 +458,7 @@
     const currentIds: string[] = selectedItem.value.data.dataItems || []
     const removed = currentIds.filter(id => !value.includes(id))
     if (removed.length === 0) {
-      // Pure add — auto-save. saveItem() (not onSubmit()) because onSubmit gates on
+      // Pure add — auto-save. saveItem() (not saveAll()) because saveAll gates on
       // dirtyTabs.has('general'), and toggling a checkbox doesn't mark general dirty.
       //
       // The list is NOT written onto the selection here. The store applies it, and it has to be the
@@ -469,7 +496,7 @@
       const currentIds: string[] = selectedItem.value.data.controls || []
       const removed = currentIds.filter(id => !value.includes(id))
       if (removed.length === 0) {
-        // Pure add — auto-save via saveItem (not onSubmit, which gates on general-tab dirty). The
+        // Pure add — auto-save via saveItem (not saveAll, which gates on general-tab dirty). The
         // store applies the list; see updateSelectedDataItemIds for why it must.
         saveItem({ controls: value })
         return
@@ -576,9 +603,15 @@
   //
   // Both branches take the links — the Data and Controls tabs render for a data flow just as they do
   // for a node, and dt-core reads the association off the merged edge as it does off the merged node.
-  const saveItem = async (links?: LinkEdit) => {
-    if (!selectedItem.value) return
+  //
+  // `reload: false` leaves the form as it is, for a caller that saves more before it reloads the form once.
+  const saveItem = async (links?: LinkEdit, { reload = true }: { reload?: boolean } = {}): Promise<boolean> => {
+    if (!selectedItem.value) return false
     let res = false
+    // What this save sends from the General tab; an edit made while it is in flight keeps the tab dirty. Compared field
+    // by field, since a class or model pick also replaces pendingFormData, and crown jewel is a ref of its own (a
+    // toggle in flight must keep the form from reloading over it).
+    const sentGeneral = { name: pendingFormData.value.name, description: pendingFormData.value.description, crownJewel: crownJewel.value }
 
     // Captured before the await: a node still mid-creation has its edit safely
     // deferred (applied once the create resolves), not persisted now — so the
@@ -614,17 +647,22 @@
     }
 
     if (res) {
-      clearDirty('general')
+      const generalUnchanged =
+        pendingFormData.value.name === sentGeneral.name &&
+        pendingFormData.value.description === sentGeneral.description &&
+        crownJewel.value === sentGeneral.crownJewel
+      if (generalUnchanged) clearDirty('general')
       if (isFreshlyCreated.value) emit('clear-freshly-created')
       showSnackbar(
         deferred ? 'Changes will be applied once the item finishes saving' : 'Item updated successfully',
         deferred ? 'info' : 'success',
       )
-      updateForm()
+      if (reload) reloadFormIfClean()
     } else {
       // Buffer stays dirty so the user can retry without losing their edit.
       showSnackbar('Failed to update item', 'error')
     }
+    return res
   }
 
   // Crown jewel is a direct action: flip the flag and persist immediately (it
@@ -634,24 +672,44 @@
     await saveItem()
   }
 
+  // Reload the form from the element after a save, unless an edit is still unsaved: the reload would reset it, so a
+  // failed save, or an edit made while a save was in flight, would be lost. The controls list is reseeded either
+  // way, since a link save changes it.
+  const reloadFormIfClean = () => {
+    if (dirtyTabs.value.size === 0) updateForm()
+    else initializeControls()
+  }
+
   // Event handlers
-  const onSubmit = async () => {
-    if (!form.value) return
+  // The form's submit and the General tab's blur-save pass event arguments, which must not reach saveAll's options.
+  const onSubmit = () => { void saveAll() }
+
+  // Saves every dirty tab. `reload: false` is for a caller that reloads the form itself afterwards.
+  // Returns whether every save it ran succeeded.
+  const saveAll = async ({ reload = true }: { reload?: boolean } = {}): Promise<boolean> => {
+    if (!form.value) return false
     const { valid: isValid } = await form.value.validate()
-    if (!isValid) return
+    if (!isValid) return false
 
     // Commit cheaper General first, then Attributes — independent calls; partial success leaves the cheaper edit in place.
     // Fresh drafts always commit General even with no user edits — that's the path that emits
     // clear-freshly-created and transitions the node out of draft state.
+    // The General save's form reload waits for the other saves: run alongside them, it would read the attributes
+    // before their save commits, and reset the zoning edit that is still to be saved.
+    let generalSaved = false
+    let allSaved = true
     if (dirtyTabs.value.has('general') || isFreshlyCreated.value) {
-      await saveItem()
+      generalSaved = await saveItem(undefined, { reload: false })
+      allSaved &&= generalSaved
     }
     if (dirtyTabs.value.has('attributes')) {
-      await saveAttributes()
+      allSaved = (await saveAttributes()) && allSaved
     }
     if (dirtyTabs.value.has('zoning')) {
-      await saveZoning()
+      allSaved = (await saveZoning()) && allSaved
     }
+    if (reload && generalSaved) reloadFormIfClean()
+    return allSaved
   }
 
   const resetPendingFormDataFromSelectedItem = () => {
@@ -664,6 +722,15 @@
       pendingFormData.value.name = typeof selectedItem.value.label === 'string' ? selectedItem.value.label : ''
       pendingFormData.value.description = selectedItem.value.data?.description || ''
     }
+  }
+
+  // Put the class or model pick back to what the element is bound to, leaving the other unsaved edits alone.
+  const resetPendingPickFromBinding = () => {
+    pendingFormData.value.class = itemClass.value?.id || ''
+    pendingFormData.value.model = representedModel.value?.id || ''
+    pendingFormData.value.modelName = representedModel.value?.name || ''
+    if (itemClass.value || isEdge(selectedItem.value)) isFromClass.value = true
+    else if (representedModel.value) isFromClass.value = false
   }
 
   const resetPendingAttributesFromLoaded = () => {
@@ -679,12 +746,35 @@
     clearAllDirty()
   }
 
-  const proceedWithClassChange = async () => {
-    let res: ChangeElementBindingResult | null = null
+  // What a class or model change applies, and to which element: the pick, whether the element is to follow a class
+  // or a model, and the class it was bound to when picked.
+  type ClassChangeTarget = Pick<FormData, 'class' | 'model' | 'modelName'> & {
+    fromClass: boolean
+    elementId?: string
+    boundClassId?: string
+  }
+  const currentClassChangeTarget = (): ClassChangeTarget => ({
+    class: pendingFormData.value.class,
+    model: pendingFormData.value.model,
+    modelName: pendingFormData.value.modelName,
+    fromClass: isFromClass.value,
+    elementId: selectedItem.value?.id,
+    boundClassId: itemClass.value?.id,
+  })
+  // Whether the selection is still the element the target was taken for. A node created moments ago may have
+  // swapped its temporary id for its real one meanwhile; that is still the same element.
+  const targetsSelection = (target: ClassChangeTarget) =>
+    !!target.elementId && !!selectedItem.value &&
+    flowStore.getRealNodeId(target.elementId) === flowStore.getRealNodeId(selectedItem.value.id)
 
-    if (pendingFormData.value.class &&
+  const proceedWithClassChange = async (target: ClassChangeTarget = currentClassChangeTarget()) => {
+    let res: ChangeElementBindingResult | null = null
+    // Defence in depth: never apply one element's pick to another (onClassChangeCommit checks first).
+    if (!targetsSelection(target)) return
+
+    if (target.class &&
       selectedItem.value &&
-      isFromClass.value &&
+      target.fromClass &&
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
       // @ts-ignore - Complex type inference issue
       (isNode(selectedItem.value) || isEdge(selectedItem.value))
@@ -693,12 +783,12 @@
       if (isNode(selectedItem.value)) {
         res = await flowStore.updateNodeClass({
           nodeId: selectedItem.value.id,
-          classId: pendingFormData.value.class,
+          classId: target.class,
         })
       } else if (isEdge(selectedItem.value)) {
         res = await flowStore.updateDataFlowClass({
           dataFlowId: selectedItem.value.id,
-          classId: pendingFormData.value.class,
+          classId: target.class,
         })
       }
       if (res?.success) {
@@ -711,9 +801,9 @@
       }
       updateForm()
     } else if (
-      !pendingFormData.value.class &&
-      itemClass.value &&
-      isFromClass.value &&
+      !target.class &&
+      target.boundClassId &&
+      target.fromClass &&
       selectedItem.value &&
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
       // @ts-ignore - Complex type inference issue
@@ -743,7 +833,7 @@
       }
       updateForm()
     } else if (
-      pendingFormData.value.model &&
+      target.model &&
       selectedItem.value &&
       isNode(selectedItem.value)
     ) {
@@ -753,7 +843,7 @@
         // @ts-ignore - Complex type inference issue
         res = await flowStore.updateRepresentedModel({
           nodeId: selectedItem.value.id,
-          modelId: pendingFormData.value.model,
+          modelId: target.model,
         })
       }
       if (res?.success) {
@@ -761,7 +851,7 @@
         const toast = emitBindingChangeFeedback(res, {
           kind: 'exposures',
           transition: 'class-to-model',
-          modelName: pendingFormData.value.modelName,
+          modelName: target.modelName,
         })
         if (toast) showSnackbar(toast.message, toast.color)
       } else {
@@ -771,19 +861,31 @@
       updateForm()
     } else {
       console.warn('Invalid class or model')
+      showSnackbar('Nothing to change: no class or model was picked.', 'warning')
+      updateForm()
     }
   }
 
   const onClassChangeCommit = async () => {
+    // The pick is taken before the saves. The change reloads the form itself.
+    const target = currentClassChangeTarget()
     // If anything else is dirty, commit it first; on commit failure, bail out and surface the failure.
     if (isDirty.value) {
-      await onSubmit()
+      const allSaved = await saveAll({ reload: false })
       if (isDirty.value) {
-        showSnackbar('Could not commit pending edits; class change cancelled.', 'error')
+        // Either a save failed, or an edit was made while they ran; the change waits for a clean form either way.
+        if (allSaved) showSnackbar('An edit was made while saving; the class change was not applied. Choose it again.', 'warning')
+        else showSnackbar('Could not commit pending edits; class change cancelled.', 'error')
+        resetPendingPickFromBinding()
         return
       }
     }
-    await proceedWithClassChange()
+    // The selection can move while the edits are saved; the change was confirmed for the element it was picked on.
+    if (!targetsSelection(target)) {
+      showSnackbar('The selection changed while saving; class change cancelled.', 'warning')
+      return
+    }
+    await proceedWithClassChange(target)
   }
 
   const onClassChangeDiscard = async () => {
@@ -794,8 +896,8 @@
   }
 
   const onClassChangeCancel = () => {
-    // User backed out — revert any class/model picker change in the buffer.
-    updateForm()
+    // User backed out — revert any class/model picker change in the buffer, and only that.
+    resetPendingPickFromBinding()
   }
 
   const onNodeDelete = () => {
@@ -877,7 +979,8 @@
     }
     // The store re-refs selectedItem to a fresh object after our own save (same id, new ref).
     // That's not a navigation, so don't gate it — and don't re-run updateForm either, since
-    // saveItem already does so once clearDirty has run.
+    // the save that caused it reloads the form when the form needs it (saveItem, saveAll after all of its saves, or
+    // the class change).
     if (newValue && oldValue && newValue.id === oldValue.id) return
     if (isDirty.value && oldValue !== null) {
       pendingSelectionTarget.value = newValue
@@ -886,7 +989,7 @@
       flowStore.setSelectedItem({ item: oldValue })
       return
     }
-    updateForm()
+    loadNewSelection()
   })
 
   const onDiscardConfirmed = () => {
@@ -895,7 +998,7 @@
     pendingSelectionTarget.value = null
     clearAllDirty()
     flowStore.setSelectedItem({ item: target })
-    // The watcher fires on the new selection; isDirty is now false so it falls through to updateForm().
+    // The watcher fires on the new selection; isDirty is now false so it falls through to loadNewSelection().
   }
 
   const onDiscardCanceled = () => {
@@ -932,12 +1035,6 @@
   }
   onMounted(() => window.addEventListener('keydown', onWindowKeydown))
   
-  watch(() => itemClass.value?.id, (newValue, oldValue) => {
-    if (newValue !== oldValue && newValue) {
-      debouncedInitializeAttributes()
-    }
-  })
-
   // Watch for AttributesDialog opening to initialize attributes
   watch(() => showAttributesDialog.value, (newValue) => {
     if (newValue && selectedItem.value && itemClass.value) {
@@ -953,9 +1050,10 @@
     window.removeEventListener('keydown', onWindowKeydown)
   })
   
-  updateForm()
+  loadNewSelection()
 
-  // Test seam — the attribute save and its baseline, asserted by SettingsWindow.namedEdits.test.ts.
+  // Test seam — the attribute save and its baseline, asserted by SettingsWindow.namedEdits.test.ts and
+  // SettingsWindow.classLoading.test.ts and SettingsWindow.classChangeCommit.test.ts.
   defineExpose({ saveAttributes, onAttributesChanged, isDirty, lastLoadedAttributes, pendingAttributes, itemClass })
 </script>
 
@@ -1004,6 +1102,7 @@
                 :crownJewel="crownJewel"
                 :itemClass="itemClass"
                 :representedModel="representedModel"
+                :classLoading="classLoading"
                 @class-change-cancel="onClassChangeCancel"
                 @class-change-commit="onClassChangeCommit"
                 @class-change-discard="onClassChangeDiscard"
@@ -1031,7 +1130,7 @@
                   :attributes-data="pendingAttributes"
                   :schema="attributesSchema"
                   :uischema="attributesUiSchema"
-                  :is-loading="attributesLoading"
+                  :is-loading="attributesFormLoading"
                   :template-warning="attributesTemplateWarning"
                   :use-expansion-panels="attributesDialogUseExpansionPanels"
                   @attributes:changed="onAttributesChanged"
@@ -1261,7 +1360,7 @@
     :attributes-data="pendingAttributes"
     :attributes-schema="attributesSchema"
     :attributes-ui-schema="attributesUiSchema"
-    :attributes-loading="attributesLoading"
+    :attributes-loading="attributesFormLoading"
     :attributes-template-warning="attributesTemplateWarning"
     @update:exposures="loadExposures"
     @close="showAttributesDialog = false"
