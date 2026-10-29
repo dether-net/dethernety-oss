@@ -27,7 +27,7 @@ Connecting is four tasks, done in this order: [register the two callbacks](#regi
 | Prerequisite | Why |
 |---|---|
 | A healthy deployment | Check the console shows a **Healthy** verdict first. Connecting a deployment that is already failing only makes the diagnosis harder. |
-| An account that issues a deployment recipe | The recipe is the block of settings you paste into the console. Get it from the **BYODt Portal**, which the console links to. |
+| An account that issues a deployment recipe | The recipe is the block of settings you paste into the console. Get it from the **BYODt Portal**, which the console links to. Creating the account and subscribing are covered in [BYODt subscription](https://docs.dether.net/byodt-subscription/). |
 | Access to your account's callback settings | You must register two callback URLs before sign-in will work. |
 | The console reached at a secure address | Either a `localhost` address, or HTTPS. See below. |
 
@@ -183,7 +183,7 @@ Mounting is not a download. It writes a small marker into the deployment's modul
 
    The platform then embeds the new classes (about 0.2 s each); they match by name until it finishes.
 
-Only the platform is recreated. The database and the console keep running.
+Only the platform is recreated. The database and the console keep running. To confirm the module works end to end, run the [three checks](#check-the-connection).
 
 ### Package and module states
 
@@ -292,6 +292,22 @@ To recover:
 If the entry says the service has no other version to offer yet, there is no button: there is nothing to update to and nothing to do on your deployment yet. Click **Refresh** later; when the service publishes a new version, the button appears.
 
 The `withdrawn` label reports what the service's public version list says, and that list is cached on its way to you, as above. Whether a withdrawn version still answers is decided by the service itself, not by this label — the label tells you to act, it does not prove what a query would get.
+
+---
+
+## Check the connection
+
+Once a module is mounted and the platform recreated, three checks in the platform tell you how far the connection works. They are not steps: run them in any order. Two can pass while the third fails, which is why they are separate — each one proves one thing.
+
+| Check | How | What it proves |
+|---|---|---|
+| **The classes are there** | Add an element and pick one of the module's classes. | **Connectivity, and nothing more.** The class list comes from the public catalogue and needs no subscription. |
+| **Configuring gives the real form** | With the class picked, open the element's **Attributes** tab. | **Entitlement.** An entitled deployment renders the class's own form and guide; an unentitled one renders a short generic fallback. |
+| **An evaluation returns exposures** | Configure the element, then read its **Exposures** tab. | **That evaluation runs.** It returns exposures, or an explicit "not evaluated". |
+
+**An evaluation never returns "no findings" when it could not evaluate.** It refuses instead, so an empty result is never a failure in disguise.
+
+If a check fails, the state the module is in, and what to do about it, is in [Troubleshooting → Cloud content in use](./TROUBLESHOOTING.md#cloud-content-in-use). Where to find the class picker and the **Attributes** tab is in [How an Element Gets Its Class](../COMPONENT_CONFIGURATION_GUIDE.md#how-an-element-gets-its-class).
 
 ---
 
@@ -473,7 +489,7 @@ Worth knowing, because it explains the messages you may see.
 
 ## Troubleshooting
 
-Cloud-specific symptoms — a rejected callback, a sign-in that will not complete, a refused administrator check, a team the card could not fetch, a rejected access list, an unreachable catalog — are covered in [Troubleshooting → Cloud connect and sign-in](./TROUBLESHOOTING.md#cloud-connect-and-sign-in) and [Content mounts](./TROUBLESHOOTING.md#content-mounts).
+Cloud-specific symptoms — a rejected callback, a sign-in that will not complete, a refused administrator check, a team the card could not fetch, a rejected access list, an unreachable catalog, a class that shows a generic form, a refused evaluation — are covered in [Troubleshooting → Cloud connect and sign-in](./TROUBLESHOOTING.md#cloud-connect-and-sign-in), [Content mounts](./TROUBLESHOOTING.md#content-mounts) and [Cloud content in use](./TROUBLESHOOTING.md#cloud-content-in-use).
 
 ## Related
 
