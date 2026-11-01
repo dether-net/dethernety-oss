@@ -17,6 +17,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `no-credential`, `denied` or `unavailable` (a call that timed out is `unavailable`). It is logged
   at most once a minute for each reason, with the count of fallbacks not logged since the last
   warning.
+- **The compose bundle can reach the internet through an outbound HTTPS proxy.** Set
+  `HTTPS_PROXY=http://host:port` in `.env`, and `NO_PROXY` for extra hosts to reach directly. Only
+  console-init, the platform and the console get the proxy; the database and the front door get the
+  proxy variables set empty. The platform's Node uses the proxy (`NODE_USE_ENV_PROXY=1`) only when
+  one is set, for `fetch` and the core HTTPS agent alike.
+- **`./byodt` reads the proxy from `.env` only, and checks it.** A different `HTTPS_PROXY` in your
+  shell gets a notice and is not used. `HTTP_PROXY` is not used, and `./byodt` warns when `.env`
+  sets it. `./byodt` refuses a proxy URL that carries a login, has no numeric port, names a loopback
+  address, or names one of the stack's own services.
+- **A proxy login goes in `.env.secrets`.** Set `HTTPS_PROXY_USERINFO=user:password`, with the user
+  name and the password percent-encoded, and any character outside ASCII as its UTF-8 bytes. Over
+  `http://` the login crosses the network in clear; use `https://` if the proxy offers it. It is
+  checked strictly too, and `./byodt` masks it in its messages. `docker inspect`, `podman inspect`
+  and `./byodt compose config` show it, as they show the database password, and under
+  `podman-compose` so does the host's process list while containers are created. console-init, the
+  console and the platform mask it as `://***@` only where they report a failed fetch: a module
+  download, a call to the cloud content service or to the platform, the sign-in keys and the model
+  download. Other error text is not masked. In tests, Node's own proxy errors left the login out,
+  and no service log carried it.
+- **`NO_PROXY` takes exact host names or addresses.** Each may have an optional `:port`, and they
+  are separated by commas; CIDR, ranges, wildcards and a leading dot are refused. Do not rely on an
+  entry to cover its subdomains: the platform's core HTTPS agent matches the exact name only, so list
+  every host, `login.example.com` and not `example.com`. `./byodt` adds
+  loopback and the stack's own service names, including any service in `compose.override.yaml`.
+- **A TLS-inspecting proxy's CA goes in `proxy-ca/proxy-ca.pem`.** It must be the only file in
+  `proxy-ca/`: owned by you, readable by every account (`chmod 0644`), not writable by group or
+  others, and not a symbolic link. After replacing it, run `./byodt restart platform console`.
+  Trusting that CA lets whoever holds its key read and change everything the stack sends over TLS,
+  including the signing keys sign-ins are checked against, so it can sign anyone in. Prefer asking
+  for the identity provider and the content service to pass through the proxy uninspected.
+- **Image pulls use the Docker daemon's own proxy setting, not `.env`.** `./byodt up` and
+  `./byodt update` warn before they pull when `.env` sets a proxy and the daemon has none. A failed
+  embedding-model download names the host that failed, never the path or query of its URL.
+
+### Changed
+
+- **`HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` from your shell under Podman, or from the Docker
+  client's `config.json`, no longer reach the containers.** Podman copies them from the environment
+  it runs in into every container that does not set them (`http_proxy = true` in `containers.conf`,
+  its default), and the Docker client does the same with the `proxies` in `~/.docker/config.json`.
+  So console-init and the console used to follow such a proxy. The bundle now sets these variables
+  for every service, from `.env` or empty. If the stack needs a proxy, set `HTTPS_PROXY` in `.env`.
+- **The platform's JWT guard fetches the OIDC signing keys (JWKS) with `fetch`, so with a proxy
+  set they go through it like the platform's other calls.** The JWKS URI must be `https://`
+  (`http://` only on a loopback host), a redirect is refused, and the fetch fails after 30 s or once
+  the answer passes 1 MiB. The GraphQL layer fetches the same keys on its own, on Node's core HTTPS
+  agent, and goes through the proxy too. The guard no longer builds an HTTPS agent of its own when
+  `NODE_EXTRA_CA_CERTS` is set, and no longer loads a `root.crt` from the directory that variable
+  points into. If your identity provider's certificate is signed by a private CA, add that CA to
+  `proxy-ca/proxy-ca.pem` in the compose bundle; elsewhere, point `NODE_EXTRA_CA_CERTS` at it.
 
 ### Fixed
 
@@ -74,6 +124,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unchanged, and a failure only warns. Neo4j is unaffected. If you set your own password, use a
   long random value, which the faster hash relies on: on Memgraph, `byodt` warns when it is
   shorter than 32 characters. See *How Memgraph stores it* in the BYODt configuration guide.
+
+### Security
+
+- **The image workflow no longer leaves its token in the checkout.** Every job in `docker.yml`
+  checks out with `persist-credentials: false`, so the `GITHUB_TOKEN` of a job that can push images
+  is no longer stored in `.git/config`, where any code the job runs, a dependency's install script
+  included, could read it.
+- **The verify command in the image workflow's summary names the exact signer.** It printed
+  `--certificate-identity-regexp '^https://github.com/<repository>/'`, which a signature from any
+  workflow run of the repository would pass. It now prints `--certificate-identity` with the
+  workflow file and the ref of the run that signed the image.
 
 ## [0.13.0] - 2026-10-27
 

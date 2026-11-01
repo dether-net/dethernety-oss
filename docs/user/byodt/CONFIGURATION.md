@@ -18,7 +18,7 @@ Everything you can change about the deployment lives in three files in the bundl
 | File | Who owns it | What is in it |
 |---|---|---|
 | `.env` | **You** | Every readable setting: the pinned image versions, the front-door address, database and embedding settings. This is the file you edit. |
-| `.env.secrets` | Generated, then **yours to keep** | The database password, and nothing else. Created once on the first start, mode `0600`. |
+| `.env.secrets` | Generated, then **yours to keep** | The database password, and the outbound proxy's login if you add one. Created once on the first start, mode `0600`. |
 | `mode/mode.env` | **The console** | The platform's authentication posture. Written by the console when you connect the deployment to the cloud or disconnect it. Do not hand-edit. |
 
 All three are read on every command. `.env` and `.env.secrets` are deliberately separate so the password stays out of the file you open, share, and diff.
@@ -34,6 +34,9 @@ A configuration change is not live until the affected containers are **recreated
 | What you changed | Apply it with |
 |---|---|
 | A value in `.env` | `./byodt up` |
+| The outbound proxy's login, `HTTPS_PROXY_USERINFO` in `.env.secrets` | `./byodt up` |
+| `proxy-ca/proxy-ca.pem` added or removed | `./byodt up` |
+| `proxy-ca/proxy-ca.pem` replaced | `./byodt restart platform console` |
 | `DB_DATA`, `SNAPSHOT_INTERVAL_SEC`, `NEO4J_DATA`, `NEO4J_HEAP_SIZE` or `NEO4J_PAGECACHE_SIZE` | `./byodt restart db` |
 | `DB_ENGINE` | `./byodt down`, then `./byodt up` — see [The database engine](#the-database-engine) first |
 | A certificate in `tls/` (added, replaced, or removed) | `./byodt restart proxy` |
@@ -45,7 +48,7 @@ A configuration change is not live until the affected containers are **recreated
 Two rules of thumb behind that table:
 
 - **`./byodt up` re-reads `.env` and the mode layer** and recreates whatever their values changed. It is the general apply step, and it is safe to run at any time — on an already-running deployment with no changes, it does nothing.
-- **A change made only inside a mounted directory** — a certificate file, a module directory — does not change any container's configuration, so it needs that service recreated explicitly. That is why the certificate and content rows above name a specific service.
+- **A change made only inside a mounted directory** — a certificate file, a module directory — does not change any container's configuration, so it needs that service recreated explicitly. That is why the certificate and content rows above name a specific service. Adding or removing the proxy's CA file is different: it switches the variables that point the services at it, which `./byodt up` sees. Replacing it changes nothing `up` sees, and the platform and the console read it only when they start.
 
 `./byodt restart` with no service recreates everything. Naming a service (`./byodt restart proxy`) recreates only that one, leaving its dependencies untouched.
 
@@ -53,7 +56,7 @@ Two rules of thumb behind that table:
 
 ## The `.env` reference
 
-`.env` is created from `.env.example`, which stays in the bundle as the annotated original. Every setting below appears in it, in this order — some only commented out (`CONTAINER_ENGINE`, `EMBEDDING_THREADS`, `SETTINGS_URL`), and `EMBEDDING_MODEL` only by mention. The database-engine settings — `DB_ENGINE`, `NEO4J_IMAGE`, `NEO4J_DATA`, `NEO4J_HEAP_SIZE` and `NEO4J_PAGECACHE_SIZE` — may have no line in it: add the line to `.env` to change one. Without a line, `byodt` uses the default given here, and records `DB_ENGINE` in `.env` on the first run — on Neo4j, `NEO4J_IMAGE` too.
+`.env` is created from `.env.example`, which stays in the bundle as the annotated original. Every setting below appears in it, in this order — some only commented out (`CONTAINER_ENGINE`, `EMBEDDING_THREADS`, `SETTINGS_URL`, `HTTPS_PROXY`, `NO_PROXY`), and `EMBEDDING_MODEL` only by mention. The database-engine settings — `DB_ENGINE`, `NEO4J_IMAGE`, `NEO4J_DATA`, `NEO4J_HEAP_SIZE` and `NEO4J_PAGECACHE_SIZE` — may have no line in it: add the line to `.env` to change one. Without a line, `byodt` uses the default given here, and records `DB_ENGINE` in `.env` on the first run — on Neo4j, `NEO4J_IMAGE` too.
 
 Spell boolean values exactly `true` or `false`. Do not rename any of these keys — the deployment reads them by name.
 
@@ -187,17 +190,68 @@ Automatic in-place snapshots are **not backups**. They live inside the data dire
 |---|---|---|---|
 | `SETTINGS_URL` | The target of the **Settings** item in the platform's sidebar. | `/console/` — the operator console on the same address | You front the console somewhere else, or you want the link hidden (set it empty). |
 
+### Outbound proxy
+
+For a host whose only way to the internet is an HTTP proxy. The setup, in order, is in [Installation → Behind an outbound proxy](./INSTALLATION.md#behind-an-outbound-proxy); this section is the reference.
+
+| Setting | What it does | Default | Change it when |
+|---|---|---|---|
+| `HTTPS_PROXY` | The proxy `console-init`, the platform and the console reach the internet through, as `http://host:port`. No login in it: that goes in `.env.secrets` (see [The outbound proxy's login](#the-outbound-proxys-login)). | Unset — they connect directly | The host reaches the internet only through a proxy. |
+| `NO_PROXY` | Extra hosts reached directly, not through the proxy: exact host names or addresses, each with an optional `:port`, separated by commas. `byodt` adds `localhost`, `127.0.0.1`, `::1` and the deployment's own service names. | Unset | A host the deployment calls over `https://`, such as a LangGraph server, must bypass the proxy. |
+
+Applied on `./byodt up` (or `./byodt restart`). The proxy's login, `HTTPS_PROXY_USERINFO`, lives in `.env.secrets`, and the CA of a proxy that inspects TLS in `proxy-ca/proxy-ca.pem`; both are described below.
+
+**`byodt` reads it from `.env` only, never from your shell.** Operators behind a proxy often export one, and an upgrade must not start sending a deployment through a proxy it worked without. When your shell sets a different `HTTPS_PROXY`, `byodt` prints a notice and goes on with `.env`'s. It reads the setting for the commands that can create or recreate a service that calls out: `up`, `restart`, `update`, `models pull` and `compose`. `down`, `status`, `logs`, `backup`, `restore` and `destroy` do not read it, so a bad value does not stand in their way.
+
+**What goes through the proxy.** Only HTTPS. Everything the deployment fetches from outside is HTTPS, and every plain-HTTP call stays inside the stack or on your own network. So there is no `HTTP_PROXY`: plain HTTP is never sent to the proxy, and `byodt` warns that an `HTTP_PROXY` line in `.env` is not used. `console-init`, the platform and the console get the setting. The database and the front door call nothing outside the stack, and get every proxy variable set empty. Image pulls do not use it either: the container engine pulls with its own setting (see [Installation → Give the container engine the proxy](./INSTALLATION.md#1-give-the-container-engine-the-proxy)).
+
+**The URL.** `byodt` checks `HTTPS_PROXY` before anything starts, and refuses, with a message that says what to fix, any value that breaks these rules:
+
+- It is `http://host:port` or `https://host:port`, with a numeric port from 1 to 65535 and nothing after it.
+- `https://` means the services talk to the proxy itself over TLS. Most proxies take `http://`: the scheme is only how the services reach the proxy, and the HTTPS connections they make through it stay HTTPS. Without a login, `byodt` warns about an `https://` value.
+- The host is not `localhost` or a loopback address: inside a container, that is the container itself. It is not one of the deployment's own service names either: `db`, `console-init`, `platform`, `proxy` (the front door), `console`, or a service `compose.override.yaml` adds. Use a name the containers can resolve, or the host's address on the network the proxy listens on.
+- It carries no login. `byodt` refuses `user:password@` in `.env`.
+
+**`NO_PROXY` takes exact names only.** `byodt` refuses CIDR blocks (`10.0.0.0/8`), address ranges, wildcards (`*.example.com`), a leading dot and spaces, because the services' HTTP clients read those forms differently. Do not rely on an entry to cover its subdomains either: the platform's core HTTPS agent matches the exact name only. List every host — `login.example.com`, not `example.com`. An `http://` destination, such as a LangGraph server on plain HTTP, needs no entry, because plain HTTP never goes to the proxy.
+
+#### A proxy that inspects TLS
+
+Many corporate proxies re-sign every HTTPS connection with a CA of their own. The services then refuse every certificate the proxy presents, until they trust that CA.
+
+**Prefer pass-through.** Ask the proxy's operators to pass the identity provider your cloud connection names, and the content service, through uninspected. Use the CA file only when they cannot. The warning below says why.
+
+**The CA file** is `proxy-ca/proxy-ca.pem`, in PEM form. It may hold more than one certificate. A private CA your identity provider uses goes in the same file. `byodt` creates `proxy-ca/` (mode `0755`) on the first start, and checks it before every command that reads the proxy setting. It refuses to go on when:
+
+- `proxy-ca/` holds anything but `proxy-ca.pem`. `console-init` and the console trust every certificate file in the directory, and the platform only the one named, so another file would make them trust different CAs.
+- `proxy-ca.pem` is a symbolic link, which does not resolve inside the containers.
+- `proxy-ca.pem` is not readable by every account (mode `0644`). The services read it under their own accounts.
+- The directory or the file is owned by another account (not you or root), or other accounts can write to it.
+
+The platform adds the file to Node's trusted roots (`NODE_EXTRA_CA_CERTS`); `console-init` and the console add it to Go's (`SSL_CERT_DIR`). It adds to the default roots and replaces none of them, and it applies whether or not `HTTPS_PROXY` is set. Adding or removing the file is applied with `./byodt up`. After replacing it, run `./byodt restart platform console`: they read it only when they start. `console-init` reads it on its next run.
+
+The CA reaches only the deployment's containers. For image pulls through an inspecting proxy, the container engine needs it in the host's trust store; see [Installation → Give the container engine the proxy](./INSTALLATION.md#1-give-the-container-engine-the-proxy).
+
+> **Warning: what trusting the CA hands over.** It covers every TLS connection `console-init`, the platform and the console make, the `NO_PROXY` hosts included (for hosts reached directly, from a position on the path). Whoever holds the CA's key can read and change all of it:
+>
+> - **Sign-in.** It can serve its own signing keys in place of the identity provider's, and so sign anyone in to the platform and the console, administrators included. It can also forge the answer the console's administrator check reads.
+> - **Content.** It can change any response that carries no signature of its own: the catalog, the knowledge graph, templates, guides and evaluation results.
+> - **What is sent.** It can read the operator's cloud token, users' sign-in tokens, the threat-model attributes sent for evaluation, and knowledge-graph queries.
+>
+> Signed content stays checked against what does not come from the network. Code modules are verified against a trusted root embedded in the console image and the identity pinned to the release. Cloud artifacts are verified against the signer your cloud recipe names. The model's weights are checked against the sha256 the platform image pins. A change to any of them fails its check.
+
 ---
 
 ## The generated secret file
 
-`.env.secrets` holds one value:
+`.env.secrets` holds one generated value, the database password:
 
 ```
 NEO4J_PASSWORD=…
 ```
 
 It is generated on the first start, written with mode `0600`, and **never regenerated**. Every later command reads it; nothing rewrites it.
+
+It can hold one value you add yourself: the outbound proxy's login (see [The outbound proxy's login](#the-outbound-proxys-login) below).
 
 ### Why it must be kept
 
@@ -221,6 +275,47 @@ Memgraph keeps each stored hash in the algorithm it was made with, so `./byodt u
 The re-apply covers only a password of the generated shape — lowercase hex, 32 characters or more — and a user name of letters, digits and underscores that does not start with a digit. On an existing deployment, any other password keeps the hash it has; a new deployment stores any password with the faster hash from the start.
 
 **If you set your own password, make it long and random.** The generated one is 48 random hex characters (192 bits), too long to guess or crack whatever the hash; generate yours the same way, with `openssl rand -hex 24`. On Memgraph, `./byodt up` and `./byodt update` warn when `NEO4J_PASSWORD` is shorter than 32 characters. On an existing deployment, set the new password in the database first and only then in `.env.secrets`: changing the file alone locks the platform out (see [Why it must be kept](#why-it-must-be-kept)).
+
+### The outbound proxy's login
+
+If your outbound proxy needs a login, add it to `.env.secrets` on a line of its own:
+
+```
+HTTPS_PROXY_USERINFO=user:password
+```
+
+**How to write it.** The user name and the password, separated by exactly one colon, with no quotes. Every other character must be a letter, a digit, or one of `. _ ~ - ! & ' ( ) * + , ; =`. Percent-encode the rest, in the user name as well as the password:
+
+| Character | Write it as |
+|---|---|
+| `#` | `%23` |
+| `/` | `%2F` |
+| `@` | `%40` |
+| `:` | `%3A` |
+| `$` | `%24` |
+| `%` | `%25` |
+| A space | `%20` |
+| A character outside ASCII | Its UTF-8 bytes, for example `é` as `%C3%A9` |
+
+`byodt` refuses anything else before it starts a service. Node and Go print a proxy URL they cannot parse in full, login included, so an invalid one must never reach them. Only basic authentication is supported: a proxy that needs NTLM or Kerberos login is not.
+
+**How it is used.** `byodt` adds the login to `HTTPS_PROXY` only in the environment it passes to `console-init`, the platform and the console. It never writes the combined URL to a file. Apply a change with `./byodt up`. A login with no `HTTPS_PROXY` in `.env` is not used, and `byodt` warns about it.
+
+**Where it is masked.** As `***`, in these places only:
+
+- `byodt`'s own messages.
+- `console-init`'s error for a failed module download, in its log and in the status it leaves for the console.
+- The console's errors for a failed call to the cloud content service or to the platform.
+- The platform's errors for a failed fetch of the sign-in keys, of cloud content, or of the embedding model's weights.
+
+Other error text is not masked. In tests, Node's own proxy errors left the login out: a failed tunnel reads `Failed to establish tunnel to <host>:443 via http://<proxy-host>:<port>/`, and `fetch`'s errors named no login. The one error seen with the login in it was Node's for a proxy URL it cannot parse, at the platform's start, and `byodt`'s checks above refuse such a URL first. No service log carried the login in those tests. It does show wherever the services' environment is shown, as listed next.
+
+**Who can see it.** The same accounts that can see the database password:
+
+- Anyone who can run your container engine: `docker inspect` or `podman inspect` shows the environment of those three services in full, and so does `./byodt compose config`.
+- Under `podman-compose`, any local account that lists processes (`ps`), while containers are created: the encoded login is on the `podman` command lines `podman-compose` runs, as the database password is. Docker Compose passes the environment through the engine's API, not on a command line.
+
+**On the network.** With an `http://` proxy URL, the login crosses the network to the proxy in clear, on every connection. Use `https://` if the proxy offers it.
 
 ---
 
@@ -331,7 +426,7 @@ Two separate things, with different lifetimes:
 | What | Why | How |
 |---|---|---|
 | The graph | Your models, findings, and controls | `./byodt backup`, then copy the file off the machine. See [Backing up and restoring](./OPERATIONS.md#backing-up-and-restoring-the-graph). |
-| `.env`, `.env.secrets`, `mode/`, `tls/` | Your configuration, the database password, the posture, and your certificate | Copy them somewhere private. They are small and change rarely. |
+| `.env`, `.env.secrets`, `mode/`, `tls/`, `proxy-ca/` | Your configuration, the database password and any proxy login, the posture, your certificate, and any proxy CA | Copy them somewhere private. They are small and change rarely. |
 
 With those two, a lost machine costs you a re-download and a restore — not your work.
 

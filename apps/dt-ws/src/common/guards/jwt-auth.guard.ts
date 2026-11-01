@@ -11,9 +11,7 @@ import { GqlConfig } from '../../gql/gql.config';
 import { extractBearerToken } from '../utils/extract-bearer-token';
 import * as jwt from 'jsonwebtoken';
 import * as jwksClient from 'jwks-rsa';
-import * as https from 'https';
-import * as fs from 'fs';
-import * as path from 'path';
+import { createJwksFetcher } from './jwks-fetcher';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -40,35 +38,8 @@ export class JwtAuthGuard implements CanActivate {
         jwksRequestsPerMinute: 5,
       };
 
-      // If NODE_EXTRA_CA_CERTS is set, create a custom HTTPS agent
-      // that includes the extra CA certificates (e.g., for self-signed Zitadel).
-      // NODE_EXTRA_CA_CERTS may point to a server cert; we also look for the
-      // root CA in the same directory (root.crt) and load all certs found.
-      const extraCaCertsPath = process.env.NODE_EXTRA_CA_CERTS;
-      if (extraCaCertsPath) {
-        try {
-          const caCerts: Buffer[] = [];
-          const certDir = path.dirname(extraCaCertsPath);
-
-          // Load the configured cert
-          caCerts.push(fs.readFileSync(extraCaCertsPath));
-
-          // Also load root.crt from the same directory if it exists
-          const rootCertPath = path.join(certDir, 'root.crt');
-          if (rootCertPath !== extraCaCertsPath && fs.existsSync(rootCertPath)) {
-            caCerts.push(fs.readFileSync(rootCertPath));
-            this.logger.log('JWKS client loaded root CA', { path: rootCertPath });
-          }
-
-          jwksOptions.requestAgent = new https.Agent({ ca: caCerts });
-          this.logger.log('JWKS client using extra CA certificates', { path: extraCaCertsPath, totalCerts: caCerts.length });
-        } catch (err) {
-          this.logger.warn('Failed to load extra CA certificates for JWKS client', {
-            path: extraCaCertsPath,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
+      // Node adds NODE_EXTRA_CA_CERTS to its default roots at start, and global fetch uses them.
+      jwksOptions.fetcher = createJwksFetcher();
 
       this.jwksClientInstance = jwksClient(jwksOptions);
     }

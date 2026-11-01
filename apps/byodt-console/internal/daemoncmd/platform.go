@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/dether-net/dethernety-oss/apps/byodt-console/internal/redact"
 )
 
 // platformClient probes the running platform. It is deliberately tolerant of the platform
@@ -18,6 +20,8 @@ type platformClient struct {
 	http    *http.Client
 }
 
+// newPlatformClient leaves the client's Transport nil, like the console's other outbound clients:
+// http.DefaultTransport is the one that follows HTTPS_PROXY and NO_PROXY.
 func newPlatformClient(baseURL string, timeout time.Duration) *platformClient {
 	return &platformClient{baseURL: baseURL, http: &http.Client{Timeout: timeout}}
 }
@@ -68,7 +72,7 @@ func (p *platformClient) registeredModules(ctx context.Context, bearer string) (
 	}
 	resp, err := p.http.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, redact.Error(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -107,7 +111,7 @@ func (p *platformClient) getJSON(ctx context.Context, path string, dst any) erro
 	}
 	resp, err := p.http.Do(req)
 	if err != nil {
-		return err
+		return redact.Error(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {

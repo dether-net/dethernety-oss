@@ -46,6 +46,13 @@ services:
     environment:
       MEMGRAPH_USER: ${NEO4J_USERNAME}
       MEMGRAPH_PASSWORD: ${NEO4J_PASSWORD}
+      # No proxy: nothing outside the stack. Set empty against an engine that copies the host's (Podman does).
+      HTTPS_PROXY: ""
+      https_proxy: ""
+      HTTP_PROXY: ""
+      http_proxy: ""
+      NO_PROXY: ""
+      no_proxy: ""
     volumes:
       # DB_DATA (see .env) selects the store: the default host bind mount `./data/memgraph`
       # (visible on disk) or the `memgraph-data` named volume (robust on VM-backed runtimes).

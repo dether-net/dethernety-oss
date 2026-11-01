@@ -15,6 +15,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/dether-net/dethernety-oss/apps/byodt-console/internal/redact"
 )
 
 // Content mounts are the reason a deployment connects to the cloud. On a cloud deployment the generic
@@ -244,7 +246,23 @@ func publicGet(ctx context.Context, base, path string, dst any) error {
 		return err
 	}
 	req.Header.Set("Accept", "application/json")
-	client := &http.Client{
+	resp, err := newPublicClient().Do(req)
+	if err != nil {
+		return redact.Error(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("content GET %s: status %d", path, resp.StatusCode)
+	}
+	return json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(dst)
+}
+
+// newPublicClient builds the client publicGet dials with. Its Transport is nil on purpose, here and on
+// newEntitledClient: that is http.DefaultTransport, which follows HTTPS_PROXY and NO_PROXY, and the only
+// way a deployment behind a proxy reaches the content service. A transport error can then quote the
+// proxy URL, login included, so both callers mask it before it is logged or returned.
+func newPublicClient() *http.Client {
+	return &http.Client{
 		Timeout: contentTimeout,
 		// Refuse to follow a redirect rather than let a 3xx repoint the request at another host.
 		// The base has passed secureURL, but that constrains the SCHEME — https, or http only on
@@ -257,15 +275,6 @@ func publicGet(ctx context.Context, base, path string, dst any) error {
 		// without redirects anyway, so a 3xx is unexpected and its target unvalidated.
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("content GET %s: status %d", path, resp.StatusCode)
-	}
-	return json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(dst)
 }
 
 // errEntitledTooLarge marks an over-cap response specifically. A caller needs it because that failure is
@@ -316,15 +325,9 @@ func entitledGet(ctx context.Context, base, path, token, team string, max int64)
 	if token != "" && team != "" {
 		req.Header.Set(deploymentTeamHeader, team)
 	}
-	client := &http.Client{
-		Timeout: entitledTimeout,
-		// The same refusal publicGet makes, for the same reason: refusing redirects is what keeps the
-		// set of hosts this dials equal to the set the operator named.
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}
-	resp, err := client.Do(req)
+	resp, err := newEntitledClient().Do(req)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, redact.Error(err)
 	}
 	defer resp.Body.Close()
 
@@ -347,6 +350,17 @@ func entitledGet(ctx context.Context, base, path, token, team string, max int64)
 		return nil, resp.StatusCode, fmt.Errorf("%w: entitled GET %s: body exceeds max size %d bytes", errEntitledTooLarge, path, max)
 	}
 	return b, resp.StatusCode, nil
+}
+
+// newEntitledClient builds the client entitledGet dials with; see newPublicClient for why its Transport
+// stays nil.
+func newEntitledClient() *http.Client {
+	return &http.Client{
+		Timeout: entitledTimeout,
+		// The same refusal publicGet makes, for the same reason: refusing redirects is what keeps the
+		// set of hosts this dials equal to the set the operator named.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
 }
 
 // resolveCatalog lists the packages and, for each, resolves its latest version's modules — the shape the

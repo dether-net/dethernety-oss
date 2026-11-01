@@ -69,10 +69,23 @@ services:
       # The platform's embedding model, as the platform gets it: the one-shot refuses a model other than the one
       # its MITRE data was embedded with, before it ingests, so the platform never starts on a mismatch.
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+      # The outbound proxy, as byodt settles it from .env (empty: direct). HTTPS only, so no plain-HTTP call inside the
+      # stack can reach the proxy; HTTP_PROXY is set empty so an engine that copies the host's proxy variables into
+      # containers (Podman does by default) does not add one. SSL_CERT_DIR, set when proxy-ca/proxy-ca.pem exists,
+      # adds a TLS-inspecting proxy's CA to the roots; Go reads it once per process.
+      HTTPS_PROXY: ${BYODT_HTTPS_PROXY:-}
+      https_proxy: ${BYODT_HTTPS_PROXY:-}
+      NO_PROXY: ${BYODT_NO_PROXY:-}
+      no_proxy: ${BYODT_NO_PROXY:-}
+      HTTP_PROXY: ""
+      http_proxy: ""
+      SSL_CERT_DIR: ${BYODT_SSL_CERT_DIR:-}
     volumes:
       # Writable: the one-shot creates/removes files here.
       - ./modules:/app/apps/dt-ws/custom_modules
       - ./schema:/app/apps/dt-ws/schema
+      # Read-only: the CA of a TLS-inspecting proxy, when there is one (byodt creates the directory).
+      - ./proxy-ca:/proxy-ca:ro
     networks: [dethernety]
     restart: "no"
 
@@ -126,7 +139,20 @@ services:
       # at the operator console on this same origin. Override to front the console
       # elsewhere, or set empty to hide the link.
       SETTINGS_URL: ${SETTINGS_URL:-/console/}
+      # The outbound proxy, as for console-init. Node uses the proxy variables only when NODE_USE_ENV_PROXY is 1, which
+      # byodt sets when there is a proxy; it covers fetch and the core https agent. NODE_EXTRA_CA_CERTS names the CA when
+      # proxy-ca/proxy-ca.pem exists. Node reads both at start only.
+      HTTPS_PROXY: ${BYODT_HTTPS_PROXY:-}
+      https_proxy: ${BYODT_HTTPS_PROXY:-}
+      NO_PROXY: ${BYODT_NO_PROXY:-}
+      no_proxy: ${BYODT_NO_PROXY:-}
+      HTTP_PROXY: ""
+      http_proxy: ""
+      NODE_USE_ENV_PROXY: ${BYODT_NODE_USE_ENV_PROXY:-}
+      NODE_EXTRA_CA_CERTS: ${BYODT_NODE_EXTRA_CA_CERTS:-}
     volumes:
+      # Read-only: the CA of a TLS-inspecting proxy, when there is one (byodt creates the directory).
+      - ./proxy-ca:/proxy-ca:ro
       # Read-only: the platform loads modules the one-shot placed.
       - ./modules:/app/apps/dt-ws/custom_modules:ro
       # Single-file mount, so the generated no-auth schema lands beside the baked
@@ -165,6 +191,14 @@ services:
     depends_on:
       platform:
         condition: service_started
+    environment:
+      # No proxy: nothing outside the stack. Set empty against an engine that copies the host's (Podman does).
+      HTTPS_PROXY: ""
+      https_proxy: ""
+      HTTP_PROXY: ""
+      http_proxy: ""
+      NO_PROXY: ""
+      no_proxy: ""
     volumes:
       # The config is a template rendered at container start by 40-tls.sh (below), so it is mounted
       # outside conf.d; the entrypoint writes the active conf.d/default.conf from it.
@@ -211,7 +245,17 @@ services:
       # Where the daemon writes the mode layer. The ./mode mount below surfaces it on
       # the host bundle dir, where the platform and one-shot read it back via env_file.
       MODE_LAYER_PATH: /var/lib/dethernety/mode.env
+      # The outbound proxy and its CA, as for console-init.
+      HTTPS_PROXY: ${BYODT_HTTPS_PROXY:-}
+      https_proxy: ${BYODT_HTTPS_PROXY:-}
+      NO_PROXY: ${BYODT_NO_PROXY:-}
+      no_proxy: ${BYODT_NO_PROXY:-}
+      HTTP_PROXY: ""
+      http_proxy: ""
+      SSL_CERT_DIR: ${BYODT_SSL_CERT_DIR:-}
     volumes:
+      # Read-only: the CA of a TLS-inspecting proxy, when there is one (byodt creates the directory).
+      - ./proxy-ca:/proxy-ca:ro
       # Read-write: the daemon reads the state dotfile the one-shot wrote AND writes content-mount
       # module stubs here (the platform loads them on the next recreate).
       - ./modules:/app/apps/dt-ws/custom_modules

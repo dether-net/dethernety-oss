@@ -50,6 +50,8 @@ cd "byodt-${VERSION}"
 
 > **Important:** Two choices cannot easily be changed after the first start: the **database engine** (Memgraph or Neo4j) and, on Docker Desktop or a Podman machine, **where the database stores its data**. If either applies to you, read [Optional: choose your settings first](#optional-choose-your-settings-first) before step 4.
 
+> **Note:** If the machine reaches the internet only through an outbound proxy, these commands are not enough on their own. Follow [Behind an outbound proxy](#behind-an-outbound-proxy) instead.
+
 The rest of this guide walks through each step, explains what the first start does, and shows what a healthy deployment looks like.
 
 ---
@@ -64,7 +66,7 @@ The rest of this guide walks through each step, explains what the first start do
 | **Disk** | Several gigabytes free in the directory you extract the bundle into: four container images, the embedding model's weights (about 1.26 GB in `data/models`), the database's data, and the reference data. |
 | **Memory** | Enough for the database plus the platform. Memgraph runs with a **4096 MiB** memory limit — the measured floor for the reference-data ingest. Neo4j runs with a **2 GB** heap and a **1 GB** page cache, plus what the JVM needs beyond those. The platform holds the embedding model in memory, which adds roughly 0.8–0.9 GiB. |
 | **CPU** | No fixed minimum. The timings in this guide are for a 4-vCPU host, which matches the embedder's default of 4 inference threads (`EMBEDDING_THREADS`; see [Configuration → Embedding](./CONFIGURATION.md#embedding)). |
-| **Network (first start only)** | Access to the container registries, GitHub release assets, and Hugging Face. See [Network access for the first start](#network-access-for-the-first-start). |
+| **Network (first start and upgrades)** | Access to the container registries, GitHub release assets, and Hugging Face, directly or through an outbound proxy. See [Network access for the first start](#network-access-for-the-first-start). |
 | **Optional tools** | [cosign](https://github.com/sigstore/cosign) to verify the bundle's signature. `curl` for the health checks. |
 
 > **Warning:** On a VM-backed runtime — **Docker Desktop**, or a **Podman machine** on macOS or Windows — the memory that counts is the memory the *virtual machine* is allowed, not the host's. If the VM is capped at 4 GB or less, raise it in the runtime's settings before you start. The reference-data ingest is deliberately not retried when the database runs out of memory.
@@ -103,20 +105,221 @@ Podman works fully. Three things to know:
 
 ### Network access for the first start
 
-The first start needs to reach:
+The first start needs to reach these destinations, directly or through an outbound proxy. Behind a proxy, the proxy must allow the hosts in the second column. They are the hosts seen at the time of writing; the services behind them can change them.
 
-| Destination | What for |
-|---|---|
-| **`ghcr.io`** | The platform and console images. |
-| **The publishers' registries** (`docker.io` by default) | The database and proxy images. |
-| **`github.com`** and its release-asset host | The signed module payloads for the release you are installing. |
-| **`huggingface.co`** and the host it redirects downloads to | The embedding model's weights. The platform verifies each file's sha256 before it uses it. |
+| Destination | Hosts the proxy must allow | What for |
+|---|---|---|
+| **GitHub's container registry** | `ghcr.io`, `pkg-containers.githubusercontent.com` | The platform and console images. |
+| **The publishers' registries** (Docker Hub by default) | `registry-1.docker.io`, `auth.docker.io` | The database and front-door images. |
+| **`github.com`** and its release-asset host | `github.com`, `release-assets.githubusercontent.com` | The bundle and its signature, and the signed module payloads for the release you are installing. |
+| **`huggingface.co`** and the host it redirects downloads to | `huggingface.co`, and its download host, for example `us.aws.cdn.hf.co` | The embedding model's weights. The platform verifies each file's sha256 before it uses it. |
+| **In cloud mode:** the content service and identity provider your cloud connection names | Their hosts | Sign-in, content packages, and the knowledge graph. Needed in use, not only on the first start. |
+
+About the second column:
+
+- **The model's download host can vary.** The hub redirects each download to a CDN host, and a machine elsewhere can be sent to another one. Allow the one your machine is sent to; `./byodt models pull` names it when it is blocked.
+- **Docker Hub layers.** The host Docker Hub downloads image layers from is not listed here. Check your registry's documentation, or your mirror's, for the hosts a first pull needs.
+- **A mirror replaces the registry.** An image you repoint at a registry you operate (`DB_IMAGE`, `NEO4J_IMAGE`, `PROXY_IMAGE`, `CONSOLE_IMAGE`) comes from that registry's host instead.
+- **cosign runs in your shell, not in the deployment.** It may need to reach Sigstore's public services on first use.
 
 Module signatures are verified offline: the trusted root is embedded in the console image, so no signing service is contacted.
 
-Later starts need none of this. If the machine sits behind an allowlist, open these destinations before the first start rather than debugging a half-finished one.
+Later starts need none of this until the next upgrade, which pulls new images, fetches the new release's modules, and may download new weights. `console-init` still asks the release host on every start. When it cannot reach it, the console reports **Module Fetch Failed**, and the modules already on disk stay in use. In cloud mode, the content service and the identity provider are needed all along.
 
-> **Warning:** The model download does **not** use an HTTPS proxy: the platform ignores `HTTPS_PROXY` and connects to Hugging Face directly. If the machine reaches the internet only through a proxy, or not at all, place the weights by hand; see [Hosts without internet access](#hosts-without-internet-access).
+If the machine sits behind an allowlist, open these destinations before the first start rather than debugging a half-finished one.
+
+> **Note:** If the machine reaches the internet only through an outbound proxy, follow [Behind an outbound proxy](#behind-an-outbound-proxy) before you start. If it has no internet access at all, place the weights by hand; see [Hosts without internet access](#hosts-without-internet-access).
+
+---
+
+## Behind an outbound proxy
+
+Skip this section if the machine reaches the internet directly.
+
+If its only way out is an HTTP proxy, set the proxy up in the order below. Three different places hold the setting, and each step checks one path through the proxy before the next step depends on it.
+
+| Step | What goes through the proxy | Where the setting lives |
+|---|---|---|
+| [1](#1-give-the-container-engine-the-proxy) | Image pulls | The container engine's own configuration |
+| [2](#2-get-the-bundle-through-the-proxy) | Downloading and verifying the bundle | `HTTPS_PROXY` in your shell |
+| [3](#3-set-the-proxy-for-the-deployment) | `console-init`, the platform and the console | `.env`, `.env.secrets` and `proxy-ca/` in the bundle |
+| [4](#4-test-it-with-the-model-download) | The model download, as a test | Step 3's setting |
+| [5](#5-start-the-deployment) | The first start | Steps 1 and 3 |
+
+> **Note:** Proxies that need NTLM or Kerberos login are not supported: Go and Node, which the deployment's services run on, support neither.
+
+The full reference for the deployment's own setting is [Configuration → Outbound proxy](./CONFIGURATION.md#outbound-proxy).
+
+### 1. Give the container engine the proxy
+
+Your container engine pulls the images itself. It never reads the deployment's `.env`, so it needs a proxy setting of its own.
+
+**Docker.** The Docker daemon pulls, and it reads only its own proxy setting, never your shell's. Set it in one of two places:
+
+- **A systemd drop-in**, for example `/etc/systemd/system/docker.service.d/http-proxy.conf`:
+
+  ```ini
+  [Service]
+  Environment="HTTPS_PROXY=http://proxy.example.internal:3128"
+  Environment="NO_PROXY=localhost,127.0.0.1"
+  ```
+
+  A `%` in a unit file is written `%%`. A login percent-encoded as `user:pa%23ss` is therefore written `user:pa%%23ss` in the drop-in.
+
+- **`proxies` in `/etc/docker/daemon.json`**, on Docker Engine 23.0 or later:
+
+  ```json
+  {
+    "proxies": {
+      "https-proxy": "http://proxy.example.internal:3128",
+      "no-proxy": "localhost,127.0.0.1"
+    }
+  }
+  ```
+
+Then reload systemd, restart the daemon, and check what it reports:
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl restart docker
+docker info --format '{{.HTTPSProxy}}'    # the proxy, with any login masked
+```
+
+> **Warning:** Restarting the Docker daemon stops every container on the host, unless `live-restore` is enabled. Containers set to restart `always` or `unless-stopped`, as the deployment's services are, start again on their own. Restart any others yourself.
+
+> **Note:** systemd shows a unit's environment to every local account (`systemctl show docker`). If the proxy needs a login, put it in `daemon.json` with mode `0600` rather than in a drop-in.
+
+On Docker Desktop, set and check the proxy in Docker Desktop's own settings instead. `byodt`'s daemon check reads `docker info`, which may not reflect that setting.
+
+**Podman.** Which process pulls depends on the Compose provider (see [Check your container engine](#check-your-container-engine)):
+
+- **With `podman-compose`**, the `podman` command pulls, under your account. It follows `HTTPS_PROXY` in your shell, or `env` under `[engine]` in `containers.conf` (`~/.config/containers/containers.conf` for rootless Podman):
+
+  ```toml
+  [engine]
+  env = ["https_proxy=http://proxy.example.internal:3128"]
+  ```
+
+- **With Docker Compose v2**, the Podman API service (`podman.service`, started by `podman.socket`) pulls. It follows its systemd unit's environment. Add the same `[Service]` lines as for Docker, then restart it:
+
+  ```sh
+  systemctl --user edit podman.service      # rootless Podman; add the [Service] lines
+  systemctl --user restart podman.service
+  ```
+
+`byodt` checks the Docker daemon's setting, and warns when it is missing (step 5). It does not check Podman's.
+
+**Do not use `~/.docker/config.json` for this.** Its `proxies` setting does not configure pulls. Instead, the Docker client copies it into every container it creates. The deployment sets every proxy variable of its own containers explicitly, so the copy no longer reaches them, but it still reaches any other container you run. Podman copies your shell's proxy variables into containers by default (`http_proxy = true` in `containers.conf`); the same explicit values keep them out of the deployment's containers.
+
+**If the proxy inspects TLS**, the engine must trust the proxy's CA as well. Add the CA to the host's trust store (on Debian or Ubuntu, copy it into `/usr/local/share/ca-certificates/` as a `.crt` file and run `sudo update-ca-certificates`), then restart the Docker daemon or the Podman API service. The deployment's own `proxy-ca/` (step 3) does not reach the engine.
+
+**Check it** with a plain pull of two images the deployment uses. Replace `X.Y.Z` with the release, and use `podman pull` on Podman:
+
+```sh
+docker pull ghcr.io/dether-net/byodt-console:X.Y.Z
+docker pull docker.io/nginx:1.27-alpine
+```
+
+The second is the front-door image. `PROXY_IMAGE` in the release's `.env.example` names the tag it uses.
+
+### 2. Get the bundle through the proxy
+
+`curl` and `cosign` run in your shell and follow `HTTPS_PROXY` there. Export it, then follow [Get the bundle](#get-the-bundle) as written:
+
+```sh
+export HTTPS_PROXY=http://proxy.example.internal:3128
+```
+
+`cosign` may need to reach Sigstore's public services on first use.
+
+If the proxy needs a login, put it in the URL, percent-encoded: `http://user:password@proxy.example.internal:3128`. Typed on the command line, it lands in your shell's history. To keep it out, read the login into a variable without echoing it, then build the URL from it:
+
+```sh
+read -rs PROXY_LOGIN    # type user:password, percent-encoded, then Enter
+export HTTPS_PROXY="http://${PROXY_LOGIN}@proxy.example.internal:3128"
+unset PROXY_LOGIN
+```
+
+The login then sits in your shell's environment. Run `unset HTTPS_PROXY` when you are done, unless `podman-compose` pulls with it (step 1).
+
+The deployment does not use this shell value. It uses only the proxy `.env` names (step 3). When your shell sets a different one, `byodt` prints a notice, with any login masked, and goes on with `.env`'s:
+
+```
+==> Your shell sets HTTPS_PROXY (…); the stack uses only the one in .env (…). Set HTTPS_PROXY in .env to change it.
+```
+
+### 3. Set the proxy for the deployment
+
+From the bundle directory, create `.env` first. The first start creates it from `.env.example` only when it is missing, and a `.env` without the proxy sends everything direct:
+
+```sh
+cp .env.example .env
+```
+
+**The proxy.** In `.env`, set `HTTPS_PROXY`. The "Outbound proxy" section of the file has the line commented out:
+
+```
+HTTPS_PROXY=http://proxy.example.internal:3128
+```
+
+- Write it as `http://host:port`. Most proxies take `http://` here. The scheme is only how the services talk to the proxy; the HTTPS connections they make through it stay HTTPS.
+- Do not use `localhost` or `127.0.0.1`: inside a container, that is the container itself. For a proxy on this host, use the host's address on the network the proxy listens on. The name must resolve inside the containers.
+- Leave the login out. `byodt` refuses a `.env` proxy URL that carries one.
+- Add `NO_PROXY` only for hosts the deployment calls that must bypass the proxy, such as a LangGraph server on `https://`. List exact host names: an entry does not cover its subdomains. See [Configuration → Outbound proxy](./CONFIGURATION.md#outbound-proxy).
+
+**The login**, if the proxy needs one, goes in `.env.secrets`, never in `.env`. Create the file readable by you only, if it does not exist yet:
+
+```sh
+touch .env.secrets && chmod 0600 .env.secrets
+```
+
+Then add this line with an editor, with the user name and the password percent-encoded (`#` as `%23`, `@` as `%40`, `:` as `%3A`; the full list is in [Configuration → The outbound proxy's login](./CONFIGURATION.md#the-outbound-proxys-login)):
+
+```
+HTTPS_PROXY_USERINFO=user:password
+```
+
+The first start adds the database password to the same file and keeps your line.
+
+**The CA**, if the proxy inspects TLS (it re-signs every HTTPS connection with a CA of its own). Put the CA certificate in `proxy-ca/proxy-ca.pem`, the only file in that directory:
+
+```sh
+mkdir -p -m 0755 proxy-ca
+cp /path/to/the-proxy-ca.pem proxy-ca/proxy-ca.pem
+chmod 0644 proxy-ca/proxy-ca.pem
+```
+
+`byodt` creates `proxy-ca/` on the first run anyway; `mkdir -p` lets you place the file before that, and changes nothing when the directory is already there.
+
+> **Warning:** Trusting that CA lets whoever holds its key read and change everything the deployment sends over TLS. That includes the signing keys sign-ins are checked against, so they can sign anyone in. First ask the proxy's operators to pass the identity provider and the content service through uninspected; use the CA file only if they cannot. See [Configuration → A proxy that inspects TLS](./CONFIGURATION.md#a-proxy-that-inspects-tls).
+
+### 4. Test it with the model download
+
+```sh
+./byodt models pull
+```
+
+This is the first call through the deployment's proxy setting, before anything else starts. It runs the platform's own download code with the platform's environment: the proxy, its login, `NO_PROXY` and the CA file. It downloads the embedding model's weights (about 1.26 GB) from the model hub and its download host, so the first start then skips that step.
+
+**Result:** it ends with `Ready: the platform loads the model from there without downloading it.` On a failure, the message names the host that failed, for example `The weights could not be placed: …: request to <host> failed: fetch failed`. That is all its own output shows of a network failure. The underlying cause appears only when the platform downloads the model itself, on a start: `./byodt logs platform` then shows it as the `cause` of each `weight acquisition failed, retrying` entry. See [Troubleshooting → Behind an outbound proxy](./TROUBLESHOOTING.md#behind-an-outbound-proxy).
+
+`models pull` also performs first-run setup, so `.env` must hold the proxy before you run it (step 3).
+
+### 5. Start the deployment
+
+```sh
+./byodt up
+```
+
+Then check the deployment as in [Verify the deployment is healthy](#verify-the-deployment-is-healthy). Every module reading `placed` in the console shows that `console-init` reached the release host through the proxy.
+
+On Docker, when `.env` names a proxy and the daemon has none, `./byodt up` and `./byodt update` warn before they pull:
+
+```
+warning: HTTPS_PROXY is set in .env, but the Docker daemon has no proxy of its own, so image pulls go direct. If this host has no direct route out, set the daemon's proxy (a systemd drop-in, or "proxies" in daemon.json), restart it, and run the command again.
+```
+
+The warning does not stop the start: a registry mirror on your own network pulls without a proxy. If yours does not, go back to step 1.
 
 ---
 
@@ -238,7 +441,7 @@ Ready: the platform loads the model from there without downloading it.
 
 ### Hosts without internet access
 
-For a host that cannot reach Hugging Face directly — no internet, or internet only through a proxy:
+For a host that cannot reach Hugging Face — no internet, or a proxy that does not let the download through:
 
 1. **On a connected machine**, extract the same release and run `./byodt models pull`.
 2. **Copy its `data/models` directory** into the offline host's bundle directory, keeping the `<repo>/<revision>/<file>` layout intact.
@@ -286,7 +489,7 @@ You do not need to follow this to install, but it explains what you see in the l
 | Step | What it creates |
 |---|---|
 | **Configuration** | `.env`, copied from `.env.example`. The detected container engine is appended as `CONTAINER_ENGINE` and the database engine as `DB_ENGINE`, unless `.env` already sets them. On Neo4j, the image is also recorded as `NEO4J_IMAGE`. |
-| **Runtime directories** | `modules/`, `schema/`, `data/`, `data/models/`, `data/content-cache/`, `mode/` and `tls/`, plus the database's own: `data/memgraph-log/` and `data/memgraph/` on Memgraph, `data/neo4j-logs/` and `data/neo4j/` on Neo4j. The data directory is created only for a host bind mount. |
+| **Runtime directories** | `modules/`, `schema/`, `data/`, `data/models/`, `data/content-cache/`, `mode/`, `tls/` and `proxy-ca/` (unless you created it already), plus the database's own: `data/memgraph-log/` and `data/memgraph/` on Memgraph, `data/neo4j-logs/` and `data/neo4j/` on Neo4j. The data directory is created only for a host bind mount. |
 | **Database password** | A freshly generated password in `.env.secrets`, mode `0600`. It is created once and never regenerated. See [Configuration → The generated secret file](./CONFIGURATION.md#the-generated-secret-file). |
 | **Mode layer** | `mode/mode.env`, seeded with the standalone defaults. |
 

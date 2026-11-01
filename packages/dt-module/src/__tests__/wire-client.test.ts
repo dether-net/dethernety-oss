@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { WireClient, FetchLike } from '../remote/wire-client';
+import { WireClient, FetchLike, redactUserinfo } from '../remote/wire-client';
 import {
   CloudSessionExpiredError,
   EvaluationNotEntitledError,
@@ -158,6 +158,13 @@ describe('WireClient — cross-cutting request rules', () => {
     ).rejects.toBeInstanceOf(RemoteModuleUnavailableError);
   });
 
+  it('masks the credentials a proxy error carries in the message it surfaces', async () => {
+    const fetchImpl: FetchLike = () => Promise.reject(new Error('Invalid proxy URL: http://alice:s3cret@proxy.example:3128'));
+    const err = await clientWith(fetchImpl).moduleDocument(MODULE_KEY, PIN).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RemoteModuleUnavailableError);
+    expect((err as Error).message).toBe('Content service request failed: Invalid proxy URL: http://***@proxy.example:3128');
+  });
+
   it('an unconfigured base URL leaves the client inert (unavailable, no fetch)', async () => {
     let called = false;
     const fetchImpl: FetchLike = () => {
@@ -205,5 +212,16 @@ describe('WireClient — authorization scoping (against the mock)', () => {
     await client.evaluate(CLASS_ID, PIN, ENTITLED_TOKEN, { requestId: 'r', attributes: { tls_version: '1.2' } });
     expect(mock.requests.map((r) => r.token)).toEqual([ENTITLED_TOKEN, ENTITLED_TOKEN]);
     expect(mock.requests[1].method).toBe('POST');
+  });
+});
+
+describe('redactUserinfo', () => {
+  it('masks the user and password of every URL, and leaves the rest as it was', () => {
+    expect(redactUserinfo('Invalid proxy URL: http://alice:s3cret@proxy.example:3128')).toBe('Invalid proxy URL: http://***@proxy.example:3128');
+    expect(redactUserinfo('http://a@one.example and https://b:c@two.example/x')).toBe('http://***@one.example and https://***@two.example/x');
+    expect(redactUserinfo('fetch failed')).toBe('fetch failed');
+    expect(redactUserinfo('https://svc.local/v1/catalog?by=a@b')).toBe('https://svc.local/v1/catalog?by=a@b');
+    expect(redactUserinfo('http://alice:pa@ss@proxy.example:3128')).toBe('http://***@proxy.example:3128');
+    expect(redactUserinfo('https://svc.local?by=a@b')).toBe('https://svc.local?by=a@b');
   });
 });

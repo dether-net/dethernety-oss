@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -312,5 +313,51 @@ func TestUnreachable(t *testing.T) {
 	ms := run(t, cfg, moduleinstalltest.FakeVerifier{})
 	if ms.Status != statusUnreachable {
 		t.Fatalf("closed endpoint should be unreachable, got %q (%s)", ms.Status, ms.Detail)
+	}
+}
+
+// proxyFailTransport fails every request whose path ends in suffix the way Go's proxy lookup
+// does on a malformed HTTPS_PROXY — quoting the proxy URL, login included — and serves the
+// rest normally.
+type proxyFailTransport struct{ suffix string }
+
+func (p proxyFailTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if strings.HasSuffix(r.URL.Path, p.suffix) {
+		return nil, fmt.Errorf("invalid proxy address %q: invalid port", "http://alice:s3cret@proxy.example:3128")
+	}
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+// TestTransportErrorDetailIsRedacted covers the two places a transport error becomes a Detail —
+// the index fetch and a module's asset fetch — and the state file it is written to, which the
+// console UI renders. The proxy's password must reach none of them.
+func TestTransportErrorDetailIsRedacted(t *testing.T) {
+	for _, suffix := range []string{"/modules.json", ".tar.gz"} {
+		t.Run(suffix, func(t *testing.T) {
+			cfg := testConfig(t, serveRelease(t, "v1.2.3", twoModuleFiles(t, []byte("a-bundle"), []byte("b-bundle"))).URL)
+			f := newFetcher(cfg)
+			f.client.Transport = proxyFailTransport{suffix: suffix}
+			ms := installModules(context.Background(), cfg, f, moduleinstalltest.FakeVerifier{})
+
+			details := []string{ms.Detail}
+			for _, oc := range ms.Expected {
+				details = append(details, oc.Detail)
+			}
+			if joined := strings.Join(details, "\n"); !strings.Contains(joined, "://***@proxy.example") {
+				t.Fatalf("the transport error should reach a Detail with its userinfo masked, got %q", joined)
+			}
+
+			path := filepath.Join(t.TempDir(), stateFileName)
+			if err := writeState(path, State{Modules: ms}); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(data), "s3cret") || strings.Contains(string(data), "alice") {
+				t.Fatalf("the state file carries the proxy login:\n%s", data)
+			}
+		})
 	}
 }

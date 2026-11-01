@@ -340,8 +340,14 @@ function stripTrailingSlashes(url: string | undefined): string | undefined {
 }
 
 function describe(err: unknown): string {
-  if (err instanceof Error) return err.name === 'AbortError' ? 'timeout' : err.message;
+  if (err instanceof Error) return err.name === 'AbortError' ? 'timeout' : redactUserinfo(err.message);
   return 'unknown error';
+}
+
+/** `text` with the user and password of any URL in it masked: a proxy's error can carry its address in full, and
+ * this client's error messages reach the platform's log and its error banner. */
+export function redactUserinfo(text: string): string {
+  return text.replace(/:\/\/[^/?#\s]*@/g, '://***@');
 }
 
 async function safeProblemBody(response: Response): Promise<ProblemBody | undefined> {

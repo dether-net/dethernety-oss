@@ -20,6 +20,7 @@ on:
       - "apps/**"
       - "packages/**"
       - "modules/**"
+      - "deploy/tests/image-env-proxy.sh"
       - ".github/workflows/docker.yml"
   push:
     tags:
@@ -63,6 +64,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        # No step needs git after the checkout, and a token left in .git/config is readable by any code the job runs.
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -152,6 +156,26 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
+      # The bundle's outbound proxy relies on the image's own Node: with NODE_USE_ENV_PROXY=1 it must send fetch, the
+      # core https agent and the GraphQL layer's signing-key fetch through the proxy and keep NO_PROXY names direct.
+      # That changes with Node or a dependency, not with this repository's code, so it is checked on the image itself,
+      # before anything is pushed: the amd64 half is built and loaded locally (it shares the builder's cache with the
+      # multi-arch build below), and the check runs it with no network.
+      - name: Build the amd64 image locally for the proxy check
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.production
+          platforms: linux/amd64
+          load: true
+          push: false
+          build-args: VERSION=${{ steps.meta.outputs.version }}
+          tags: dethernety-proxy-check:local
+          cache-from: type=gha
+
+      - name: Check the image's proxy handling
+        run: bash deploy/tests/image-env-proxy.sh dethernety-proxy-check:local
+
       - name: Log in to the container registry
         if: steps.meta.outputs.publish == 'true'
         uses: docker/login-action@v3
@@ -203,7 +227,8 @@ jobs:
           VERSION: ${{ steps.meta.outputs.version }}
           PUBLISH: ${{ steps.meta.outputs.publish }}
           DIGEST: ${{ steps.build.outputs.digest }}
-          REPO: ${{ github.repository }}
+          # The signing certificate names this workflow file at this run's ref, exactly: owner/repo/path@ref.
+          WORKFLOW_REF: ${{ github.workflow_ref }}
         run: |
           {
             echo "### Image"
@@ -217,7 +242,7 @@ jobs:
               echo
               echo '```'
               echo "cosign verify ${IMAGE}:${VERSION} \\"
-              echo "  --certificate-identity-regexp '^https://github.com/${REPO}/' \\"
+              echo "  --certificate-identity 'https://github.com/${WORKFLOW_REF}' \\"
               echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com"
               echo '```'
             else
@@ -241,6 +266,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        # No step needs git after the checkout, and a token left in .git/config is readable by any code the job runs.
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -286,6 +314,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        # No step needs git after the checkout, and a token left in .git/config is readable by any code the job runs.
+        with:
+          persist-credentials: false
 
       # Restore the embed tree the assets job built — the checkout does not carry it (gitignored,
       # produced by the build) — placing it exactly where the Dockerfile's COPY expects it.
@@ -391,7 +422,8 @@ jobs:
           VERSION: ${{ steps.meta.outputs.version }}
           PUBLISH: ${{ steps.meta.outputs.publish }}
           DIGEST: ${{ steps.build.outputs.digest }}
-          REPO: ${{ github.repository }}
+          # The signing certificate names this workflow file at this run's ref, exactly: owner/repo/path@ref.
+          WORKFLOW_REF: ${{ github.workflow_ref }}
         run: |
           {
             echo "### Console image"
@@ -405,7 +437,7 @@ jobs:
               echo
               echo '```'
               echo "cosign verify ${CONSOLE_IMAGE}:${VERSION} \\"
-              echo "  --certificate-identity-regexp '^https://github.com/${REPO}/' \\"
+              echo "  --certificate-identity 'https://github.com/${WORKFLOW_REF}' \\"
               echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com"
               echo '```'
             else

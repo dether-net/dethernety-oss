@@ -587,6 +587,70 @@ jobs:
           done
           done
 
+      # The outbound proxy byodt settles from .env and .env.secrets reaches the three services that
+      # call out, with the login and the stack's own names, a service compose.override.yaml adds among
+      # them; the database and the front door get it empty, and so does HTTP_PROXY everywhere. Only the
+      # platform's Node is switched to it (NODE_USE_ENV_PROXY=1), and only when there is a proxy. A value
+      # still carrying a `${` is the nested interpolation podman-compose does not expand.
+      - name: The proxy reaches the services that call out, and only them
+        run: |
+          set -euo pipefail
+          [ ! -e compose.override.yaml ] && [ ! -L compose.override.yaml ] || { echo "::error::the bundle already has a compose.override.yaml"; exit 1; }
+          cp .env .env.ci-orig && cp .env.secrets .env.secrets.ci-orig
+          trap 'mv .env.ci-orig .env; mv .env.secrets.ci-orig .env.secrets; rm -f compose.override.yaml' EXIT
+          # env_of SERVICE KEY: KEY's value in SERVICE's environment, as compose config rendered it. A
+          # service's block runs to the next service key; console is not the last one either provider prints.
+          block_of() { printf '%s\n' "$cfg" | sed -n "/^  $1:\$/,/^  [a-z]/p"; }
+          env_of() { block_of "$1" | sed -n "s/^[[:space:]]*$2:[[:space:]]*//p" | tr -d "'\"" | head -1; }
+          # has_key SERVICE KEY: KEY is in SERVICE's environment, even with an empty value.
+          # grep reads the whole block (no -q): an early exit would end sed with SIGPIPE, which pipefail reads as no key.
+          has_key() { block_of "$1" | grep "^[[:space:]]*$2:" >/dev/null; }
+          # Without a proxy the platform's Node is not switched to one: the key is there, and empty.
+          for dbe in memgraph neo4j; do
+          for engine in docker podman; do
+            cfg=$(DB_ENGINE="$dbe" CONTAINER_ENGINE="$engine" ./byodt compose config 2>/dev/null)
+            has_key platform NODE_USE_ENV_PROXY || { echo "::error::$engine/$dbe: platform does not set NODE_USE_ENV_PROXY"; exit 1; }
+            [ -z "$(env_of platform NODE_USE_ENV_PROXY)" ] || { echo "::error::$engine/$dbe: platform got NODE_USE_ENV_PROXY with no proxy"; exit 1; }
+          done
+          done
+          printf 'HTTPS_PROXY=http://proxy.example.internal:3128\nNO_PROXY=langgraph.example.internal\n' >> .env
+          printf 'HTTPS_PROXY_USERINFO=ci:not%%2Freal\n' >> .env.secrets
+          want_url='http://ci:not%2Freal@proxy.example.internal:3128'
+          printf 'services:\n  ci-extra:\n    image: docker.io/library/busybox:1.36\n' > compose.override.yaml
+          for dbe in memgraph neo4j; do
+          for engine in docker podman; do
+            cfg=$(DB_ENGINE="$dbe" CONTAINER_ENGINE="$engine" ./byodt compose config 2>/dev/null)
+            if printf '%s\n' "$cfg" | grep -q 'PROXY.*\${'; then
+              echo "::error::$engine/$dbe: a proxy variable reached the engine as a literal \${…}"; exit 1
+            fi
+            for svc in console-init platform console; do
+              [ "$(env_of "$svc" HTTPS_PROXY)" = "$want_url" ] || { echo "::error::$engine/$dbe: $svc did not get HTTPS_PROXY with its login"; exit 1; }
+              [ "$(env_of "$svc" https_proxy)" = "$want_url" ] || { echo "::error::$engine/$dbe: $svc did not get https_proxy"; exit 1; }
+              no=$(env_of "$svc" NO_PROXY)
+              case ",$no," in
+                *,langgraph.example.internal,*) ;;
+                *) echo "::error::$engine/$dbe: $svc's NO_PROXY lost the operator's host: $no"; exit 1 ;;
+              esac
+              for n in localhost 127.0.0.1 db platform console ci-extra; do
+                case ",$no," in *",$n,"*) ;; *) echo "::error::$engine/$dbe: $svc's NO_PROXY lacks $n: $no"; exit 1 ;; esac
+              done
+              [ -z "$(env_of "$svc" HTTP_PROXY)" ] || { echo "::error::$engine/$dbe: $svc got an HTTP_PROXY"; exit 1; }
+            done
+            [ "$(env_of platform NODE_USE_ENV_PROXY)" = 1 ] || { echo "::error::$engine/$dbe: platform did not get NODE_USE_ENV_PROXY=1"; exit 1; }
+            for svc in console-init console db proxy ci-extra; do
+              ! has_key "$svc" NODE_USE_ENV_PROXY || { echo "::error::$engine/$dbe: $svc got NODE_USE_ENV_PROXY"; exit 1; }
+            done
+            # Present and empty, not absent: an absent key is the one an engine copies the host's value into.
+            for svc in db proxy; do
+              for k in HTTPS_PROXY https_proxy HTTP_PROXY http_proxy NO_PROXY no_proxy; do
+                has_key "$svc" "$k" || { echo "::error::$engine/$dbe: $svc does not set $k empty"; exit 1; }
+                [ -z "$(env_of "$svc" "$k")" ] || { echo "::error::$engine/$dbe: $svc got $k"; exit 1; }
+              done
+            done
+            echo "ok   $engine/$dbe: the proxy reaches console-init, platform and console only; ci-extra is in NO_PROXY"
+          done
+          done
+
       # The database credentials travel the same interpolation path as the images and were equally
       # empty — but with no visible error, because nothing validates them until a healthcheck
       # fails. Assert the user arrives.

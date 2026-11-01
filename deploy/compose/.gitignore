@@ -9,6 +9,7 @@ schema/
 data/
 backups/
 tls/
+proxy-ca/
 console/
 mode/
 # A Neo4j backup's or restore's private working directory, removed when it ends.

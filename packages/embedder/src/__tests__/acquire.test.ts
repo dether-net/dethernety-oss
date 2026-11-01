@@ -35,6 +35,7 @@ import {
   removeStaleTemporaries,
   type FetchLike,
   causeOf,
+  redactUserinfo,
   RETRY_DELAYS_MS,
   seedVerifiedFiles,
   verifiedRecordsFor,
@@ -185,7 +186,9 @@ describe('ensureWeights', () => {
         throw new Error('connection reset');
       })(),
     });
-    await expect(ensureWeights(profile(['config.json']), dir, { fetch })).rejects.toThrow(/connection reset/);
+    await expect(ensureWeights(profile(['config.json']), dir, { fetch })).rejects.toThrow(
+      'config.json: download from hub.example broke off: connection reset',
+    );
     expect(await listFiles(dir).catch(() => [])).toEqual([]);
   });
 
@@ -318,7 +321,64 @@ describe('ensureWeights', () => {
 
   it('refuses a redirect off HTTPS', async () => {
     const hub = fakeHub({ cdn: 'http://cdn.example' });
-    await expect(ensureWeights(profile(['config.json']), dir, { fetch: hub.fetch })).rejects.toThrow(/left HTTPS/);
+    await expect(ensureWeights(profile(['config.json']), dir, { fetch: hub.fetch })).rejects.toThrow('a redirect to cdn.example left HTTPS');
+  });
+
+  // A proxy or a firewall that lets the hub through and blocks the CDN shows as the CDN's host, and the signed path and
+  // query of the redirect stay out of the message.
+  it('names the host of the hop that failed, and nothing else of its URL', async () => {
+    const hub = fakeHub({ cdn: 'https://cdn.example' });
+    const refused: FetchLike = async (url, init) => {
+      if (new URL(url).host !== 'cdn.example') return hub.fetch(url, init);
+      throw new TypeError('fetch failed', { cause: Object.assign(new Error('connect ECONNREFUSED 192.0.2.1:443'), { code: 'ECONNREFUSED' }) });
+    };
+    const forbidden: FetchLike = async (url, init) =>
+      new URL(url).host === 'cdn.example' ? { status: 403, headers: { get: () => null }, body: null } : hub.fetch(url, init);
+
+    const err = await ensureWeights(profile(['config.json']), dir, { fetch: refused }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(WeightFileError);
+    expect((err as Error).message).toBe('config.json: request to cdn.example failed: fetch failed');
+    expect(causeOf(err)).toBe('ECONNREFUSED: connect ECONNREFUSED 192.0.2.1:443');
+    await expect(ensureWeights(profile(['config.json']), dir, { fetch: forbidden })).rejects.toThrow(
+      'config.json: download failed with HTTP 403 from cdn.example',
+    );
+
+    const messages: string[] = [];
+    for (const fetch of [refused, forbidden]) {
+      await ensureWeightsWithRetry(profile(['config.json']), dir, {
+        fetch,
+        delaysMs: [1],
+        sleep: async () => undefined,
+        log: (m, d) => messages.push(`${m} ${JSON.stringify(d)}`),
+      }).catch(() => undefined);
+    }
+    expect(messages.join('\n')).toMatch(/cdn\.example/);
+    expect(messages.join('\n')).not.toMatch(/https?:|\/org\/tiny|resolve|sig=/);
+  });
+
+  it('masks the credentials a proxy error carries, in the message and in the cause', async () => {
+    const proxyUrl = 'http://alice:s3cret@proxy.example:3128';
+    const inCause: FetchLike = async () => {
+      throw new TypeError('fetch failed', { cause: Object.assign(new Error(`Invalid proxy URL: ${proxyUrl}`), { code: 'ERR_PROXY_INVALID_CONFIG' }) });
+    };
+    const inMessage: FetchLike = async () => {
+      throw new Error(`proxy ${proxyUrl} refused the tunnel`);
+    };
+    const err = await ensureWeights(profile(['config.json']), dir, { fetch: inCause }).catch((e: unknown) => e);
+    expect(causeOf(err)).toBe('ERR_PROXY_INVALID_CONFIG: Invalid proxy URL: http://***@proxy.example:3128');
+    expect(((err as Error).cause as { code?: unknown }).code).toBe('ERR_PROXY_INVALID_CONFIG');
+    await expect(ensureWeights(profile(['config.json']), dir, { fetch: inMessage })).rejects.toThrow(
+      'config.json: request to hub.example failed: proxy http://***@proxy.example:3128 refused the tunnel',
+    );
+    const logged: string[] = [];
+    await ensureWeightsWithRetry(profile(['config.json']), dir, {
+      fetch: inCause,
+      delaysMs: [1],
+      sleep: async () => undefined,
+      log: (m, d) => logged.push(`${m} ${JSON.stringify(d)}`),
+    }).catch(() => undefined);
+    expect(logged.join('\n')).toMatch(/proxy\.example/);
+    expect(logged.join('\n')).not.toMatch(/alice|s3cret/);
   });
 
   it('refuses an endless redirect loop', async () => {
@@ -492,7 +552,7 @@ describe('download timeouts', () => {
     };
     const root = profileRoot(profile(), dir);
     await expect(ensureWeights(profile(['config.json']), dir, { fetch, connectTimeoutMs: 30 })).rejects.toThrow(
-      'config.json: no response within 0 s',
+      'config.json: no response from hub.example within 0 s',
     );
     expect(signals).toHaveLength(1);
     expect(signals[0].aborted).toBe(true);
@@ -502,7 +562,9 @@ describe('download timeouts', () => {
   it('bounds every redirect hop, not only the first', async () => {
     const hub = fakeHub({ cdn: 'https://cdn.example' });
     const fetch: FetchLike = (url, init) => (new URL(url).host === 'cdn.example' ? never() : hub.fetch(url, init));
-    await expect(ensureWeights(profile(['config.json']), dir, { fetch, connectTimeoutMs: 30 })).rejects.toThrow(/no response within/);
+    await expect(ensureWeights(profile(['config.json']), dir, { fetch, connectTimeoutMs: 30 })).rejects.toThrow(
+      'config.json: no response from cdn.example within 0 s',
+    );
   });
 
   it('fails a body that sends nothing for the idle timeout, and leaves no temporary or final file', async () => {
@@ -513,7 +575,7 @@ describe('download timeouts', () => {
     };
     const root = profileRoot(profile(), dir);
     await expect(ensureWeights(profile(['config.json']), dir, { fetch, idleTimeoutMs: 30 })).rejects.toThrow(
-      'config.json: no data for 0 s',
+      'config.json: no data from hub.example for 0 s',
     );
     expect(signal?.aborted).toBe(true);
     expect(await listFiles(root)).toEqual([]);
@@ -854,7 +916,7 @@ describe('ensureWeightsWithRetry', () => {
     expect(logged.find(([m]) => m === 'weight acquisition failed, retrying')?.[1]).toMatchObject({
       attempt: 1,
       retryInMs: 10_000,
-      error: 'fetch failed',
+      error: 'config.json: request to hub.example failed: fetch failed',
       cause: 'UND_ERR_CONNECT_TIMEOUT: Connect Timeout Error (attempted address: cdn.example:443, timeout: 10000ms)',
     });
   });
@@ -884,6 +946,17 @@ describe('causeOf', () => {
     expect(causeOf({ cause: {} })).toBeUndefined();
     expect(causeOf(new Error('no cause'))).toBeUndefined();
     expect(causeOf(null)).toBeUndefined();
+  });
+});
+
+describe('redactUserinfo', () => {
+  it('masks the user and password of every URL, and leaves the rest as it was', () => {
+    expect(redactUserinfo('Invalid proxy URL: http://alice:s3cret@proxy.example:3128')).toBe('Invalid proxy URL: http://***@proxy.example:3128');
+    expect(redactUserinfo('http://a@one.example and https://b:c@two.example/x')).toBe('http://***@one.example and https://***@two.example/x');
+    expect(redactUserinfo('connect ECONNREFUSED proxy.example:3128')).toBe('connect ECONNREFUSED proxy.example:3128');
+    expect(redactUserinfo('https://hub.example/org/tiny?by=a@b')).toBe('https://hub.example/org/tiny?by=a@b');
+    expect(redactUserinfo('http://alice:pa@ss@proxy.example:3128')).toBe('http://***@proxy.example:3128');
+    expect(redactUserinfo('https://hub.example?by=a@b')).toBe('https://hub.example?by=a@b');
   });
 });
 

@@ -68,14 +68,15 @@ db   console-init   platform   proxy   console
 Which command applies a change depends on what you changed. The full table is in [Configuration → How to apply a change](./CONFIGURATION.md#how-to-apply-a-change). In short:
 
 ```sh
-./byodt up                    # after editing .env
+./byodt up                    # after editing .env, or the proxy login in .env.secrets
 ./byodt restart               # after connecting or disconnecting the cloud
 ./byodt restart platform      # after mounting or unmounting a content module, or updating the knowledge graph
 ./byodt restart proxy         # after adding, replacing, or removing a certificate
 ./byodt restart db            # after changing DB_DATA, SNAPSHOT_INTERVAL_SEC, or a NEO4J_DATA/_HEAP_SIZE/_PAGECACHE_SIZE
+./byodt restart platform console   # after replacing proxy-ca/proxy-ca.pem, the outbound proxy's CA
 ```
 
-Naming a service recreates only that service, not its dependencies — `./byodt restart proxy` re-reads the front-door configuration without bouncing the database underneath it.
+Naming a service recreates only that service, not its dependencies — `./byodt restart proxy` re-reads the front-door configuration without bouncing the database underneath it. The service called `proxy` is the front door; the outbound proxy, if you use one, is set in `.env` (see [Configuration → Outbound proxy](./CONFIGURATION.md#outbound-proxy)).
 
 ## Inspecting the deployment
 
@@ -143,7 +144,7 @@ To download them ahead of a start — on a fresh install, or before an upgrade �
 ./byodt models pull
 ```
 
-It runs the platform's own download code in a one-off platform container, with no database, so the stack can be up or down. It prints the model's size and its licence (the [Gemma Terms of Use](https://ai.google.dev/gemma/terms)), downloads only what is missing or fails verification, and ends with `Ready` once the weights are in place. `Ctrl-C` stops it without keeping a partial file; run it again to continue. If `.env` still sets `EMBEDDING_MODEL=embeddinggemma`, `byodt` stops it first with its own check, the one `./byodt up` and `./byodt update` run, and tells you to remove the line; any other value the platform would not run is refused by the download code, with the platform's message. It exits `0` once the weights are in place, `1` on a refusal or failure, and `130` when stopped.
+It runs the platform's own download code in a one-off platform container, with no database, so the stack can be up or down. It prints the model's size and its licence (the [Gemma Terms of Use](https://ai.google.dev/gemma/terms)), downloads only what is missing or fails verification, and ends with `Ready` once the weights are in place. `Ctrl-C` stops it without keeping a partial file; run it again to continue. If `.env` still sets `EMBEDDING_MODEL=embeddinggemma`, `byodt` stops it first with its own check, the one `./byodt up` and `./byodt update` run, and tells you to remove the line; any other value the platform would not run is refused by the download code, with the platform's message. It exits `0` once the weights are in place, `1` on a refusal or failure, and `130` when stopped. Behind an outbound proxy it downloads through the proxy `.env` names, with the platform's login and CA, so it is also the quickest test of that setting; a failure names the host that failed.
 
 While the platform is downloading or loading the model, `/health` reports `degraded` and class and technique matching uses names; see [Troubleshooting → Matching uses names after a start](./TROUBLESHOOTING.md#matching-uses-names-after-a-start).
 
@@ -300,7 +301,9 @@ Copy the file off the machine. A backup may not load across versions, so treat i
 
 ### 2. Get the new bundle
 
-Download and verify it exactly as in [Installation → Get the bundle](./INSTALLATION.md#get-the-bundle).
+Download and verify it exactly as in [Installation → Get the bundle](./INSTALLATION.md#get-the-bundle). Behind an outbound proxy, export `HTTPS_PROXY` in your shell first, as on the first install.
+
+> **Note:** An upgrade needs the network again: the new images' layers, the new release's module index and payloads, and new model weights if the release changed the model. The hosts are the ones in [Installation → Network access for the first start](./INSTALLATION.md#network-access-for-the-first-start). Behind a proxy, the container engine pulls with its own proxy setting, as on the first install; on a host with no direct route out, `./byodt update` cannot pull without it. On Docker, `./byodt update` warns before it pulls when the daemon has no proxy. A failed pull leaves the running deployment as it was.
 
 ### 3. Replace the bundle files, keep your own
 
@@ -311,7 +314,7 @@ VERSION=X.Y.Z    # the release you are moving to
 tar xzf "byodt-${VERSION}.tar.gz" --strip-components=1 -C /path/to/your/bundle
 ```
 
-Your `.env`, `.env.secrets`, `mode/`, `tls/`, `data/`, and `backups/` are untouched.
+Your `.env`, `.env.secrets`, `mode/`, `tls/`, `proxy-ca/`, `data/`, and `backups/` are untouched.
 
 ### 4. Bring `.env` into line with the new `.env.example`
 
@@ -322,6 +325,8 @@ diff .env .env.example
 ```
 
 **Set `PLATFORM_VERSION` to the new version.** That is the whole version change — the platform image, the console image, and the module payloads all follow it. Also take any changes to `PROXY_IMAGE`, and read the new file's comments for settings that were added or retired. `./byodt update` never edits `.env` for you. Keep your current `DB_IMAGE` (on Neo4j, `NEO4J_IMAGE`, which `byodt` recorded on the first run), even if the new bundle names a newer database, unless you decide to move the database (below).
+
+**The outbound proxy keys.** `.env.example` has an "Outbound proxy" section with `HTTPS_PROXY` and `NO_PROXY`, both commented out; an `.env` carried over from an older bundle has neither. They are optional, as are `HTTPS_PROXY_USERINFO` in `.env.secrets` and the CA file `proxy-ca/proxy-ca.pem`: add them only if the host reaches the internet through a proxy (see [Configuration → Outbound proxy](./CONFIGURATION.md#outbound-proxy)). An older bundle passed no proxy variables to its containers, so an engine that copies your shell's or your Docker client's proxy settings into containers could pass them on. A bundle with these keys sets every proxy variable of its containers explicitly, and uses only what `.env` says.
 
 > **Moving the database to a newer image is your choice, and it is one-way.** A newer database writes data that an older one cannot open, so there is no downgrade. `./byodt up` and `./byodt update` warn when `DB_IMAGE` (or `NEO4J_IMAGE`) differs from the image this bundle was tested with; the warning never blocks the start. To move: back up first — `./byodt backup`, or a copy of the data directory (`data/memgraph` or `data/neo4j`) taken with the deployment down — then set `DB_IMAGE` (or `NEO4J_IMAGE`) to the tested image and run `./byodt update`.
 
@@ -440,6 +445,8 @@ Anything the named commands do not cover:
 This runs your engine's `compose` with the bundle's configuration and secret files already supplied, and with the compose files for your database engine: `compose.yaml`, then `compose.memgraph.yaml` or `compose.neo4j.yaml`, then `compose.override.yaml` if you have one. That is the part that is tedious to get right by hand, and a bare `compose` call without the engine's file has no database service.
 
 > **The safety rails do not apply here.** `./byodt compose down -v` will delete a named-volume graph, where `./byodt down -v` refuses. Use the escape hatch when you know what you are doing.
+
+> **Note:** `./byodt compose config` prints every service's environment in full, including the database password and, if you set one, the outbound proxy's login. Do not paste its output anywhere public.
 
 ---
 

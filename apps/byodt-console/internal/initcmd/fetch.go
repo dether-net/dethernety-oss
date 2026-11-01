@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"strings"
+
+	"github.com/dether-net/dethernety-oss/apps/byodt-console/internal/redact"
 )
 
 // Download size caps. The module payloads are small (the largest shipped module is well
@@ -26,6 +28,9 @@ type fetcher struct {
 	tag     string
 }
 
+// newFetcher leaves the client's Transport nil on purpose: that is http.DefaultTransport, which
+// follows HTTPS_PROXY and NO_PROXY, and the only way this deploy-time fetch reaches the release
+// host from behind a proxy.
 func newFetcher(cfg Config) *fetcher {
 	return &fetcher{
 		client:  &http.Client{Timeout: cfg.HTTPTimeout, CheckRedirect: checkRedirect},
@@ -70,9 +75,11 @@ func (f *fetcher) assetURL(name string) string {
 }
 
 // get fetches an asset by name. A transport error (host unreachable, timeout) is returned
-// as a non-nil error with status 0. A non-200 response returns the status code with a nil
-// error, so the caller can distinguish 404 (no such asset at this version) from a network
-// failure. A 200 returns the body, capped at maxBytes.
+// as a non-nil error with status 0, with any URL credentials in it masked: its text becomes
+// a state-file Detail, and a proxy URL in it may carry the proxy's login. A non-200
+// response returns the status code with a nil error, so the caller can distinguish 404 (no
+// such asset at this version) from a network failure. A 200 returns the body, capped at
+// maxBytes.
 func (f *fetcher) get(ctx context.Context, name string, maxBytes int64) (body []byte, status int, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.assetURL(name), nil)
 	if err != nil {
@@ -80,7 +87,7 @@ func (f *fetcher) get(ctx context.Context, name string, maxBytes int64) (body []
 	}
 	resp, err := f.client.Do(req)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, redact.Error(err)
 	}
 	defer resp.Body.Close()
 

@@ -55,6 +55,11 @@ die()  { printf '%serror:%s %s\n' "$RED" "$RST" "$*" >&2; exit 1; }
 #                   reached the engine as a literal. Deriving it host-side keeps PLATFORM_VERSION
 #                   the single version knob without depending on nested interpolation.
 #   NEO4J_IMAGE     the same way, for the Neo4j database service.
+#   BYODT_*_PROXY   the outbound proxy, settled by resolve_proxy from .env and .env.secrets: the URL
+#                   can carry the proxy's login, and NO_PROXY is the operator's hosts plus the stack's
+#                   own names, which compose.yaml cannot append without nesting.
+#   BYODT_NODE_USE_ENV_PROXY  1 when there is a proxy, empty otherwise: the platform's Node reads the
+#                   proxy variables only when it is 1.
 #
 # The files are named, never discovered: compose.yaml, then the database service of the engine
 # DB_ENGINE names (compose.memgraph.yaml or compose.neo4j.yaml), then compose.override.yaml when the
@@ -75,6 +80,8 @@ compose() {
   # user precisely to catch the derivation silently stopping.
   dbu="$(db_user "${1:-}")"
   NEO4J_PASSWORD="$pw" CONSOLE_IMAGE="$img" NEO4J_IMAGE="$(neo4j_image)" DB_USER="$dbu" \
+    BYODT_HTTPS_PROXY="$PROXY_URL" BYODT_NO_PROXY="$PROXY_NO" BYODT_NODE_EXTRA_CA_CERTS="$PROXY_CA" BYODT_SSL_CERT_DIR="$PROXY_CA_DIR" \
+    BYODT_NODE_USE_ENV_PROXY="${PROXY_URL:+1}" \
     "$ENGINE" compose --env-file "$ENV_FILE" "${files[@]}" "$@"
 }
 
@@ -450,6 +457,11 @@ ensure_layout() {
   chmod 0777 modules schema data/content-cache mode "$db_log"
   chmod 1777 data/models
   mkdir -p tls && chmod 0700 tls
+  # The CA of a TLS-inspecting proxy, mounted read-only into the services that call out. Its own directory, not tls/:
+  # Go loads every certificate in SSL_CERT_DIR as a root, and tls/ holds the front door's own. It always exists, so the
+  # engine never creates it root-owned for the mount. Created with its mode, never chmod'ed: an existing one is the
+  # operator's, and check_proxy_ca has checked it.
+  { [ -e proxy-ca ] || [ -L proxy-ca ]; } || mkdir -m 0755 proxy-ca
   if db_is_bind; then chmod 0777 "$db_dir"; fi
 
   # compose.yaml bind-mounts this as a FILE. A container engine handed a bind source that does not
@@ -620,6 +632,257 @@ env_setting() {
   printf '%s' "$val"
 }
 
+# --- outbound proxy -----------------------------------------------------------
+
+# What resolve_proxy settles and compose() exports. PROXY_URL carries the proxy's login when it has one, so it is
+# never printed. Empty, they are today's behaviour: every call goes direct.
+PROXY_URL="" PROXY_NO="" PROXY_CA="" PROXY_CA_DIR=""
+# Loopback and the bundle's own services, always reached directly; compose_services adds any compose.override.yaml
+# declares.
+readonly PROXY_INTERNAL="localhost,127.0.0.1,::1,db,console-init,platform,proxy,console"
+# A host name, or a bracketed IPv6 address; an all-numeric name is checked as an IPv4 address on its own (proxy_host_ok).
+readonly PROXY_HOST_RE='^([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*|\[[0-9A-Fa-f:]+\])$'
+
+# mask_userinfo URL prints URL with its login, if it has one, replaced by ***. Everything up to the last @ goes, so a
+# login with an unencoded @ or / in it is masked whole.
+mask_userinfo() {
+  case "$1" in
+    *://*@*) printf '%s://***@%s' "${1%%://*}" "${1##*@}" ;;
+    *@*)     printf '***@%s' "${1##*@}" ;;
+    *)       printf '%s' "$1" ;;
+  esac
+}
+
+# pct_utf8_ok TEXT succeeds when every run of %XX in TEXT decodes to UTF-8. Node decodes a proxy login with
+# decodeURIComponent at start, and a byte sequence that is not UTF-8 (a Latin-1 %E9, a lone %C3) stops the platform
+# there with an error that names nothing. The same ranges decodeURIComponent accepts: no overlong forms, no surrogates,
+# nothing above U+10FFFF.
+pct_utf8_ok() {
+  local s="$1" need=0 lo=128 hi=191 b
+  while [ -n "$s" ]; do
+    if [ "${s:0:1}" != % ]; then
+      [ "$need" -eq 0 ] || return 1
+      s="${s:1}"
+      continue
+    fi
+    b=$((16#${s:1:2}))
+    s="${s:3}"
+    if [ "$need" -gt 0 ]; then
+      [ "$b" -ge "$lo" ] && [ "$b" -le "$hi" ] || return 1
+      need=$((need - 1)) lo=128 hi=191
+    elif [ "$b" -lt 128 ]; then :
+    elif [ "$b" -ge 194 ] && [ "$b" -le 223 ]; then need=1
+    elif [ "$b" -eq 224 ]; then need=2 lo=160
+    elif [ "$b" -eq 237 ]; then need=2 hi=159
+    elif [ "$b" -ge 225 ] && [ "$b" -le 239 ]; then need=2
+    elif [ "$b" -eq 240 ]; then need=3 lo=144
+    elif [ "$b" -eq 244 ]; then need=3 hi=143
+    elif [ "$b" -ge 241 ] && [ "$b" -le 243 ]; then need=3
+    else return 1
+    fi
+  done
+  [ "$need" -eq 0 ]
+}
+
+# proxy_host_ok HOST succeeds for a host Node, undici and Go all parse the same way. Node prints a proxy URL it cannot
+# parse in full, login included, so a host they would refuse is refused here first: an IPv4 address must be four octets
+# of 0 to 255, a name may not end in an all-numeric or hex label, and an IPv6 address has two to seven colons, groups
+# of at most four digits and at most one ::, or all eight groups. Punycode labels and IPv4 octets with a leading zero
+# are refused too.
+proxy_host_ok() {
+  local h="$1" last o
+  printf '%s' "$h" | grep -Eq "$PROXY_HOST_RE" || return 1
+  case "$h" in
+    \[*)
+      h="${h#[}"; h="${h%]}"
+      case "$h" in *:::*|*::*::*|:[!:]*|*[!:]:) return 1 ;; esac
+      printf '%s' "$h" | grep -Eq '^([0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}$' || return 1
+      # Without a ::, all eight groups are written out.
+      o="${h//[^:]/}"
+      case "$h" in *::*) ;; *) [ "${#o}" = 7 ] || return 1 ;; esac
+      return 0 ;;
+  esac
+  # Punycode Node cannot decode is an invalid URL; such names are refused rather than decoded here.
+  case "$(printf '%s' ".$h" | tr 'A-Z' 'a-z')" in *.xn--*) return 1 ;; esac
+  last="${h##*.}"
+  case "$last" in
+    *[!0-9]*) case "$last" in 0[xX]*) return 1 ;; esac; return 0 ;;
+  esac
+  # The last label is all digits: the whole host must be a dotted quad.
+  printf '%s' "$h" | grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' || return 1
+  # A leading zero is octal to Node and a name to Go: they would reach different hosts.
+  case ".$h" in *.0[0-9]*) return 1 ;; esac
+  local IFS=.
+  for o in $h; do [ "$o" -le 255 ] || return 1; done
+}
+
+# compose_services prints the service names compose sees that PROXY_INTERNAL does not hold, comma-separated, so a
+# service added in compose.override.yaml is reached directly too. Empty when compose cannot answer. The images are
+# passed as compose() passes them: Docker Compose refuses a service with an empty image.
+compose_services() {
+  local -a files
+  local s out=""
+  files=(-f compose.yaml -f "compose.${DBE}.yaml")
+  [ -f compose.override.yaml ] && files+=(-f compose.override.yaml)
+  for s in $(CONSOLE_IMAGE="$(console_image)" NEO4J_IMAGE="$(neo4j_image)" \
+      "$ENGINE" compose --env-file "$ENV_FILE" "${files[@]}" config --services 2>/dev/null </dev/null \
+      | grep -E '^[A-Za-z0-9][A-Za-z0-9_.-]*$' || true); do
+    case ",$PROXY_INTERNAL,$out" in *",$s,"*) ;; *) out="$out$s," ;; esac
+  done
+  printf '%s' "${out%,}"
+}
+
+# check_proxy_ca refuses a proxy-ca/ that would trust more, or other, CAs than the operator put there. Go loads every
+# certificate in it as a root and Node only proxy-ca.pem, so it holds that one file and nothing else, and no other
+# account may own or change either.
+check_proxy_ca() {
+  local e
+  if [ -L proxy-ca ] && [ ! -e proxy-ca ]; then
+    die "proxy-ca is a symbolic link to nothing (ls -l proxy-ca). Remove it, or point it at a directory, and run the command again."
+  fi
+  [ -e proxy-ca ] || return 0
+  refuse_foreign_entry proxy-ca
+  [ -d proxy-ca ] || die "proxy-ca is not a directory. Move it aside and run the command again: byodt creates it."
+  # A link to another account's directory would let it swap the CA: proxy-ca/. is the directory the link leads to.
+  refuse_foreign_entry proxy-ca/.
+  for e in proxy-ca/* proxy-ca/.[!.]* proxy-ca/..?*; do
+    { [ -e "$e" ] || [ -L "$e" ]; } || continue
+    [ "$e" = proxy-ca/proxy-ca.pem ] || die "proxy-ca/ holds ${e#proxy-ca/}: it holds only proxy-ca.pem, the CA certificate of a TLS-inspecting proxy. Move the rest out and run the command again."
+  done
+  if [ -L proxy-ca/proxy-ca.pem ]; then
+    die "proxy-ca/proxy-ca.pem is a symbolic link, which does not resolve inside the containers. Copy the certificate there instead, and run the command again."
+  fi
+  if [ -f proxy-ca/proxy-ca.pem ] && [ -z "$(find proxy-ca/proxy-ca.pem -maxdepth 0 -perm -004 2>/dev/null)" ]; then
+    die "proxy-ca/proxy-ca.pem is not readable by every account, and the services read it under their own. Make it 0644 (chmod 0644 proxy-ca/proxy-ca.pem) and run the command again."
+  fi
+  for e in proxy-ca proxy-ca/proxy-ca.pem; do
+    [ -e "$e" ] || continue
+    refuse_foreign_entry "$e"
+    if [ -n "$(find -L "$e" -maxdepth 0 \( -perm -020 -o -perm -002 \) 2>/dev/null)" ]; then
+      die "$e can be changed by other accounts, and what is in it is trusted as a root. Make it writable by you only (chmod go-w $e) and run the command again."
+    fi
+  done
+}
+
+# resolve_proxy reads the outbound proxy from .env (HTTPS_PROXY, NO_PROXY) and its login from .env.secrets
+# (HTTPS_PROXY_USERINFO), checks them, and settles what compose() exports. It runs in the main shell, like
+# resolve_db_engine, so a refusal stops the command.
+#
+# Only .env counts, never the shell: operators behind a proxy usually export HTTPS_PROXY, and an upgrade must not start
+# routing a stack through it that worked direct. A shell value .env does not match gets a notice.
+#
+# There is no HTTP_PROXY. Every call that leaves the stack is HTTPS, and every http:// call stays inside it or on the
+# LAN, so with no HTTP_PROXY none of them can reach the proxy, whatever NO_PROXY says.
+#
+# The checks are strict because the clients are not. Go, Node's core agents and undici's fetch read NO_PROXY
+# differently: CIDR, ranges, wildcards and spaces each work in some and not in the others, so only exact names and
+# addresses are taken. Node and Go print an invalid proxy URL in full, login included, so the URL and the login are
+# checked before they are used.
+resolve_proxy() {
+  local url no ui shell_url rest host port entry name svc
+  if grep -Eq '^[[:space:]]*(export[[:space:]]+)?BYODT_' "$ENV_FILE" 2>/dev/null; then
+    die "$ENV_FILE sets a BYODT_ variable: byodt sets those itself. Remove the line and use HTTPS_PROXY and NO_PROXY."
+  fi
+  url="$(env_setting HTTPS_PROXY)"
+  no="$(env_setting NO_PROXY)"
+  ui="$(secret_value HTTPS_PROXY_USERINFO "")"
+  shell_url="${HTTPS_PROXY:-${https_proxy:-}}"
+  if [ -n "$shell_url" ] && [ "$shell_url" != "$url" ]; then
+    info "Your shell sets HTTPS_PROXY ($(mask_userinfo "$shell_url")); the stack uses only the one in $ENV_FILE ($(mask_userinfo "${url:-none}")). Set HTTPS_PROXY in $ENV_FILE to change it."
+  fi
+  if [ -n "$(env_setting HTTP_PROXY)" ]; then
+    warn "HTTP_PROXY in $ENV_FILE is not used: everything the stack fetches from outside is HTTPS. Set HTTPS_PROXY instead."
+  fi
+
+  check_proxy_ca
+  PROXY_CA="" PROXY_CA_DIR=""
+  if [ -f proxy-ca/proxy-ca.pem ]; then PROXY_CA=/proxy-ca/proxy-ca.pem PROXY_CA_DIR=/proxy-ca; fi
+
+  if [ -z "$url" ]; then
+    [ -z "$ui" ] || warn "HTTPS_PROXY_USERINFO in $SECRETS_FILE is not used: $ENV_FILE sets no HTTPS_PROXY."
+    [ -z "$no" ] || warn "NO_PROXY in $ENV_FILE is not used: $ENV_FILE sets no HTTPS_PROXY."
+    PROXY_URL="" PROXY_NO=""
+    return 0
+  fi
+
+  case "$url" in
+    *@*) die "HTTPS_PROXY in $ENV_FILE carries a login ($(mask_userinfo "$url")). Remove it there and put it in $SECRETS_FILE as HTTPS_PROXY_USERINFO=user:password, with the user name and the password percent-encoded." ;;
+    http://*)  rest="${url#http://}" ;;
+    # With a login, https:// is what keeps it off the network in clear, so only a proxy without one is warned about.
+    https://*) rest="${url#https://}"
+               [ -n "$ui" ] || warn "HTTPS_PROXY in $ENV_FILE is $url: the stack talks to the proxy itself over TLS. Most proxies take http:// here, and still carry HTTPS end to end." ;;
+    *) die "HTTPS_PROXY in $ENV_FILE is $url: write it as http://host:port." ;;
+  esac
+  rest="${rest%/}"
+  case "$rest" in
+    \[*\]:*) host="${rest%]:*}]"; port="${rest##*]:}" ;;
+    *:*)     host="${rest%:*}"; port="${rest##*:}" ;;
+    *)       die "HTTPS_PROXY in $ENV_FILE is $url: it needs the proxy's port, as http://host:port." ;;
+  esac
+  case "$port" in
+    ''|*[!0-9]*) die "HTTPS_PROXY in $ENV_FILE is $url: write it as http://host:port, with a numeric port and nothing after it." ;;
+  esac
+  if [ "${#port}" -gt 5 ] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+    die "HTTPS_PROXY in $ENV_FILE is $url: the port must be 1 to 65535."
+  fi
+  proxy_host_ok "$host" || die "HTTPS_PROXY in $ENV_FILE is $url: the host is not a valid name or address."
+  # Names are compared as the clients and the stack's DNS read them: without case.
+  host="$(printf '%s' "$host" | tr 'A-Z' 'a-z')"
+  case "$host" in
+    localhost|*.localhost|127.*|0.0.0.0|\[::1\]|\[::\]|\[0:0:0:0:0:0:0:1\])
+      die "HTTPS_PROXY in $ENV_FILE is $url: inside a container, $host is the container itself. Use the host's address on the network the proxy listens on." ;;
+  esac
+  svc="$(compose_services)"
+  for name in ${PROXY_INTERNAL//,/ } ${svc//,/ }; do
+    [ "$host" != "$name" ] || die "HTTPS_PROXY in $ENV_FILE is $url: inside the stack, $host is one of its own services. Use the proxy's full name or its address."
+  done
+
+  # Split on commas only, and without globbing: a * entry must reach the check, not match the bundle's files.
+  local -a entries=()
+  IFS=, read -r -a entries <<< "$no"
+  for entry in ${entries[@]+"${entries[@]}"}; do
+    case "$entry" in
+      '') continue ;;
+      *[[:space:]]*) die "NO_PROXY in $ENV_FILE has a space: separate its entries with commas only." ;;
+      */*|*\**|.*) die "NO_PROXY in $ENV_FILE has $entry: address ranges and wildcards are not read the same way by every service. List the hosts." ;;
+    esac
+    if printf '%s' "$entry" | grep -Eq '^[0-9.]+-[0-9.]+$'; then
+      die "NO_PROXY in $ENV_FILE has $entry: address ranges and wildcards are not read the same way by every service. List the hosts."
+    fi
+    if ! printf '%s' "$entry" | grep -Eq '^(([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*)(:[0-9]{1,5})?|\[[0-9A-Fa-f:.]+\](:[0-9]{1,5})?|[0-9A-Fa-f]*:[0-9A-Fa-f:.]+)$'; then
+      die "NO_PROXY in $ENV_FILE has $entry: list exact host names or addresses, each with an optional :port."
+    fi
+  done
+
+  if [ -n "$ui" ]; then
+    case "$ui" in
+      \"*|\'*) die "HTTPS_PROXY_USERINFO in $SECRETS_FILE is quoted: write it as user:password, without quotes." ;;
+    esac
+    # Unreserved characters, sub-delimiters other than $ (a compose provider may read it as a variable) and %XX, on
+    # either side of exactly one colon: anything else makes the URL invalid, and an invalid one is printed in full.
+    if ! printf '%s' "$ui" | grep -Eq "^([A-Za-z0-9._~!&'()*+,;=-]|%[0-9A-Fa-f]{2})+:([A-Za-z0-9._~!&'()*+,;=-]|%[0-9A-Fa-f]{2})*\$"; then
+      die "HTTPS_PROXY_USERINFO in $SECRETS_FILE must be user:password with one colon, and every other character a letter, a digit or one of . _ ~ - ! & ' ( ) * + , ; =. Percent-encode the user name and the password (a # as %23, / as %2F, @ as %40, : as %3A, \$ as %24, % as %25)."
+    fi
+    pct_utf8_ok "$ui" || die "HTTPS_PROXY_USERINFO in $SECRETS_FILE has a %XX sequence that is not UTF-8. Percent-encode each character outside ASCII as its UTF-8 bytes (é is %C3%A9)."
+    PROXY_URL="${url%%://*}://${ui}@${rest}"
+  else
+    PROXY_URL="$url"
+  fi
+  PROXY_NO="${no:+$no,}$PROXY_INTERNAL${svc:+,$svc}"
+}
+
+# check_engine_proxy warns, before images are pulled, when .env routes the stack through a proxy and Docker's daemon has
+# none of its own: the daemon pulls images, and it never reads .env or the shell. A warning, not a refusal: a registry
+# mirror on the LAN pulls fine without one. Podman pulls with its own settings, which it does not report here.
+check_engine_proxy() {
+  [ -n "$PROXY_URL" ] || return 0
+  [ "$ENGINE" = docker ] || return 0
+  local daemon
+  daemon="$(docker info --format '{{.HTTPSProxy}}' 2>/dev/null </dev/null)" || return 0
+  [ -z "$daemon" ] || return 0
+  warn "HTTPS_PROXY is set in $ENV_FILE, but the Docker daemon has no proxy of its own, so image pulls go direct. If this host has no direct route out, set the daemon's proxy (a systemd drop-in, or \"proxies\" in daemon.json), restart it, and run the command again."
+}
+
 # The platform embeds in process now: this bundle has no ollama service, and the model is the one the release's MITRE
 # data was made with. An .env carried across the upgrade can still name the old server's model — refuse that here,
 # before anything starts, rather than after images are pulled and console-init refuses it. Everything else is a notice.
@@ -724,6 +987,7 @@ cmd_up() {
   check_console_pin
   check_db_image
   check_embedding_env
+  check_engine_proxy
   remove_old_ollama
   info "Starting the stack…"
   start_stack "$@"
@@ -777,6 +1041,7 @@ cmd_update() {
   check_override_names
   check_db_image
   check_embedding_env
+  check_engine_proxy
   info "Pulling the pinned images…"; compose pull
   # After the pull: a failed pull must not leave the running platform without its old embedding server.
   remove_old_ollama
@@ -1153,13 +1418,16 @@ case "$cmd" in
   up|start|down|stop|restart|status|ps|logs|update|pull|upgrade|backup|restore|bootstrap|init|destroy|nuke|compose|models)
     resolve_db_engine ;;
 esac
+# resolve_proxy runs for every command that can create or recreate a service that calls out, so none of them recreates
+# one with the proxy dropped. The others (down, status, logs, destroy, and backup and restore, which touch only the
+# database) do not need it, and a bad proxy setting must not stand in their way.
 case "$cmd" in
-  up|start)            require_engine; cmd_up "$@" ;;
+  up|start)            require_engine; resolve_proxy; cmd_up "$@" ;;
   down|stop)           require_engine; cmd_down "$@" ;;
-  restart)             require_engine; cmd_restart "$@" ;;
+  restart)             require_engine; resolve_proxy; cmd_restart "$@" ;;
   status|ps)           require_engine; cmd_status "$@" ;;
   logs)                require_engine; cmd_logs "$@" ;;
-  update|pull|upgrade) require_engine; cmd_update "$@" ;;
+  update|pull|upgrade) require_engine; resolve_proxy; cmd_update "$@" ;;
   backup)              require_engine; cmd_backup "$@" ;;
   restore)             require_engine; cmd_restore "$@" ;;
   bootstrap|init)      cmd_bootstrap "$@" ;;
@@ -1167,8 +1435,8 @@ case "$cmd" in
   console|open)        cmd_console "$@" ;;
   tls)                 cmd_tls "$@" ;;
   version|--version)   cmd_version "$@" ;;
-  compose)             require_engine; cmd_compose "$@" ;;
-  models)              require_engine; cmd_models "$@" ;;
+  compose)             require_engine; resolve_proxy; cmd_compose "$@" ;;
+  models)              require_engine; resolve_proxy; cmd_models "$@" ;;
   help|-h|--help)      usage ;;
   *) printf '%serror:%s unknown command: %s\n\n' "$RED" "$RST" "$cmd" >&2; usage >&2; exit 2 ;;
 esac
