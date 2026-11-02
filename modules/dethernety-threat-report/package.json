@@ -27,7 +27,7 @@
     "testcontainers": "^12.2.1",
     "typescript": "^5.9.3",
     "vite": "^8.3.5",
-    "vite-plugin-css-injected-by-js": "^5.0.2",
+    "vite-plugin-css-injected-by-js": "^5.0.3",
     "vitest": "^4.1.12",
     "vue": "^3.5.44"
   }
