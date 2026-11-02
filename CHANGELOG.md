@@ -67,7 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--allow-unsigned`; any other option goes to setup or upgrade. Without a terminal it needs
   `--yes`. A proxy login comes only from `HTTPS_PROXY` or `https_proxy` in the environment:
   `--https-proxy` refuses one.
-- **An npm package that wraps the same installer, `@dethernety/byodt`.** Each package version is
+- **An npm package that wraps the same installer, `@dether.net/byodt`.** Each package version is
   the release of the same version and carries its `get-byodt.sh`, which it runs with `/bin/sh`
   (`npx <package>@X.Y.Z`). It has no dependencies and no install scripts, and stops on Windows (use
   WSL). Publishing it to npm is switched on separately; until then, and after, `get-byodt.sh` from

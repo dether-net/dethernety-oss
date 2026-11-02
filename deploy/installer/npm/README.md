@@ -6,7 +6,7 @@ primary way to install is `get-byodt.sh` from the release itself; this package i
 through npm once a release is published there.
 
 ```sh
-PKG=@dethernety/byodt                            # this package's name
+PKG=@dether.net/byodt                            # this package's name
 npx "$PKG@X.Y.Z"                                 # install release X.Y.Z into ./byodt
 npx "$PKG@X.Y.Z" --dir ~/dethernety --yes        # into a folder of your choice, asking nothing
 npx "$PKG@X.Y.Z" --upgrade --dir ~/dethernety    # upgrade an existing deployment to X.Y.Z
