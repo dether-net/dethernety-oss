@@ -10,10 +10,11 @@
   import ClassPicker from '@/components/DataFlow/ClassPicker/ClassPicker.vue'
   import IssueDialog from '@/components/Dialogs/Issues/IssueDialog.vue'
   import SettingsExposuresTab from '@/components/DataFlow/SettingsTabs/SettingsExposuresTab.vue'
+  import SettingsControlsTab from '@/components/DataFlow/SettingsTabs/SettingsControlsTab.vue'
   import StaleBadge from '@/components/Disposition/StaleBadge.vue'
   import PendingBadge from '@/components/Disposition/PendingBadge.vue'
   import { useRouter } from 'vue-router'
-  import { Class } from '@dethernety/dt-core'
+  import { Class, Control } from '@dethernety/dt-core'
   import { getPageDisplayName } from '@/utils/dataFlowUtils'
 
   interface Props {
@@ -381,12 +382,96 @@
     dataId.value ? { id: dataId.value, data: { label: name.value } } : null,
   )
 
+  // Controls. The cached item is the baseline, as an element panel's selection is: the store replaces it with the
+  // server's answer after every save, so it holds what this client last loaded. A pick from the picker and a confirmed
+  // removal are each saved at once, as the delta from that baseline, so two people's saves compose.
+  const cachedControls = computed<Control[]>(() =>
+    dataId.value ? (flowStore.getDataItem({ dataItemId: dataId.value })?.controls ?? []) : [],
+  )
+  const idsOf = (controls: Control[]) => controls.map(c => c.id).filter((id): id is string => Boolean(id))
+  const controlIds = computed(() => idsOf(cachedControls.value))
+  // The catalogue's entry, which carries the control's classes, where there is one; else what the item carries.
+  const controlRows = computed<Control[]>(() =>
+    cachedControls.value.map(c => flowStore.controls.find(k => k.id === c.id) ?? c),
+  )
+  // The table's selection. A removal waits for confirmation, so the selection is reset to the saved list when it is
+  // cancelled, and follows the saved list after every save.
+  const selectedControlIds = ref<string[]>([])
+  watch(controlIds, ids => { selectedControlIds.value = [...ids] }, { immediate: true })
+  const showRemoveControlDialog = ref(false)
+  const removeControlMessage = ref('')
+  // The ids being removed, not the list the table proposed: the cached list can change while the confirmation is open
+  // (a pick still saving lands, an element save returns the item), and the removal must apply to the list as it is
+  // when it is confirmed.
+  const pendingRemovedIds = ref<string[]>([])
+
+  // One save of this item at a time. Two in flight can answer out of order, and the older answer, landing last, would
+  // put the older list back in the cache, so a re-pick would connect a control already attached: a parallel edge. A
+  // pick or an untick made meanwhile is refused and the table put back.
+  const itemSaving = () => Boolean(dataId.value) && flowStore.isOperationLoading(`updateDataItem-${dataId.value}`)
+  const refuseWhileSaving = () => {
+    selectedControlIds.value = [...controlIds.value]
+    emit('update:snackBar', {
+      show: true,
+      message: 'A save of this data entity is still running. Try again when it is done; if it does not finish, reload the page.',
+      color: 'warning',
+    })
+  }
+
+  const saveControls = async (next: string[]) => {
+    if (!dataId.value) return
+    const success = await flowStore.updateDataItem({
+      dataItemId: dataId.value,
+      controls: next,
+      baselineLinks: { controls: controlIds.value },
+    })
+    selectedControlIds.value = [...controlIds.value]
+    emit('update:snackBar', success
+      ? { show: true, message: 'Controls updated', color: 'success' }
+      : { show: true, message: 'Failed to update controls', color: 'error' })
+  }
+
+  const onAddControls = async (picked: Control[]) => {
+    if (itemSaving()) return refuseWhileSaving()
+    const have = new Set(controlIds.value)
+    const added = [...new Set(idsOf(picked))].filter(id => !have.has(id))
+    if (added.length > 0) await saveControls([...have, ...added])
+  }
+
+  const onSelectedControlIds = (value: string[]) => {
+    if (itemSaving()) return refuseWhileSaving()
+    const removed = [...new Set(controlIds.value.filter(id => !value.includes(id)))]
+    if (removed.length === 0) return
+    pendingRemovedIds.value = removed
+    removeControlMessage.value = removed.length === 1
+      ? `Remove control '${cachedControls.value.find(c => c.id === removed[0])?.name ?? removed[0]}' from this data entity?`
+      : `Remove ${removed.length} controls from this data entity?`
+    showRemoveControlDialog.value = true
+  }
+
+  const onRemoveControlConfirmed = async () => {
+    showRemoveControlDialog.value = false
+    const removed = new Set(pendingRemovedIds.value)
+    pendingRemovedIds.value = []
+    if (itemSaving()) return refuseWhileSaving()
+    await saveControls(controlIds.value.filter(id => !removed.has(id)))
+  }
+
+  const onRemoveControlCanceled = () => {
+    showRemoveControlDialog.value = false
+    pendingRemovedIds.value = []
+    selectedControlIds.value = [...controlIds.value]
+  }
+
   const onSubmit = async () => {
     if (!name.value || flowStore.selectedItem === null) {
       return
     }
     
     if (action.value === 'edit' && dataId.value) {
+      // The same rule as the Controls tab: a save while another of this item is in flight could answer first and be
+      // overwritten by the older answer. The edits stay in the form, so Save can be pressed again.
+      if (itemSaving()) return refuseWhileSaving()
       try {
         const edit = generalEdit()
 
@@ -590,6 +675,8 @@
     onClassChangeDiscard, onSubmit, name, description, dataClass,
     sensitivity, regulatoryFlags, origin, isCredential, attributesDirty, pendingClassId, initialState,
     lastLoadedAttributes, pendingAttributes, saveAttributes, onAttributesChanged,
+    tab, selectedControlIds, showRemoveControlDialog, onAddControls, onSelectedControlIds,
+    onRemoveControlConfirmed, onRemoveControlCanceled,
   })
 
 </script>
@@ -632,6 +719,13 @@
                 >
                   <v-tab prepend-icon="mdi-cog-outline" text="General" value="general" />
                   <v-tab prepend-icon="mdi-tune-vertical" text="Attributes" value="attributes" />
+                  <!-- A data item that does not exist yet has no controls to edit; the tab appears once it is created. -->
+                  <v-tab
+                    v-if="action === 'edit' && dataId"
+                    prepend-icon="mdi-shield-sword-outline"
+                    text="Controls"
+                    value="controls"
+                  />
                   <v-tab prepend-icon="mdi-bug-outline" value="exposures">
                     Exposures<StaleBadge :count="exposureStaleCount" /><PendingBadge :count="exposurePendingCount" />
                   </v-tab>
@@ -785,6 +879,16 @@
                     </v-hover>
                   </v-tabs-window-item>
 
+                  <v-tabs-window-item v-if="action === 'edit' && dataId" value="controls">
+                    <SettingsControlsTab
+                      :controls="controlRows"
+                      :selected-control-ids="selectedControlIds"
+                      :selected-item="dataExposureHost"
+                      @update:addControls="onAddControls"
+                      @update:selectedControlIds="onSelectedControlIds"
+                    />
+                  </v-tabs-window-item>
+
                   <v-tabs-window-item value="exposures">
                     <!-- Reuse the shared exposures component so a Data entity's
                          exposures get the same disposition / affirmation lifecycle
@@ -841,6 +945,17 @@
     </v-form>
   </v-dialog>
 
+  <ConfirmDeleteDialog
+    v-if="showRemoveControlDialog"
+    confirm-color="warning"
+    confirm-icon="mdi-link-variant-off"
+    icon="mdi-shield-remove-outline"
+    :message="removeControlMessage"
+    :show="showRemoveControlDialog"
+    title="Remove control"
+    @delete:canceled="onRemoveControlCanceled"
+    @delete:confirmed="onRemoveControlConfirmed"
+  />
   <ConfirmDeleteDialog
     v-if="showDiscardChangesDialog"
     confirm-color="warning"

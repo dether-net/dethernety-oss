@@ -18,7 +18,7 @@ The control pass assigns security controls to model elements in three steps, ord
 Before starting the control pass:
 
 1. Read `structure.json` — count boundaries (B), extract element types per boundary
-2. Read existing `controls[]` arrays on boundaries, components, and data flows
+2. Read existing `controls[]` arrays on boundaries, components, data flows, and data items
 3. Read component attribute files — collect `monitoring_tools` values (seeds detection controls)
 4. **Harvest control-implying attribute evidence** — before prompting each boundary, Grep `attributes/` for evidence the main enrichment already captured (`tls_enabled`, `encryption_at_rest`, `encryption_in_transit`, `implicit_deny_enabled`, `authentication_type`, `waf_*`, …) and pre-populate that boundary's proposal table with `source: "discovered"` rows. This is the same pattern Step 2 uses for `monitoring_tools` — evidence gathered during enrichment must not be re-asked or thrown away at control time.
 5. Check platform connectivity: attempt `mcp__plugin_dethereal_dethereal__manage_controls(action: 'list')`. If it succeeds, use the **brownfield** path. If it fails, use the **greenfield** path.
@@ -50,7 +50,7 @@ Three factors determine the path: **platform reachability**, **`rank` outcome**,
 1. Pick a temporary local id of the form `greenfield-<short-uuid>`. The id shape is mandatory and the **filename must equal the id** — write the file as `controls/<id>.json` (so a `greenfield-<suffix>` id lives at `controls/greenfield-<suffix>.json`). The validator rejects any other shape (e.g. `ctrl-tmp-*`), and you cannot delete files to undo a wrong name — choose the right one up front rather than leaving stale stubs for the orchestrator to clean up.
 2. Discover candidate ControlClasses. An element's own class assignment is a **ComponentClass**, NOT a ControlClass — never write it into `classes[]`. Instead, use the control idea (and the element's class/type/category as context) as search input: call `mcp__plugin_dethereal_dethereal__match_classes(elements: [{name: "<control idea>", description: "<mechanism / what it protects>"}], classLabel: 'CONTROL', moduleIds: [...], topN: 3)`. Fallback when matching is unavailable: browse `mcp__plugin_dethereal_dethereal__get_classes(class_type: 'CONTROL')` for the active modules.
 3. Write `controls/<temp-id>.json` with `lifecycle: "greenfield"`, **one `classes[]` entry per applicable ControlClass**, and `attributes` populated from observed code/IaC (empty `{}` is valid). When several ControlClasses describe the same real-world mechanism (e.g. Encryption-at-Rest + PG-TDE + KMS for one database encryption setup), create ONE Control with one `classes[]` entry per class — never one Control per class.
-4. Write `{ id: "<temp-id>", name: "...", source: "declared" }` to the element's `controls[]` in `structure.json` / `dataflows.json`.
+4. Write `{ id: "<temp-id>", name: "...", source: "declared" }` to the element's `controls[]` in `structure.json` / `dataflows.json` / `data-items.json`.
 5. Full layout in [Per-Control Configuration Files](#per-control-configuration-files-controlsidjson) below.
 
 **Path 3 procedure (name-only):**
@@ -152,9 +152,12 @@ Decide where to write control references based on what the control protects:
 | Firewall, WAF, IDS/IPS | Boundary `controls[]` in `structure.json` | Protects the entire zone |
 | Database encryption, application auth | Component `controls[]` in `structure.json` | Specific to the element |
 | TLS, mTLS | Data flow `controls[]` in `dataflows.json` | Protects a communication path |
+| Field-level encryption, tokenisation, masking | Data item `controls[]` in `data-items.json` | Applies to the data itself, not to one element that handles it |
 | SIEM, monitoring | Boundary or component | Depends on coverage scope |
 
 For boundary-scoped controls, write to the boundary's `controls[]` — not to each component individually. This avoids stale fan-out when components are added later.
+
+A data item's `controls[]` follows a different push rule from an element's: a present list (including `[]`) replaces the item's controls, and an absent key leaves them as they are. Remove a data-item control by writing the list without it, never by deleting the key.
 
 ### Persistence
 
@@ -166,7 +169,7 @@ After each boundary confirmation, write controls immediately:
 
 This ensures partial progress survives if the agent hits its turn limit.
 
-**Critical — controls do NOT go in attribute files:** Other enrichment data (encryption_in_transit, monitoring_tools, auth_failure_mode, etc.) is written to `attributes/boundaries/<id>.json` or `attributes/components/<id>.json`. Controls are different — they go in `structure.json` as a top-level field on the element. The sync pipeline only reads `controls[]` from `structure.json` (boundaries and components) and `dataflows.json` (data flows). Controls written to attribute files are silently ignored at sync time and never become Control relationships on the platform.
+**Critical — controls do NOT go in attribute files:** Other enrichment data (encryption_in_transit, monitoring_tools, auth_failure_mode, etc.) is written to `attributes/boundaries/<id>.json` or `attributes/components/<id>.json`. Controls are different — they go in `structure.json` as a top-level field on the element. The sync pipeline only reads `controls[]` from `structure.json` (boundaries and components), `dataflows.json` (data flows) and `data-items.json` (data items). Controls written to attribute files are silently ignored at sync time and never become Control relationships on the platform.
 
 Example — correct placement in `structure.json`:
 ```json
@@ -217,7 +220,7 @@ Additional detection controls? (SOC monitoring, NDR, automated response, or "non
 
 3. For confirmed tools from attribute files: `source: "discovered"`
 4. For user-added detection tools: `source: "declared"`
-5. Write detection controls to the appropriate element's `controls[]` field in `structure.json` (boundary or component) or `dataflows.json` (data flow). Same destination as enforcement controls — see the Persistence note in Step 1. Detection controls do NOT go in `attributes/<...>/<id>.json`.
+5. Write detection controls to the appropriate element's `controls[]` field in `structure.json` (boundary or component), `dataflows.json` (data flow) or `data-items.json` (data item). Same destination as enforcement controls — see the Persistence note in Step 1. Detection controls do NOT go in `attributes/<...>/<id>.json`.
 6. **Class binding:** apply the same Path Selection as Step 1 — when a matching ControlClass exists in active modules (e.g. a SIEM/monitoring/EDR class, discovered via `match_classes(classLabel: 'CONTROL')`), bind the detection Control via Path 1/Path 2 so the platform can derive countermeasures. Fall back to name-only (`{ id: null, ... }`) only when no class matches — a name-only entry binds no ControlClass, generates no countermeasures, and is dropped on push unless a Control of that name already exists in the library.
 
 ## Step 3: Governance Placeholder (Category 4)
@@ -237,7 +240,7 @@ Write responses to `.dethereal/scope.json` as `declared_governance_controls: str
 
 When controls already exist on model elements:
 
-1. Read existing `controls[]` from all boundaries, components, and data flows
+1. Read existing `controls[]` from all boundaries, components, data flows, and data items
 2. Present as "currently assigned" before prompting for changes:
    ```
    Currently assigned controls for [Boundary Name]:
@@ -251,7 +254,7 @@ When controls already exist on model elements:
 
 ## Per-Control Configuration Files (`controls/<id>.json`)
 
-Per-instance ControlClass attributes (the values on each `IS_INSTANCE_OF` edge between a Control and its ControlClass) do **not** go inline in `structure.json` / `dataflows.json`. They live in a separate `controls/<control-id>.json` file per Control. The `controls[]` arrays in `structure.json` / `dataflows.json` continue to carry only the minimal `{ id, name, source }` reference shape.
+Per-instance ControlClass attributes (the values on each `IS_INSTANCE_OF` edge between a Control and its ControlClass) do **not** go inline in `structure.json` / `dataflows.json` / `data-items.json`. They live in a separate `controls/<control-id>.json` file per Control. The `controls[]` arrays in `structure.json` / `dataflows.json` / `data-items.json` continue to carry only the minimal `{ id, name, source }` reference shape.
 
 See [CONTROL_LIBRARY.md §3](../../../docs/architecture/dethereal/CONTROL_LIBRARY.md#3-proposed-layout--controls-folder) for the full layout and [§4](../../../docs/architecture/dethereal/CONTROL_LIBRARY.md#4-per-control-file-schema) for the complete file schema.
 
@@ -290,12 +293,12 @@ When you need a Control that does not exist in the org's control library and tha
      ]
    }
    ```
-3. Write `{ "id": "greenfield-abc", "name": "Customer WAF Policy", "source": "declared" }` to the element's `controls[]` in `structure.json` (or `dataflows.json`).
+3. Write `{ "id": "greenfield-abc", "name": "Customer WAF Policy", "source": "declared" }` to the element's `controls[]` in `structure.json` (or `dataflows.json` / `data-items.json`).
 4. Populate `attributes` from observed code/IaC evidence; empty object `{}` is valid if nothing is observed yet.
 
 **On the next `/dethereal:sync push`**, the pipeline creates the Control on the platform, sets attributes per class, assigns SUPPORTS edges, writes the server-generated id back into both the file and all `controls[]` references, and flips `lifecycle: "brownfield"`.
 
-**Atomic ID rebinding.** A naive implementation of the above leaves the operator's local `controls/greenfield-abc.json` file orphaned — the platform issues `ctrl-uuid-123`, the structure is repointed to `ctrl-uuid-123`, but the *file* is still named `greenfield-abc.json`. The WAL rename (CL Appendix A.9 + the `pending-id-rewrite.json` journal) closes this seam: the engine writes a journal entry **before** invoking `createControl`, then rewrites `structure.json` / `dataflows.json` references AND renames `controls/greenfield-abc.json → controls/ctrl-uuid-123.json` as a single atomic operation. A crash mid-operation leaves the journal on disk; the next push (or `/dethereal:sync repair-wal`) replays it. The operator never sees an orphaned greenfield file.
+**Atomic ID rebinding.** A naive implementation of the above leaves the operator's local `controls/greenfield-abc.json` file orphaned — the platform issues `ctrl-uuid-123`, the structure is repointed to `ctrl-uuid-123`, but the *file* is still named `greenfield-abc.json`. The WAL rename (CL Appendix A.9 + the `pending-id-rewrite.json` journal) closes this seam: the engine writes a journal entry **before** invoking `createControl`, then rewrites `structure.json` / `dataflows.json` / `data-items.json` references AND renames `controls/greenfield-abc.json → controls/ctrl-uuid-123.json` as a single atomic operation. A crash mid-operation leaves the journal on disk; the next push (or `/dethereal:sync repair-wal`) replays it. The operator never sees an orphaned greenfield file.
 
 **Supersedes the old eager-create path.** The previous pattern — calling `mcp__plugin_dethereal_dethereal__manage_controls(action: 'create', class_ids: [...])` during the control pass and writing the returned id — is retained only for non-attribute-binding use cases. For greenfield Controls **with** class bindings, use the file-first path above; it lets you iterate on attributes locally before committing to the platform.
 
@@ -356,7 +359,7 @@ Touching these fields directly breaks the drift-detection and shared-ownership-s
 ### File Discovery
 
 - `controls/<id>.json` exists for every Control (greenfield or brownfield) that any element in this model references.
-- If a `controls[]` entry in `structure.json` / `dataflows.json` has an `id` but no corresponding `controls/<id>.json` file, the sync pipeline will materialise one on the next pull (for brownfield) or reject the push (for greenfield — a greenfield reference without a config file means the operator hand-edited a reference without creating the attributes).
+- If a `controls[]` entry in `structure.json` / `dataflows.json` / `data-items.json` has an `id` but no corresponding `controls/<id>.json` file, the sync pipeline will materialise one on the next pull (for brownfield) or reject the push (for greenfield — a greenfield reference without a config file means the operator hand-edited a reference without creating the attributes).
 - Orphan `controls/<id>.json` files (no element references the id) produce a validator warning, not an error — they're kept for operator-driven recovery.
 
 ### Division of Labour: `/dethereal:sync pull` vs `/dethereal:enrich --focus controls`
@@ -365,7 +368,7 @@ The per-Control file lifecycle is owned jointly by two skills:
 
 | Skill | When | What it does to `controls/` |
 |---|---|---|
-| `/dethereal:sync pull` (L4.5) | Every pull | Calls `pull-controls` for every Control id discovered in the freshly-pulled `structure.json` + `dataflows.json`. The local `controls/` directory ends self-consistent with the platform state. |
+| `/dethereal:sync pull` (L4.5) | Every pull | Calls `pull-controls` for every Control id discovered in the freshly-pulled `structure.json` + `dataflows.json` + `data-items.json`. The local `controls/` directory ends self-consistent with the platform state. |
 | `/dethereal:enrich --focus controls` (Step 1) | Operator-initiated enrichment pass | Calls `pull-controls` for the same id set as a defensive refresh, then iterates classes for sparse-attribute prompts. The pull is largely a no-op when `enrich` runs immediately after a fresh `sync pull`. |
 | `/dethereal:sync push` (P7.1) | Every push | Auto-detects local edits / external drift / partial-pushed state. Uses local `controls/<id>.json` as authoritative; never re-pulls implicitly. |
 

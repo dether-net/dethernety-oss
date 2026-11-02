@@ -66,11 +66,12 @@ describe('pushGreenfieldControl — id-as-resume (P1)', () => {
 
   it('DOES create when the id is still a greenfield temp id', async () => {
     const tempId = 'greenfield-abc123';
-    // The WAL id-rewrite touches structure.json + dataflows.json + the control
-    // file. Seed them so applyPendingRewrites completes.
+    // The WAL id-rewrite touches structure.json + dataflows.json + data-items.json
+    // + the control file. Seed them so applyPendingRewrites completes.
     await fs.mkdir(join(modelDir, 'controls'), { recursive: true });
     await fs.writeFile(join(modelDir, 'structure.json'), JSON.stringify({ ref: tempId }));
     await fs.writeFile(join(modelDir, 'dataflows.json'), JSON.stringify({ ref: tempId }));
+    await fs.writeFile(join(modelDir, 'data-items.json'), JSON.stringify({ dataItems: [{ id: 'd1', controls: [{ id: tempId }] }] }));
     const file: ControlFile = {
       id: tempId,
       name: 'Fresh Control',
@@ -89,6 +90,9 @@ describe('pushGreenfieldControl — id-as-resume (P1)', () => {
     expect(createSpy).toHaveBeenCalledTimes(1);
     // The WAL rewrite renamed the control file to the server id.
     expect(await readControlFile(modelDir, SERVER_ID)).toBeTruthy();
+    // …and rewrote the reference a data item holds, as it does an element's.
+    const dataItems = JSON.parse(await fs.readFile(join(modelDir, 'data-items.json'), 'utf-8'));
+    expect(dataItems.dataItems[0].controls).toEqual([{ id: SERVER_ID }]);
   });
 });
 

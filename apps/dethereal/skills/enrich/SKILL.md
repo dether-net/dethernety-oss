@@ -402,11 +402,11 @@ The control pass is a **separate agent invocation** with its own 40-turn budget.
 
 This step only executes when there is at least one `controls[]` entry with a non-null `id` (controls that exist on the platform). Name-only refs (`id: null`) are deferred to `/dethereal:sync push` where `manage_controls(action: 'list', name)` resolves them.
 
-> **Boundary note.** `/dethereal:sync pull` (L4.5) auto-materialises `controls/<id>.json` for every Control referenced in the freshly-pulled structure/dataflows. So when this step runs immediately after a fresh pull, the `pull-controls` call below is largely a no-op (engine returns early per-id when the local file matches platform state). The pull-controls call is still required because `--focus controls` enrichment may run *after* operator edits, where the local files may have diverged from platform state and need reconciliation.
+> **Boundary note.** `/dethereal:sync pull` (L4.5) auto-materialises `controls/<id>.json` for every Control referenced in the freshly-pulled structure/dataflows/data-items. So when this step runs immediately after a fresh pull, the `pull-controls` call below is largely a no-op (engine returns early per-id when the local file matches platform state). The pull-controls call is still required because `--focus controls` enrichment may run *after* operator edits, where the local files may have diverged from platform state and need reconciliation.
 
 #### Step 1 — Pull
 
-Enumerate the non-null control IDs referenced in `structure.json` (boundaries, components) and `dataflows.json` (flows). Collapse duplicates.
+Enumerate the non-null control IDs referenced in `structure.json` (boundaries, components), `dataflows.json` (flows) and `data-items.json` (data items). Collapse duplicates.
 
 ```
 mcp__plugin_dethereal_dethereal__manage_controls(

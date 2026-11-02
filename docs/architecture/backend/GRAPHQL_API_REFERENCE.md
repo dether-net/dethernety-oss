@@ -456,6 +456,7 @@ Implements: `Element`
 | `securityBoundary` | `[SecurityBoundary!]!` | Boundaries that contain this data (← `HANDLES`) |
 | `elements` | `[Element!]!` | All elements that handle this data (← `HANDLES`) |
 | `exposures` | `[Exposure!]!` | Security exposures related to this data (→ `HAS_EXPOSURE`) |
+| `controls` | `[Control!]!` | Controls applied to this data element. Connect and disconnect only: a nested create or delete here would mint or remove library Controls. (← `SUPPORTS`) |
 | `analyses` | `[Analysis!]!` | Analyses involving this data (→ `ANALYZED_BY`) |
 | `issues` | `[Issue!]!` | Issues associated with this data (→ `HAS_ISSUE`) |
 | `sensitivity` | `SensitivityLevel` | Author-asserted sensitivity classification of this data. Null ⇒ unclassified. |
@@ -481,6 +482,7 @@ Implements: `Element`
 | `supportedComponents` | `[Component!]!` | Components this control is applied to (→ `SUPPORTS`) |
 | `supportedBoundaries` | `[SecurityBoundary!]!` | Security boundaries this control is applied to (→ `SUPPORTS`) |
 | `supportedDataFlows` | `[DataFlow!]!` | Data flows this control is applied to (→ `SUPPORTS`) |
+| `supportedData` | `[Data!]!` | Data elements this control is applied to. Connect and disconnect only: a nested create would mint a Data element no model contains, and a nested delete would remove a model's Data element. (→ `SUPPORTS`) |
 | `countermeasures` | `[Countermeasure!]!` | Countermeasures provided by this control (→ `HAS_COUNTERMEASURE`) |
 | `folder` | `[Folder!]!` | Folder containing this control (← `FOLDER_CONTAINS`) |
 | `analyses` | `[Analysis!]!` | Analyses involving this control (→ `ANALYZED_BY`) |
@@ -1835,9 +1837,13 @@ via SUPPORTS edges. Used by the brownfield push pipeline's shared-ownership
 check (CONTROL_LIBRARY.md §6). Per-label indexes on id are required for
 production-scale performance (see §9 Platform / database).
 
-Reaches Models via two branches: (1) components/boundaries the Control
-supports, and (2) DataFlows the Control supports (reached via FLOWS-attached
-components). Empty modelIds is valid — the Control has no SUPPORTS edges yet.
+Reaches Models via four branches: (1) components/boundaries the Control
+supports, (2) DataFlows the Control supports (reached via FLOWS-attached
+components), (3) Data elements the Control supports (via the Model that
+CONTAINS them), and (4) Models the Control supports directly. A Data element
+counts for the Model that CONTAINS it, the scope controlGaps reads it in; the
+elements that HANDLE it are not followed. Empty modelIds is valid — the
+Control has no SUPPORTS edges yet.
 
 **Returns:** `[ControlAssignedModels!]!`
 

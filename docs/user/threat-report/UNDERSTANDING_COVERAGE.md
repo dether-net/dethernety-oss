@@ -119,17 +119,21 @@ Below the controls sits an **Off-grid** summary line. Its counts are **always vi
 | Off-grid category | What it means | How to treat it |
 |---|---|---|
 | **unmapped** (soft) | Live exposures with no ATT&CK mapping. | Coverage **can't be assessed** for them. They are neither a covered win nor a grid gap — just unchartable. |
-| **Data-mapped** | Exposures on **Data** elements. | Kept off the grid because controls attach to the *handling* element, never to the Data node — so data-level coverage isn't assessable. Their techniques are still disclosed (see below). |
+| **Data-mapped** | Exposures on **Data** elements. | Kept off the grid: most models put a data item's protection on the elements that *handle* it, so charting Data would show rows that never read as covered. Their techniques are still disclosed, with any controls applied to the data item itself (see below). |
 | **structural gap** | An element class with zero supporting controls anywhere in the model. | One honest completeness line — for example `No control in this model supports any component` — not a flood of per-technique cells. A maturity gap, not a single missing control. |
 | **excluded** | **Muted** exposures — those given a muting disposition. | Excluded from the live grid but **counted**, never silently dropped. They still appear in the **Residual Risk** ledger. **Affirmed** findings are *not* excluded — they stay live and remain charted on the grid; only the muting dispositions land here. |
 
 ### Data exposures: off the grid, but disclosed
 
-Data exposures are charted nowhere on the grid — but their ATT&CK mapping is a real fact about the exposure, so the report still discloses it. Expand the **Data-mapped** line to reveal one row per Data element, each with its technique chips. The element name drills to its profile; each chip opens the technique dialog.
+Data exposures are charted nowhere on the grid — but their ATT&CK mapping is a real fact about the exposure, so the report still discloses it. Expand the **Data-mapped** line to reveal one row per Data element, each with its technique chips and, when the data item has any, the controls applied to it, listed by name after `controls:`. The element name drills to its profile; each chip opens the technique dialog.
+
+> **A Data control is listed, not graded.** A control you apply to a data item shows beside that data item as assigned, with no coverage tier. It does not count toward the coverage of the elements that handle the data item, and their controls do not count toward the data item.
+
+> **The profile's `⛉ uncovered` flag is not a grade either.** In a data item's Component Profile, its open exposures carry the `⛉ uncovered` flag when no control is applied to the data item, exactly as on any other element; once a control is applied, the flag is gone. It marks "no control applied," not a coverage result, and it is a different thing from the grid's `⛉` prevent glyph. See [Working with Findings](./WORKING_WITH_FINDINGS.md#exposures).
 
 > **A Data chip is identity, not coverage.** Because these techniques are off-grid, the chips carry no tier fill and no glyph. A chip tells you *which* technique the Data exposure maps to — never that it is covered or uncovered. Don't read a present chip as a win.
 
-> **Why off-grid matters.** If you only read the grid, you'd miss live threats that simply can't be charted. The off-grid counts force those into view: an exposure with no mapping, or on Data, is still a live exposure in your model. The grid is honest precisely because it admits what it can't chart.
+> **Why off-grid matters.** If you only read the grid, you'd miss live threats that aren't charted there — those that can't be, and Data, which is kept off by choice. The off-grid counts force those into view: an exposure with no mapping, or on Data, is still a live exposure in your model. The grid is honest precisely because it admits what it doesn't chart.
 
 ---
 

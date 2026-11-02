@@ -127,6 +127,24 @@ export const useFlowStore = defineStore('flow', () => {
     return operationStates.value[operation] || false
   }
 
+  // Saves of one data item in flight, counted: its loading flag stays up until the last of them answers, so a caller
+  // that waits for the item to be idle is not let through by the first answer while another save still runs.
+  const dataItemSavesInFlight = new Map<string, number>()
+  // Each data-item save is numbered as it starts, so an element save can tell which item saves overlapped it. Not
+  // reset with the store: an element save sent before a reset must still see the saves that start after it.
+  let dataItemSaveSeq = 0
+  const lastDataItemSaveStart = new Map<string, number>()
+  // A reset starts a new generation; a save of an earlier one that answers afterwards writes nothing into this one.
+  let storeEpoch = 0
+
+  /**
+   * What an element save must leave alone in its answer: the data items with a save in flight when it was sent, and
+   * those whose save started since. An element save never writes a data item's own fields, so its copy of such an
+   * item can only be older than that item's own save, whose answer re-pins it.
+   */
+  const dataItemSyncMark = () => ({ seq: dataItemSaveSeq, busy: new Set(dataItemSavesInFlight.keys()), epoch: storeEpoch })
+  type DataItemSyncMark = ReturnType<typeof dataItemSyncMark>
+
   // === TEMPORARY NODE HELPERS ===
   const isPendingNode = (nodeId: string): boolean => {
     // Only genuinely mid-creation nodes are pending. A temp id whose create has
@@ -232,9 +250,18 @@ export const useFlowStore = defineStore('flow', () => {
   }
 
   // === STATE SYNCHRONIZATION HELPERS ===
-  const syncDataItems = (newDataItems: DataItem[]) => {
+  const syncDataItems = (newDataItems: DataItem[], mark?: DataItemSyncMark) => {
+    // An element save sent before a reset answers for the model as it was.
+    if (mark !== undefined && mark.epoch !== storeEpoch) return
     newDataItems?.forEach((dataItem: DataItem) => {
       const index = getDataItemIndexById({ dataItemId: dataItem.id })
+      // An item whose own save overlapped the element save is left as it is (see dataItemSyncMark); the loading test
+      // also covers a caller without a mark. An item not cached yet is still added: its own save only ever replaces a
+      // cached copy.
+      const key = `updateDataItem-${dataItem.id}`
+      const overlapped = isOperationLoading(key)
+        || (mark !== undefined && (mark.busy.has(key) || (lastDataItemSaveStart.get(key) ?? 0) > mark.seq))
+      if (index !== -1 && overlapped) return
       if (index !== -1) {
         dataItems.value.splice(index, 1, dataItem)
       } else {
@@ -321,6 +348,9 @@ export const useFlowStore = defineStore('flow', () => {
     clearAllErrors()
     isLoading.value = false
     operationStates.value = {}
+    dataItemSavesInFlight.clear()
+    lastDataItemSaveStart.clear()
+    storeEpoch++
     
     // Clear temporary node tracking
     pendingNodes.value.clear()
@@ -729,6 +759,7 @@ export const useFlowStore = defineStore('flow', () => {
   const updateComponentNode = async (
     { updatedNode, baselineLinks }: { updatedNode: Node, baselineLinks?: LinkBaselines },
   ): Promise<boolean> => {
+    const syncMark = dataItemSyncMark()
     const updatedComponent = await dtComponent.updateComponent({ updatedNode, defaultBoundaryId: defaultBoundaryId.value || '', baselineLinks })
     if (updatedComponent) {
       const index = getNodeIndexById({ nodeId: updatedComponent.id })
@@ -767,7 +798,7 @@ export const useFlowStore = defineStore('flow', () => {
         }
 
         // Use synchronization helpers
-        syncDataItems(updatedComponent.dataItems || [])
+        syncDataItems(updatedComponent.dataItems || [], syncMark)
         syncControls(updatedComponent.controls || [])
         return true
       }
@@ -831,6 +862,7 @@ export const useFlowStore = defineStore('flow', () => {
     const saveOp = `updateBoundary-${updatedNode.id}`
     setOperationLoading(saveOp, true)
     try {
+    const syncMark = dataItemSyncMark()
     const updatedBoundary = await dtBoundary.updateBoundaryNode({ updatedNode, defaultBoundaryId: defaultBoundaryId.value || '', baselineConduits, baselineLinks })
     if (updatedBoundary) {
       if (updatedNode.id === defaultBoundaryId.value) {
@@ -897,7 +929,7 @@ export const useFlowStore = defineStore('flow', () => {
             selectedItem.value = newNode
           }
           // Use synchronization helpers
-          syncDataItems(updatedBoundary.dataItems || [])
+          syncDataItems(updatedBoundary.dataItems || [], syncMark)
           syncControls(updatedBoundary.controls || [])
           // Mirror the conduit delta onto peer boundaries so their settings reflect the new/removed edge
           // without a full reload (the server response only re-pins this boundary).
@@ -1024,6 +1056,7 @@ export const useFlowStore = defineStore('flow', () => {
         // object now — which leaves the projected edge as the whole of the input. `projectEdit` builds a
         // fresh object, so the writer never receives the live reactive edge.
         dtUtils.deepMerge(live, updates)
+        const syncMark = dataItemSyncMark()
         const updatedDataFlow = await dtDataflow.updateDataFlow({
           edge: projectEdit(live, updates),
           updates: {},
@@ -1057,7 +1090,7 @@ export const useFlowStore = defineStore('flow', () => {
             }
 
             // Use synchronization helpers
-            syncDataItems(updatedDataFlow.dataItems || [])
+            syncDataItems(updatedDataFlow.dataItems || [], syncMark)
             syncControls(updatedDataFlow.controls || [])
             return true
           }
@@ -1187,14 +1220,19 @@ export const useFlowStore = defineStore('flow', () => {
    * Write PART of a data item. A field that is not supplied is not written, so a caller can send the
    * one thing the user edited instead of everything it loaded — and stop reverting what somebody else
    * changed in between. An explicit `null` sensitivity or empty flag list is still a CLEAR.
+   *
+   * `controls` is the item's control ids; with `baselineLinks` the write is the change from that baseline, the way the
+   * element panels write their links, and without it the list replaces the item's controls.
    */
   const updateDataItem = async (
-    { dataItemId, name, description, classId, sensitivity, regulatoryFlags, origin, isCredential }:
-    { dataItemId: string | null, name?: string, description?: string, classId?: string | null, sensitivity?: string | null, regulatoryFlags?: string[], origin?: string | null, isCredential?: boolean | null }
+    { dataItemId, name, description, classId, sensitivity, regulatoryFlags, origin, isCredential, controls, baselineLinks }:
+    { dataItemId: string | null, name?: string, description?: string, classId?: string | null, sensitivity?: string | null, regulatoryFlags?: string[], origin?: string | null, isCredential?: boolean | null, controls?: string[], baselineLinks?: LinkBaselines }
   ): Promise<boolean> => {
     if (!dataItemId) return false
     
     const operationKey = `updateDataItem-${dataItemId}`
+    const epoch = storeEpoch
+    let started = false
     
     try {
       // Validate input data
@@ -1204,6 +1242,9 @@ export const useFlowStore = defineStore('flow', () => {
       }
       
       clearError(operationKey)
+      started = true
+      dataItemSavesInFlight.set(operationKey, (dataItemSavesInFlight.get(operationKey) ?? 0) + 1)
+      lastDataItemSaveStart.set(operationKey, ++dataItemSaveSeq)
       setOperationLoading(operationKey, true)
       
       const { dataItem: updatedDataItem, bindingResult, residualOk } = await dtDataItem.updateDataItem({
@@ -1220,6 +1261,7 @@ export const useFlowStore = defineStore('flow', () => {
         ...(regulatoryFlags !== undefined && { regulatoryFlags }),
         ...(origin !== undefined && { origin }),
         ...(isCredential !== undefined && { isCredential }),
+        ...(controls !== undefined && { controls, baselineLinks }),
       })
 
       if (bindingResult?.errorCode) {
@@ -1229,7 +1271,8 @@ export const useFlowStore = defineStore('flow', () => {
         throw new Error('Failed to update data item')
       }
 
-      const idx = dataItems.value.findIndex(data => data.id === dataItemId)
+      // An answer from before a reset belongs to the model as it was; this one may be another, or the same reopened.
+      const idx = epoch === storeEpoch ? dataItems.value.findIndex(data => data.id === dataItemId) : -1
       if (idx !== -1) {
         dataItems.value.splice(idx, 1, updatedDataItem)
         dataItems.value = [...dataItems.value]
@@ -1238,11 +1281,18 @@ export const useFlowStore = defineStore('flow', () => {
       return true
     } catch (error) {
       const errorMessage = handleApiError(error as Error, 'update data item')
-      setError(operationKey, errorMessage)
+      if (epoch === storeEpoch) setError(operationKey, errorMessage)
       dtUtils.handleError({ action: 'updateData', error })
       return false
     } finally {
-      setOperationLoading(operationKey, false)
+      // A save that failed validation never started, and must not clear the flag of one that did; nor may a save of
+      // an earlier generation touch this one's count.
+      if (started && epoch === storeEpoch) {
+        const left = (dataItemSavesInFlight.get(operationKey) ?? 1) - 1
+        if (left > 0) dataItemSavesInFlight.set(operationKey, left)
+        else dataItemSavesInFlight.delete(operationKey)
+        setOperationLoading(operationKey, left > 0)
+      }
     }
   }
 

@@ -67,6 +67,10 @@ describe('computePostureSummary — defense-in-depth (never coverage)', () => {
     // c3 (ctrlB) + b1 (ctrlC); c2 has a control but ALSO a live finding ⇒ excluded.
     expect(s.defenseInDepth).toEqual({ controlCount: 2, elementCount: 2 })
   })
+  it('leaves out a finding-free Data element with a control, as the coverage view does', () => {
+    const withData = [...LEDGER, { id: 'd2', name: 'Tokens', type: 'Data', findings: [], supportingControls: [ctrl('ctrlD')] }]
+    expect(computePostureSummary(withData, { crossings: CROSSINGS }).defenseInDepth).toEqual({ controlCount: 2, elementCount: 2 })
+  })
 })
 
 describe('computePostureSummary — top residuals', () => {

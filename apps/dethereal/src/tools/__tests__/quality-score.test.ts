@@ -672,6 +672,17 @@ describe('Control Coverage', () => {
     expect(data.warnings[0]).toContain('PCI-DSS 6.3.3')
   })
 
+  it('should emit warning for an expired compensating control on a data item', async () => {
+    await writeModel(manifest, { defaultBoundary: { id: 'b-1', name: 'System', components: [] } }, [], [{
+      id: 'd-1', name: 'Card numbers',
+      controls: [{ id: null, name: 'Manual Reconciliation', compensating: { expires: '2025-01-01' } }],
+    }])
+
+    const result = await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)
+    const data = result.data as any
+    expect(data.warnings.some((w: string) => w.includes('Manual Reconciliation') && w.includes('expired'))).toBe(true)
+  })
+
   it('should NOT emit warning for non-expired compensating control', async () => {
     await writeModel(manifest, {
       defaultBoundary: {

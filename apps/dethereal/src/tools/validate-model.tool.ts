@@ -117,7 +117,9 @@ const DataItemSchema = z.object({
   // Who can write the content: one of dt-core's ORIGIN_LEVELS (snake_case local tokens, most to least trusted).
   origin: z.enum(ORIGIN_LEVELS).optional(),
   // Author-asserted: the item is a credential. Absent means unknown.
-  is_credential: z.boolean().optional()
+  is_credential: z.boolean().optional(),
+  // Controls applied to the item. A present list (incl. []) replaces them on push; an absent key leaves them.
+  controls: z.array(z.object({ id: z.string().nullable().optional(), name: z.string().optional() })).optional()
 })
 
 const AttributesSchema = z.object({
@@ -829,6 +831,7 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     }
     scanBoundary(structure.defaultBoundary)
     for (const flow of dataFlows) scanControls(flow.controls)
+    for (const item of dataItems) scanControls(item.controls)
 
     // Compute total score (0-100)
     const score =
@@ -1124,7 +1127,7 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     }
 
     // Source breakdown from control references
-    const source_breakdown = this.computeSourceBreakdown(structure.defaultBoundary, dataFlows)
+    const source_breakdown = this.computeSourceBreakdown(structure.defaultBoundary, dataFlows, dataItems)
 
     return {
       classified_count: classifiedIds.size,
@@ -1230,9 +1233,9 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
   }
 
   /**
-   * Count controls by source field (discovered/declared/both) from structure and flows.
+   * Count controls by source field (discovered/declared/both) from structure, flows and data items.
    */
-  private computeSourceBreakdown(boundary: any, dataFlows: any[]): SourceBreakdown {
+  private computeSourceBreakdown(boundary: any, dataFlows: any[], dataItems: any[]): SourceBreakdown {
     const result: SourceBreakdown = { discovered: 0, declared: 0, both: 0 }
 
     const countControls = (controls: any[] | undefined) => {
@@ -1258,6 +1261,9 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
 
     for (const flow of dataFlows) {
       countControls(flow.controls)
+    }
+    for (const item of dataItems) {
+      countControls(item.controls)
     }
 
     return result
@@ -1763,11 +1769,9 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
         }
       }
       if (validatedStructure) collectControlRefs(validatedStructure.defaultBoundary)
-      if (validatedDataFlows) {
-        for (const flow of validatedDataFlows) {
-          if (Array.isArray((flow as any).controls)) {
-            for (const c of (flow as any).controls) if (c?.id) referencedControlIds.add(c.id)
-          }
+      for (const holder of [...(validatedDataFlows ?? []), ...(validatedDataItems ?? [])]) {
+        if (Array.isArray((holder as any).controls)) {
+          for (const c of (holder as any).controls) if (c?.id) referencedControlIds.add(c.id)
         }
       }
 
@@ -1798,7 +1802,7 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
         if (!referencedControlIds.has(fileId)) {
           warnings.push({
             file: `controls/${fileId}.json`,
-            message: `Orphan control file: ${fileId} (no reference in structure or dataflows)`,
+            message: `Orphan control file: ${fileId} (no reference in structure, dataflows or data-items)`,
           })
         }
       }

@@ -11,6 +11,7 @@
 import type {
   UUID,
   ClassReference,
+  ControlReference,
   Identifiable,
   Attributes,
 } from './common.schema.js';
@@ -43,6 +44,13 @@ export interface DataItem extends Identifiable {
 
   /** Author-asserted: the item is a credential (password, token, key, secret, certificate). Absent ⇒ unknown. */
   is_credential?: boolean;
+
+  /**
+   * Controls applied to this data item (SUPPORTS relationship).
+   * On a push, a present list (including `[]`) replaces the item's controls, and an absent key leaves them as
+   * they are on the platform. Remove a control by writing the list without it, not by deleting the key.
+   */
+  controls?: ControlReference[];
 }
 
 /**

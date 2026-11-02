@@ -68,6 +68,24 @@ describe('keepUnresolvedControls', () => {
     expect(model.structure.defaultBoundary.boundaries[0].controls).toEqual([{ name: 'Not in the file' }])
   })
 
+  it('writes a data item\'s unattached reference back to the item, under the id the push gave it', () => {
+    // A greenfield control is not on the platform yet when the model is pushed, so the reference does not attach then;
+    // it must stay in data-items.json for the control's own push to find the item that names it.
+    const model = { ...exported(), dataItems: [{ id: 'd-1', name: 'Cards' }] }
+    const sent = { ...local(), dataItems: [{ id: 'd-local', name: 'Cards', controls: [{ id: 'greenfield-1', name: 'Field encryption', source: 'declared' }] }] }
+    const lost = keepUnresolvedControls(model as any, sent as any, [
+      { id: 'greenfield-1', name: 'Field encryption', reason: 'not_found', owner: { kind: 'DATA', id: 'd-local', name: 'Cards' } },
+    ] as any, new Map([['d-local', 'd-1']]))
+
+    expect(lost).toEqual([])
+    expect((model.dataItems[0] as any).controls).toEqual([{ id: 'greenfield-1', name: 'Field encryption', source: 'declared' }])
+  })
+
+  it('returns a data item\'s reference when the item is no longer in the exported model', () => {
+    const gone = { name: 'Field encryption', reason: 'not_found', owner: { kind: 'DATA', id: 'd-gone', name: 'Old' } }
+    expect(keepUnresolvedControls(exported() as any, local() as any, [gone] as any, new Map())).toEqual([gone])
+  })
+
   it('writes a reference once, and does nothing without unresolved controls', () => {
     const model = exported()
     const u = { name: 'Segmentation', reason: 'not_found', owner: { kind: 'BOUNDARY', id: 'b-local-root' } } as any

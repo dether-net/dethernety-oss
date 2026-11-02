@@ -527,7 +527,7 @@ describe('manage_controls assign — reports actual attachments, not the request
   beforeEach(() => { mockAssignControlToElements.mockReset() })
 
   const run = async (elementIds: string[], attached: string[]) => {
-    // dt-core broadcasts every id to three type-scoped connect paths; ids that
+    // dt-core broadcasts every id to four type-scoped connect paths; ids that
     // match no path are silently skipped and the mutation still succeeds.
     mockAssignControlToElements.mockResolvedValue({
       id: 'ctrl-1', name: 'WAF',
@@ -548,6 +548,20 @@ describe('manage_controls assign — reports actual attachments, not the request
     expect(data.assigned_elements).toBe(2)          // was 3 before the fix
     expect(data.skipped_elements).toEqual(['c-bogus'])
     expect(res.warnings?.[0]).toContain('c-bogus')
+  })
+
+  it('counts a data item the platform attached like any other element', async () => {
+    const res = await run(['c-1', 'd-cards'], ['c-1', 'd-cards'])
+    const data = res.data as Record<string, unknown>
+    expect(data.assigned_elements).toBe(2)
+    expect(data.skipped_elements).toBeUndefined()
+    expect(res.warnings).toBeUndefined()
+  })
+
+  it('names the element kinds a control attaches to when it skips an id', async () => {
+    const res = await run(['m-1'], [])
+    expect(res.warnings?.[0]).toContain('Component, SecurityBoundary, DataFlow and Data elements')
+    expect(res.warnings?.[0]).not.toContain('can never attach')
   })
 
   it('does not count pre-existing attachments from other calls as this call\'s work', async () => {

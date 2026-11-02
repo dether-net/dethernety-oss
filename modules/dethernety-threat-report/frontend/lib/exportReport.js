@@ -354,7 +354,7 @@ function coverageHtml(view) {
     .join('')
   const offgrid = []
   if (view.offGrid.softCount) offgrid.push(`${view.offGrid.softCount} soft/unmapped (no ATT&CK mapping)`)
-  if (view.offGrid.dataMappedCount) offgrid.push(`${view.offGrid.dataMappedCount} Data exposures (off-grid — not assessable)`)
+  if (view.offGrid.dataMappedCount) offgrid.push(`${view.offGrid.dataMappedCount} Data exposures (off-grid — not charted)`)
   if (view.offGrid.dispositionedExcluded) offgrid.push(`${view.offGrid.dispositionedExcluded} dispositioned (excluded from live grid)`)
   for (const cls of view.structuralGaps) offgrid.push(`structural gap: no control supports any ${esc(cls)}`)
   return `<h2>MITRE Coverage &amp; Gaps</h2>

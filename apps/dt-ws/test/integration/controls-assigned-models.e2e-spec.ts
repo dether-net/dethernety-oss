@@ -1,9 +1,9 @@
-// Integration coverage for the getControlsAssignedModels @cypher statement: the models each control is assigned to,
-// through the elements it supports. The control library's shared-ownership check reads it, so an under-count makes a
-// shared control look like one model's alone.
+// Integration coverage for the getControlsAssignedModels @cypher statement: the models each control is assigned
+// to, through the elements it supports and through a model it supports itself. The control library's
+// shared-ownership check reads it, so an under-count makes a shared control look like one model's alone.
 //
 // The statement is taken from the production schema.graphql and run on the test database as it stands, on Memgraph
-// or Neo4j (DT_TEST_ENGINE). It adds the two branches' model lists in a WITH of its own, which is the shape Neo4j
+// or Neo4j (DT_TEST_ENGINE). It adds the branches' model lists in a WITH of its own, which is the shape Neo4j
 // accepts: the earlier one-clause form (`ids1 + collect(...)`) is refused there.
 
 import { startMemgraph, clearGraph, MemgraphHandle } from './memgraph-container';
@@ -20,7 +20,8 @@ const STATEMENT = (() => {
 
 // Two models. ctrl-comp supports a component two boundaries deep in model A; ctrl-flow supports a data flow whose
 // component is in model B; ctrl-both supports a boundary in A, a component in A and a flow in B, so A must appear
-// once; ctrl-none supports nothing.
+// once; ctrl-data supports a data element model B contains; ctrl-model is set up for the whole of model A;
+// ctrl-data-comp supports a data element and a component both in A, so A must appear once; ctrl-none supports nothing.
 const SEED = `
   CREATE (ma:Model {id: 'model-a'}), (mb:Model {id: 'model-b'})
   CREATE (topA:SecurityBoundary {id: 'top-a'}), (innerA:SecurityBoundary {id: 'inner-a'}), (topB:SecurityBoundary {id: 'top-b'})
@@ -33,6 +34,10 @@ const SEED = `
   CREATE (ctrlFlow:Control {id: 'ctrl-flow'})-[:SUPPORTS]->(flowB)
   CREATE (ctrlBoth:Control {id: 'ctrl-both'}), (ctrlBoth)-[:SUPPORTS]->(topA), (ctrlBoth)-[:SUPPORTS]->(compA),
     (ctrlBoth)-[:SUPPORTS]->(flowB)
+  CREATE (dataA:Data {id: 'data-a'}), (ma)-[:CONTAINS]->(dataA), (dataB:Data {id: 'data-b'}), (mb)-[:CONTAINS]->(dataB)
+  CREATE (ctrlData:Control {id: 'ctrl-data'})-[:SUPPORTS]->(dataB)
+  CREATE (ctrlModel:Control {id: 'ctrl-model'})-[:SUPPORTS]->(ma)
+  CREATE (ctrlDataComp:Control {id: 'ctrl-data-comp'}), (ctrlDataComp)-[:SUPPORTS]->(dataA), (ctrlDataComp)-[:SUPPORTS]->(compA)
   CREATE (:Control {id: 'ctrl-none'})
 `;
 
@@ -78,6 +83,24 @@ describe('getControlsAssignedModels — live test database (e2e)', () => {
       'ctrl-flow': ['model-b'],
       'ctrl-both': ['model-a', 'model-b'],
     });
+  });
+
+  it('reaches the model that contains a supported data element, and a model the control supports itself', async () => {
+    expect(await assigned(['ctrl-data', 'ctrl-model', 'ctrl-data-comp'])).toEqual({
+      'ctrl-data': ['model-b'],
+      'ctrl-model': ['model-a'],
+      'ctrl-data-comp': ['model-a'],
+    });
+  });
+
+  it('drops the model once the supported data element is gone', async () => {
+    const session = mg.driver.session();
+    try {
+      await session.run(`MATCH (d:Data {id: 'data-b'}) DETACH DELETE d`);
+    } finally {
+      await session.close();
+    }
+    expect(await assigned(['ctrl-data'])).toEqual({ 'ctrl-data': [] });
   });
 
   it('keeps a row with no models for a control that supports nothing', async () => {

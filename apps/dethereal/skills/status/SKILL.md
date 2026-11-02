@@ -36,7 +36,7 @@ Show a status overview of the Dethereal plugin. Read model data from local files
    - Whether any `classes[].pendingEdit` block is populated (and which)
    - `platformState.lastSyncedAt`, `platformState.lastPushedAt`
    - Per class entry: drift flag — apply the same predicate the `validate-model` tool uses (Sprint 4 F-12 single-source-of-truth: `isClassDrifted` from `@dethernety/dt-core/dt-control-library/drift-detector`). The predicate is: `lifecycle ∈ {brownfield, partially-pushed} AND platformAttributes populated AND pendingEdit absent AND attributes !== platformAttributes`. Both this skill and `validate-model` MUST behave identically — if you find divergence, that's the bug, fix the helper not the consumer. **Note (Sprint 6 Tier-3 carryover):** the same predicate is also rendered by `/dethereal:enrich --focus controls` Step 4's defensive post-edit drift sweep (Sprint 6 F-36 closure). All three consumers (status, validate-model, enrich) read the SAME `isClassDrifted` helper; an operator who sees a drift hint in any one of them sees the same set of Controls in the other two.
-   - Cross-reference against the model's `structure.json` / `dataflows.json` `controls[]` arrays to flag orphan files
+   - Cross-reference against the model's `structure.json` / `dataflows.json` / `data-items.json` `controls[]` arrays to flag orphan files
 
 5. **Format output** as:
 
@@ -65,7 +65,7 @@ Control library (Production Stack):
   Stale-sync:     1 control last synced > 15 min ago
     - Vault KMS Rotation: last synced 3h ago — consider /dethereal:enrich --focus controls
 
-  Orphan files:   1 control file not referenced by structure or dataflows
+  Orphan files:   1 control file not referenced by structure, dataflows or data-items
     - ctrl-abc-123.json — remove with manual cleanup or re-link via /dethereal:enrich
 
 Run /dethereal:help for available commands.

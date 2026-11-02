@@ -117,6 +117,7 @@ export interface MonolithicDataItem {
   regulatory_flags?: string[];
   origin?: string;
   is_credential?: boolean;
+  controls?: ControlReference[];
 }
 
 /**
@@ -227,6 +228,7 @@ export function monolithicToSplit(model: MonolithicModel): SplitModel {
     regulatory_flags: item.regulatory_flags,
     origin: item.origin,
     is_credential: item.is_credential,
+    controls: item.controls,
   }));
 
   // Extract attributes into consolidated format

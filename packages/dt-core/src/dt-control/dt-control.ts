@@ -405,7 +405,7 @@ export class DtControl {
 
   /**
    * Assign a control to elements by creating SUPPORTS edges (append-only).
-   * Uses GraphQL connect on the three typed element relationships.
+   * Uses GraphQL connect on the four typed element relationships.
    *
    * Idempotent ACROSS SEQUENTIAL CALLS, by reading the currently-attached ids first
    * and connecting only the difference. It is NOT idempotent under concurrency: two
@@ -434,9 +434,9 @@ export class DtControl {
       //
       // COVERAGE PAIRING — the read must see every edge this method can write. The
       // write connects on exactly supportedComponents / supportedBoundaries /
-      // supportedDataFlows, and FIND_CONTROLS reads exactly those three. Adding a
-      // fourth typed connect path below without adding it to the read reintroduces
-      // duplicates on that path.
+      // supportedDataFlows / supportedData, and FIND_CONTROLS reads exactly those four.
+      // Adding a fifth typed connect path below without adding it to the read
+      // reintroduces duplicates on that path.
       //
       // The typed fields are deliberate: the polymorphic `Control.elements` interface
       // field returns phantom targets aggregated across Controls (schema.graphql), and
@@ -449,6 +449,7 @@ export class DtControl {
           ...(current?.supportedComponents ?? []),
           ...(current?.supportedBoundaries ?? []),
           ...(current?.supportedDataFlows ?? []),
+          ...(current?.supportedData ?? []),
         ]
           .map((element: { id?: string }) => element?.id)
           .filter((id): id is string => Boolean(id)),
@@ -470,7 +471,7 @@ export class DtControl {
         return current ? this.withSynthesizedElements(current) : null
       }
 
-      // Broadcast the remaining element IDs to all three typed connect paths.
+      // Broadcast the remaining element IDs to all four typed connect paths.
       // Each connect's WHERE filter is type-scoped (e.g. supportedComponents
       // only matches Component nodes), so non-matching IDs are silently
       // skipped. This avoids a pre-flight type lookup and works because the
@@ -484,6 +485,7 @@ export class DtControl {
           supportedComponents: { connect: connects },
           supportedBoundaries: { connect: connects },
           supportedDataFlows: { connect: connects },
+          supportedData: { connect: connects },
         },
       }
 
@@ -515,6 +517,7 @@ export class DtControl {
       ...(control.supportedComponents ?? []),
       ...(control.supportedBoundaries ?? []),
       ...(control.supportedDataFlows ?? []),
+      ...(control.supportedData ?? []),
     ]
 
     return {

@@ -20,7 +20,9 @@ function holderIn(boundary: StructureBoundary | undefined, id: string): ControlH
 function holderOf(model: SplitModel, owner: NonNullable<UnresolvedControl['owner']>, id: string | undefined): ControlHolder | undefined {
   if (owner.kind === 'MODEL') return model.manifest.model
   if (!id) return undefined
-  return owner.kind === 'DATA_FLOW' ? model.dataFlows.find((f) => f.id === id) : holderIn(model.structure.defaultBoundary, id)
+  if (owner.kind === 'DATA_FLOW') return model.dataFlows.find((f) => f.id === id)
+  if (owner.kind === 'DATA') return model.dataItems.find((d) => d.id === id)
+  return holderIn(model.structure.defaultBoundary, id)
 }
 
 /** Whether a model file's control entry is the reference the resolver reported (it keeps a non-blank id and name). */

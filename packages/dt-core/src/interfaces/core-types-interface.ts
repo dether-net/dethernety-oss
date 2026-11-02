@@ -83,6 +83,7 @@ export interface Control extends Element {
   supportedComponents?: Element[]
   supportedBoundaries?: Element[]
   supportedDataFlows?: Element[]
+  supportedData?: Element[]
   // eslint-disable-next-line no-use-before-define
   countermeasures?: Countermeasure[]
 }
@@ -210,6 +211,8 @@ export interface DataItem extends Element {
   origin?: string | null
   /** Null ⇒ unknown. */
   isCredential?: boolean | null
+  /** Controls applied to this data item, as the platform returns them. Writers take the ids. */
+  controls?: Control[]
 }
 
 export interface ComponentData extends Element {

@@ -250,6 +250,10 @@ export const DUMP_MODEL_DATA = gql`
         regulatoryFlags
         origin
         isCredential
+        controls {
+          id
+          name
+        }
       }
       modules {
         id
@@ -377,6 +381,10 @@ export const GET_MODEL_DATAITEMS = gql`
         name
         description
         dataClass {
+          id
+          name
+        }
+        controls {
           id
           name
         }

@@ -198,7 +198,7 @@ describe('the input-size limits', () => {
 
   it('lets a control be assigned to many elements in one `in` operand per relationship, as dt-core sends it', () => {
     const connect = [{ where: { node: { id: { in: ids } } } }];
-    const input = { supportedComponents: { connect }, supportedBoundaries: { connect }, supportedDataFlows: { connect } };
+    const input = { supportedComponents: { connect }, supportedBoundaries: { connect }, supportedDataFlows: { connect }, supportedData: { connect } };
     expect(() => check(ASSIGN, { controlId: 'control-1', input })).not.toThrow();
   });
 

@@ -214,7 +214,7 @@ The block shows:
 
 ### Exposures
 
-The **Exposures** section shows the element's own findings, partitioned exactly like the ledger: an open table (including affirmed, **Confirmed**-marked findings) and a collapsible `N dispositioned` block, each finding carrying its band, score, vector, source, and ATT&CK technique chips. An open finding on an element with no supporting control is flagged `⛉ uncovered`. You can triage right here — each row carries the same provenance-and-lifecycle action set as the ledger, and every action behaves identically.
+The **Exposures** section shows the element's own findings, partitioned exactly like the ledger: an open table (including affirmed, **Confirmed**-marked findings) and a collapsible `N dispositioned` block, each finding carrying its band, score, vector, source, and ATT&CK technique chips. An open finding on an element with no supporting control is flagged `⛉ uncovered`. The flag marks "no control applied to this element," not a coverage grade, and a data item gets it exactly like any other element: with no control of its own it shows the flag, and with one it doesn't. You can triage right here — each row carries the same provenance-and-lifecycle action set as the ledger, and every action behaves identically.
 
 ### Data relations, in both directions
 
@@ -223,7 +223,7 @@ The profile shows data relationships from whichever side you're standing on:
 - **Data handled** — appears on a *handler* (a Component, Boundary, or Data Flow). It lists each data item the element touches, with that item's sensitivity and its own exposure counts. Every data item is drillable.
 - **Handled by** — appears on a *Data* element. It is the inverse: the components, data flows, and security boundaries that touch this data, each with its own posture (`⚠ N live`, `✓ control present`, or `· no modeled posture`) and each drillable.
 
-> **Coverage follows the handler, not the data.** Exposure coverage is attributed to the element that handles a data item, never to the data node itself — so the "Data handled" block is explicit that the posture you see there belongs to the handler.
+> **Each side keeps its own controls.** A handler's coverage is its own, and the "Data handled" block says so: the counts it shows are each data item's own exposures, not the handler's posture. A control you apply to a data item is the data item's own — it appears in that data item's profile, and, when the data item has at least one open exposure mapped to ATT&CK, in [Coverage & Gaps](./UNDERSTANDING_COVERAGE.md#data-exposures-off-the-grid-but-disclosed) beside the data item, as assigned and not graded. Neither side's controls count across the handling relationship: a handler's controls don't cover the data item, and the data item's don't cover the handler.
 
 ### Controls present
 

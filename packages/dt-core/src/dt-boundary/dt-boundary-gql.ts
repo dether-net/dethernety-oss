@@ -131,6 +131,10 @@ export const UPDATE_BOUNDARY = gql`
           regulatoryFlags
           origin
           isCredential
+          controls {
+            id
+            name
+          }
           # elements {
           #   id
           # }

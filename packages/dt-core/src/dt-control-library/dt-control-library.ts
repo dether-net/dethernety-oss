@@ -459,13 +459,14 @@ export class DtControlLibrary {
 
       // WAL-protected id rewrite. Build the operation, append to the
       // journal, then drive the apply step. After the journal is consumed,
-      // structure.json + dataflows.json + the renamed per-control file all
-      // hold serverId.
+      // structure.json + dataflows.json + data-items.json + the renamed
+      // per-control file all hold serverId (a model without a data-items.json
+      // is skipped by the rewrite).
       const op: GreenfieldIdRewriteOp = {
         kind: 'greenfield-id-rewrite',
         tempId,
         serverId,
-        filePaths: ['structure.json', 'dataflows.json', `controls/${tempId}.json`],
+        filePaths: ['structure.json', 'dataflows.json', 'data-items.json', `controls/${tempId}.json`],
         controlFileRename: {
           from: `controls/${tempId}.json`,
           to: `controls/${serverId}.json`,

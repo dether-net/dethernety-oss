@@ -1,6 +1,18 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { getVariableValues, GraphQLSchema, OperationDefinitionNode, parse, validate } from 'graphql';
+import {
+  FieldNode,
+  getNamedType,
+  getVariableValues,
+  GraphQLSchema,
+  Kind,
+  OperationDefinitionNode,
+  parse,
+  TypeInfo,
+  validate,
+  visit,
+  visitWithTypeInfo,
+} from 'graphql';
 // The documents are validated against the schema the platform serves, built in-process with no database.
 import { buildProductionSchema } from '../../../test/integration/production-schema';
 
@@ -11,7 +23,9 @@ import { buildProductionSchema } from '../../../test/integration/production-sche
  *
  * Validation sees the document, not the variables dt-core builds at run time, so the `where` shapes of its filter
  * builders are checked too, with the same variable coercion the request goes through. Those shapes are copied by hand
- * from dt-core and pinned there by find-analyses.test.ts, find-issues-or.test.ts and Dethereal's manage-controls test.
+ * from dt-core and pinned there by find-analyses.test.ts, find-issues-or.test.ts and Dethereal's manage-controls test;
+ * the link inputs of its relationship writers are pinned by assign-control-idempotent.test.ts and
+ * dataitem-controls.test.ts.
  */
 
 const DT_CORE_SRC = path.join(__dirname, '../../../../../packages/dt-core/src');
@@ -110,5 +124,111 @@ describe('the where shapes dt-core builds', () => {
     expect(variableErrors('FIND_ISSUES_SUMMARY', { condition: { AND: { OR: [{ model: { some: { id: { in: ['e'] } } } }] } } })).not.toEqual([]);
     expect(variableErrors('FIND_ANALYSES', { condition: { AND: { module: { single: { id: { eq: 'mod' } } } } } })).not.toEqual([]);
     expect(variableErrors('GET_CONTROL_CLASSES', { moduleWhere: { id: 'mod' }, classWhere: {} })).not.toEqual([]);
+  });
+});
+
+describe('the link inputs dt-core builds', () => {
+  it.each([
+    [
+      'assignControlToElements on the four typed paths',
+      'ASSIGN_CONTROL_TO_ELEMENTS',
+      {
+        controlId: 'c',
+        input: Object.fromEntries(
+          ['supportedComponents', 'supportedBoundaries', 'supportedDataFlows', 'supportedData'].map((field) => [
+            field,
+            { connect: [{ where: { node: { id: { in: ['e'] } } } }] },
+          ]),
+        ),
+      },
+    ],
+    [
+      'a data item\'s controls written whole',
+      'UPDATE_DATA_ITEM',
+      { dataId: 'd', input: { controls: { disconnect: {}, connect: [{ where: { node: { id: { in: ['c'] } } } }] } } },
+    ],
+    [
+      'a data item\'s controls written as a delta',
+      'UPDATE_DATA_ITEM',
+      {
+        dataId: 'd',
+        input: {
+          controls: {
+            connect: [{ where: { node: { id: { in: ['c2'] } } } }],
+            disconnect: [{ where: { node: { id: { in: ['c1'] } } } }],
+          },
+        },
+      },
+    ],
+    [
+      'a data item created with controls',
+      'ADD_DATA_ITEM',
+      { input: [{ name: 'n', controls: { connect: [{ where: { node: { id: { in: ['c'] } } } }] } }] },
+    ],
+  ])('%s coerces', (_label, name, variables) => {
+    expect(variableErrors(name, variables)).toEqual([]);
+  });
+});
+
+/**
+ * Every selection of type Data in the document that selects more than the id, by the field it sits under, with
+ * whether it carries `controls { id }`.
+ */
+function dataSelections(source: string): Array<{ field: string; hasControls: boolean }> {
+  const typeInfo = new TypeInfo(schema);
+  const found: Array<{ field: string; hasControls: boolean }> = [];
+  const fieldsOf = (node: FieldNode) =>
+    (node.selectionSet?.selections ?? []).filter((s): s is FieldNode => s.kind === Kind.FIELD);
+  visit(
+    parse(source),
+    visitWithTypeInfo(typeInfo, {
+      Field(node) {
+        const type = typeInfo.getType();
+        if (!node.selectionSet || !type || getNamedType(type).name !== 'Data') return;
+        // A control's own list of the data items it supports names them; it is not a data item's record.
+        if (node.name.value === 'supportedData') return;
+        // The walk reads a selection's own fields; a fragment there would hide what it selects, so it is refused.
+        if (node.selectionSet.selections.some((s) => s.kind !== Kind.FIELD)) {
+          found.push({ field: `${node.name.value} (a fragment the check cannot read)`, hasControls: false });
+          return;
+        }
+        const fields = fieldsOf(node);
+        if (fields.every((f) => f.name.value === 'id' || f.name.value === '__typename')) return;
+        const controls = fields.find((f) => f.name.value === 'controls');
+        found.push({ field: node.name.value, hasControls: !!controls && fieldsOf(controls).some((f) => f.name.value === 'id') });
+      },
+    }),
+  );
+  return found;
+}
+
+/**
+ * A client that caches data items replaces each one wholesale with what a mutation returns, so a selection that leaves
+ * `controls` out strips the item's controls from the cache after any element edit: the controls disappear from view,
+ * re-adding one appends a parallel edge, and removing one cannot be done until a reload. Every selection of a data
+ * item beyond its id therefore carries its controls. The exceptions read data items for something else and feed no
+ * such cache.
+ */
+describe('dt-core selections of a data item', () => {
+  // The analysis and issue documents list the data items an analysis or an issue is linked to, by name.
+  const EXCEPT = new Set(['FIND_ANALYSES', 'FIND_ISSUE_DETAIL', 'CREATE_ISSUE', 'UPDATE_ISSUE']);
+  // Built inside the tests: the schema the selections are typed against is built in beforeAll.
+  const selecting = () =>
+    operations.map((op) => ({ op, selections: dataSelections(op.source) })).filter(({ selections }) => selections.length > 0);
+
+  it('finds them', () => {
+    expect(selecting().map(({ op }) => op.name)).toEqual(expect.arrayContaining(['ADD_DATA_ITEM', 'UPDATE_DATA_ITEM', 'DUMP_MODEL_DATA']));
+  });
+
+  it('selects the controls of every data item it reads', () => {
+    const missing = selecting()
+      .filter(({ op }) => !EXCEPT.has(op.name))
+      .flatMap(({ op, selections }) => selections.filter((s) => !s.hasControls).map((s) => `${op.file} ${op.name} (${s.field})`));
+    expect(missing).toEqual([]);
+  });
+
+  it('excepts only documents that select data items', () => {
+    const names = new Set(selecting().map(({ op }) => op.name));
+    expect([...EXCEPT].filter((name) => !names.has(name))).toEqual([]);
   });
 });

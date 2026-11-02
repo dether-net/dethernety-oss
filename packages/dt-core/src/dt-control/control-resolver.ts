@@ -7,7 +7,7 @@ export interface ControlReference {
 }
 
 /** What a control reference belongs to: the model itself, or one of its elements. */
-export type ControlOwnerKind = 'MODEL' | 'BOUNDARY' | 'COMPONENT' | 'DATA_FLOW'
+export type ControlOwnerKind = 'MODEL' | 'BOUNDARY' | 'COMPONENT' | 'DATA_FLOW' | 'DATA'
 
 /** The model or element a control reference came from. */
 export interface ControlOwner {
@@ -57,6 +57,7 @@ const OWNER_KIND_LABEL: Record<ControlOwnerKind, string> = {
   BOUNDARY: 'boundary',
   COMPONENT: 'component',
   DATA_FLOW: 'data flow',
+  DATA: 'data item',
 }
 
 /** How a message names the model or element a control reference came from, e.g. `component "API"`. */

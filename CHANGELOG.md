@@ -101,6 +101,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cannot read `.env` stops.
 - **`.byodt-release` records the release a deployment runs** and the SHA-256 of every file it
   shipped. The next upgrade checks local edits against it.
+- **A control can be applied to a Data element.** `Data.controls` and `Control.supportedData` read
+  and write the `SUPPORTS` edge from a Control to a Data element. Both fields allow only a nested
+  `connect` and `disconnect`; a nested create or delete is not offered.
+- **A data item's controls are edited in its data dialog.** The dialog has a Controls tab once the
+  data item exists, with the same picker as an element's Controls tab: a pick is saved at once, and
+  unticking a control asks before it is removed. In control gaps, a control on a data item counts
+  for that data item's own exposures only: not for the elements that handle it, nor theirs for it.
+- **Dethereal 0.5.0 reads and writes a data item's controls.** Each item in `data-items.json` may
+  carry `controls`, the same `{ id, name }` references boundaries, components and data flows carry.
+  Pull writes them, push applies them, `get_model_schema` and `validate_model_json` know the field,
+  and a reference the push could not attach is written back to the item. On push a present list
+  (including `[]`) replaces the item's controls, and an absent key leaves them as they are; on a
+  boundary, component or data flow an absent key clears them. To remove a control from a data
+  item, write the list without it, or `[]`; never delete the key. `manage_controls assign` attaches
+  data items too. 0.4.18 was never published: its changes ship in 0.5.0.
+- **The threat report lists a Data element's own controls.** The off-grid Data disclosure in
+  Coverage & Gaps names the controls applied to each Data element, as assigned and without a
+  coverage grade. Data exposures stay off the coverage grid.
 
 ### Changed
 
@@ -145,6 +163,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`byodt` records the notice only in a folder no other account can change.** A group-writable
   folder counts as one other accounts can change, unless the group is the operator's own private
   group.
+- **Dethereal 0.5.0 needs a platform with controls on data elements, which this release adds.**
+  Before `export_model`, `import_model`, `update_model`, `create_threat_model`,
+  `update_attributes`, and the `list`, `assign` and `push-greenfield` actions of `manage_controls`,
+  it checks that the platform has `Data.controls`, and remembers a platform that has it. On an
+  older platform those calls stop with "Platform too old for this Dethereal version" and a message
+  that names the platform. Upgrade the platform first.
 
 ### Fixed
 
@@ -212,6 +236,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `./byodt backup` writes is now readable by its owner only (it kept the container file's mode
   before). An upgrade from 0.13.0 on Podman still runs 0.13.0's own backup and fails there; take a
   snapshot of the graph by hand with `podman cp` and upgrade with `--skip-graph-backup`.
+- **`getControlsAssignedModels` now counts a control applied to a Data element or to a whole
+  model.** It reached a Model only through the components, boundaries and data flows the control
+  is applied to, so a control applied only to a Data element or to a Model read as assigned to no
+  model. It now also reaches the Model that contains the Data element, and the Model the control
+  is applied to directly.
 
 ### Security
 
@@ -1559,7 +1588,7 @@ see what did not link.
   about a day on the hosted service, otherwise the lifetime your identity provider sets — unless an
   identity-provider administrator revokes the user's sessions sooner.
 
-  **Still open, for 0.5.0:** the `npx` launch can pick up a copy of the package in the project's own
+  **Still open:** the `npx` launch can pick up a copy of the package in the project's own
   `node_modules` ahead of the registry one; a local request to the sign-in callback port can cancel a
   pending login; two servers writing the token store at once can lose a session; and login needs a
   desktop browser on the same machine, with no fallback yet. Never copy the token store between

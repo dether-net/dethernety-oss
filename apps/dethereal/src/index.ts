@@ -18,6 +18,7 @@ import { z } from 'zod'
 
 import { getConfig, validateConfig, debug } from './config.js'
 import { createApolloClient } from './client/apollo-client.js'
+import { missingPlatformCapability } from './client/platform-capabilities.js'
 import {
   fetchPlatformConfig,
   loadStoredTokens,
@@ -29,7 +30,7 @@ import {
   isAuthDisabled
 } from './auth/index.js'
 import { redactSecrets, redactStderr } from './auth/redact.js'
-import { allTools, authTools, clientDependentTools, BaseTool, ToolContext } from './tools/index.js'
+import { allTools, authTools, clientDependentTools, needsDataControls, BaseTool, ToolContext } from './tools/index.js'
 import { PACKAGE_VERSION } from './version.js'
 
 // Before anything can log: the bundled GraphQL layer writes platform error text
@@ -280,6 +281,14 @@ async function callTool(tool: BaseTool, name: string, args: Record<string, unkno
             },
         true
       )
+    }
+
+    // A platform older than the documents this tool sends refuses all of them; say so once, in words, instead.
+    if (context.apolloClient && needsDataControls(tool, args)) {
+      const missing = await missingPlatformCapability(context.apolloClient, getConfig().baseUrl)
+      if (missing) {
+        return textResponse({ error: 'Platform too old for this Dethereal version', message: missing, tool: name }, true)
+      }
     }
 
     // Validate input and execute the tool

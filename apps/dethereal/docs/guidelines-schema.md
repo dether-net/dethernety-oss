@@ -140,6 +140,7 @@ Wrapper object with a `dataItems` array:
 | `classData` | ClassReference \| null | No | Data classification class. Explicit `null` unassigns on update; absent = untouched |
 | `sensitivity` | `"public"` `"internal"` `"confidential"` `"restricted"` | No | Author-asserted sensitivity, lowercase. **REPLACE on push** — an absent key clears the platform value |
 | `regulatory_flags` | string[] | No | Free-text regulatory scopes, e.g. `["PCI cardholder", "PHI"]`. **REPLACE on push** — an absent key clears the platform list |
+| `controls` | `{ id, name? }[]` | No | Security controls applied. On push a present list (including `[]`) **replaces** the item's controls, and an **absent key leaves them as they are** — unlike a boundary, component or flow, where an absent key clears. Remove a control by writing the list without it (or `[]`), never by deleting the key |
 
 `sensitivity` and `regulatory_flags` are first-class fields on the data item in `data-items.json` — never attribute-file keys. Together with component `crownJewel` they are the asset signals `validate_model_json(action: 'zoning')` joins on to propose a `RESTRICTED` zone.
 

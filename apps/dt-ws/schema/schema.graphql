@@ -532,6 +532,8 @@ type Data implements Element  @authentication @node {
   elements: [Element!]! @relationship(type: "HANDLES", direction: IN, nestedOperations: [CONNECT, DISCONNECT])
   "Security exposures related to this data"
   exposures: [Exposure!]! @relationship(type: "HAS_EXPOSURE", direction: OUT)
+  "Controls applied to this data element. Connect and disconnect only: a nested create or delete here would mint or remove library Controls."
+  controls: [Control!]! @relationship(type: "SUPPORTS", direction: IN, nestedOperations: [CONNECT, DISCONNECT])
   "Analyses involving this data"
   analyses: [Analysis!]! @relationship(type: "ANALYZED_BY", direction: OUT)
   "Issues associated with this data"
@@ -568,6 +570,8 @@ type Control implements Element  @authentication @node {
   supportedBoundaries: [SecurityBoundary!]! @relationship(type: "SUPPORTS", direction: OUT)
   "Data flows this control is applied to"
   supportedDataFlows: [DataFlow!]! @relationship(type: "SUPPORTS", direction: OUT)
+  "Data elements this control is applied to. Connect and disconnect only: a nested create would mint a Data element no model contains, and a nested delete would remove a model's Data element."
+  supportedData: [Data!]! @relationship(type: "SUPPORTS", direction: OUT, nestedOperations: [CONNECT, DISCONNECT])
   "Countermeasures provided by this control"
   countermeasures: [Countermeasure!]! @relationship(type: "HAS_COUNTERMEASURE", direction: OUT)
   "Folder containing this control"
@@ -2403,9 +2407,13 @@ type Query {
   check (CONTROL_LIBRARY.md §6). Per-label indexes on id are required for
   production-scale performance (see §9 Platform / database).
 
-  Reaches Models via two branches: (1) components/boundaries the Control
-  supports, and (2) DataFlows the Control supports (reached via FLOWS-attached
-  components). Empty modelIds is valid — the Control has no SUPPORTS edges yet.
+  Reaches Models via four branches: (1) components/boundaries the Control
+  supports, (2) DataFlows the Control supports (reached via FLOWS-attached
+  components), (3) Data elements the Control supports (via the Model that
+  CONTAINS them), and (4) Models the Control supports directly. A Data element
+  counts for the Model that CONTAINS it, the scope controlGaps reads it in; the
+  elements that HANDLE it are not followed. Empty modelIds is valid — the
+  Control has no SUPPORTS edges yet.
   """
   getControlsAssignedModels(controlIds: [ID!]!): [ControlAssignedModels!]!
     @cypher(
@@ -2426,10 +2434,16 @@ type Query {
       // Branch 2: DataFlow supports reach a Model via FLOWS-attached Components.
       OPTIONAL MATCH (c)-[:SUPPORTS]->(df:DataFlow)
       OPTIONAL MATCH (df)-[:FLOWS]-(:Component)-[:BELONGS_TO*0..50]->(:SecurityBoundary)<-[:CONTAINS]-(m2:Model)
-      // The two lists are added in a WITH of their own: Neo4j refuses
+      WITH cid, c, ids1, collect(DISTINCT m2.id) AS ids2
+      // Branch 3: Data supports reach the Model that CONTAINS the Data element.
+      OPTIONAL MATCH (c)-[:SUPPORTS]->(:Data)<-[:CONTAINS]-(m3:Model)
+      WITH cid, c, ids1, ids2, collect(DISTINCT m3.id) AS ids3
+      // Branch 4: a Control set up for the whole model SUPPORTS the Model itself.
+      OPTIONAL MATCH (c)-[:SUPPORTS]->(m4:Model)
+      // The lists are added in a WITH of their own: Neo4j refuses
       // `ids1 + collect(...)` in one column unless ids1 is a key there.
-      WITH cid, ids1, collect(DISTINCT m2.id) AS ids2
-      WITH cid, ids1 + ids2 AS combined
+      WITH cid, ids1, ids2, ids3, collect(DISTINCT m4.id) AS ids4
+      WITH cid, ids1 + ids2 + ids3 + ids4 AS combined
       // List-comprehension dedup preserves empty-result rows (UNWIND of [] would drop the cid row).
       // Index-based dedup is the Memgraph-3.x-compatible alternative to apoc.coll.toSet().
       WITH cid, [m IN combined WHERE m IS NOT NULL] AS filtered

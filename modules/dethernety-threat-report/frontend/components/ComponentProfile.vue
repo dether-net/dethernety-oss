@@ -13,8 +13,9 @@
   Reachable for a Component, a SecurityBoundary, a DataFlow, or a Data node.
 
   Honesty: null sensitivity reads "unknown" (never "low"); the score band is a
-  triage aid, not a rating; coverage is attributed to the handling element, never
-  the Data node; controls are context, never a coverage claim. The breadcrumb/back
+  triage aid, not a rating; a handler's coverage and a Data node's own controls are
+  each the element's own, never credited across HANDLES; controls are context,
+  never a coverage claim. The breadcrumb/back
   lives in the shell.
 -->
 <template>
@@ -192,7 +193,7 @@
 
         <!-- Data handled (finding-bearing sub-block) -->
         <section v-if="profile.dataHandled.length" class="trd-prof-section">
-          <h4 class="trd-prof-sec-head">Data handled <span class="trd-muted">(coverage attributed to this element, not the data)</span></h4>
+          <h4 class="trd-prof-sec-head">Data handled <span class="trd-muted">(each data item's own exposures; this element's coverage is its own)</span></h4>
           <ul class="trd-data">
             <li v-for="d in profile.dataHandled" :key="d.id" class="trd-data-item">
               <button type="button" class="trd-drill-mini" @click="$emit('drill', d.id)" :title="`Open ${d.name} profile`">{{ d.name }}</button>

@@ -61,7 +61,7 @@ Defined by modules (e.g., `dethernety-general`). Each ControlClass has `supporte
 
 Reusable security controls created by users. A Control links to one or more ControlClasses via `IS_INSTANCE_OF` (e.g., a "Web Server Security Package" bundles TLS, input validation, and authentication classes). Each ControlClass has a configuration template (JSON Schema) and a guide — the same pattern as ComponentClass. When the user configures the ControlClass attributes on a Control, the platform's OPA/Rego policies evaluate them and **automatically generate Countermeasures** with the appropriate MITRE ATT&CK Mitigation and D3FEND Technique links. This happens at control creation/configuration time, not at element assignment time.
 
-Controls are applied to elements via the polymorphic `SUPPORTS` relationship — the same control can protect a Component, DataFlow, SecurityBoundary, or Model.
+Controls are applied to elements via the polymorphic `SUPPORTS` relationship — the same control can protect a Component, DataFlow, SecurityBoundary, Data element, or Model.
 
 ### Layer 3: Countermeasure (platform-computed, automatic)
 
@@ -399,7 +399,7 @@ Write references as `{ id: null, name: "WAF Protection" }`. At sync time, `resol
 
 ### 6.4 Local JSON format
 
-Control references use the existing `ControlReference` schema (already defined, already exported, currently ignored by the update pipeline). Controls can be stored on **boundaries, components, or data flows** — the schema supports `controls?: ControlReference[]` on all three.
+Control references use the existing `ControlReference` schema (already defined, already exported, currently ignored by the update pipeline). Controls can be stored on **boundaries, components, data flows, or data items** — the schema supports `controls?: ControlReference[]` on all four. A data item's list follows its own push rule: a present list (including `[]`) replaces the item's controls and an absent key leaves them as they are, where on the other three an absent key clears them. See [IMPORT_EXPORT.md — Control Resolution](../dt-core/IMPORT_EXPORT.md#control-resolution).
 
 **Boundary-level assignment (preferred for enforcement controls):** When a control protects an entire boundary (e.g., a firewall protecting a DMZ), store the control reference on the boundary in `structure.json`, not on each individual component. This matches how security teams think ("WAF protects the DMZ zone"), avoids stale fan-out when components are added later, and creates a `SUPPORTS -> SecurityBoundary` edge at sync — which the platform supports natively.
 
@@ -874,7 +874,7 @@ Fix the update pipeline, add the batch assignment tool, and surface sync warning
 | P1 | Fix update pipeline | `dt-core/src/dt-update/dt-update.ts` | `updateComponent()`, `updateBoundary()`, `updateDataFlow()` must process `controls[]` from local JSON. Use disconnect/connect semantics on the update mutation — do NOT copy the import pipeline's `associateControlsDirectly` pattern, which sets `dataItems: []` as a side effect. Only touch controls when the incoming JSON includes them (`data.controls !== undefined`). |
 | P3 | ~~Add `assign` action to `manage_controls`~~ | `dethereal/src/tools/manage-controls.tool.ts` | **Done** (#140). Accepts `control_id` + `element_ids[]`, creates SUPPORTS edges. |
 | P3b | ~~Add `findControls()` method to dt-core~~ | `dt-core/src/dt-control/dt-control.ts` | **Done** (#137). Dual-path: `controlIdsByElements` Cypher helper for element-based lookup, auto-generated GraphQL for other filters. |
-| P3c | ~~Add `assignControlToElements()` method to dt-core~~ | `dt-core/src/dt-control/dt-control.ts` | **Done** (#137). Append-only connect via the three typed relationships (`supportedComponents`, `supportedBoundaries`, `supportedDataFlows`) — not the polymorphic `elements` field, whose auto-generated resolver is unreliable on Memgraph. Idempotent across sequential calls only: it reads the attached IDs first and connects the difference, because `connect` compiles to a bare relationship CREATE rather than a MERGE. Two concurrent callers can still append a parallel edge. |
+| P3c | ~~Add `assignControlToElements()` method to dt-core~~ | `dt-core/src/dt-control/dt-control.ts` | **Done** (#137). Append-only connect via the four typed relationships (`supportedComponents`, `supportedBoundaries`, `supportedDataFlows`, `supportedData`) — not the polymorphic `elements` field, whose auto-generated resolver is unreliable on Memgraph. Idempotent across sequential calls only: it reads the attached IDs first and connects the difference, because `connect` compiles to a bare relationship CREATE rather than a MERGE. Two concurrent callers can still append a parallel edge. |
 | P6 | Surface unresolved controls at sync | `dethereal/skills/sync/SKILL.md` | Pass through warnings from `resolveControls()`. After first successful sync, write resolved IDs back to local JSON to pin references. |
 
 **Value:** Controls survive re-sync. Post-analysis gap-filling via `/dethereal:surface` works end-to-end. Two-tier reporting has both inferred and formal coverage.

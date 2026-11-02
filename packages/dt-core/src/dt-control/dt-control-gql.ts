@@ -140,6 +140,7 @@ export const FIND_CONTROLS = gql`
       supportedComponents { id name type }
       supportedBoundaries { id name }
       supportedDataFlows { id name }
+      supportedData { id name }
       countermeasures {
         id
         name
@@ -291,6 +292,7 @@ export const ASSIGN_CONTROL_TO_ELEMENTS = gql`
         supportedComponents { id name type }
         supportedBoundaries { id name }
         supportedDataFlows { id name }
+        supportedData { id name }
         controlClasses {
           id
           name

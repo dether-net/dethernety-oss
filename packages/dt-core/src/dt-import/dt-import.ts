@@ -893,6 +893,11 @@ export class DtImport {
         // Create the data item with the model as the primary element
         // Data items are created BEFORE boundaries/components, so we use model as initial element
         // The actual associations will be made when elements are created (they reference data items)
+        // Controls are resolved against the catalogue and applied at create, as the model's own are.
+        const controlIds = Array.isArray(dataItemData.controls) && dataItemData.controls.length > 0
+          ? await this.resolveControls(dataItemData.controls, { kind: 'DATA', id: dataItemData.id, name: dataItemData.name })
+          : []
+
         const newDataItem = await this.dtDataitem.createDataItem({
           name: dataItemData.name,
           description: dataItemData.description || '',
@@ -903,7 +908,8 @@ export class DtImport {
           sensitivity: dataItemData.sensitivity,
           regulatoryFlags: dataItemData.regulatory_flags,
           origin: dataItemData.origin,
-          isCredential: dataItemData.is_credential
+          isCredential: dataItemData.is_credential,
+          controls: controlIds
         })
 
         if (!newDataItem) {

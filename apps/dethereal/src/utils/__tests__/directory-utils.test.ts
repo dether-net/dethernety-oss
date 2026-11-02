@@ -634,6 +634,37 @@ describe('applyIdMapping — conduit peerId remap (regression: conduit lost on r
     expect(edge.conduits[0].justification).toBe('approved edge → app channel')
   })
 
+  it('remaps the control ids a data item names, as it does an element\'s', async () => {
+    await write({
+      'manifest.json': { schemaVersion: '2.0.0', format: 'split', model: { id: null, name: 'x', defaultBoundaryId: 'root' }, modules: [] },
+      'structure.json': { defaultBoundary: { id: 'root', name: 'root', components: [], boundaries: [] } },
+      'dataflows.json': { dataFlows: [] },
+      'data-items.json': { dataItems: [{ id: 'cards', name: 'Cards', controls: [{ id: 'local-ctl', name: 'Field encryption' }, { id: 'ctl-kept' }] }] },
+    })
+
+    await applyIdMapping(tmpDir, new Map([['root', 'ROOT-uuid'], ['cards', 'CARDS-uuid'], ['local-ctl', 'CTL-uuid']]), 'ROOT-uuid')
+
+    const d = JSON.parse(await fs.readFile(path.join(tmpDir, 'data-items.json'), 'utf-8'))
+    expect(d.dataItems[0].id).toBe('CARDS-uuid')
+    expect(d.dataItems[0].controls).toEqual([{ id: 'CTL-uuid', name: 'Field encryption' }, { id: 'ctl-kept' }])
+  })
+
+  it('keeps an empty control list on a data item, which a push reads as a clear', async () => {
+    // A push reads an absent key as "leave the controls" and [] as "clear them", so the id remap must not turn one
+    // into the other. It does not today; this pins that.
+    await write({
+      'manifest.json': { schemaVersion: '2.0.0', format: 'split', model: { id: null, name: 'x', defaultBoundaryId: 'root' }, modules: [] },
+      'structure.json': { defaultBoundary: { id: 'root', name: 'root', components: [], boundaries: [] } },
+      'dataflows.json': { dataFlows: [] },
+      'data-items.json': { dataItems: [{ id: 'cards', name: 'Cards', controls: [] }] },
+    })
+
+    await applyIdMapping(tmpDir, new Map([['root', 'ROOT-uuid'], ['cards', 'CARDS-uuid']]), 'ROOT-uuid')
+
+    const d = JSON.parse(await fs.readFile(path.join(tmpDir, 'data-items.json'), 'utf-8'))
+    expect(d.dataItems[0]).toHaveProperty('controls', [])
+  })
+
   it('re-keys .dethereal/template-fields manifests onto the new element ids', async () => {
     // Manifests are keyed by element id. Before the fix, applyIdMapping rewrote every id in the model
     // but left the manifest filenames on the author-supplied ids, so after the first push

@@ -110,6 +110,10 @@ export const UPDATE_COMPONENT = gql`
           regulatoryFlags
           origin
           isCredential
+          controls {
+            id
+            name
+          }
           # elements {
           #   id
           # }

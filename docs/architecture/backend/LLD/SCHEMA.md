@@ -330,6 +330,7 @@ Represents data elements within the system.
 - `(Data)<-[:HANDLES]-(DataFlow)` — Data flows carrying this data
 - `(Data)<-[:HANDLES]-(SecurityBoundary)` — Boundaries handling this data
 - `(Data)-[:HAS_EXPOSURE]->(Exposure)` — Exposures on this data
+- `(Data)<-[:SUPPORTS]-(Control)` — Controls supporting this data element (nested `connect` / `disconnect` only)
 - `(Data)-[:ANALYZED_BY]->(Analysis)` — Analyses of this data
 - `(Data)-[:HAS_ISSUE]->(Issue)` — Issues associated with this data
 
