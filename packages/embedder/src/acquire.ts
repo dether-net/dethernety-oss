@@ -9,9 +9,10 @@
  *
  * Network rules: redirects are followed by this code, HTTPS only; the token is sent only to the
  * profile's hub origin, never to the CDN a redirect points at; URLs and headers are never logged
- * (a CDN redirect carries a signed URL). A hop that does not answer within the connect timeout, or a
- * body that sends no byte for the idle timeout, fails the download like any other error, so a stalled
- * connection reaches the retry schedule instead of hanging it.
+ * (a CDN redirect carries a signed URL), only the host of a hop that failed, so a proxy or a firewall
+ * that blocks one host can be told from the others. A hop that does not answer within the connect
+ * timeout, or a body that sends no byte for the idle timeout, fails the download like any other error,
+ * so a stalled connection reaches the retry schedule instead of hanging it.
  */
 
 import { createHash, randomBytes } from 'crypto';
@@ -41,7 +42,7 @@ export interface AcquireOptions {
   idleTimeoutMs?: number;
   /** Token for a gated source. Sent only to the profile's hub origin. */
   token?: string;
-  /** Progress and problem reporting. Never receives a URL or a header. */
+  /** Progress and problem reporting. Never receives a URL or a header; a failed hop's error names its host. */
   log?: (message: string, detail?: Record<string, unknown>) => void;
   /**
    * Ends the acquisition early (a shutdown): the request in flight and the wait for another process's lock stop, the
@@ -55,10 +56,16 @@ export class WeightFileError extends Error {
   constructor(
     readonly file: string,
     message: string,
+    options?: ErrorOptions,
   ) {
-    super(`${file}: ${message}`);
+    super(`${file}: ${message}`, options);
     this.name = 'WeightFileError';
   }
+}
+
+/** `text` with the user and password of any URL in it masked: a proxy's error can carry its address in full. */
+export function redactUserinfo(text: string): string {
+  return text.replace(/:\/\/[^/?#\s]*@/g, '://***@');
 }
 
 const MAX_REDIRECTS = 5;
@@ -446,6 +453,26 @@ function abortAfter(controller: AbortController, ms: number, error: () => Error)
 
 const seconds = (ms: number) => `${Math.round(ms / 1000)} s`;
 
+/**
+ * A hop that failed on the network, as an error naming the hop's host and nothing else of its URL. Its message and
+ * cause are kept, with any credentials masked; the original error, which may hold them unmasked, is not.
+ */
+function hopFailed(file: ProfileSourceFile, what: string, err: unknown): WeightFileError {
+  const message = redactUserinfo(err instanceof Error ? err.message : String(err));
+  return new WeightFileError(file.path, `${what}: ${message}`, redactedCause(err));
+}
+
+/** `err`'s cause rebuilt with its message masked and its `code` kept, or undefined when `causeOf` finds nothing in it. */
+function redactedCause(err: unknown): ErrorOptions | undefined {
+  if (causeOf(err) === undefined) return undefined;
+  const cause = (err as { cause: unknown }).cause;
+  if (typeof cause !== 'object') return { cause: new Error(redactUserinfo(String(cause))) };
+  const { code, message } = cause as { code?: unknown; message?: unknown };
+  const rebuilt = new Error(redactUserinfo(typeof message === 'string' ? message : ''));
+  if (typeof code === 'string') Object.assign(rebuilt, { code });
+  return { cause: rebuilt };
+}
+
 async function download(
   profile: EmbeddingProfile,
   file: ProfileSourceFile,
@@ -462,22 +489,28 @@ async function download(
   const idleMs = options.idleTimeoutMs ?? IDLE_TIMEOUT_MS;
 
   let response: Awaited<ReturnType<FetchLike>> | undefined;
+  let host = '';
   // One controller per hop; the last one also bounds the body, which belongs to its request. The caller's signal, when
   // there is one, ends each hop too.
   let controller = new AbortController();
   let hopSignal: AbortSignal = controller.signal;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const parsed = new URL(url);
-    if (parsed.protocol !== 'https:') throw new WeightFileError(file.path, 'a redirect left HTTPS');
+    host = parsed.host;
+    if (parsed.protocol !== 'https:') throw new WeightFileError(file.path, `a redirect to ${host} left HTTPS`);
     const headers: Record<string, string> = {};
     if (options.token && parsed.origin === hubOrigin) headers.Authorization = `Bearer ${options.token}`;
     controller = new AbortController();
     hopSignal = options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal;
-    const answered = abortAfter(controller, connectMs, () => new WeightFileError(file.path, `no response within ${seconds(connectMs)}`));
+    const answered = abortAfter(controller, connectMs, () => new WeightFileError(file.path, `no response from ${host} within ${seconds(connectMs)}`));
     try {
       // An abort that came before this hop starts no request.
       hopSignal.throwIfAborted();
       response = await untilAborted(fetchFn(url, { redirect: 'manual', headers, signal: hopSignal }), hopSignal);
+    } catch (err) {
+      // A timeout or a shutdown ends the hop with its own reason.
+      if (hopSignal.aborted) throw err;
+      throw hopFailed(file, `request to ${host} failed`, err);
     } finally {
       answered();
     }
@@ -485,7 +518,7 @@ async function download(
       // The redirect's own body is never read: aborting its request frees the connection.
       controller.abort();
       const location = response.headers.get('location');
-      if (!location) throw new WeightFileError(file.path, `redirect ${response.status} without a location`);
+      if (!location) throw new WeightFileError(file.path, `redirect ${response.status} from ${host} without a location`);
       url = new URL(location, url).toString();
       response = undefined;
       continue;
@@ -495,7 +528,7 @@ async function download(
   if (!response) throw new WeightFileError(file.path, `more than ${MAX_REDIRECTS} redirects`);
   if (response.status !== 200 || !response.body) {
     controller.abort();
-    throw new WeightFileError(file.path, `download failed with HTTP ${response.status}`);
+    throw new WeightFileError(file.path, `download failed with HTTP ${response.status} from ${host}`);
   }
 
   await mkdir(dirname(target), { recursive: true, mode: DIR_MODE });
@@ -508,11 +541,14 @@ async function download(
   try {
     for (;;) {
       // Only the wait for the next chunk counts as idle; writing it to disk does not.
-      const arrived = abortAfter(controller, idleMs, () => new WeightFileError(file.path, `no data for ${seconds(idleMs)}`));
+      const arrived = abortAfter(controller, idleMs, () => new WeightFileError(file.path, `no data from ${host} for ${seconds(idleMs)}`));
       let next: IteratorResult<Uint8Array>;
       try {
         signal.throwIfAborted();
         next = await untilAborted(chunks.next(), signal);
+      } catch (err) {
+        if (signal.aborted) throw err;
+        throw hopFailed(file, `download from ${host} broke off`, err);
       } finally {
         arrived();
       }

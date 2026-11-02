@@ -291,7 +291,7 @@ Restarting mid-pull only starts the downloads again. Next time, `./byodt models 
 **Fix.**
 
 - For `downloading` or `loading`, wait, and follow `./byodt logs platform` until it logs `Embedder ready`, then `Embeddings resolved`.
-- If the platform log shows `weight acquisition failed, retrying`, or the state is `failed` after a download, the cause is almost always the network: the platform needs to reach `huggingface.co` and the host it redirects downloads to, directly — it does not use an HTTPS proxy (`HTTPS_PROXY`) for the download. Fix the host's network access, then `./byodt restart platform`. Running `./byodt models pull` first shows whether the download now works.
+- If the platform log shows `weight acquisition failed, retrying`, or the state is `failed` after a download, the cause is almost always the network: the platform needs to reach `huggingface.co` and the host it redirects downloads to, directly or through the proxy `HTTPS_PROXY` names in `.env`. The error names the host that failed. Fix the host's network access (behind a proxy, see [Behind an outbound proxy](#behind-an-outbound-proxy)), then `./byodt restart platform`. Running `./byodt models pull` first shows whether the download now works.
 - On a host without internet access, run `./byodt models pull` on a connected machine and copy its `data/models` over as the account that runs `./byodt`, keeping its `<repo>/<revision>/<file>` layout; see [Installation → Download the embedding model ahead](./INSTALLATION.md#optional-download-the-embedding-model-ahead). The platform verifies every file's sha256 and downloads only what is missing or wrong.
 
 ### `in the models directory is owned by uid` or `is writable by accounts other than its owner`
@@ -353,9 +353,9 @@ services:
 
 > **Module Fetch Failed** — the module release channel was unreachable — no code modules were installed
 
-**Cause.** The one-shot could not reach the release host to download the module payloads. A firewall, a proxy, an offline machine, or a transient outage.
+**Cause.** The one-shot could not reach the release host to download the module payloads. A firewall, a proxy, an offline machine, or a transient outage. `./byodt logs console-init` gives the exact error.
 
-**Fix.** Give the machine access to `github.com` and its release-asset host, then re-run the one-shot:
+**Fix.** Give the machine access to `github.com` and its release-asset host (behind a proxy, see [Behind an outbound proxy](#behind-an-outbound-proxy), which lists the errors a proxy produces here), then re-run the one-shot:
 
 ```sh
 ./byodt restart
@@ -375,12 +375,14 @@ Verify in the console that **Modules** now shows each module `placed`.
 
 > **Module Fetch Failed** — a module signature did not verify — the module was rejected
 
-**Cause.** A downloaded payload did not verify against the signing identity pinned to that exact release. The module was rejected rather than installed. Possible causes: a corrupted or truncated download, an intercepting proxy rewriting the response, or an artifact that genuinely is not the published one.
+**Cause.** A downloaded payload did not verify against the signing identity pinned to that exact release. The module was rejected rather than installed. Possible causes: a corrupted or truncated download, a proxy or other device on the path that modifies the content it passes on, or an artifact that genuinely is not the published one.
+
+TLS inspection alone does not cause this. A proxy that inspects TLS, with its CA trusted, re-encrypts the same bytes, and the signature is checked offline, against a trusted root embedded in the console image. Without its CA trusted, the download does not happen at all, and the console reports an unreachable release channel instead (see [Behind an outbound proxy](#behind-an-outbound-proxy)).
 
 **Fix.** This is a security event — do not work around it.
 
 1. Re-run the one-shot (`./byodt restart`) in case the download was simply corrupt.
-2. If it persists, check whether something between the machine and the release host is modifying traffic (a TLS-inspecting proxy will do this).
+2. If it persists, check whether something between the machine and the release host modifies the content it passes on.
 3. Verify the bundle you are running is the published one, using the signature check in [Installation](./INSTALLATION.md#get-the-bundle).
 
 ### `some modules installed and some failed` / `every module failed to install`
@@ -403,6 +405,151 @@ Verify in the console that **Modules** now shows each module `placed`.
 ```
 
 If it never ran, `./byodt up`.
+
+---
+
+## Behind an outbound proxy
+
+The setup is in [Installation → Behind an outbound proxy](./INSTALLATION.md#behind-an-outbound-proxy), and the reference in [Configuration → Outbound proxy](./CONFIGURATION.md#outbound-proxy).
+
+**Where the errors show.**
+
+| From | Where to read it |
+|---|---|
+| `byodt` itself | The terminal, before anything starts. Its messages mask any login as `***`. |
+| `console-init` (the module downloads) | `./byodt logs console-init`. The console then shows **Module Fetch Failed** — *the module release channel was unreachable*. |
+| The platform (the model download, cloud content, sign-in keys) | `./byodt logs platform`, and the output of `./byodt models pull`. |
+
+In the messages below, `<proxy-host>` and `<port>` stand for your proxy's name and port, `<dns-server>` for the resolver the containers use, and `X.Y.Z` for the release.
+
+**Test the proxy from the host** before you look at the deployment. This asks the proxy for one of the hosts the first start needs:
+
+```sh
+curl -sSI -x http://<proxy-host>:<port> https://huggingface.co
+```
+
+If the proxy needs a login, add `-U 'user'`: curl then asks for the password, which keeps it off the command line. curl takes the user name and the password as they are, not percent-encoded as in `HTTPS_PROXY_USERINFO`. An `HTTP/1.1 200` line for the tunnel, then the site's own answer, means the proxy lets the host through. The host can resolve `<proxy-host>` differently from the containers, so a pass here does not settle a name-resolution error in the deployment.
+
+### `byodt` refuses the proxy setting
+
+`byodt` checks `HTTPS_PROXY` and `NO_PROXY` in `.env`, `HTTPS_PROXY_USERINFO` in `.env.secrets`, and `proxy-ca/`, before anything starts. Each refusal says what to change; the common ones:
+
+| Message (beginning) | Fix |
+|---|---|
+| `error: HTTPS_PROXY in .env is http://<proxy-host>: it needs the proxy's port, as http://host:port.` | Add the port. |
+| `error: HTTPS_PROXY in .env is …: write it as http://host:port` | Use `http://` or `https://`, a numeric port, and nothing after the port. |
+| `error: HTTPS_PROXY in .env carries a login (…)` | Remove `user:password@` from `.env`, and put the login in `.env.secrets` as `HTTPS_PROXY_USERINFO`. |
+| `error: HTTPS_PROXY in .env is …: inside a container, … is the container itself.` | Do not use `localhost` or a loopback address. Use the host's address on the network the proxy listens on. |
+| `error: HTTPS_PROXY in .env is …: inside the stack, … is one of its own services.` | The name is one of the deployment's services, such as `proxy` (the front door). Use the proxy's full name or its address. |
+| `error: NO_PROXY in .env has …: address ranges and wildcards are not read the same way by every service. List the hosts.` | Replace the block, range or wildcard with the exact hosts. |
+| `error: NO_PROXY in .env has a space: separate its entries with commas only.` | Remove the spaces. |
+| `error: HTTPS_PROXY_USERINFO in .env.secrets must be user:password with one colon, …` | Percent-encode the user name and the password; see [Configuration → The outbound proxy's login](./CONFIGURATION.md#the-outbound-proxys-login). |
+| `error: HTTPS_PROXY_USERINFO in .env.secrets is quoted: …` | Remove the quotes. |
+| `error: proxy-ca/ holds …: it holds only proxy-ca.pem, …` | Move every other file out of `proxy-ca/`. |
+| `error: proxy-ca/proxy-ca.pem is not readable by every account, …` | `chmod 0644 proxy-ca/proxy-ca.pem` |
+| `error: … can be changed by other accounts, and what is in it is trusted as a root.` | `chmod go-w` on the named path. |
+
+These warnings do not stop the start:
+
+- `warning: HTTP_PROXY in .env is not used: …` — the deployment sends only HTTPS through the proxy. Set `HTTPS_PROXY` instead.
+- `warning: HTTPS_PROXY_USERINFO in .env.secrets is not used: .env sets no HTTPS_PROXY.` — set `HTTPS_PROXY`, or remove the login. `NO_PROXY` without `HTTPS_PROXY` gets the same warning.
+- `warning: HTTPS_PROXY in .env is https://…: the stack talks to the proxy itself over TLS. …` — see [A TLS handshake error with an `https://` proxy URL](#a-tls-handshake-error-with-an-https-proxy-url).
+
+### `Your shell sets HTTPS_PROXY (…); the stack uses only the one in .env (…)`
+
+> `==> Your shell sets HTTPS_PROXY (…); the stack uses only the one in .env (…). Set HTTPS_PROXY in .env to change it.`
+
+**Cause.** A notice, not an error. Your shell exports a proxy that `.env` does not name. `byodt` never adopts the shell's: the deployment uses only `.env`'s, so an upgrade does not start sending it through a proxy it worked without.
+
+**Fix.** If the deployment should use that proxy, set `HTTPS_PROXY` in `.env` and run `./byodt up`. Otherwise, ignore the notice. `byodt` compares the two values as text, so a shell URL that carries a login always differs from `.env`'s, which never does. If both name the same proxy, unset it in your shell after getting the bundle.
+
+### `warning: HTTPS_PROXY is set in .env, but the Docker daemon has no proxy of its own`
+
+> `warning: HTTPS_PROXY is set in .env, but the Docker daemon has no proxy of its own, so image pulls go direct. If this host has no direct route out, set the daemon's proxy (a systemd drop-in, or "proxies" in daemon.json), restart it, and run the command again.`
+
+**Cause.** On Docker, `./byodt up` and `./byodt update` check the daemon's own proxy before they pull. The daemon pulls the images, and it never reads `.env` or your shell. `byodt` does not check Podman's setting.
+
+**Fix.** If the host has no direct route out, give the daemon a proxy, restart it, and run the command again; see [Installation → Give the container engine the proxy](./INSTALLATION.md#1-give-the-container-engine-the-proxy). If the images come from a registry mirror on your own network, ignore the warning.
+
+### `Proxy Authentication Required`
+
+> `fetching modules.json: Get "https://github.com/dether-net/dethernety-oss/releases/download/vX.Y.Z/modules.json": Proxy Authentication Required`
+
+from `console-init`, and from the platform:
+
+> `Failed to establish tunnel to <host>:443 via http://<proxy-host>:<port>/: HTTP/1.1 407 Proxy Authentication Required`
+>
+> `Request was cancelled.` (code `UND_ERR_ABORTED`)
+
+**Cause.** The proxy refused the login (HTTP 407): `HTTPS_PROXY_USERINFO` is missing, wrong, or encoded wrongly. Of the platform's two texts, the first comes from its core HTTPS client, which in cloud mode fetches the keys sign-ins are checked against. The second comes from its `fetch` client, which the model download uses, and carries no 407 at all: behind a proxy that needs a login, a `Request was cancelled.` can be this. `./byodt models pull` may not show even that: it prints `request to <host> failed:` with the error's message only, and the cause appears in `./byodt logs platform` when the platform downloads the model itself (see [The model download names a host that fails](#the-model-download-names-a-host-that-fails)).
+
+**Fix.** Check the user name and the password in `.env.secrets`, and the percent-encoding of every character outside the allowed set (see [Configuration → The outbound proxy's login](./CONFIGURATION.md#the-outbound-proxys-login)). Then `./byodt up`, and `./byodt models pull` to test.
+
+### `proxyconnect tcp: … no such host`
+
+> `proxyconnect tcp: dial tcp: lookup <proxy-host> on <dns-server>:53: no such host`
+
+**Cause.** The containers cannot resolve the proxy's name. The stack still comes up, but `console-init` cannot download the modules, and the console reports **Module Fetch Failed**.
+
+**Fix.** Use a name the containers can resolve, or an address, in `.env`, then `./byodt up`. If the name was right and the proxy was only away, run `./byodt restart` once it is back: `console-init` runs again and installs the modules, and the platform, which reads `modules/` only when it starts, starts after it. A proxy that is down but whose name still resolves gives a refused connection or a timeout instead; see [The proxy is down when the deployment starts](#the-proxy-is-down-when-the-deployment-starts).
+
+### `context deadline exceeded (Client.Timeout exceeded while awaiting headers)`
+
+> `context deadline exceeded (Client.Timeout exceeded while awaiting headers)`
+
+**Cause.** The proxy accepts connections but does not answer. `console-init` waits its full 60 seconds on every run, then records the failure, so each start takes about a minute longer. The stack still comes up, without the modules this run should have installed.
+
+**Fix.** The fix is on the proxy: ask its operators why it holds connections to `github.com` and `release-assets.githubusercontent.com`. The [host test above](#behind-an-outbound-proxy), with `https://github.com`, shows the same hang. Once it is fixed, `./byodt restart` runs `console-init` again.
+
+### `Service Unavailable`
+
+> `…modules.json": Service Unavailable`
+
+**Cause.** The proxy answered HTTP 503: it could not reach the destination itself, often because it could not resolve its name. The deployment's side of the connection worked.
+
+**Fix.** The fix is on the proxy. A proxy on an isolated network may need its own name servers set (in squid, `dns_nameservers`). Once it is fixed, `./byodt restart` runs `console-init` again.
+
+### `self-signed certificate in certificate chain` or `x509: certificate signed by unknown authority`
+
+> `self-signed certificate in certificate chain` (code `SELF_SIGNED_CERT_IN_CHAIN`)
+
+from the platform, and from `console-init`:
+
+> `tls: failed to verify certificate: x509: certificate signed by unknown authority`
+
+With other certificate chains, the platform may report `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` instead. The console, written in Go like `console-init`, fails the same way on its cloud calls.
+
+**Cause.** The proxy inspects TLS: it re-signs every HTTPS connection with a CA of its own, and the deployment does not trust that CA.
+
+**Fix.** First ask the proxy's operators to pass the identity provider and the content service through uninspected. If they cannot, put the proxy's CA certificate in `proxy-ca/proxy-ca.pem`, and run `./byodt up`. If the file was already there and you replaced it, how to apply it depends on which service reported the error. When `console-init` did, or the console shows **Module Fetch Failed**, run `./byodt restart`: a restart that names services recreates only those, so `console-init` would not run again. When only the platform's or the console's own calls failed, `./byodt restart platform console` is enough. Read what trusting it hands over first: [Configuration → A proxy that inspects TLS](./CONFIGURATION.md#a-proxy-that-inspects-tls). The file must hold the CA that signs the proxy's certificates, not a certificate the proxy presents for one site.
+
+Image pulls through the same proxy fail the same way. The container engine needs the CA in the host's trust store and a restart; see [Installation → Give the container engine the proxy](./INSTALLATION.md#1-give-the-container-engine-the-proxy).
+
+### A TLS handshake error with an `https://` proxy URL
+
+**Symptom.** Every call through the proxy fails with a TLS handshake error, before any request is made. `HTTPS_PROXY` in `.env` starts with `https://`. Without a login, `byodt` warned about it:
+
+> `warning: HTTPS_PROXY in .env is https://<proxy-host>:<port>: the stack talks to the proxy itself over TLS. Most proxies take http:// here, and still carry HTTPS end to end.`
+
+**Cause.** `https://` in the proxy URL is how the services talk to the proxy itself. A proxy that speaks plain HTTP on that port cannot complete the handshake. With a login set, `byodt` does not warn, because `https://` is what keeps the login off the network in clear.
+
+**Fix.** Use `http://` unless the proxy's operators say it takes TLS on that port, then `./byodt up`.
+
+### The model download names a host that fails
+
+> `The weights could not be placed: <file>: request to <host> failed: …`
+
+`./byodt models pull` prints this, and only this: for a network failure the end is `fetch failed`, without the underlying cause. When the platform downloads the model itself, on a start, `./byodt logs platform` shows the same error on each `weight acquisition failed, retrying` entry, with the cause beside it as `cause`. The download's other network errors name the host the same way: `download failed with HTTP <status> from <host>`, `no response from <host> within 30 s`, and `no data from <host> for 60 s`.
+
+**Cause.** The download could not get through to the named host. The model hub redirects each download to another host, and a proxy that allows `huggingface.co` but not that host fails here.
+
+**Fix.** Ask for the named host to be allowed, then run `./byodt models pull` again. If the platform has already given up (`failed` in `/health`), run `./byodt restart platform` after that.
+
+### The proxy is down when the deployment starts
+
+**On a first start**, the stack comes up, but `console-init` cannot download the modules: the console reports **Module Fetch Failed**, and no code modules are installed. If the model's weights are not on disk yet, the platform retries the download for about 42 minutes. Once the proxy is back, run `./byodt restart`: `console-init` installs the modules, and the platform starts after it, loads them, and downloads the weights if they are still missing.
+
+**On a later start**, the modules and the weights are already on disk. `console-init` cannot reach the release host and the console reports **Module Fetch Failed**, but the modules already installed stay in use. In cloud mode, sign-in and the content service need the proxy: the platform fetches the keys sign-ins are checked against through it, so sign-ins fail until the proxy is back.
 
 ---
 
@@ -1069,7 +1216,7 @@ The knowledge-graph connection has its own version and its own entry: see [The d
 ./byodt up
 ```
 
-Do not tighten these directories by hand — the next start widens them again, and the deployment needs them writable. The certificate directory `tls/` is the deliberate exception: it stays restrictive, is mounted read-only, and only you write to it.
+Do not tighten these directories by hand — the next start widens them again, and the deployment needs them writable. The certificate directory `tls/` is the deliberate exception: it stays restrictive, is mounted read-only, and only you write to it. So is `proxy-ca/`, which holds an outbound proxy's CA: it is mounted read-only, and `byodt` refuses it when anyone but you can write to it (see [Configuration → A proxy that inspects TLS](./CONFIGURATION.md#a-proxy-that-inspects-tls)).
 
 ### The database becomes corrupt on macOS or Windows
 
@@ -1111,7 +1258,7 @@ Collect this before asking for help — it is what any diagnosis starts from:
 
 Plus a screenshot of the console's dashboard, including any banners.
 
-> **Check what you share.** Logs and screenshots can carry the names of your models and components. Review them before sending. They do not contain your database password, which lives only in `.env.secrets` — and that file should never be shared.
+> **Check what you share.** Logs and screenshots can carry the names of your models and components. Review them before sending. They do not contain your database password, which lives only in `.env.secrets` — and that file should never be shared. The services mask your outbound proxy's login where they report a failed fetch, and in tests no log carried it; still, search the logs for its user name before sending. The output of `./byodt compose config` and `docker inspect` (or `podman inspect`) does contain the password and the login: do not send it.
 
 ## Related
 

@@ -17,7 +17,7 @@ There is no source checkout and no build toolchain. A container engine is the on
 ./byodt up
 ```
 
-That one command sets the deployment up on first run and starts it every time after. Everything runs locally; the deployment reaches the network only to pull its images, the embedding model's weights, and the signed module payloads for the release it is pinned to.
+That one command sets the deployment up on first run and starts it every time after. Everything runs locally; the deployment reaches the network only to pull its images, the embedding model's weights, and the signed module payloads for the release it is pinned to — directly, or through an outbound proxy (see [Installation](./INSTALLATION.md#behind-an-outbound-proxy)).
 
 New here? Go to **[Installation](./INSTALLATION.md)**.
 
@@ -74,9 +74,9 @@ Both move together if you change the port or bind address. See [Configuration](.
 
 - **A container engine** — Docker with the Compose plugin, or Podman 4.1+ with a Compose provider. The control script detects which you have and remembers the choice.
 - **Several gigabytes of free disk and memory.** The database alone needs several gigabytes: Memgraph is started with a 4096 MiB memory limit, Neo4j with a 2 GB heap plus a 1 GB page cache. The platform, which holds the embedding model in memory, runs alongside it. The model's weights take about 1.26 GB in `data/models`.
-- **A network connection for the first run** — to pull the container images, the embedding model's weights (from Hugging Face), and the signed module payloads.
+- **A network connection for the first run and for upgrades** — to pull the container images, the embedding model's weights (from Hugging Face), and the signed module payloads. An outbound HTTP proxy works; proxies that need NTLM or Kerberos login do not.
 
-Full detail, including Podman specifics, is in [Installation](./INSTALLATION.md).
+Full detail, including Podman specifics and the setup behind a proxy, is in [Installation](./INSTALLATION.md).
 
 ## The control script
 
@@ -108,7 +108,7 @@ The release tarball extracts to a single directory containing these files:
 | `proxy/nginx.conf`, `proxy/40-tls.sh` | The front-door configuration and its TLS entrypoint. |
 | `README.md`, `LICENSE`, `NOTICE` | Quickstart, licence, and third-party notices. |
 
-The first start creates the rest — `.env`, `.env.secrets`, `mode/`, `modules/`, `schema/`, `data/`, and `tls/`. Those are yours: they hold your configuration, your database password, and your data. Nothing in them is overwritten by a later start.
+The first start creates the rest — `.env`, `.env.secrets`, `mode/`, `modules/`, `schema/`, `data/`, `tls/`, and `proxy-ca/`. Those are yours: they hold your configuration, your database password, and your data. Nothing in them is overwritten by a later start.
 
 ## Two ways to run it
 
@@ -124,8 +124,8 @@ Your data never moves either way: the graph stays in your database in both modes
 
 | Guide | What it covers |
 |---|---|
-| [Installation](./INSTALLATION.md) | Prerequisites, getting the bundle, the first start, what happens during it, and how to confirm the deployment is healthy. **Start here.** |
-| [Configuration](./CONFIGURATION.md) | Every setting in `.env`, the choice of database engine, the generated secret file, where the database keeps its data, and how to apply a change. |
+| [Installation](./INSTALLATION.md) | Prerequisites, the network access the first start needs, the setup behind an outbound proxy, getting the bundle, the first start, what happens during it, and how to confirm the deployment is healthy. **Start here.** |
+| [Configuration](./CONFIGURATION.md) | Every setting in `.env`, including the outbound proxy, the choice of database engine, the secret file and the proxy login it can hold, where the database keeps its data, and how to apply a change. |
 | [Operations](./OPERATIONS.md) | The `byodt` command reference and the day-to-day tasks: start, stop, inspect, back up, restore, TLS, upgrade, remove. |
 | [Cloud](./CLOUD.md) | Connecting the deployment to cloud sign-in and content packages from the console, and disconnecting again. |
 | [Troubleshooting](./TROUBLESHOOTING.md) | Symptom, cause, and fix for the failures this deployment actually produces. |

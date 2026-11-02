@@ -38,3 +38,12 @@ func TestIsPrivateHost(t *testing.T) {
 		}
 	}
 }
+
+// TestFetcherKeepsDefaultTransport pins proxy support. A nil Transport is http.DefaultTransport,
+// which follows HTTPS_PROXY and NO_PROXY; a Transport of the fetcher's own would silently stop a
+// deployment behind a proxy from reaching the release host.
+func TestFetcherKeepsDefaultTransport(t *testing.T) {
+	if tr := newFetcher(Config{}).client.Transport; tr != nil {
+		t.Fatalf("the release fetcher must keep a nil Transport so it follows the environment's proxy, got %T", tr)
+	}
+}
