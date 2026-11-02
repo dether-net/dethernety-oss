@@ -1,5 +1,5 @@
 {
-  "name": "@dethernety/byodt",
+  "name": "@dether.net/byodt",
   "version": "0.0.0",
   "description": "Install Dethernety's self-hosted deployment, or upgrade one: runs the release's own get-byodt.sh",
   "license": "AGPL-3.0-only",

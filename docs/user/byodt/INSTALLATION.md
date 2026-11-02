@@ -495,7 +495,7 @@ Nothing is left behind either way.
 `get-byodt.sh` from the release, as above, is the primary way to install. Once a release is published to npm, the same installer also runs through `npx`. Each package version is the release of the same version, and carries that release's `get-byodt.sh` with the same pins written in. The package's name:
 
 ```sh
-PKG=@dethernety/byodt
+PKG=@dether.net/byodt
 ```
 
 ```sh

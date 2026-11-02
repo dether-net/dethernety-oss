@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// npx @dethernety/byodt[@VERSION] [options]: runs the installer of the release this package version is.
+// npx @dether.net/byodt[@VERSION] [options]: runs the installer of the release this package version is.
 import { spawnSync } from 'node:child_process';
 import { constants } from 'node:os';
 import { dirname, join } from 'node:path';
