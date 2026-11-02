@@ -1,0 +1,430 @@
+#!/bin/sh
+# get-byodt.sh — install the self-hosted Dethernety deployment, release @VERSION@, or upgrade an existing one to it.
+#
+#   curl --proto '=https' --tlsv1.2 -fsSL https://github.com/@REPO@/releases/download/v@VERSION@/get-byodt.sh | sh
+#   sh get-byodt.sh --help
+#
+# It downloads, verifies and unpacks the release's bundle, and nothing else: the bundle's own `byodt setup` (a new
+# install) or `byodt upgrade` (an existing deployment) takes it from there. The bundle's SHA-256 is written into this
+# script by the release that published it; with cosign installed, the bundle's signature is verified as well.
+#
+# The whole script is one `main "$@"` on its last line, so a download cut short runs nothing.
+
+BYODT_VERSION_PIN=@VERSION@
+BYODT_SHA256_PIN=@SHA256@
+BYODT_ACK_SHA256_PIN=@ACK_SHA256@
+BYODT_REPO=@REPO@
+
+set -eu
+# A relative --dir means this directory's folder, whatever CDPATH the shell carries.
+unset CDPATH
+
+say()  { printf '==> %s\n' "$*" >&2; }
+warn() { printf 'warning: %s\n' "$*" >&2; }
+die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+usage() {
+  cat >&2 <<USAGE
+get-byodt.sh — install Dethernety's self-hosted deployment, release $BYODT_VERSION_PIN, or upgrade one to it
+
+  --dir DIR             the folder to install into (default ./byodt), or the deployment to upgrade
+  --upgrade             upgrade the deployment found (needed when there is no terminal to ask)
+  --yes                 ask nothing: take the defaults, and count the third-party notice as confirmed
+  --https-proxy URL     the proxy for this download, http://host:port (default: the shell's HTTPS_PROXY, which may
+                        carry a login: a login is never taken from an argument); a new setup writes it into .env
+  --tarball FILE        install from this bundle file instead of downloading it (it is checked all the same; its
+                        signature only from FILE.bundle beside it)
+  --require-signature   refuse unless cosign is installed and verifies the bundle
+  --allow-unsigned      let an unattended upgrade use a bundle cosign did not verify (its hash is still checked)
+  -h, --help            this text
+
+Any other option goes to the bundle's own setup or upgrade ('./byodt setup --help' in an installed folder).
+USAGE
+}
+
+# The third-party notice, rendered by the release for both database engines, shown before anything is downloaded.
+notice_text() {
+  cat <<'BYODT_ACK_END'
+@ACK_TEXT@
+BYODT_ACK_END
+}
+
+DIR="" UPGRADE="" YES="" PROXY="" TARBALL="" REQUIRE_SIG="" ALLOW_UNSIGNED="" TTY=""
+
+# --- helpers --------------------------------------------------------------------------------------------------------
+# These helpers mirror byodt's, in POSIX sh, because this script runs before any bundle is on the machine. A change to
+# one belongs in the other:
+#   sha256_of = sha256_of           own_by = owned_by_operator      dir_private_enough = dir_private_enough
+#   path_owner = path_owner         mask = mask_userinfo             value_ok = env_value_ok
+#   fetch = release_fetch           check_tarball = release_verify   unpack = release_unpack
+#   engine_dirs = project_dirs       env_setting_in = env_setting_in
+
+# env_setting_in FILE KEY prints KEY's value in FILE as compose reads it: the last assignment wins, an `export ` prefix
+# and spaces around the name are allowed, an unquoted value ends at ' #', and one pair of surrounding quotes goes.
+env_setting_in() {
+  [ -f "$1" ] || return 0
+  esi_line="$(grep -E "^[[:space:]]*(export[[:space:]]+)?$2[[:space:]]*=" "$1" 2>/dev/null | tail -1 || true)"
+  [ -n "$esi_line" ] || return 0
+  esi_val="$(printf '%s' "${esi_line#*=}" | sed -E 's/^[[:space:]]+//')"
+  case "$esi_val" in
+    \"*) esi_val="$(printf '%s' "$esi_val" | sed -E 's/^"([^"]*)".*$/\1/')" ;;
+    \'*) esi_val="$(printf '%s' "$esi_val" | sed -E "s/^'([^']*)'.*\$/\\1/")" ;;
+    *)   esi_val="${esi_val%%[[:space:]]#*}"; esi_val="$(printf '%s' "$esi_val" | sed -E 's/[[:space:]]+$//')" ;;
+  esac
+  printf '%s' "$esi_val"
+}
+
+# value_ok VALUE: VALUE holds only characters this script passes on (no space, double quote, #, ?, $ or backslash).
+value_ok() {
+  case "$1" in *[!A-Za-z0-9._:/@%+,=~!\&\'\(\)\*\;-]*) return 1 ;; esac
+}
+
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d' ' -f1
+  else die "Neither sha256sum nor shasum is installed; the download cannot be checked."; fi
+}
+
+path_owner() { stat -c %u "$1" 2>/dev/null || stat -f %u "$1"; }
+path_group() { stat -c %g "$1" 2>/dev/null || stat -f %g "$1"; }
+
+# own_by PATH: PATH belongs to the account running this, to the account that ran it through sudo, or to root.
+own_by() {
+  o="$(path_owner "$1")" || return 1
+  [ "$o" = "$(id -u)" ] || [ "$o" = "${SUDO_UID:-}" ] || [ "$o" = 0 ]
+}
+
+# dir_private_enough DIR: not a link, the operator's (own_by), and no other account can write to it (a group that may
+# write counts, unless it is the operator's own private group).
+dir_private_enough() {
+  [ ! -L "$1" ] && [ -d "$1" ] && own_by "$1" || return 1
+  [ -z "$(find "$1" -maxdepth 0 -perm -002 2>/dev/null)" ] || return 1
+  [ -n "$(find "$1" -maxdepth 0 -perm -020 2>/dev/null)" ] || return 0
+  [ "$(path_group "$1")" = "$(id -g)" ] && [ "$(id -gn)" = "$(id -un)" ]
+}
+
+# own_file FILE: a regular file, not a link, the operator's (own_by).
+own_file() { [ -f "$1" ] && [ ! -L "$1" ] && own_by "$1"; }
+
+# ask_yes PROMPT: the terminal answers y.
+ask_yes() {
+  printf '%s ' "$1" > /dev/tty
+  read -r a < /dev/tty || return 1
+  case "$a" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
+}
+
+# mask URL prints URL with its login, if any, replaced by ***.
+mask() {
+  case "$1" in *://*@*) printf '%s://***@%s' "${1%%://*}" "${1##*@}" ;; *) printf '%s' "$1" ;; esac
+}
+
+# fetch URL FILE downloads URL into FILE over HTTPS only, and no more than MAX_BYTES of it: a larger file is not a
+# release's. The proxy reaches curl or wget through their environment, never their arguments, so a login in it does
+# not show in the process list.
+MAX_BYTES=52428800
+fetch() {
+  case "$1" in https://*) ;; *) die "Refusing to download $1: not HTTPS." ;; esac
+  command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 || die "Neither curl nor wget is installed."
+  rm -f "$2.failed"
+  { fetch_out "$1" || : > "$2.failed"; } | head -c "$((MAX_BYTES + 1))" > "$2"
+  [ -f "$2" ] || { rm -f "$2.failed"; return 1; }
+  [ "$(wc -c < "$2" | tr -d ' ')" -le "$MAX_BYTES" ] || { rm -f "$2" "$2.failed"; die "$1 is larger than a release's file is."; }
+  if [ -e "$2.failed" ]; then rm -f "$2" "$2.failed"; return 1; fi
+}
+
+# fetch_out URL writes URL to standard output, with curl or else wget.
+fetch_out() {
+  if command -v curl >/dev/null 2>&1; then
+    if [ -n "$PROXY" ]; then https_proxy="$PROXY" curl --proto '=https' --tlsv1.2 -fsSL --max-filesize "$MAX_BYTES" "$1"
+    else curl --proto '=https' --tlsv1.2 -fsSL --max-filesize "$MAX_BYTES" "$1"; fi
+  else
+    # wget cannot refuse a redirect to plain HTTP; the SHA-256 written into this script still decides what is used.
+    if [ -n "$PROXY" ]; then https_proxy="$PROXY" wget -q --secure-protocol=TLSv1_2 -O - "$1"
+    else wget -q --secure-protocol=TLSv1_2 -O - "$1"; fi
+  fi
+}
+
+# --- finding an existing deployment -----------------------------------------------------------------------------------
+
+# is_deployment DIR: DIR holds a bundle that has been set up (a .env or a .env.secrets beside byodt).
+is_deployment() {
+  [ -f "$1/byodt" ] && [ -f "$1/.env.example" ] && { [ -e "$1/.env" ] || [ -e "$1/.env.secrets" ]; }
+}
+
+# deployment_ok DIR: a deployment this script may act on: the operator's own directory and files (own_by), none a
+# link, and the directory not writable by other accounts.
+deployment_ok() {
+  dir_private_enough "$1" && own_file "$1/byodt" && own_file "$1/.env.example" || return 1
+  for f in "$1/.env" "$1/.env.secrets"; do
+    [ ! -e "$f" ] && [ ! -L "$f" ] || own_file "$f" || return 1
+  done
+}
+
+# engine_dirs prints the directories the container engine has started this bundle's compose project from.
+engine_dirs() {
+  for e in docker podman; do
+    command -v "$e" >/dev/null 2>&1 || continue
+    for ns in com.docker.compose io.podman.compose; do
+      "$e" ps -aq --filter "label=$ns.project=dethernety" 2>/dev/null </dev/null || true
+    done | sort -u | while read -r id; do
+      [ -n "$id" ] || continue
+      "$e" inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$id" 2>/dev/null </dev/null || true
+    done
+  done | LC_ALL=C tr -cd '[:print:]\n' | grep -v '^$' | grep -v '^<no value>$' | sort -u
+}
+
+# candidates prints, one per line and canonical, the deployments found: the --dir folder alone when it is given,
+# otherwise those the container engine knows and the byodt* folders here.
+candidates() {
+  if [ -n "$DIR" ]; then
+    if is_deployment "$DIR"; then (cd -- "$DIR" && pwd -P); fi
+    return 0
+  fi
+  {
+    engine_dirs | while read -r d; do is_deployment "$d" && (cd "$d" && pwd -P); done
+    for d in ./byodt*/; do is_deployment "$d" && (cd "$d" && pwd -P); done
+  } 2>/dev/null | sort -u
+}
+
+# --- checking and unpacking the bundle --------------------------------------------------------------------------------
+
+# check_tarball FILE stops unless FILE is the release's bundle: the SHA-256 written into this script, and, with cosign,
+# the release workflow's signature at this exact tag. cosign gets the same proxy as the download.
+check_tarball() {
+  got="$(sha256_of "$1")"
+  [ "$got" = "$BYODT_SHA256_PIN" ] || die "The bundle's SHA-256 is $got, not the $BYODT_SHA256_PIN this release published. It was not used."
+  say "SHA-256 matches the release ($BYODT_SHA256_PIN)."
+  if ! command -v cosign >/dev/null 2>&1; then
+    [ -z "$REQUIRE_SIG" ] || die "A signature is required, but cosign is not installed (https://github.com/sigstore/cosign)."
+    warn "cosign is not installed: the bundle's integrity was checked, its authenticity was not. Install cosign to verify the signature too."
+    return 0
+  fi
+  if [ -n "$TARBALL" ]; then
+    # A local tarball is never followed by a download: its signature is checked only from a .bundle beside it.
+    if [ ! -f "$TARBALL.bundle" ]; then
+      [ -z "$REQUIRE_SIG" ] || die "A signature is required, but there is no $TARBALL.bundle beside the tarball to verify."
+      warn "No $TARBALL.bundle beside the tarball: its integrity was checked, its signature was not."
+      return 0
+    fi
+    cp "$TARBALL.bundle" "$1.bundle" || die "Could not read $TARBALL.bundle."
+  else
+    fetch "https://github.com/$BYODT_REPO/releases/download/v$BYODT_VERSION_PIN/byodt-$BYODT_VERSION_PIN.tar.gz.bundle" "$1.bundle" \
+      || die "Could not download the bundle's signature."
+  fi
+  if ! out="$(https_proxy="$PROXY" HTTPS_PROXY="$PROXY" cosign verify-blob "$1" --bundle "$1.bundle" \
+      --certificate-identity "https://github.com/$BYODT_REPO/.github/workflows/release.yml@refs/tags/v$BYODT_VERSION_PIN" \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com 2>&1)"; then
+    printf '%s\n' "$out" | LC_ALL=C tr -cd '[:print:]\n' | sed 's/^/    /' >&2
+    die "cosign could not verify the bundle's signature against this release's identity (above). It was not used."
+  fi
+  say "Signature verified: the release workflow of $BYODT_REPO at v$BYODT_VERSION_PIN signed it."
+  : > "$1.signed"
+}
+
+# unpack FILE INTO unpacks the bundle into INTO, after checking every entry: names under byodt-<version>/ only, made of
+# safe characters, and only files and directories.
+unpack() {
+  top="byodt-$BYODT_VERSION_PIN"
+  tar -tzf "$1" > "$2/.list" || die "The bundle cannot be read."
+  while IFS= read -r name; do
+    case "$name" in
+      "$top"|"$top/") ;;
+      "$top"/*)
+        rel="${name#"$top"/}"; rel="${rel%/}"
+        case "$rel" in *..*|*[!A-Za-z0-9._/-]*|.|./*|*/.|*/./*|*//*) die "The bundle holds an unexpected name; it was not used." ;; esac
+        # What belongs to a deployment, never to a release: the settings and secrets, local compose changes, byodt's
+        # own records, and the runtime directories.
+        case "$(printf '%s' "$rel" | tr 'A-Z' 'a-z')" in
+          .env|.env.secrets|.env.tmp|.env.secrets.tmp|compose.override.yaml|.byodt-*|third-party-acknowledgement.log|\
+          backups|backups/*|tls|tls/*|proxy-ca|proxy-ca/*|data|data/*|modules|modules/*|schema|schema/*|mode|mode/*)
+            die "The bundle holds $rel, which belongs to a deployment, not a release; it was not used." ;;
+        esac ;;
+      *) die "The bundle holds an entry outside $top/; it was not used." ;;
+    esac
+  done < "$2/.list"
+  if tar -tvzf "$1" | cut -c1 | grep -qv '^[-d]$'; then die "The bundle holds a link or a special file; it was not used."; fi
+  rm -f "$2/.list"
+  tar -xzf "$1" -C "$2" --no-same-owner --no-same-permissions || die "The bundle could not be unpacked."
+  chmod -R go-w,u-s,g-s "$2/$top" && chmod 0755 "$2/$top/byodt"
+}
+
+# get_bundle INTO puts the verified bundle file into INTO and prints its path.
+get_bundle() {
+  f="$1/byodt-$BYODT_VERSION_PIN.tar.gz"
+  if [ -n "$TARBALL" ]; then
+    cp "$TARBALL" "$f" || die "Could not read $TARBALL."
+  else
+    say "Downloading byodt-$BYODT_VERSION_PIN.tar.gz from the $BYODT_REPO release${PROXY:+ (through $(mask "$PROXY"))}…"
+    fetch "https://github.com/$BYODT_REPO/releases/download/v$BYODT_VERSION_PIN/byodt-$BYODT_VERSION_PIN.tar.gz" "$f" \
+      || die "Could not download the bundle."
+  fi
+  check_tarball "$f"
+  printf '%s' "$f"
+}
+
+# --- the two paths ----------------------------------------------------------------------------------------------------
+
+# handover PROGRAM ARGS…: runs the bundle's byodt with the terminal as its input when there is one.
+handover() {
+  if [ -n "$TTY" ]; then exec "$@" < /dev/tty; else exec "$@" < /dev/null; fi
+}
+
+# upgrade D ARGS…: stage the new release inside the deployment D and hand over to its own `byodt upgrade --staged`,
+# which checks, backs up, moves the files and applies.
+upgrade() {
+  d="$1"; shift
+  current="$(sed -n 's/^PLATFORM_VERSION=//p' "$d/.env.example" | head -1)"
+  # The deployment's own signature policy (UPGRADE_REQUIRE_SIGNATURE=true in its .env), read as data. A .env this
+  # account cannot read could hold it, so it stops the upgrade rather than count as unset; so does a value other than
+  # true or false, which may have been meant as true.
+  [ ! -e "$d/.env" ] || [ -r "$d/.env" ] || die "Cannot read $d/.env, which may require a signature (UPGRADE_REQUIRE_SIGNATURE). Run this as the account that owns it. Nothing was changed."
+  sig="$(env_setting_in "$d/.env" UPGRADE_REQUIRE_SIGNATURE)"
+  case "$(printf '%s' "$sig" | tr 'A-Z' 'a-z')" in
+    ''|false) ;;
+    true)
+      REQUIRE_SIG=1
+      [ -z "$ALLOW_UNSIGNED" ] || die "$d/.env sets UPGRADE_REQUIRE_SIGNATURE=true, so --allow-unsigned does not apply. Nothing was changed." ;;
+    *) die "$d/.env sets UPGRADE_REQUIRE_SIGNATURE=$(printf '%s' "$sig" | LC_ALL=C tr -cd '[:print:]' | cut -c1-40), which is neither true nor false. Nothing was changed." ;;
+  esac
+  stage="$(mktemp -d "$d/.byodt-upgrade.XXXXXX")" || die "Could not make a staging directory in $d."
+  # A refusal before the hand-over removes the staging directory; the hand-over keeps it for the upgrade.
+  trap 'rm -rf "$stage"' EXIT
+  chmod 0700 "$stage"
+  f="$(get_bundle "$stage")"
+  # An upgrade runs the new release's code in place of a working deployment: one cosign did not verify is used at a
+  # terminal only after a yes, and unattended only with --allow-unsigned.
+  if [ ! -e "$f.signed" ]; then
+    if [ -n "$ALLOW_UNSIGNED" ]; then warn "--allow-unsigned: the bundle's integrity was checked, its signature was not."
+    elif [ -n "$TTY" ]; then ask_yes "The bundle's signature was not verified. Upgrade with it anyway? [y/N]" || die "Not upgraded. Nothing was changed. Install cosign to verify the signature."
+    else die "cosign did not verify the bundle, and an unattended upgrade does not run code it cannot verify. Install cosign (https://github.com/sigstore/cosign), or pass --allow-unsigned knowingly. Nothing was changed."; fi
+  fi
+  unpack "$f" "$stage"
+  rm -f "$f" "$f.bundle" "$f.signed"
+  say "Handing over to release $BYODT_VERSION_PIN's own upgrade (from ${current:-unknown})."
+  trap - EXIT
+  [ -z "$YES" ] || set -- --yes "$@"
+  handover "$stage/byodt-$BYODT_VERSION_PIN/byodt" upgrade --staged "$@"
+}
+
+# install DIR ARGS…: unpack into the new folder DIR and hand over to its `byodt setup`.
+install() {
+  target="$1"; shift
+  parent="$(dirname "$target")"
+  [ -d "$parent" ] || die "$parent does not exist."
+  # The deployment is put in place by a rename, then run: no other account may be able to change where it lands.
+  dir_private_enough "$parent" || die "Other accounts can change $parent; install where only you can (--dir). The deployment holds its own data and secrets, so a shared folder such as /tmp is the wrong place for it anyway."
+  if [ -e "$target" ] || [ -L "$target" ]; then
+    die "$target already exists. Choose another folder with --dir, or upgrade the deployment in it (--upgrade); a folder a refused setup left behind holds nothing yet, and can be removed."
+  fi
+  ack="$(confirm_notice)"
+  tmp="$(mktemp -d "$parent/.byodt-install.XXXXXX")" || die "Could not make a working directory in $parent."
+  trap 'rm -rf "$tmp"' EXIT
+  chmod 0700 "$tmp"
+  f="$(get_bundle "$tmp")"
+  unpack "$f" "$tmp"
+  mv "$tmp/byodt-$BYODT_VERSION_PIN" "$target" || die "Could not move the bundle into $target."
+  rm -rf "${tmp:?}"
+  trap - EXIT
+  # What lands must be what was unpacked: a folder that appeared at $target meanwhile would have taken the bundle
+  # inside it instead.
+  dir_private_enough "$target" && own_file "$target/byodt" && [ ! -e "$target/byodt-$BYODT_VERSION_PIN" ] \
+    || die "$target is not the folder just unpacked (did something else create it meanwhile?). Check it before you use it."
+  say "Unpacked release $BYODT_VERSION_PIN into $target."
+  # The proxy goes to setup, which writes it into .env, split: the URL without the login as a flag, the login (if any)
+  # through an exported variable, which setup reads and clears before anything else.
+  login="" url="$PROXY"
+  case "$PROXY" in *://*@*) login="${PROXY#*://}"; login="${login%@*}"; url="${PROXY%%://*}://${PROXY##*@}" ;; esac
+  [ -z "$url" ] || set -- --https-proxy "$url" "$@"
+  [ -z "$ack" ] || set -- --third-party-acknowledged "$BYODT_ACK_SHA256_PIN" "$@"
+  [ -z "$YES" ] || set -- --yes "$@"
+  # byodt runs in its own folder; this one is the directory a relative path given to setup is read from. The login is
+  # exported, not put on a command line, so it never shows in the process list; the hand-over replaces this shell.
+  BYODT_SETUP_PROXY_USERINFO="$login"; export BYODT_SETUP_PROXY_USERINFO
+  handover "$target/byodt" setup "$@"
+}
+
+# confirm_notice shows the third-party notice and prints "yes" once it is confirmed: by --yes, or by a y at the terminal.
+confirm_notice() {
+  notice_text >&2
+  printf '\nNothing has been downloaded yet.\n' >&2
+  if [ -n "$YES" ]; then say "--yes: counted as the confirmation of the notice above."; printf yes; return 0; fi
+  [ -n "$TTY" ] || die "There is no terminal to confirm the notice above on. Run this at a terminal, or add --yes."
+  ask_yes "Continue? [y/N]" || die "Not confirmed. Nothing has been downloaded."
+  printf yes
+}
+
+main() {
+  # This script's own options are taken out; every other argument is queued again, in order, for setup or upgrade.
+  pending=""
+  for a in "$@"; do
+    shift
+    if [ -n "$pending" ]; then
+      case "$pending" in --dir) DIR="$a" ;; --https-proxy) PROXY="$a" ;; --tarball) TARBALL="$a" ;; esac
+      pending=""; continue
+    fi
+    case "$a" in
+      --dir|--https-proxy|--tarball) pending="$a" ;;
+      --dir=*) DIR="${a#*=}" ;;
+      --https-proxy=*) PROXY="${a#*=}" ;;
+      --tarball=*) TARBALL="${a#*=}" ;;
+      --upgrade) UPGRADE=1 ;;
+      --require-signature) REQUIRE_SIG=1 ;;
+      --allow-unsigned) ALLOW_UNSIGNED=1 ;;
+      --yes) YES=1 ;;
+      -h|--help) usage; exit 0 ;;
+      *) value_ok "$a" || die "An option holds a character this script does not pass on: $(printf '%s' "$a" | LC_ALL=C tr -cd '[:print:]')"
+         set -- "$@" "$a" ;;
+    esac
+  done
+  [ -z "$pending" ] || die "$pending needs a value."
+  # An interrupt runs the EXIT trap too (dash runs it only on exit), so a stopped download leaves nothing behind.
+  trap 'exit 130' INT
+  trap 'exit 143' HUP TERM
+  case "$(uname -s)" in Linux|Darwin) ;; *) die "This installs on Linux or macOS (on Windows, inside WSL)." ;; esac
+  case "$PROXY" in *@*) die "Give --https-proxy without a login (http://host:port): an argument shows in the process list. A login comes only from HTTPS_PROXY in the environment." ;; esac
+  [ -n "$PROXY" ] || PROXY="${HTTPS_PROXY:-${https_proxy:-}}"
+  PROXY="${PROXY%/}"
+  if [ -n "$PROXY" ]; then
+    value_ok "$PROXY" || die "The proxy URL holds a character this script does not pass on (a space, a double quote, #, ? or \$): percent-encode its login."
+    printf '%s' "$PROXY" | grep -Eq '^https?://([^@/]+@)?[][A-Za-z0-9.:-]+:[0-9]{1,5}$' \
+      || die "The proxy is $(mask "$PROXY"): write it as http://host:port."
+  fi
+  [ -z "$DIR" ] || value_ok "$DIR" || die "--dir holds a character this script does not use in a path."
+  [ -z "$TARBALL" ] || [ -f "$TARBALL" ] || die "--tarball: $TARBALL is not a file."
+  if [ -z "$YES" ] && ( : < /dev/tty ) 2>/dev/null; then TTY=1; fi
+  command -v tar >/dev/null 2>&1 || die "tar is not installed."
+
+  # An existing deployment is upgraded, never installed over.
+  found="$(candidates)"
+  if [ -n "$found" ]; then
+    if [ "$(printf '%s\n' "$found" | wc -l | tr -d ' ')" -gt 1 ]; then
+      printf '%s\n' "$found" | sed 's/^/    /' >&2
+      die "More than one deployment was found (above). Name the one to upgrade with --dir."
+    fi
+    deployment_ok "$found" || die "$found holds a deployment, but another account owns it or can change it; this script does not act on it. To install a new one elsewhere, name its folder with --dir."
+    current="$(sed -n 's/^PLATFORM_VERSION=//p' "$found/.env.example" | head -1)"
+    # The same release is not offered as an upgrade. Its byodt is this release's, which goes on with an upgrade left
+    # half done there; one left by an earlier release's installer is taken over by the hand-over below.
+    if [ "$current" = "$BYODT_VERSION_PIN" ]; then
+      if [ -e "$found/.byodt-upgrade.state" ] || [ -L "$found/.byodt-upgrade.state" ]; then
+        die "An upgrade is half done in $found. '$found/byodt upgrade' goes on with it, or '$found/byodt upgrade --abandon' undoes it. Nothing was changed."
+      fi
+      # Set up but never started (the same test as ready() in byodt: a .env, a database password, the mode layer):
+      # update refuses it.
+      if ! { [ -f "$found/.env" ] && [ -f "$found/.env.secrets" ] && grep -Eq '^NEO4J_PASSWORD=.+' "$found/.env.secrets" 2>/dev/null \
+          && [ -f "$found/mode/mode.env" ]; }; then
+        die "The deployment in $found already holds release $current, and has not been started yet; '$found/byodt up' starts it. To install another one, name its folder with --dir. Nothing was changed."
+      fi
+      die "The deployment in $found already runs release $current; '$found/byodt update' applies it again. To install another one, name its folder with --dir. Nothing was changed."
+    fi
+    if [ -n "$UPGRADE" ] || { [ -n "$TTY" ] && ask_yes "Upgrade the deployment in $found from ${current:-unknown} to $BYODT_VERSION_PIN? [y/N]"; }; then
+      upgrade "$found" "$@"
+    fi
+    die "There is a deployment in $found. Upgrade it (--upgrade), or name another folder for a new one with --dir. Nothing was changed."
+  elif [ -n "$UPGRADE" ]; then
+    die "--upgrade, but no deployment was found${DIR:+ in $DIR}."
+  fi
+  install "${DIR:-./byodt}" "$@"
+}
+
+main "$@"

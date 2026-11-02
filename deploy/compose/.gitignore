@@ -1,16 +1,24 @@
 # Everything here is generated on first run and owned by the operator — never
 # committed. The tracked bundle is only compose.yaml, the database engine files
 # (compose.memgraph.yaml, compose.neo4j.yaml), .env.example, byodt, proxy/,
-# README.md, LICENSE and NOTICE.
+# README.md, LICENSE, NOTICE and THIRD-PARTY-ACKNOWLEDGEMENT.
 .env
 .env.secrets
+# A .env or .env.secrets being rewritten, renamed over the file when complete.
+.env.tmp
+.env.secrets.tmp
 modules/
 schema/
 data/
 backups/
 tls/
-proxy-ca/
-console/
 mode/
+# The proxy's CA certificate, when the proxy inspects TLS.
+proxy-ca/
 # A Neo4j backup's or restore's private working directory, removed when it ends.
 .byodt-dump.*
+# The record of the third-party notice's confirmations.
+third-party-acknowledgement.log
+# The release this folder runs, with its shipped files' hashes; an upgrade in progress: its state, lock and staging.
+.byodt-release
+.byodt-upgrade.*

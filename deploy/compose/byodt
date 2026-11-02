@@ -8,10 +8,19 @@
 #   ./byodt up        # bootstrap (first run) + start
 #   ./byodt help      # all commands
 set -euo pipefail
+# An inherited `allexport` would hand every variable byodt sets, the proxy login among them, to each child.
+set +a
+
+# The proxy login an installer hands to `setup`. It is read once and taken out of the environment before anything else
+# runs, so no process byodt starts inherits it.
+SETUP_PROXY_LOGIN="${BYODT_SETUP_PROXY_USERINFO-}"
+unset BYODT_SETUP_PROXY_USERINFO
+# The directory byodt was run from, for a path an operator gives relative to it (setup's --proxy-ca).
+readonly CALLER_DIR="$PWD"
 
 cd "$(dirname "$0")"
 
-readonly BYODT_VERSION="1.3.0"
+readonly BYODT_VERSION="1.4.0"
 readonly ENV_FILE=".env"
 readonly SECRETS_FILE=".env.secrets"
 readonly MODE_FILE="mode/mode.env"
@@ -23,7 +32,21 @@ readonly TESTED_NEO4J_IMAGE="docker.io/library/neo4j:5.26.32-community"
 # The shortest Memgraph password byodt treats as a long random value: Memgraph stores it with a fast hash (see
 # compose.memgraph.yaml). byodt generates 48 characters.
 readonly MIN_DB_PASSWORD_LENGTH=32
-SELF="$(basename "$0")"
+# The embedding model the platform downloads on its first start: its Hugging Face repository and revision, as the
+# platform's default profile pins them (the release checks they agree).
+readonly TESTED_MODEL="onnx-community/embeddinggemma-300m-ONNX@5090578d9565bb06545b4552f76e6bc2c93e4a66"
+# The third-party notice (its versioned text, shipped in the bundle) and the record of its confirmations.
+# Not readonly: a staged upgrade reads the new release's copy.
+ACK_FILE="THIRD-PARTY-ACKNOWLEDGEMENT"
+readonly ACK_LOG="third-party-acknowledgement.log"
+readonly ACK_MAX_BYTES=16384
+# --yes, for the commands that take it: ask nothing, take the defaults, and count the third-party notice as confirmed.
+YES=""
+# How the operator ran byodt, so the commands its messages suggest work from where they ran it. Every byodt this one
+# runs gets it in BYODT_SELF. A name with no slash is byodt run by name from its own folder.
+SELF="${BYODT_SELF:-$0}"
+case "$SELF" in */*) ;; *) SELF="./$SELF" ;; esac
+export BYODT_SELF="$SELF"
 
 # --- output -------------------------------------------------------------------
 if [ -t 1 ]; then
@@ -225,7 +248,8 @@ resolve_engine() {
 require_engine() { resolve_engine; }
 
 # ready reports whether the bundle is in a startable state: the env files, a database password, and the
-# mode layer compose mounts as an env_file. Anything missing means `up` still has setup to do.
+# mode layer compose mounts as an env_file. Anything missing means `up` still has setup to do. The installer's
+# get-byodt.sh.in makes the same test, to point a folder never started to `up`: keep the two in step.
 ready() {
   [ -f "$ENV_FILE" ] || return 1
   [ -f "$SECRETS_FILE" ] || return 1
@@ -290,7 +314,7 @@ ensure_engine() {
   resolve_engine
   [ -f "$ENV_FILE" ] || return 0
   if grep -Eq '^CONTAINER_ENGINE=' "$ENV_FILE"; then return 0; fi
-  printf '\n# Container engine, recorded by byodt on first run — edit to change.\nCONTAINER_ENGINE=%s\n' "$ENGINE" >> "$ENV_FILE"
+  env_append "$ENV_FILE" CONTAINER_ENGINE "$ENGINE" '# Container engine, recorded by byodt on first run — edit to change.'
   info "Container engine: ${BOLD}$ENGINE${RST} (recorded CONTAINER_ENGINE in $ENV_FILE)."
 }
 
@@ -305,11 +329,13 @@ ensure_db_engine() {
   local recorded=""
   if [ -z "$(env_setting DB_ENGINE)" ]; then
     recorded=1
-    printf '\n# Graph database engine, recorded by byodt on first run. Each engine keeps its own data; changing it\n# starts an empty graph, and byodt refuses while the other engine'"'"'s data is still in place.\nDB_ENGINE=%s\n' "$DBE" >> "$ENV_FILE"
+    env_append "$ENV_FILE" DB_ENGINE "$DBE" "# Graph database engine, recorded by byodt on first run. Each engine keeps its own data; changing it
+# starts an empty graph, and byodt refuses while the other engine's data is still in place."
     info "Database engine: ${BOLD}$DBE${RST} (recorded DB_ENGINE in $ENV_FILE)."
   fi
   if [ "$DBE" = neo4j ] && [ -z "$(env_setting NEO4J_IMAGE)" ]; then
-    printf '\n# The Neo4j image this deployment runs, recorded by byodt on first run. Back up before you change it:\n# a store moved to a newer Neo4j cannot be moved back.\nNEO4J_IMAGE=%s\n' "$(neo4j_image)" >> "$ENV_FILE"
+    env_append "$ENV_FILE" NEO4J_IMAGE "$(neo4j_image)" "# The Neo4j image this deployment runs, recorded by byodt on first run. Back up before you change it:
+# a store moved to a newer Neo4j cannot be moved back."
     info "Neo4j image: ${BOLD}$(neo4j_image)${RST} (recorded NEO4J_IMAGE in $ENV_FILE)."
     recorded=1
   fi
@@ -371,7 +397,7 @@ check_override_names() {
 # removed dir) self-heals here rather than failing inside compose on a missing env_file or bind mount.
 # path_owner PATH prints the uid owning PATH itself (a symlink is not followed): GNU stat, else BSD stat.
 path_owner() {
-  stat -c %u "$1" 2>/dev/null || stat -f %u "$1"
+  stat_field %u %u "$1"
 }
 # owned_by_operator PATH: PATH belongs to the user running byodt, to the user who ran it through sudo, or to root.
 owned_by_operator() {
@@ -524,6 +550,8 @@ ensure_password() {
   mv "$SECRETS_FILE.tmp" "$SECRETS_FILE"
   chmod 0600 "$SECRETS_FILE"
   info "Wrote a new database password to $SECRETS_FILE (mode 0600)."
+  # A deployment's first run: record the files its release shipped, for the first upgrade's check of local edits.
+  release_record_initial
 }
 
 # check_password_length warns when the Memgraph password is shorter than MIN_DB_PASSWORD_LENGTH. Memgraph stores it
@@ -534,7 +562,7 @@ check_password_length() {
   pass="$(secret_value NEO4J_PASSWORD "")"
   [ -n "$pass" ] || return 0
   [ "${#pass}" -lt "$MIN_DB_PASSWORD_LENGTH" ] || return 0
-  warn "NEO4J_PASSWORD in $SECRETS_FILE is shorter than $MIN_DB_PASSWORD_LENGTH characters. Memgraph stores it with a fast hash, which is safe only for a long random value, such as the 48 characters '$SELF' generates. On an existing database, set a new password in the database before you change $SECRETS_FILE, or the platform is locked out."
+  warn "NEO4J_PASSWORD in $SECRETS_FILE is shorter than $MIN_DB_PASSWORD_LENGTH characters. Memgraph stores it with a fast hash, which is safe only for a long random value, such as the 48 characters byodt generates. On an existing database, set a new password in the database before you change $SECRETS_FILE, or the platform is locked out."
 }
 
 # reapply_db_password sets the Memgraph user's password to the value it already has. Memgraph keeps each stored hash
@@ -578,6 +606,2018 @@ reapply_db_password() {
 # do_bootstrap is full first-run setup: the explicit `bootstrap` command, and what `up` folds in.
 do_bootstrap() { ensure_layout; ensure_password; }
 
+# --- reading and writing .env --------------------------------------------------
+
+# env_setting KEY prints KEY's value in .env as compose reads it ('' when unset). env_value is left as it is for its
+# other callers; this one decides a refusal, so it reads what the platform gets.
+env_setting() {
+  env_setting_in "$ENV_FILE" "$1"
+}
+
+# env_setting_in FILE KEY prints KEY's value in FILE (.env, or a release's .env.example) as compose reads it: the last
+# assignment wins, an `export ` prefix and spaces around the name are allowed, an unquoted value ends at ' #', and one
+# pair of surrounding quotes goes.
+env_setting_in() {
+  local file="$1" key="$2" line val
+  [ -f "$file" ] || return 0
+  line="$(grep -E "^[[:space:]]*(export[[:space:]]+)?${key}[[:space:]]*=" "$file" 2>/dev/null | tail -1 || true)"
+  [ -n "$line" ] || return 0
+  val="$(printf '%s' "${line#*=}" | sed -E 's/^[[:space:]]+//')"
+  case "$val" in
+    \"*) val="$(printf '%s' "$val" | sed -E 's/^"([^"]*)".*$/\1/')" ;;
+    \'*) val="$(printf '%s' "$val" | sed -E "s/^'([^']*)'.*\$/\\1/")" ;;
+    *)   val="${val%%[[:space:]]#*}"; val="$(printf '%s' "$val" | sed -E 's/[[:space:]]+$//')" ;;
+  esac
+  printf '%s' "$val"
+}
+
+#
+# Every change byodt makes to .env, and to .env.secrets apart from the database password ensure_password generates,
+# goes through the functions below, so a value is checked in one place and lands where a hand edit would put it. Each
+# writes a sibling FILE.tmp and renames it over FILE, so a failure leaves FILE as it was.
+
+# A value byodt writes: letters, digits and . _ : / @ % + , = ~ ! & ' ( ) * ; -, or nothing. Every value it writes is a
+# version, an image, an address, a port, a URL, a host list or a percent-encoded login, so none needs quoting; anything
+# else (a space, a double quote, #, $, a backslash, a control character) would be read differently by compose, or reach
+# a terminal raw.
+readonly ENV_VALUE_RE="^[A-Za-z0-9._:/@%+,=~!&'()*;-]*\$"
+
+# env_value_ok VALUE: VALUE is one line of allowed characters.
+env_value_ok() {
+  case "$1" in '') return 0 ;; *$'\n'*) return 1 ;; esac
+  printf '%s' "$1" | LC_ALL=C grep -Eq "$ENV_VALUE_RE"
+}
+
+# env_key_ok KEY: KEY is an upper-case variable name.
+env_key_ok() {
+  case "$1" in ''|[!A-Z_]*|*[!A-Z0-9_]*) return 1 ;; esac
+}
+
+# env_file_mode FILE prints FILE's permission bits in octal.
+env_file_mode() { stat_field %a %Lp "$1"; }
+
+# env_rewrite FILE COMMAND [ARGS…] replaces FILE with what COMMAND prints. Everything is checked, and the rename
+# done, in the calling shell, so a refusal stops the command: FILE and FILE.tmp may not be links, and FILE.tmp may not
+# exist (a leftover one is the operator's to look at). The new file keeps FILE's mode; .env.secrets, and any file
+# that does not exist yet, gets 0600 until the caller says otherwise.
+env_rewrite() {
+  local file="$1" tmp="$1.tmp" mode=600
+  shift
+  if [ -L "$file" ]; then die "$file is a symbolic link: byodt does not write through it. Replace it with the file itself."; fi
+  if [ -e "$tmp" ] || [ -L "$tmp" ]; then die "$tmp exists, left by an earlier run. Check it, remove it, and run the command again."; fi
+  if [ -f "$file" ] && [ "$file" != "$SECRETS_FILE" ]; then mode="$(env_file_mode "$file")"; fi
+  ( set -C; umask 077; "$@" > "$tmp" ) || die "Could not write $tmp. Remove it and run the command again."
+  chmod "$mode" "$tmp" || die "Could not set the mode of $tmp. Remove it and run the command again."
+  # Run through sudo, the new file would be root's; an existing file keeps its owner, as an append would have.
+  if [ "$(id -u)" = 0 ] && [ -f "$file" ]; then
+    chown "$(stat_field %u %u "$file"):$(stat_field %g %g "$file")" "$tmp" || die "Could not give $tmp the owner of $file."
+  fi
+  mv -f "$tmp" "$file" || die "Could not replace $file with $tmp."
+}
+
+# env_print_appended FILE TEXT prints FILE, if it exists, then a blank line and TEXT.
+env_print_appended() {
+  if [ -f "$1" ]; then cat -- "$1"; fi
+  printf '\n%s\n' "$2"
+}
+
+# env_check KEY VALUE FILE stops unless KEY is a variable name and VALUE an allowed value.
+env_check() {
+  env_key_ok "$1" || die "byodt tried to write the key '$1', which is not a variable name."
+  # The value is not repeated: it may be a login.
+  env_value_ok "$2" || die "$1 cannot be written to $3: a value may hold only letters, digits and . _ : / @ % + , = ~ ! & ' ( ) * ; -"
+}
+
+# env_append FILE KEY VALUE COMMENT appends a blank line, the COMMENT lines as given (each starting with '#'), and
+# KEY=VALUE: the form byodt has always recorded settings in. It does not look for an existing line; callers decide.
+env_append() {
+  env_check "$2" "$3" "$1"
+  env_rewrite "$1" env_print_appended "$1" "$4
+$2=$3"
+}
+
+# env_print_set FILE KEY VALUE prints FILE with KEY set to VALUE (env_write's first two cases). The key and the value
+# reach awk through its environment, never as program text or with -v, which reads backslash escapes.
+env_print_set() {
+  ENVW_KEY="$2" ENVW_VALUE="$3" awk '
+    BEGIN { k = ENVIRON["ENVW_KEY"]; v = ENVIRON["ENVW_VALUE"]
+            act = "^[ \t]*(export[ \t]+)?" k "[ \t]*="; tpl = "# " k "=" }
+    { line[NR] = $0
+      if ($0 ~ act) last = NR
+      else if (!first && index($0, tpl) == 1) first = NR }
+    END {
+      if (last) { p = index(line[last], "="); line[last] = substr(line[last], 1, p) v }
+      else if (first) line[first] = k "=" v
+      for (i = 1; i <= NR; i++) print line[i] }' "$1"
+}
+
+# env_write FILE KEY VALUE [COMMENT] sets KEY to VALUE as a hand edit would:
+#   - an active assignment exists (env_setting's forms: an optional `export `, spaces around the name): the value of
+#     the LAST one is replaced, since the last one wins for compose, keeping the line's prefix and dropping any inline
+#     comment after the old value;
+#   - else a template line `# KEY=…` exists, as .env.example ships the keys it leaves unset: the FIRST one is
+#     uncommented in place, under its documentation. Only that exact form counts: `#   KEY=…` is documentation;
+#   - else KEY=VALUE is appended, after the line `# COMMENT` when one is given.
+env_write() {
+  local file="$1" key="$2" value="$3" comment="${4:-}"
+  env_check "$key" "$value" "$file"
+  if [ -f "$file" ] && grep -Eq "^[[:space:]]*(export[[:space:]]+)?${key}[[:space:]]*=|^# ${key}=" "$file"; then
+    env_rewrite "$file" env_print_set "$file" "$key" "$value"
+  elif [ -n "$comment" ]; then
+    env_rewrite "$file" env_print_appended "$file" "# $comment
+$key=$value"
+  else
+    env_rewrite "$file" env_print_appended "$file" "$key=$value"
+  fi
+}
+
+# env_print_commented FILE KEY NOTE prints FILE with every active assignment of KEY turned into a comment.
+env_print_commented() {
+  ENVW_KEY="$2" ENVW_NOTE="$3" awk '
+    BEGIN { act = "^[ \t]*(export[ \t]+)?" ENVIRON["ENVW_KEY"] "[ \t]*=" }
+    { if ($0 ~ act) print "# " $0 "  # " ENVIRON["ENVW_NOTE"]; else print }' "$1"
+}
+
+# env_comment_out FILE KEY NOTE turns every active assignment of KEY into a comment, with NOTE after it.
+env_comment_out() {
+  env_key_ok "$2" || die "byodt tried to comment out the key '$2', which is not a variable name."
+  [ -f "$1" ] || return 0
+  grep -Eq "^[[:space:]]*(export[[:space:]]+)?${2}[[:space:]]*=" "$1" || return 0
+  env_rewrite "$1" env_print_commented "$1" "$2" "$3"
+}
+
+# env_insert_block FILE BLOCK appends BLOCK, a key's template line with the comment lines above it, taken verbatim
+# from a release's .env.example. It is shipped text, not a value, so it is held to its own rule: no control character
+# but the line breaks, and exactly one line that sets a key (`KEY=…`, or `# KEY=…` for a key the template leaves unset).
+env_insert_block() {
+  env_insert_block_check "$2" || die "A setting from .env.example holds a control character, or sets no key or more than one; byodt does not copy it into $1."
+  env_rewrite "$1" env_print_appended "$1" "$2"
+}
+
+# --- the compose project -------------------------------------------------------
+
+# same_dir LABEL HERE HERE_P: the directory a container label names is this one, spelled as it is (HERE), resolved
+# (HERE_P), or resolving to it (a path through a link, such as /var for /private/var on macOS).
+same_dir() {
+  [ -n "$1" ] || return 1
+  [ "$1" = "$2" ] || [ "$1" = "$3" ] && return 0
+  [ -d "$1" ] && [ "$(cd "$1" 2>/dev/null && pwd -P)" = "$3" ]
+}
+
+# project_workdirs prints, one per line, every directory a container of this bundle's compose project was started
+# from, running or stopped. The directory is the one compose records on each container
+# (com.docker.compose.project.working_dir; podman-compose records the same label). Containers are found by the project
+# label in both providers' namespaces, as project_containers does. The caller has resolved the engine.
+project_workdirs() {
+  local ns id dir
+  for ns in com.docker.compose io.podman.compose; do
+    "$ENGINE" ps -aq --filter "label=$ns.project=dethernety" 2>/dev/null </dev/null || true
+  done | sort -u | while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    dir="$("$ENGINE" inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$id" 2>/dev/null </dev/null || true)"
+    case "$dir" in ''|'<no value>') continue ;; esac
+    printf '%s\n' "$dir"
+  done | sort -u
+}
+
+# project_dirs prints, one per line, every directory other than this one in project_workdirs. compose.yaml fixes the
+# project name (`name: dethernety`), so a second bundle directory that starts takes over the first one's containers,
+# and with a named volume its database too.
+project_dirs() {
+  local dir here here_p
+  resolve_engine
+  here="$PWD"; here_p="$(pwd -P)"
+  project_workdirs | while IFS= read -r dir; do
+    same_dir "$dir" "$here" "$here_p" || printf '%s\n' "$dir"
+  done
+}
+
+# check_project [fresh] stops a command that acts on the project's containers (a start, down, stop, destroy, backup,
+# restore) when another directory runs, or ran, this bundle's compose project (project_dirs). With "fresh" (a folder
+# whose database has no password yet), it also stops when the named volume the database would mount already exists: it
+# holds a graph from an earlier deployment, whose users were made with another password, and the platform would be
+# locked out of it.
+check_project() {
+  local others
+  others="$(project_dirs)"
+  if [ -n "$others" ]; then
+    printf '%serror:%s this bundle'"'"'s compose project is already used by another directory:\n' "$RED" "$RST" >&2
+    # The directories come from container labels: only printable characters reach the terminal.
+    printf '%s\n' "$others" | LC_ALL=C tr -cd '[:print:]\n' | sed 's/^/    /' >&2
+    printf 'Running this here would act on its containers. Upgrade that deployment instead ('"'"'./byodt upgrade'"'"' in it), or\n' >&2
+    printf 'stop it there ('"'"'./byodt down'"'"'). If this deployment was moved here from that directory, run '"'"'%s down --take-over'"'"'\n' "$SELF" >&2
+    printf 'here once to remove the old containers, then start it here.\n' >&2
+    exit 1
+  fi
+  [ "${1:-}" = fresh ] || return 0
+  db_is_bind && return 0
+  check_project_volume "$(db_data_setting)"
+}
+
+# db_folder_setting VOLUME prints the .env setting that keeps the database of VOLUME's engine in a folder instead.
+db_folder_setting() {
+  case "$1" in neo4j-data) echo NEO4J_DATA=./data/neo4j ;; *) echo DB_DATA=./data/memgraph ;; esac
+}
+
+# check_project_volume NAME [setup] stops when the project's named volume NAME already exists (check_project, fresh).
+# From setup, nothing is written yet, so the way to a folder is setup's own flag rather than a .env setting.
+check_project_volume() {
+  local vol="$1" way
+  way="Set $(db_folder_setting "$vol") in $ENV_FILE"
+  [ "${2:-}" != setup ] || way="Run setup with --db-data bind"
+  if "$ENGINE" volume inspect "dethernety_$vol" >/dev/null 2>&1 </dev/null; then
+    die "The volume dethernety_$vol remains from an earlier deployment of this bundle, and this one would mount it: that graph's database users were made with another password, so the platform would be locked out. $way to keep the database in a folder instead (less robust on a VM-backed engine), or upgrade the deployment it belongs to; if you no longer need that graph, remove it with '$ENGINE volume rm dethernety_$vol' (this deletes it for good), and run the command again."
+  fi
+}
+
+# warn_old_volumes DATA VOLUME warns about each database volume an earlier deployment of this bundle left. Setup runs it
+# before anything is written, started or not; it never refuses, since a deployment that keeps its database in a folder
+# can sit next to an old volume. VOLUME, when DATA is volume, is the one this deployment would mount: its first start
+# would be refused (check_project_volume), so it is named with the setting that avoids that.
+warn_old_volumes() {
+  local v
+  for v in memgraph-data neo4j-data; do
+    "$ENGINE" volume inspect "dethernety_$v" >/dev/null 2>&1 </dev/null || continue
+    if [ "$1" = volume ] && [ "$v" = "$2" ]; then
+      warn "The volume dethernety_$v remains from an earlier deployment of this bundle, and this one would mount it: that graph's database users were made with another password, so its first start would be refused. Before it, set $(db_folder_setting "$v") in $ENV_FILE to keep the database in a folder instead (less robust on a VM-backed engine); if you no longer need that graph, remove it with '$ENGINE volume rm dethernety_$v' (this deletes it for good)."
+    else
+      warn "The volume dethernety_$v remains from an earlier deployment of this bundle; its graph may still be in it. This one does not use it. To use that graph, stop this one and start the deployment it belongs to ('./byodt up' in its folder); if you no longer need it, remove it with '$ENGINE volume rm dethernety_$v' (this deletes it for good)."
+    fi
+  done
+}
+
+# --- third-party notice ---------------------------------------------------------
+#
+# Before this machine downloads third-party software (the database image, the front door's nginx image, the embedding
+# model), byodt shows a short factual notice from ACK_FILE, a versioned text shipped in the bundle, and records the
+# operator's confirmation in ACK_LOG. The text holds no image reference itself: {IMAGE} and {MODEL} are filled with
+# what this deployment will actually run, so a new tag changes no wording and asks nobody again. Only a change of the
+# text, of the database image or of the model does.
+
+# sha256_of FILE prints FILE's SHA-256: sha256sum, else shasum.
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum -- "$1" | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 -- "$1" | cut -d' ' -f1
+  else die "Neither sha256sum nor shasum is installed; files cannot be checked."; fi
+}
+
+# sha256_tool: sha256sum or shasum is installed. sha256_of runs inside $(…), where its die only ends the substitution,
+# so what acts on a hash checks this first, through sha256_ready.
+sha256_tool() { command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1; }
+sha256_ready() { sha256_tool || die "Neither sha256sum nor shasum is installed; files cannot be checked."; }
+
+# stat_field GNU-FORMAT BSD-FORMAT PATH prints one field of PATH's stat: GNU stat, else BSD stat.
+stat_field() {
+  stat -c "$1" "$3" 2>/dev/null || stat -f "$2" "$3"
+}
+
+# dir_private_enough DIR: DIR is not a link, belongs to the operator, and no other account can write to it. A group
+# that may write counts as another account, unless it is the operator's own private group (a group named after the
+# operator, which on many Linux hosts makes every new directory group-writable).
+dir_private_enough() {
+  local d="$1"
+  [ ! -L "$d" ] && owned_by_operator "$d" || return 1
+  [ -z "$(find "$d" -maxdepth 0 -perm -002 2>/dev/null)" ] || return 1
+  [ -n "$(find "$d" -maxdepth 0 -perm -020 2>/dev/null)" ] || return 0
+  [ "$(stat_field %g %g "$d")" = "$(id -g)" ] && [ "$(id -gn)" = "$(id -un)" ]
+}
+
+# ack_file_check stops unless ACK_FILE is the bundle's own regular file: the operator's, at most ACK_MAX_BYTES,
+# printable ASCII and line feeds only, starting with its Text-Version line.
+ack_file_check() {
+  if [ -L "$ACK_FILE" ] || [ ! -f "$ACK_FILE" ]; then
+    die "$ACK_FILE is missing or not a regular file. It ships with the bundle: unpack the bundle again."
+  fi
+  owned_by_operator "$ACK_FILE" || die "$ACK_FILE is owned by uid $(path_owner "$ACK_FILE"), not by you: byodt does not show a text another account can change."
+  [ "$(wc -c < "$ACK_FILE" | tr -d ' ')" -le "$ACK_MAX_BYTES" ] || die "$ACK_FILE is larger than $ACK_MAX_BYTES bytes: it is not the text the bundle ships."
+  if LC_ALL=C grep -q '[^ -~]' "$ACK_FILE"; then
+    die "$ACK_FILE holds a character other than printable ASCII: it is not the text the bundle ships."
+  fi
+  head -1 "$ACK_FILE" | grep -Eq '^Text-Version: [1-9][0-9]*$' || die "$ACK_FILE does not start with its Text-Version line."
+}
+
+ack_version() { head -1 "$ACK_FILE" | sed 's/^Text-Version: //'; }
+
+# ack_section NAME prints the lines of ACK_FILE's section [NAME], without its trailing blank lines.
+ack_section() {
+  ACK_NAME="[$1]" awk '
+    /^\[[a-z0-9]+\]$/ { on = ($0 == ENVIRON["ACK_NAME"]); next }
+    on { line[++n] = $0 }
+    END { while (n > 0 && line[n] == "") n--; for (i = 1; i <= n; i++) print line[i] }' "$ACK_FILE"
+}
+
+# ack_fill fills {IMAGE}, {MODEL} and {KEY} on stdin with ACK_IMAGE, ACK_MODEL and ACK_KEY from the environment. Plain
+# string replacement: awk's sub() would read an & in a value as the matched text.
+ack_fill() {
+  awk '
+    function rep(s, ph, v,   out, i) {
+      out = ""
+      while ((i = index(s, ph)) > 0) { out = out substr(s, 1, i - 1) v; s = substr(s, i + length(ph)) }
+      return out s }
+    { print rep(rep(rep($0, "{IMAGE}", ENVIRON["ACK_IMAGE"]), "{MODEL}", ENVIRON["ACK_MODEL"]), "{KEY}", ENVIRON["ACK_KEY"]) }'
+}
+
+# image_identity REF prints REF's repository without its tag or digest, in the full form an engine resolves a short
+# name to: docker.io/library/nginx for nginx, docker.io/memgraph/memgraph for memgraph/memgraph.
+image_identity() {
+  local ref="${1%%@*}" first
+  case "${ref##*/}" in *:*) ref="${ref%:*}" ;; esac
+  first="${ref%%/*}"
+  if [ "$first" = "$ref" ]; then
+    ref="docker.io/library/$ref"
+  else
+    case "$first" in
+      index.docker.io|registry-1.docker.io) ref="docker.io/${ref#*/}" ;;
+      *.*|*:*|localhost) ;;
+      *) ref="docker.io/$ref" ;;
+    esac
+  fi
+  case "$ref" in docker.io/*/*) ;; docker.io/*) ref="docker.io/library/${ref#docker.io/}" ;; esac
+  printf '%s' "$ref"
+}
+
+# config_image SERVICE WITH-OVERRIDE prints the image compose gives SERVICE, from `compose config`, whose output is
+# normalised, so any YAML form of compose.override.yaml (anchors, merge keys, other indentation) is read right. It runs
+# here, so the override's own relative paths resolve; on a folder that has not started yet, which has no mode layer for
+# compose's env_file, it runs on a scratch copy with an empty one. WITH-OVERRIDE is yes or no. Fails when compose
+# cannot read the files.
+config_image() {
+  local envf="$ENV_FILE" tmp="" out rc=0 base="."
+  [ -f "$envf" ] || envf=.env.example
+  if [ ! -f mode/mode.env ]; then
+    tmp="$(mktemp -d)" || return 1
+    mkdir -p "$tmp/mode" && : > "$tmp/mode/mode.env"
+    cp compose.yaml "compose.${DBE}.yaml" "$tmp/" && { [ "$2" != yes ] || cp compose.override.yaml "$tmp/"; } || { rm -rf "${tmp:?}"; return 1; }
+    base="$tmp"
+  fi
+  local -a files=(-f "$base/compose.yaml" -f "$base/compose.${DBE}.yaml")
+  [ "$2" != yes ] || files+=(-f "$base/compose.override.yaml")
+  # The project directory is the first file's (podman-compose has no --project-directory).
+  out="$(CONSOLE_IMAGE="$(console_image)" NEO4J_IMAGE="$(neo4j_image)" "$ENGINE" compose --env-file "$envf" \
+         "${files[@]}" config 2>/dev/null </dev/null)" || rc=$?
+  [ -z "$tmp" ] || rm -rf "${tmp:?}"
+  [ "$rc" = 0 ] || return 1
+  printf '%s\n' "$out" | ACK_SVC="$1" awk '
+    /^[^ #]/ { top = $0 }
+    top ~ /^services:/ && /^  [^ #]/ { svc = $0; sub(/^  /, "", svc); sub(/:.*$/, "", svc) }
+    top ~ /^services:/ && svc == ENVIRON["ACK_SVC"] && /^    image:/ {
+      v = $0; sub(/^    image:[ \t]*/, "", v); gsub(/^["\047]|["\047]$/, "", v); print v; exit }'
+}
+
+# override_image SERVICE prints the image compose.override.yaml sets for SERVICE: what compose gives SERVICE with the
+# override, when that differs from what it gives without it. Prints nothing when there is no override or it changes
+# no image there; fails when compose cannot read the files.
+override_image() {
+  local with without
+  [ -f compose.override.yaml ] || return 0
+  resolve_engine
+  with="$(config_image "$1" yes)" && without="$(config_image "$1" no)" || return 1
+  [ "$with" = "$without" ] || printf '%s' "$with"
+}
+
+# ack_tested KEY prints the image this bundle was tested with for KEY (DB_IMAGE, NEO4J_IMAGE or PROXY_IMAGE).
+ack_tested() {
+  case "$1" in
+    DB_IMAGE)    printf '%s' "$TESTED_DB_IMAGE" ;;
+    NEO4J_IMAGE) printf '%s' "$TESTED_NEO4J_IMAGE" ;;
+    *)           env_setting_in .env.example "$1" ;;
+  esac
+}
+
+# ack_image KEY prints the image compose will run for KEY: compose.override.yaml's for its service, else an exported
+# value, else .env's (read as the rest of byodt reads it; before .env exists, .env.example's), else the tested one. A
+# value byodt would not write is refused when read: a hand-edited .env never went through the writer. An override
+# compose cannot read is refused before the first setup, and only warned about (once per service, when this runs in
+# the calling shell) for a deployment that is already set up, whose commands it does not stop.
+ACK_WARNED=""
+ack_image() {
+  local key="$1" svc=db val src=compose.override.yaml
+  [ "$key" = PROXY_IMAGE ] && svc=proxy
+  if ! val="$(override_image "$svc")"; then
+    [ -f "$ENV_FILE" ] || die "'$ENGINE compose config' could not read compose.override.yaml, so byodt cannot show which image it sets for $svc. Fix the file, and run the command again."
+    case " $ACK_WARNED " in
+      *" $svc "*) ;;
+      *) warn "'$ENGINE compose config' could not read compose.override.yaml, so the notice shows .env's image for $svc; check what the override sets."
+         ACK_WARNED="$ACK_WARNED $svc" ;;
+    esac
+    val=""
+  fi
+  if [ -z "$val" ]; then
+    if [ -n "${!key:-}" ]; then val="${!key}"; src="your shell's environment"
+    elif [ -f "$ENV_FILE" ]; then val="$(env_value "$key" '')"; src="$ENV_FILE"
+    else val="$(env_setting_in .env.example "$key")"; src=.env.example; fi
+  fi
+  [ -n "$val" ] || val="$(ack_tested "$key")"
+  case "$val" in
+    *'${'*) die "$key in $src is written with a variable (\${…}); byodt cannot show which image that is. Write the image reference in full." ;;
+  esac
+  env_value_ok "$val" || die "$key in $src holds a character byodt does not print. Write the image reference with letters, digits and . _ : / @ % + , = ~ ! & ' ( ) * ; - only."
+  printf '%s' "$val"
+}
+
+# ack_image_source KEY prints where KEY's image is set, for the [mirror] paragraph: compose.override.yaml, or KEY.
+ack_image_source() {
+  local svc=db
+  [ "$1" = PROXY_IMAGE ] && svc=proxy
+  if [ -n "$(override_image "$svc" 2>/dev/null || true)" ]; then printf 'compose.override.yaml'; else printf '%s' "$1"; fi
+}
+
+ack_db_key() { if [ "$1" = neo4j ]; then printf NEO4J_IMAGE; else printf DB_IMAGE; fi; }
+
+# ack_check_images ENGINE checks, in the calling shell, every image the notice for ENGINE names, so a value byodt
+# refuses stops the command before anything is shown or written (inside $(…) a refusal would end only that subshell).
+ack_check_images() {
+  local e
+  for e in memgraph neo4j; do
+    [ "$1" = both ] || [ "$1" = "$e" ] || continue
+    ack_image "$(ack_db_key "$e")" >/dev/null
+  done
+  ack_image PROXY_IMAGE >/dev/null
+}
+
+# ack_mirror_keys ENGINE prints the keys whose image names another repository than the tested one.
+ack_mirror_keys() {
+  local key e keys="PROXY_IMAGE"
+  for e in memgraph neo4j; do
+    [ "$1" = both ] || [ "$1" = "$e" ] || continue
+    keys="$(ack_db_key "$e") $keys"
+  done
+  for key in $keys; do
+    if [ "$(image_identity "$(ack_image "$key")")" != "$(image_identity "$(ack_tested "$key")")" ]; then printf '%s\n' "$key"; fi
+  done
+}
+
+# ack_render ENGINE prints the notice for ENGINE (memgraph or neo4j), or for both ("both", before the choice is made),
+# filled with what the deployment will run. [mirror] follows for an image that names another repository than the
+# tested one; a different tag of the same repository shows in the image line alone.
+ack_render() {
+  local engine="$1" e key
+  ack_check_images "$engine"
+  ack_section intro
+  for e in memgraph neo4j; do
+    [ "$engine" = both ] || [ "$engine" = "$e" ] || continue
+    printf '\n'; ack_section "$e" | ACK_IMAGE="$(ack_image "$(ack_db_key "$e")")" ack_fill
+  done
+  printf '\n'; ack_section model | ACK_MODEL="$TESTED_MODEL" ack_fill
+  printf '\n'; ack_section nginx | ACK_IMAGE="$(ack_image PROXY_IMAGE)" ack_fill
+  for key in $(ack_mirror_keys "$engine"); do
+    printf '\n'; ack_section mirror | ACK_KEY="$(ack_image_source "$key")" ACK_IMAGE="$(ack_image "$key")" ack_fill
+  done
+  printf '\n'; ack_section confirm
+}
+
+# ack_log_trusted: ACK_LOG exists, is the operator's own file with no other name, in a directory no other account can
+# write to. A record that fails this counts as no record: another account could have planted it.
+ack_log_trusted() {
+  [ -f "$ACK_LOG" ] && [ ! -L "$ACK_LOG" ] && owned_by_operator "$ACK_LOG" \
+    && [ "$(stat_field %h %l "$ACK_LOG")" = 1 ] && dir_private_enough .
+}
+
+# ack_last FIELD prints FIELD of the last record; fields are split at their first '='.
+ack_last() {
+  tail -n 1 "$ACK_LOG" | ACK_FIELD="$1" awk -F '\t' '
+    { for (i = 2; i <= NF; i++) { p = index($i, "="); if (substr($i, 1, p - 1) == ENVIRON["ACK_FIELD"]) print substr($i, p + 1) } }'
+}
+
+# ack_due: the notice has not been confirmed for this text, and for the database image and the model this deployment
+# runs. The front door's image is shown but does not count: its licence does not change with its tag.
+ack_due() {
+  ack_log_trusted || return 0
+  # Without a hash tool the text cannot be shown unchanged: due again (recording a confirmation then stops).
+  sha256_tool || return 0
+  [ "$(ack_last text-version)" = "$(ack_version)" ] || return 0
+  [ "$(ack_last text-sha256)" = "$(sha256_of "$ACK_FILE")" ] || return 0
+  [ "$(ack_last db)" = "$(ack_image "$(ack_db_key "$DBE")")" ] || return 0
+  [ "$(ack_last model)" = "$TESTED_MODEL" ] || return 0
+  return 1
+}
+
+# ack_record VIA appends one record: the time, the text's version and hash, the images and the model, how it was
+# confirmed (tty, yes, handover-tty, handover-yes: an installer showed the text) and the release. The line is written
+# with one append, so concurrent runs cannot interleave inside it. What it proves: this tooling showed this text and a
+# confirmation was given; not who gave it.
+ack_record() {
+  local via="$1" line v release db door
+  case "$via" in tty|yes|handover-tty|handover-yes) ;; *) die "ack_record: unknown confirmation '$via'." ;; esac
+  sha256_ready
+  dir_private_enough . || die "Other accounts can change this directory ($(pwd)), so byodt does not record the notice here. Make it yours and not writable by others (chmod go-w .), and run the command again."
+  if [ -L "$ACK_LOG" ]; then die "$ACK_LOG is a symbolic link: byodt does not write through it. Remove it and run the command again."; fi
+  if [ -e "$ACK_LOG" ]; then
+    owned_by_operator "$ACK_LOG" || die "$ACK_LOG is owned by uid $(path_owner "$ACK_LOG"), not by you. Move it aside and run the command again."
+    [ "$(stat_field %h %l "$ACK_LOG")" = 1 ] || die "$ACK_LOG has another name (a hard link). Move it aside and run the command again."
+  fi
+  release="$(env_setting PLATFORM_VERSION)"
+  [ -n "$release" ] || release="$(env_setting_in .env.example PLATFORM_VERSION)"
+  db="$(ack_image "$(ack_db_key "$DBE")")"; door="$(ack_image PROXY_IMAGE)"
+  for v in "$release" "$db" "$door" "$TESTED_MODEL"; do
+    env_value_ok "$v" || die "byodt would record a value it does not write; nothing was recorded."
+  done
+  line="$(date -u +%Y-%m-%dT%H:%M:%SZ)	text-version=$(ack_version)	text-sha256=$(sha256_of "$ACK_FILE")	db=$db	model=$TESTED_MODEL	front-door=$door	via=$via	release=$release"
+  ( umask 022; printf '%s\n' "$line" >> "$ACK_LOG" ) || die "Could not write $ACK_LOG."
+}
+
+# ack_confirm ENGINE CONTEXT shows the notice and asks, then prints how it was confirmed. --yes (YES) asks nothing and
+# counts as the confirmation; otherwise a terminal must answer an explicit y; without one the command stops. CONTEXT
+# ("Nothing has been downloaded yet.") follows the text, and is not part of it.
+ack_confirm() {
+  local reply=""
+  ack_file_check
+  ack_render "$1" >&2
+  printf '\n%s\n' "$2" >&2
+  if [ -n "$YES" ]; then
+    info "--yes: counted as the confirmation of the notice above." >&2
+    printf yes
+    return 0
+  fi
+  [ -t 0 ] || die "There is no terminal to confirm the notice above on. Run the command at a terminal, or add --yes. $2"
+  printf 'Continue? [y/N] ' >&2
+  read -r reply || true
+  case "$reply" in y|Y|yes|YES) printf tty ;; *) die "Not confirmed. $2" ;; esac
+}
+
+# deployment_started: this folder's deployment has run: a container of the project was started from this directory,
+# or its database store holds data.
+deployment_started() {
+  local dir here_p
+  here_p="$(pwd -P)"
+  while IFS= read -r dir; do
+    if [ -n "$dir" ] && same_dir "$dir" "$PWD" "$here_p"; then return 0; fi
+  done <<< "$(project_workdirs)"
+  if db_is_bind; then store_holds_data "$(db_data_setting)"
+  else "$ENGINE" volume inspect "dethernety_$(db_data_setting)" >/dev/null 2>&1 </dev/null; fi
+}
+
+# ack_gate runs before a command that pulls images or downloads the model. A deployment that has not run yet confirms
+# like setup. One that has, with nobody to ask (no terminal, no --yes), is never stopped: the notice is shown when it
+# is due, with a warning, and a notice that cannot be shown is only warned about.
+ack_gate() {
+  local via context="Nothing has been downloaded yet."
+  if deployment_started; then
+    context="Nothing has changed yet."
+    if [ -z "$YES" ] && [ ! -t 0 ]; then
+      if ! ( ack_file_check && ack_check_images "$DBE" ) >/dev/null 2>&1; then
+        warn "The third-party notice could not be shown ('$SELF acknowledge' says why); going on."
+        return 0
+      fi
+      # Checked again here, so a warning about compose.override.yaml shows once, not in every subshell below.
+      ack_check_images "$DBE" >/dev/null
+      ack_due || return 0
+      ack_render "$DBE" >&2
+      warn "The notice above has not been confirmed for this deployment. Run '$SELF acknowledge' at a terminal, or with --yes, to record it."
+      return 0
+    fi
+  fi
+  ack_file_check
+  ack_check_images "$DBE"
+  ack_due || return 0
+  # A confirmation that could not be recorded here would be asked for on every command.
+  if ! dir_private_enough .; then
+    [ "$context" = "Nothing has been downloaded yet." ] || { warn "Other accounts can change this directory ($(pwd)), so the third-party notice is not recorded here; going on."; return 0; }
+    die "Other accounts can change this directory ($(pwd)), so byodt does not record the third-party notice here. Make it yours and not writable by others (chmod go-w .), and run the command again."
+  fi
+  via="$(ack_confirm "$DBE" "$context")" || exit 1
+  ack_record "$via"
+}
+
+# cmd_notice [--all] prints the third-party notice for this deployment without asking; with --all, for both database
+# engines, as the release's installer shows it before anything is chosen or downloaded.
+cmd_notice() {
+  local engine="$DBE"
+  [ "$#" -le 1 ] || die "Usage: $SELF notice [--all]"
+  case "${1:-}" in
+    '') ;;
+    --all) engine=both ;;
+    *) die "Usage: $SELF notice [--all]" ;;
+  esac
+  ack_file_check
+  ack_render "$engine"
+}
+
+cmd_acknowledge() {
+  local via
+  [ "$#" = 0 ] || die "acknowledge takes no arguments but --yes."
+  ack_file_check
+  ack_check_images "$DBE"
+  via="$(ack_confirm "$DBE" "Nothing has changed.")" || exit 1
+  ack_record "$via"
+  info "Recorded in $ACK_LOG."
+}
+
+# --- setup: the interactive first run --------------------------------------------
+#
+# setup asks the few questions a first install needs, at a terminal and only for what no flag answered, and writes
+# .env from .env.example through the .env writer. It writes .env.secrets only for a proxy login, and generates no
+# password: the first `up` does that. With --yes it asks nothing: every question no flag answered takes its default.
+# Without a terminal and without --yes it refuses at once, so it never waits for input it cannot get. A refusal leaves
+# the folder as it was.
+
+# ask PROMPT DEFAULT prints the line read from the terminal, or DEFAULT for an empty one. The end of input stops the
+# command rather than taking a default nobody chose.
+ask() {
+  local a=""
+  printf '%s ' "$1" >&2
+  IFS= read -r a || die "No answer was read; nothing was changed."
+  printf '%s' "${a:-$2}"
+}
+
+# ask_yes PROMPT DEFAULT (y or n): true for a yes. Anything else asks again.
+ask_yes() {
+  local a
+  while :; do
+    a="$(ask "$1" "$2")" || exit 1
+    case "$a" in y|Y|yes|YES) return 0 ;; n|N|no|NO) return 1 ;; esac
+  done
+}
+
+# port_ok PORT: a port number, 1 to 65535, written without a leading zero.
+port_ok() {
+  case "$1" in [1-9]|[1-9][0-9]|[1-9][0-9][0-9]|[1-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9]) [ "$1" -le 65535 ] ;; *) return 1 ;; esac
+}
+
+# default_volume ENGINE prints the named volume ENGINE's compose file declares for its data.
+default_volume() { if [ "$1" = neo4j ]; then printf neo4j-data; else printf memgraph-data; fi; }
+
+# proxy_login_ok LOGIN: user:password with one colon, a user, and only the characters a value may hold. resolve_proxy
+# checks the rest of the proxy's grammar once the files are written.
+proxy_login_ok() {
+  env_value_ok "$1" || return 1
+  case "$1" in ?*:*) ;; *) return 1 ;; esac
+  case "${1#*:}" in *:*) return 1 ;; esac
+}
+
+# vm_backed_runtime: the engine runs its containers in a virtual machine (Docker Desktop, or a Podman machine), where a
+# bind-mounted database directory crosses the machine's file sharing.
+vm_backed_runtime() {
+  case "$ENGINE" in
+    docker) docker info --format '{{.OperatingSystem}}' 2>/dev/null </dev/null | grep -qi 'docker desktop' ;;
+    podman) case "$(uname -s)" in Darwin|MINGW*|MSYS*|CYGWIN*) return 0 ;; esac; return 1 ;;
+    *) return 1 ;;
+  esac
+}
+
+setup_usage() {
+  cat <<EOT
+${BOLD}$SELF setup${RST} — the first run: choose the settings, write .env, and optionally start
+
+  --db memgraph|neo4j        the graph database (default memgraph)
+  --db-data bind|volume      where the database keeps its data; asked on Docker Desktop or a Podman machine
+                             (default there: volume; elsewhere: bind, ./data/<engine>)
+  --bind 127.0.0.1|0.0.0.0   who can reach the console and the platform (default 127.0.0.1, this machine only)
+  --port N                   the published port (default 3000)
+  --https-proxy URL          the outbound HTTPS proxy, http://host:port, with no login in it (default: none)
+  --no-proxy LIST            more hosts to reach directly, comma-separated
+  --proxy-ca FILE            the CA certificate of a TLS-inspecting proxy (PEM)
+  --proxy-login-from-env     take the proxy login from BYODT_SETUP_PROXY_USERINFO, as an installer passes it; a login
+                             is never a flag, so that it does not show in the process list
+  --start | --no-start       start the stack when done (default: no)
+  --yes                      ask nothing: every question no flag answered takes its default, and the third-party
+                             notice counts as confirmed (it is printed either way)
+  --third-party-acknowledged SHA256
+                             an installer showed the third-party notice with this hash; setup does not show it again
+EOT
+}
+
+# The answers, settled before anything is written.
+S_DB="" S_DATA="" S_BIND="" S_PORT="" S_URL="" S_NO="" S_CA="" S_LOGIN="" S_START="" S_LOGIN_ENV="" S_HANDOVER=""
+# What setup created, for a refusal to remove again.
+S_MADE_SECRETS="" S_MADE_CA_DIR="" S_MADE_CA="" S_MADE_RELEASE=""
+
+# setup_flags ARGS… reads and checks the flags, before anything is asked or written.
+setup_flags() {
+  local opt val
+  while [ "$#" -gt 0 ]; do
+    opt="$1"; shift
+    case "$opt" in
+      --proxy-login-from-env=*|--start=*|--no-start=*|--yes=*|--help=*) die "${opt%%=*} takes no value." ;;
+      --*=*) val="${opt#*=}"; opt="${opt%%=*}" ;;
+      --db|--db-data|--bind|--port|--https-proxy|--no-proxy|--proxy-ca|--third-party-acknowledged)
+        [ "$#" -gt 0 ] || die "$opt needs a value."; val="$1"; shift ;;
+      *) val="" ;;
+    esac
+    case "$opt" in
+      --db) S_DB="$val" ;;
+      --db-data) S_DATA="$val" ;;
+      --bind) S_BIND="$val" ;;
+      --port) S_PORT="$val" ;;
+      --https-proxy) S_URL="$val" ;;
+      --no-proxy) S_NO="$val" ;;
+      --proxy-ca) S_CA="$(caller_path "$val")" ;;
+      --proxy-login-from-env) S_LOGIN_ENV=1 ;;
+      --third-party-acknowledged) S_HANDOVER="$val" ;;
+      --start) S_START=yes ;;
+      --no-start) S_START=no ;;
+      --yes) YES=1 ;;
+      -h|--help) setup_usage; exit 0 ;;
+      *) die "Unknown option for setup: $opt (see '$SELF setup --help')." ;;
+    esac
+  done
+  case "$S_DB" in ''|memgraph|neo4j) ;; *) die "--db is memgraph or neo4j." ;; esac
+  case "$S_DATA" in ''|bind|volume) ;; *) die "--db-data is bind or volume." ;; esac
+  case "$S_BIND" in ''|127.0.0.1|0.0.0.0) ;; *) die "--bind is 127.0.0.1 or 0.0.0.0. For another address, edit FRONT_DOOR_BIND in $ENV_FILE after setup." ;; esac
+  [ -z "$S_PORT" ] || port_ok "$S_PORT" || die "--port is a number from 1 to 65535."
+  setup_check_url "$S_URL" || exit 1
+  env_value_ok "$S_NO" || die "--no-proxy holds a character a host list cannot: separate the hosts with commas only."
+  [ -z "$S_CA" ] || setup_check_ca "$S_CA" || exit 1
+  case "$S_HANDOVER" in
+    '') ;;
+    *[!0-9a-f]*) die "--third-party-acknowledged is a SHA-256: 64 lowercase hexadecimal characters." ;;
+    *) [ "${#S_HANDOVER}" = 64 ] || die "--third-party-acknowledged is a SHA-256: 64 lowercase hexadecimal characters." ;;
+  esac
+}
+
+# caller_path PATH prints PATH as given from the directory byodt was run in: byodt itself runs in the bundle.
+caller_path() {
+  case "$1" in ''|/*) printf '%s' "$1" ;; *) printf '%s/%s' "$CALLER_DIR" "$1" ;; esac
+}
+
+# setup_check_url URL: empty, or a value with no login in it (a login in .env would be readable by every account, and
+# in a flag it shows in the process list). resolve_proxy checks the rest once the files are written.
+setup_check_url() {
+  env_value_ok "$1" || { warn "That proxy URL holds a character a URL cannot: write it as http://host:port."; return 1; }
+  case "$1" in
+    *@*) warn "Give the proxy URL without its login (http://host:port). The login goes in at setup's prompt, or through BYODT_SETUP_PROXY_USERINFO with --proxy-login-from-env."; return 1 ;;
+  esac
+}
+
+# setup_check_ca FILE: a readable PEM certificate with no private key in it, since it becomes a root the stack trusts.
+setup_check_ca() {
+  if [ ! -f "$1" ] || [ ! -r "$1" ]; then warn "$1 is not a readable file."; return 1; fi
+  grep -q -- '-----BEGIN CERTIFICATE-----' "$1" || { warn "$1 holds no PEM certificate (-----BEGIN CERTIFICATE-----)."; return 1; }
+  if grep -q -- 'PRIVATE KEY' "$1"; then warn "$1 holds a private key. Give the CA certificate alone."; return 1; fi
+}
+
+# setup_proxy_questions asks the proxy's questions at a terminal: the URL (when no flag gave one), the extra direct
+# hosts, the login and the CA, asking again for an answer that cannot be used. The installer's login is offered only
+# when it is well formed, and is saved only with --proxy-login-from-env or a yes: a shell's proxy login is often a
+# domain credential.
+setup_proxy_questions() {
+  local installer_login="$SETUP_PROXY_LOGIN"
+  if [ -n "$installer_login" ] && ! proxy_login_ok "$installer_login"; then
+    warn "The proxy login the installer passed is not user:password with the password percent-encoded; it is not used."
+    installer_login=""
+  fi
+  if [ -z "$TTY" ]; then
+    if [ -n "$S_LOGIN_ENV" ]; then
+      [ -n "$installer_login" ] || die "--proxy-login-from-env, but BYODT_SETUP_PROXY_USERINFO holds no usable login. Nothing was changed."
+      S_LOGIN="$installer_login"
+    elif [ -n "$installer_login" ]; then
+      warn "The proxy login the installer was given is not saved: add --proxy-login-from-env to save it, or put HTTPS_PROXY_USERINFO in $SECRETS_FILE yourself."
+    fi
+    return 0
+  fi
+  if [ -z "$S_URL" ]; then
+    ask_yes "Does this machine reach the internet only through an HTTPS proxy? [y/N]" n || return 0
+    while :; do
+      S_URL="$(ask "The proxy, as http://host:port:" "")" || exit 1
+      [ -n "$S_URL" ] && setup_check_url "$S_URL" && break
+    done
+  fi
+  if [ -z "$S_NO" ]; then
+    while :; do
+      S_NO="$(ask "More hosts to reach directly, comma-separated (empty for none):" "")" || exit 1
+      env_value_ok "$S_NO" && break
+      warn "Separate the hosts with commas only."
+    done
+  fi
+  if [ -n "$installer_login" ] && { [ -n "$S_LOGIN_ENV" ] || ask_yes "Save the proxy login for user '${installer_login%%:*}' that the installer was given? [y/N]" n; }; then
+    S_LOGIN="$installer_login"
+  elif [ -z "$installer_login" ]; then
+    while :; do
+      printf 'The proxy login as user:password, the password percent-encoded (empty for none): ' >&2
+      IFS= read -r -s S_LOGIN || die "No answer was read; nothing was changed."
+      printf '\n' >&2
+      [ -z "$S_LOGIN" ] || proxy_login_ok "$S_LOGIN" && break
+      warn "Give the login as user:password with one colon, and percent-encode the password (a # as %23, / as %2F, @ as %40, \$ as %24, a space as %20)."
+    done
+  fi
+  if [ -z "$S_CA" ]; then
+    while :; do
+      S_CA="$(ask "The CA certificate file of a TLS-inspecting proxy (empty for none):" "")" || exit 1
+      S_CA="$(caller_path "$S_CA")"
+      [ -z "$S_CA" ] || setup_check_ca "$S_CA" && break
+    done
+  fi
+}
+
+# setup_questions settles every answer no flag gave: at a terminal by asking, with --yes by the defaults.
+setup_questions() {
+  if [ -z "$S_DB" ]; then
+    if [ -n "$TTY" ]; then
+      while :; do
+        S_DB="$(ask "Graph database, memgraph or neo4j [memgraph]:" memgraph)" || exit 1
+        case "$S_DB" in memgraph|neo4j) break ;; esac
+      done
+    else S_DB=memgraph; fi
+  fi
+  DBE="$S_DB"
+  ack_file_check
+  ack_check_images "$DBE"
+  # The installer showed the same text, at a terminal or under --yes, and nothing here needs the [mirror] paragraph.
+  if [ -n "$S_HANDOVER" ] && [ "$S_HANDOVER" = "$(sha256_of "$ACK_FILE")" ] && [ -z "$(ack_mirror_keys "$DBE")" ]; then
+    if [ -n "$TTY" ]; then S_VIA=handover-tty; else S_VIA=handover-yes; fi
+  else
+    S_VIA="$(ack_confirm "$DBE" "Nothing has been downloaded yet.")" || exit 1
+  fi
+  if [ -z "$S_DATA" ] && vm_backed_runtime; then
+    if [ -n "$TTY" ]; then
+      info "This engine runs containers in a virtual machine. A database bind-mounted across its file sharing can be corrupted; the named volume avoids that."
+      if ask_yes "Keep the database in the engine's named volume? [Y/n]" y; then S_DATA=volume; else S_DATA=bind; fi
+    else S_DATA=volume; fi
+  fi
+  if [ -z "$S_BIND" ]; then
+    S_BIND=127.0.0.1
+    if [ -n "$TTY" ] && ask_yes "Reach the console and the platform from other machines too (binds 0.0.0.0)? [y/N]" n; then S_BIND=0.0.0.0; fi
+  fi
+  if [ -z "$S_PORT" ]; then
+    S_PORT=3000
+    if [ -n "$TTY" ]; then
+      while :; do
+        S_PORT="$(ask "Port [3000]:" 3000)" || exit 1
+        port_ok "$S_PORT" && break
+      done
+    fi
+  fi
+  setup_proxy_questions
+  if [ -n "$S_LOGIN" ] && [ -z "$S_URL" ]; then die "A proxy login without a proxy URL: give --https-proxy too. Nothing was changed."; fi
+  if [ -z "$S_START" ]; then
+    S_START=no
+    if [ -n "$TTY" ] && ask_yes "Start the stack now? [y/N]" n; then S_START=yes; fi
+  fi
+}
+
+# setup_undo removes what setup wrote, after a refusal.
+setup_undo() {
+  rm -f "$ENV_FILE"
+  if [ -n "$S_MADE_SECRETS" ]; then rm -f "$SECRETS_FILE"; fi
+  if [ -n "$S_MADE_CA" ]; then rm -f proxy-ca/proxy-ca.pem; fi
+  if [ -n "$S_MADE_CA_DIR" ]; then rmdir proxy-ca 2>/dev/null || true; fi
+  if [ -n "$S_MADE_RELEASE" ]; then rm -f "$RELEASE_FILE"; fi
+  S_MADE_SECRETS="" S_MADE_CA_DIR="" S_MADE_CA="" S_MADE_RELEASE=""
+}
+
+# setup_write writes the answers: .env from .env.example, the login into a new .env.secrets, the CA into proxy-ca/.
+setup_write() {
+  [ -e "$RELEASE_FILE" ] || S_MADE_RELEASE=1
+  release_record_initial
+  cp .env.example "$ENV_FILE"
+  env_write "$ENV_FILE" DB_ENGINE "$S_DB"
+  if [ "$S_DATA" = volume ]; then
+    if [ "$S_DB" = neo4j ]; then env_write "$ENV_FILE" NEO4J_DATA "$(default_volume neo4j)"; else env_write "$ENV_FILE" DB_DATA "$(default_volume memgraph)"; fi
+  fi
+  env_write "$ENV_FILE" FRONT_DOOR_BIND "$S_BIND"
+  env_write "$ENV_FILE" FRONT_DOOR_PORT "$S_PORT"
+  if [ -n "$S_URL" ]; then
+    env_write "$ENV_FILE" HTTPS_PROXY "$S_URL"
+    [ -z "$S_NO" ] || env_write "$ENV_FILE" NO_PROXY "$S_NO"
+  fi
+  if [ -n "$S_LOGIN" ]; then
+    S_MADE_SECRETS=1
+    env_write "$SECRETS_FILE" HTTPS_PROXY_USERINFO "$S_LOGIN"
+  fi
+  if [ -n "$S_CA" ]; then
+    if [ ! -e proxy-ca ] && [ ! -L proxy-ca ]; then mkdir -m 0755 proxy-ca; S_MADE_CA_DIR=1; fi
+    # The directory passes the same checks every later command makes before anything is put in it.
+    check_proxy_ca
+    if [ -e proxy-ca/proxy-ca.pem ] || [ -L proxy-ca/proxy-ca.pem ]; then die "proxy-ca/proxy-ca.pem already exists; move it aside to give another one."; fi
+    if [ -e proxy-ca/.proxy-ca.pem.tmp ] || [ -L proxy-ca/.proxy-ca.pem.tmp ]; then die "proxy-ca/.proxy-ca.pem.tmp exists, left by an earlier run. Remove it and run the command again."; fi
+    ( set -C; umask 022; cat -- "$S_CA" > proxy-ca/.proxy-ca.pem.tmp ) || die "Could not copy $S_CA into proxy-ca/."
+    chmod 0644 proxy-ca/.proxy-ca.pem.tmp && mv -f proxy-ca/.proxy-ca.pem.tmp proxy-ca/proxy-ca.pem || die "Could not put the CA certificate in place."
+    S_MADE_CA=1
+  fi
+}
+
+# setup_report says what was written and what to watch for, once the folder is set up.
+setup_report() {
+  info "Wrote $ENV_FILE: DB_ENGINE=$S_DB, FRONT_DOOR_BIND=$S_BIND, FRONT_DOOR_PORT=$S_PORT${S_URL:+, HTTPS_PROXY=$S_URL}${S_DATA:+ (database storage: $S_DATA)}."
+  [ -z "$S_MADE_SECRETS" ] || info "Wrote the proxy login to $SECRETS_FILE (mode 0600)."
+  [ -z "$S_MADE_CA" ] || info "Copied the proxy's CA certificate to proxy-ca/proxy-ca.pem."
+  [ "$S_PORT" = 3000 ] || info "Port $S_PORT: 3000 is a pre-registered loopback address for cloud sign-in; another port may need the identity provider to know it."
+  if (exec 3<>"/dev/tcp/127.0.0.1/$S_PORT") 2>/dev/null; then warn "Something already answers on 127.0.0.1:$S_PORT; the start may fail until it is free."; fi
+  if [ "$S_BIND" = 0.0.0.0 ]; then
+    warn "Bound to 0.0.0.0: with the standalone defaults, anyone who can reach port $S_PORT has full access. Put it behind your own authenticated front door, and use TLS."
+    if [ -n "$TTY" ] && ask_yes "Generate a self-signed TLS certificate now ('$SELF tls generate')? [y/N]" n; then tls_generate; else info "TLS: '$SELF tls generate', then '$SELF restart proxy'."; fi
+  fi
+}
+
+TTY="" S_VIA=""
+
+cmd_setup() {
+  local img missing="" try=0
+  setup_flags "$@"
+  if [ -e "$ENV_FILE" ] || [ -L "$ENV_FILE" ]; then
+    die "$ENV_FILE exists: this folder is already set up. Edit $ENV_FILE, or move it aside to run setup again."
+  fi
+  if [ -e "$SECRETS_FILE" ] || [ -L "$SECRETS_FILE" ]; then
+    die "$SECRETS_FILE exists: this folder has run before. Restore its $ENV_FILE instead of running setup, or move $SECRETS_FILE aside."
+  fi
+  [ -f .env.example ] || die ".env.example is missing: unpack the bundle again."
+  if [ -z "$YES" ]; then
+    [ -t 0 ] || die "setup asks its questions at a terminal. Without one, add --yes, with flags for anything other than the defaults ('$SELF setup --help'). Nothing was changed."
+    TTY=1
+  fi
+  resolve_engine
+  setup_questions
+
+  # A start is checked before anything is written, so a refused one leaves the folder as it was.
+  if [ "$S_START" = yes ]; then
+    check_project
+    [ "$S_DATA" != volume ] || check_project_volume "$(default_volume "$S_DB")" setup
+  fi
+  warn_old_volumes "$S_DATA" "$(default_volume "$S_DB")"
+
+  # Write, then check the proxy with the checks every later command makes (resolve_proxy, from the files just
+  # written). Anything that stops the command before the record is written removes what was written; at a terminal,
+  # a refused proxy is asked for again.
+  trap setup_undo EXIT
+  while :; do
+    setup_write
+    if [ -z "$S_URL" ] && [ -z "$S_CA" ]; then break; fi
+    if ( resolve_proxy ) >&2; then break; fi
+    setup_undo
+    try=$((try + 1))
+    if [ -z "$TTY" ] || [ "$try" -ge 3 ]; then die "The proxy settings were refused (see above). Nothing was changed."; fi
+    warn "The proxy settings were refused (see above); asking again."
+    S_URL="" S_NO="" S_CA="" S_LOGIN=""
+    setup_proxy_questions
+    if [ -n "$S_LOGIN" ] && [ -z "$S_URL" ]; then die "A proxy login without a proxy URL: give --https-proxy too. Nothing was changed."; fi
+  done
+  ack_record "$S_VIA"
+  trap - EXIT
+  SETUP_PROXY_LOGIN="" S_LOGIN=""
+
+  setup_report
+  if [ "$S_START" != yes ]; then
+    info "Ready. Start with: ${BOLD}$SELF up${RST}"
+    return 0
+  fi
+  for img in "$(ack_image "$(ack_db_key "$DBE")")" "$(ack_image PROXY_IMAGE)"; do
+    "$ENGINE" image inspect "$img" >/dev/null 2>&1 </dev/null || missing="$missing $img"
+  done
+  info "Starting. It downloads the platform and console images${missing:+, and$missing}, then the embedding model (about 1.26 GB) on the first start."
+  exec ./byodt up
+}
+
+# --- upgrade: move this deployment to a newer release -------------------------------------------------------------------
+#
+# `upgrade [VERSION]` runs in three phases, and the target release's own code runs the last two:
+#   1. here (or in a release's installer): find the target, download its bundle into a private staging directory
+#      inside this deployment, verify it (the SHA-256 the release wrote into its get-byodt.sh; with cosign, the release
+#      workflow's signature), unpack it, and hand over to the staged byodt with `upgrade --staged`;
+#   2. the staged byodt: check everything first (local edits, the .env changes, CONSOLE_IMAGE, the project, disk, the
+#      database), ask every question at once, back up (the graph with this deployment's own byodt, .env, and the shipped
+#      files as they are), then move the new files in by rename, journalled, and hand over to `upgrade --finish`;
+#   3. the moved-in byodt: .env, `update`, the health check, and the exact rollback steps.
+# Each phase is recorded in UPGRADE_STATE, so an interruption can be resumed or undone (`upgrade` again, or
+# `upgrade --abandon`). One lock covers all three phases: each hands over to the next by exec, which keeps the process.
+# Files are only ever renamed into place, never written over: a running byodt keeps reading the file it started from.
+
+readonly BYODT_RELEASE_REPO="dether-net/dethernety-oss"
+readonly RELEASE_FILE=".byodt-release"
+readonly UPGRADE_STATE=".byodt-upgrade.state"
+readonly UPGRADE_LOCK=".byodt-upgrade.lock"
+# The least free space, in KiB, an upgrade starts with: the new images and the backups need room.
+readonly UPGRADE_MIN_FREE_KB=2097152
+# The largest bundle, signature bundle and installer an upgrade downloads.
+readonly UPGRADE_MAX_BUNDLE_BYTES=52428800
+readonly UPGRADE_MAX_SMALL_BYTES=1048576
+
+# known_manifest VERSION prints the SHA-256 and path of every file VERSION's bundle shipped, for a release older than
+# the RELEASE_FILE a deployment now keeps. It is the base the upgrade checks local edits against.
+known_manifest() {
+  case "$1" in
+    0.13.0) cat <<'MANIFEST'
+3fba67720dc9b0c6182d6c26957c359df93f252476353e70a828543df6030226  .env.example
+6e04a29d4e85fc6ccffa47969d658257293ce7172520af6baf359528593d4a9b  .gitignore
+0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0  LICENSE
+182aa53a69ab8e29770541eb0220676f905939c40e50742c6f40d35264de006e  NOTICE
+9cbc1b0b26b9b41dcd1e2e722afe3e474a4b2265cd8517b441ca0109400e7b46  README.md
+01576eab86d9fe1e7ab326e28180e86c7c677ee7aad58de66697d8035d3dbccb  byodt
+7cf550af095693e35b781009733873a924c12c26ea412b2c0f4a4acf9305432e  compose.memgraph.yaml
+b07a28aa44c8eba2fd305d9e54d7a254a16075ce3769d0bded936f49f5832ecf  compose.neo4j.yaml
+b1dcca74de5ce0fe96cae024a2ac90e09da9fe6500003863b7c02445f4eddb4c  compose.yaml
+2c3643487608ad7fe7766e6f0adb0db6c118354c17be79fb47121c65108b0c3b  proxy/40-tls.sh
+dfffa7f97ec89a827ee0178cf62b03087101d871d9f44f60289d3eddaa1c1612  proxy/nginx.conf
+MANIFEST
+      ;;
+  esac
+}
+
+# upgrade_path_ok PATH: a relative path made of safe characters, with no `..` part.
+upgrade_path_ok() {
+  case "$1" in ''|/*|*[!A-Za-z0-9._/-]*|..|../*|*/..|*/../*|.|./*|*/.|*/./*|*//*) return 1 ;; esac
+}
+
+# upgrade_path_reserved PATH: a path that belongs to the deployment, never to a release: the settings and secrets, local
+# compose changes, byodt's own records, and the runtime directories. A bundle that ships one is refused.
+upgrade_path_reserved() {
+  # Compared without case: on a case-insensitive file system .ENV is .env.
+  case "$(printf '%s' "$1" | tr 'A-Z' 'a-z')" in
+    .env|.env.secrets|.env.tmp|.env.secrets.tmp|compose.override.yaml|.byodt-*|"$ACK_LOG") return 0 ;;
+    backups|backups/*|tls|tls/*|proxy-ca|proxy-ca/*|data|data/*|modules|modules/*|schema|schema/*|mode|mode/*) return 0 ;;
+  esac
+  return 1
+}
+
+# upgrade_key_kept KEY: a .env setting an upgrade never changes or comments out on its own: the release (set apart),
+# what the deployment runs and stores, how it is reached, its proxy, and the operator's own pins.
+upgrade_key_kept() {
+  case "$1" in
+    PLATFORM_VERSION|CONSOLE_IMAGE|DB_ENGINE|DB_DATA|DB_IMAGE|NEO4J_*|CONTAINER_ENGINE|FRONT_DOOR_*|HTTPS_PROXY|NO_PROXY) return 0 ;;
+    UPGRADE_REQUIRE_SIGNATURE) return 0 ;;
+  esac
+  return 1
+}
+
+# version_cmp A B prints -1, 0 or 1: semver precedence. X.Y.Z compare as numbers; a version with a pre-release suffix
+# comes before the same version without one; pre-release identifiers compare one by one, as numbers when both are
+# numbers (so rc.10 comes after rc.2), else as text in byte order, and a shorter list comes first when the rest is equal.
+version_cmp() {
+  local a="$1" b="$2" ac bc ap="" bp="" i n x y LC_ALL=C
+  ac="${a%%-*}"; bc="${b%%-*}"
+  [ "$a" = "$ac" ] || ap="${a#*-}"
+  [ "$b" = "$bc" ] || bp="${b#*-}"
+  local IFS=.
+  local -a A=($ac) B=($bc) P Q
+  for i in 0 1 2; do
+    x="${A[$i]:-0}"; y="${B[$i]:-0}"
+    if [ "$((10#$x))" -lt "$((10#$y))" ]; then echo -1; return; fi
+    if [ "$((10#$x))" -gt "$((10#$y))" ]; then echo 1; return; fi
+  done
+  if [ -z "$ap" ] && [ -z "$bp" ]; then echo 0; return; fi
+  if [ -z "$ap" ]; then echo 1; return; fi
+  if [ -z "$bp" ]; then echo -1; return; fi
+  P=($ap); Q=($bp)
+  n="${#P[@]}"; [ "${#Q[@]}" -le "$n" ] || n="${#Q[@]}"
+  for ((i = 0; i < n; i++)); do
+    x="${P[$i]-}"; y="${Q[$i]-}"
+    if [ -z "$x" ]; then echo -1; return; fi
+    if [ -z "$y" ]; then echo 1; return; fi
+    case "$x$y" in
+      *[!0-9]*)
+        case "$x" in *[!0-9]*) ;; *) echo -1; return ;; esac
+        case "$y" in *[!0-9]*) ;; *) echo 1; return ;; esac
+        if [[ "$x" < "$y" ]]; then echo -1; return; fi
+        if [[ "$x" > "$y" ]]; then echo 1; return; fi ;;
+      *)
+        if [ "$((10#$x))" -lt "$((10#$y))" ]; then echo -1; return; fi
+        if [ "$((10#$x))" -gt "$((10#$y))" ]; then echo 1; return; fi ;;
+    esac
+  done
+  echo 0
+}
+
+version_ok() { printf '%s\n' "$1" | grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?'; }
+
+# own_like_deployment PATH… gives what an upgrade made the deployment directory's owner, when it runs as root (through
+# sudo): the operator must still be able to read their own backups and records.
+own_like_deployment() {
+  [ "$(id -u)" = 0 ] || return 0
+  chown -R "$(stat_field %u %u .):$(stat_field %g %g .)" "$@" 2>/dev/null || warn "Could not give $* to this directory's owner."
+}
+
+# --- the state file and the lock ---
+
+# state_trusted: UPGRADE_STATE is a regular file, the operator's, readable by nobody else: it names directories that
+# are moved and removed.
+state_trusted() {
+  [ -f "$UPGRADE_STATE" ] && [ ! -L "$UPGRADE_STATE" ] && owned_by_operator "$UPGRADE_STATE" \
+    && [ "$(stat_field %a %Lp "$UPGRADE_STATE")" = 600 ]
+}
+
+# state_check stops unless UPGRADE_STATE is trusted. A caller that reads the state inside $(…) or a case, where a die
+# would only end the subshell, calls it first.
+state_check() {
+  state_trusted || die "$UPGRADE_STATE is not this deployment's own (a link, another account's, or readable by others); byodt does not act on it. Check it, and remove it to drop the upgrade."
+}
+
+# state_get KEY prints KEY's value in UPGRADE_STATE.
+state_get() {
+  [ -e "$UPGRADE_STATE" ] || return 0
+  state_check
+  sed -n "s/^$1=//p" "$UPGRADE_STATE" | tail -1
+}
+
+# U_STATE_MINE: this process wrote the state file, so a refusal of this run may clean it up.
+U_STATE_MINE=""
+
+# state_set KEY=VALUE… rewrites UPGRADE_STATE with these keys changed: a temporary file renamed into place, 0600.
+state_set() {
+  local kv tmp="$UPGRADE_STATE.tmp"
+  if [ -L "$UPGRADE_STATE" ] || [ -L "$tmp" ]; then die "$UPGRADE_STATE is a symbolic link; byodt does not write through it."; fi
+  rm -f "$tmp"
+  ( umask 077
+    [ ! -f "$UPGRADE_STATE" ] || cat "$UPGRADE_STATE"
+    for kv in "$@"; do printf '%s\n' "$kv"; done ) | awk -F= '{ k = $1; if (!(k in v)) o[++n] = k; v[k] = $0 } END { for (i = 1; i <= n; i++) print v[o[i]] }' > "$tmp" \
+    || die "Could not write $tmp."
+  chmod 0600 "$tmp" && mv -f "$tmp" "$UPGRADE_STATE" || die "Could not write $UPGRADE_STATE."
+  U_STATE_MINE=1
+}
+
+# stage_ok PATH [DEPLOYMENT]: PATH is the deployment's own staging directory (default: this directory's), by name, and
+# not a link.
+stage_ok() {
+  local base="${2:-$PWD}"
+  case "$1" in "$base"/.byodt-upgrade.??????|"$(cd "$base" && pwd -P)"/.byodt-upgrade.??????) ;; *) return 1 ;; esac
+  [ -d "$1" ] && [ ! -L "$1" ]
+}
+
+# state_paths_ok checks what the state file names before anything acts on it: the staging directory, its new release
+# inside it, and every path in the move list.
+state_paths_ok() {
+  local stage new to path
+  stage="$(state_get stage)"; new="$(state_get new)"; to="$(state_get to)"
+  stage_ok "$stage" || die "$UPGRADE_STATE names a staging directory that is not this deployment's; check it by hand."
+  version_ok "$to" && [ "$new" = "$stage/byodt-$to" ] || die "$UPGRADE_STATE names an unexpected release directory; check it by hand."
+  if [ -f "$stage/move.list" ]; then
+    while IFS= read -r path; do
+      upgrade_path_ok "$path" && ! upgrade_path_reserved "$path" || die "$stage/move.list holds an unexpected path; check it by hand."
+    done < "$stage/move.list"
+  fi
+}
+
+# pid_alive PID: that process is running, also when it is another account's (as root, under sudo): kill -0 cannot
+# signal one, but ps still lists it.
+pid_alive() { kill -0 "$1" 2>/dev/null || ps -p "$1" >/dev/null 2>&1; }
+
+# upgrade_lock_held: another process that is still running holds the lock.
+upgrade_lock_held() {
+  local pid
+  [ -e "$UPGRADE_LOCK" ] || [ -L "$UPGRADE_LOCK" ] || return 1
+  [ -d "$UPGRADE_LOCK" ] && [ ! -L "$UPGRADE_LOCK" ] && owned_by_operator "$UPGRADE_LOCK" || return 0
+  pid="$(cat "$UPGRADE_LOCK/pid" 2>/dev/null || true)"
+  case "$pid" in ''|*[!0-9]*) return 0 ;; esac
+  [ "$pid" != "$$" ] && pid_alive "$pid"
+}
+
+upgrade_lock_refuse() {
+  die "Another upgrade is running here ($UPGRADE_LOCK, process $(cat "$UPGRADE_LOCK/pid" 2>/dev/null || echo unknown)). Wait for it. If none is running, remove $UPGRADE_LOCK (and $UPGRADE_LOCK.takeover, if it is there) and run the command again."
+}
+
+# upgrade_lock_mine: this process holds the lock (an exec keeps the pid, so the phases it runs into keep it too).
+upgrade_lock_mine() { [ "$(cat "$UPGRADE_LOCK/pid" 2>/dev/null || true)" = "$$" ]; }
+
+# upgrade_lock_stale: the lock is there, a directory of the operator's, and names a process that is gone. Only such a
+# lock is taken over: one with no pid yet is being taken, and one that is not there was released.
+upgrade_lock_stale() {
+  local pid
+  [ -d "$UPGRADE_LOCK" ] && [ ! -L "$UPGRADE_LOCK" ] && owned_by_operator "$UPGRADE_LOCK" || return 1
+  pid="$(cat "$UPGRADE_LOCK/pid" 2>/dev/null || true)"
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$pid" != "$$" ] && ! pid_alive "$pid"
+}
+
+# upgrade_lock takes the lock, or keeps it when this process holds it already, or takes over one whose process is gone.
+# It is taken only by mkdir. A takeover holds a second lock, $UPGRADE_LOCK.takeover, made by mkdir too, so only one
+# process takes over at a time; under it the old lock must still be stale (upgrade_lock_stale), and is then removed,
+# made again and given this pid before the takeover lock goes. A lock released meanwhile is not taken over: the plain
+# mkdir is tried again, a few times.
+upgrade_lock() {
+  local tk="$UPGRADE_LOCK.takeover" tries=0
+  ! upgrade_lock_mine || return 0
+  while ! mkdir "$UPGRADE_LOCK" 2>/dev/null; do
+    upgrade_lock_held && upgrade_lock_refuse
+    mkdir "$tk" 2>/dev/null || upgrade_lock_refuse
+    if upgrade_lock_stale; then
+      rm -rf "${UPGRADE_LOCK:?}" 2>/dev/null || { rmdir "$tk"; upgrade_lock_refuse; }
+      if ! mkdir "$UPGRADE_LOCK" 2>/dev/null; then rmdir "$tk"; upgrade_lock_refuse; fi
+      upgrade_lock_pid || { rmdir "$tk"; die "Could not write $UPGRADE_LOCK."; }
+      rmdir "$tk"
+      return 0
+    fi
+    rmdir "$tk"
+    if [ -e "$UPGRADE_LOCK" ] || [ -L "$UPGRADE_LOCK" ]; then upgrade_lock_refuse; fi
+    tries=$((tries + 1)); [ "$tries" -lt 3 ] || upgrade_lock_refuse
+  done
+  upgrade_lock_pid || die "Could not write $UPGRADE_LOCK."
+}
+
+# upgrade_lock_pid writes this process's pid into the lock it has just made.
+upgrade_lock_pid() {
+  ( umask 077; printf '%s\n' "$$" > "$UPGRADE_LOCK/pid.tmp" ) && mv -f "$UPGRADE_LOCK/pid.tmp" "$UPGRADE_LOCK/pid"
+}
+
+# upgrade_unlock removes the lock, only when this process holds it.
+upgrade_unlock() { ! upgrade_lock_mine || rm -rf "${UPGRADE_LOCK:?}"; }
+
+# upgrade_guard stops up, update and restart while an upgrade has new files in place but not yet applied: they would
+# start the new compose files with the old PLATFORM_VERSION. In the other phases they only say an upgrade is pending.
+upgrade_guard() {
+  [ -e "$UPGRADE_STATE" ] || [ -L "$UPGRADE_STATE" ] || return 0
+  [ -z "${UPGRADE_FINISHING:-}" ] || return 0
+  state_check
+  case "$(state_get phase)" in
+    moving|moved|env-done) die "An upgrade to $(state_get to) is half done (phase $(state_get phase)). Finish it with '$SELF upgrade', or undo it with '$SELF upgrade --abandon'." ;;
+    *) warn "An upgrade to $(state_get to) is pending (phase $(state_get phase)): '$SELF upgrade' resumes it, '$SELF upgrade --abandon' drops it." ;;
+  esac
+}
+
+# deployment_private_check DIR stops unless DIR is a deployment this process may upgrade: not a link, the operator's,
+# writable by no other account, with byodt, .env and .env.example the operator's regular files. Anything staged or run
+# from it depends on that.
+deployment_private_check() {
+  local d="$1" f
+  [ ! -L "$d" ] && owned_by_operator "$d" && dir_private_enough "$d" \
+    || die "$d can be changed by other accounts, or is not yours: byodt does not upgrade it. Nothing was changed."
+  for f in byodt .env .env.example; do
+    [ -f "$d/$f" ] && [ ! -L "$d/$f" ] && owned_by_operator "$d/$f" || die "$d/$f is missing, a link, or not yours: byodt does not upgrade it. Nothing was changed."
+  done
+}
+
+# --- downloading and checking a release ---
+
+# release_fetch URL FILE MAX-BYTES downloads URL over HTTPS only, and no more than MAX-BYTES of it: a larger file is
+# not a release's. The proxy .env names (resolve_proxy) is passed in the environment, never as an argument: its login
+# must not show in the process list. wget cannot hold a redirect to HTTPS, which release_verify weighs.
+release_fetch() {
+  case "$1" in https://*) ;; *) die "Refusing to download $1: not HTTPS." ;; esac
+  command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 \
+    || die "Neither curl nor wget is installed; an upgrade downloads the new release."
+  rm -f "$2.failed"
+  { release_fetch_out "$1" "$3" || : > "$2.failed"; } | head -c "$(($3 + 1))" > "$2"
+  [ -f "$2" ] || { rm -f "$2.failed"; return 1; }
+  [ "$(wc -c < "$2" | tr -d ' ')" -le "$3" ] || { rm -f "$2" "$2.failed"; die "$1 is larger than a release's file is."; }
+  if [ -e "$2.failed" ]; then rm -f "$2" "$2.failed"; return 1; fi
+}
+
+# release_fetch_out URL MAX-BYTES writes URL to standard output, with curl or else wget.
+release_fetch_out() {
+  if command -v curl >/dev/null 2>&1; then
+    https_proxy="$PROXY_URL" HTTPS_PROXY="$PROXY_URL" curl --proto '=https' --tlsv1.2 -fsSL --max-filesize "$2" "$1"
+  else
+    https_proxy="$PROXY_URL" HTTPS_PROXY="$PROXY_URL" wget -q --secure-protocol=TLSv1_2 -O - "$1"
+  fi
+}
+
+# release_pins URL-OF-GET-BYODT DIR prints "VERSION SHA256" from a release's get-byodt.sh, read as data, never run:
+# exactly one line of each pin's fixed form. It comes over the same checked channel as the bundle.
+release_pins() {
+  local f="$2/get-byodt.sh" v s
+  release_fetch "$1" "$f" 65536 || die "Could not download $1."
+  v="$(grep -E '^BYODT_VERSION_PIN=[0-9A-Za-z.-]+$' "$f" || true)"
+  s="$(grep -E '^BYODT_SHA256_PIN=[0-9a-f]{64}$' "$f" || true)"
+  [ "$(printf '%s\n' "$v" | grep -c .)" = 1 ] && [ "$(printf '%s\n' "$s" | grep -c .)" = 1 ] || die "$1 does not carry the release's pins."
+  v="${v#*=}"; s="${s#*=}"
+  version_ok "$v" || die "$1 names a version that is not one: $v."
+  rm -f "$f"
+  printf '%s %s' "$v" "$s"
+}
+
+# release_unpack FILE INTO VERSION unpacks a verified bundle into INTO, after checking every entry: names under
+# byodt-VERSION/ made of safe characters, files and directories only, and none that belongs to a deployment rather than
+# a release. Permissions are not taken from the archive: nothing in it is writable by group or others, or set-id.
+release_unpack() {
+  local file="$1" into="$2" top="byodt-$3" name rel
+  tar -tzf "$file" > "$into/.list" || die "The bundle cannot be read."
+  while IFS= read -r name; do
+    case "$name" in
+      "$top"|"$top/") continue ;;
+      "$top"/*) rel="${name#"$top"/}"; rel="${rel%/}" ;;
+      *) die "The bundle holds an entry outside $top/; it was not used." ;;
+    esac
+    upgrade_path_ok "$rel" || die "The bundle holds an unexpected name; it was not used."
+    ! upgrade_path_reserved "$rel" || die "The bundle holds $rel, which belongs to a deployment, not a release; it was not used."
+  done < "$into/.list"
+  if tar -tvzf "$file" | cut -c1 | grep -qv '^[-d]$'; then die "The bundle holds a link or a special file; it was not used."; fi
+  rm -f "$into/.list"
+  tar -xzf "$file" -C "$into" --no-same-owner --no-same-permissions || die "The bundle could not be unpacked."
+  chmod -R go-w,u-s,g-s "$into/$top" && chmod 0755 "$into/$top/byodt"
+}
+
+# release_verify FILE VERSION SHA256 stops unless FILE is the release's bundle. The pinned hash is always checked. With
+# cosign, the release workflow's signature at that exact tag is checked too, and a failure stops. Without cosign the
+# signature is not checked (the warning also says when wget, which cannot hold a download to HTTPS, fetched it): the
+# bundle is used at a terminal only after a yes, and in an unattended run only with --allow-unsigned;
+# --require-signature, or UPGRADE_REQUIRE_SIGNATURE=true in .env, refuses it outright.
+release_verify() {
+  local file="$1" ver="$2" sha="$3" base="https://github.com/$BYODT_RELEASE_REPO/releases/download/v$2" out why
+  sha256_ready
+  [ "$(sha256_of "$file")" = "$sha" ] || die "The downloaded bundle is not the one release $ver published (SHA-256 mismatch). Nothing was changed."
+  info "SHA-256 matches release $ver."
+  if command -v cosign >/dev/null 2>&1; then
+    release_fetch "$base/byodt-$ver.tar.gz.bundle" "$file.bundle" "$UPGRADE_MAX_SMALL_BYTES" || die "Could not download the bundle's signature."
+    if ! out="$(https_proxy="$PROXY_URL" HTTPS_PROXY="$PROXY_URL" cosign verify-blob "$file" --bundle "$file.bundle" \
+        --certificate-identity "https://github.com/$BYODT_RELEASE_REPO/.github/workflows/release.yml@refs/tags/v$ver" \
+        --certificate-oidc-issuer https://token.actions.githubusercontent.com 2>&1)"; then
+      printf '%s\n' "$out" | LC_ALL=C tr -cd '[:print:]\n' | sed 's/^/    /' >&2
+      die "cosign could not verify the new bundle's signature against release $ver's identity (above). Nothing was changed."
+    fi
+    info "Signature verified: the release workflow of $BYODT_RELEASE_REPO at v$ver signed it."
+    return 0
+  fi
+  why="cosign is not installed, so the bundle's signature was not checked"
+  command -v curl >/dev/null 2>&1 || why="$why, and it came through wget, which cannot hold the download to HTTPS"
+  [ -z "$UP_REQUIRE_SIG" ] || die "A signature is required, but $why. Nothing was changed."
+  if [ -n "$UP_ALLOW_UNSIGNED" ]; then warn "--allow-unsigned: $why; its integrity was checked, its authenticity was not."; return 0; fi
+  if [ -z "$YES" ] && [ -t 0 ]; then
+    warn "$why: its integrity was checked, its authenticity was not."
+    ask_yes "Use it anyway? [y/N]" n || die "Not upgraded. Nothing was changed. Install cosign to verify the signature."
+    return 0
+  fi
+  die "$why, and an unattended upgrade does not run code it cannot verify. Install cosign (https://github.com/sigstore/cosign), or pass --allow-unsigned knowingly. Nothing was changed."
+}
+
+# --- the flags an upgrade carries through its phases ---
+readonly UPGRADE_HEALTH_TIMEOUT_DEFAULT=1200
+UP_VERSION="" UP_MOVE_DB="" UP_REPLACE_EDITED="" UP_SKIP_BACKUP="" UP_REQUIRE_SIG="" UP_ALLOW_UNSIGNED="" UP_HEALTH_TIMEOUT="$UPGRADE_HEALTH_TIMEOUT_DEFAULT"
+UP_ABANDON="" UP_FINISH="" UP_REQUIRE_SIG_GIVEN="" UP_HEALTH_TIMEOUT_GIVEN=""
+
+upgrade_flags() {
+  local opt val
+  while [ "$#" -gt 0 ]; do
+    opt="$1"; shift
+    case "$opt" in
+      --health-timeout=*) val="${opt#*=}"; opt=--health-timeout ;;
+      --health-timeout) [ "$#" -gt 0 ] || die "--health-timeout needs a number of seconds."; val="$1"; shift ;;
+    esac
+    case "$opt" in
+      --move-db) UP_MOVE_DB=1 ;;
+      --replace-edited) UP_REPLACE_EDITED=1 ;;
+      --skip-graph-backup) UP_SKIP_BACKUP=1 ;;
+      --require-signature) UP_REQUIRE_SIG=1 UP_REQUIRE_SIG_GIVEN=1 ;;
+      --allow-unsigned) UP_ALLOW_UNSIGNED=1 ;;
+      --health-timeout) case "$val" in ''|*[!0-9]*) die "--health-timeout is a number of seconds." ;; esac
+                        UP_HEALTH_TIMEOUT="$val" UP_HEALTH_TIMEOUT_GIVEN=1 ;;
+      --abandon) UP_ABANDON=1 ;;
+      --staged) ;;
+      --finish) UP_FINISH=1 ;;
+      -h|--help) upgrade_usage; exit 0 ;;
+      -*) die "Unknown option for upgrade: $opt (see '$SELF upgrade --help')." ;;
+      *) [ -z "$UP_VERSION" ] || die "upgrade takes one version."; UP_VERSION="${opt#v}"; version_ok "$UP_VERSION" || die "$opt is not a release version (X.Y.Z, or X.Y.Z-rc.N)." ;;
+    esac
+  done
+  [ -z "$UP_REQUIRE_SIG" ] || [ -z "$UP_ALLOW_UNSIGNED" ] || die "--require-signature and --allow-unsigned contradict each other."
+  upgrade_sig_from_env
+}
+
+# upgrade_sig_from_env: UPGRADE_REQUIRE_SIGNATURE=true in .env makes a signature required, and refuses --allow-unsigned
+# before anything is downloaded, as the installer does; false or unset leaves it to the flags, and any other value
+# stops, since a policy byodt cannot read must not count as off. A .env this account cannot read could hold it, so it
+# stops the upgrade rather than count as unset.
+upgrade_sig_from_env() {
+  local v
+  [ ! -e "$ENV_FILE" ] || [ -r "$ENV_FILE" ] || die "byodt cannot read $ENV_FILE, which may require a signature (UPGRADE_REQUIRE_SIGNATURE). Run the upgrade as the account that owns it. Nothing was changed."
+  v="$(env_setting UPGRADE_REQUIRE_SIGNATURE)"
+  case "$(printf '%s' "$v" | tr 'A-Z' 'a-z')" in
+    ''|false) ;;
+    true)
+      [ -z "$UP_ALLOW_UNSIGNED" ] || die "$ENV_FILE sets UPGRADE_REQUIRE_SIGNATURE=true, so --allow-unsigned does not apply. Nothing was changed."
+      UP_REQUIRE_SIG=1 ;;
+    *) die "$ENV_FILE sets UPGRADE_REQUIRE_SIGNATURE=$(printf '%s' "$v" | LC_ALL=C tr -cd '[:print:]' | cut -c1-40), which is neither true nor false. Nothing was changed." ;;
+  esac
+}
+
+# upgrade_carried prints the flags that cross into the next phase, one per line. --require-signature crosses only when
+# it was given: each phase reads .env's requirement itself, and carrying that one would put it beside --allow-unsigned.
+# --health-timeout crosses only when given too, so the default does not override a value an interrupted run saved.
+upgrade_carried() {
+  [ -z "$YES" ] || echo --yes
+  [ -z "$UP_MOVE_DB" ] || echo --move-db
+  [ -z "$UP_REPLACE_EDITED" ] || echo --replace-edited
+  [ -z "$UP_SKIP_BACKUP" ] || echo --skip-graph-backup
+  [ -z "$UP_REQUIRE_SIG_GIVEN" ] || echo --require-signature
+  [ -z "$UP_ALLOW_UNSIGNED" ] || echo --allow-unsigned
+  [ -z "$UP_HEALTH_TIMEOUT_GIVEN" ] || echo "--health-timeout=$UP_HEALTH_TIMEOUT"
+}
+
+upgrade_usage() {
+  cat <<EOT
+${BOLD}$SELF upgrade${RST} [VERSION] — move this deployment to a newer release (default: the latest)
+
+An interrupted upgrade is resumed by running '$SELF upgrade' again.
+
+  --yes                  ask nothing: confirm, accept every .env change, count the third-party notice as confirmed
+  --move-db              also move the database to the image the new release was tested with (one-way, and only with
+                         a graph backup; --yes never does this)
+  --replace-edited       go ahead although shipped files were edited here (they are kept in the backup)
+  --skip-graph-backup    for when the database is not running: go on without backing up the graph first
+  --require-signature    refuse unless cosign verifies the new release (or UPGRADE_REQUIRE_SIGNATURE=true in .env)
+  --allow-unsigned       let an unattended upgrade use a release cosign did not verify (its hash is still checked)
+  --health-timeout SECS  how long to wait for the new release to be healthy (default 1200)
+  --abandon              drop an interrupted upgrade: undo a half-done move, or print the rollback steps
+EOT
+}
+
+# --- phase 1: find, download, verify, stage ---
+
+cmd_upgrade() {
+  local cur deployed tgt sha pins stage="" file c
+  upgrade_flags "$@"
+  deployment_private_check "$PWD"
+  upgrade_lock_held && upgrade_lock_refuse
+  if [ -n "$UP_ABANDON" ]; then upgrade_lock; upgrade_abandon; return; fi
+  if [ -n "$UP_FINISH" ]; then upgrade_lock; upgrade_finish; return; fi
+  if [ -e "$UPGRADE_STATE" ] || [ -L "$UPGRADE_STATE" ]; then upgrade_lock; upgrade_resume; return; fi
+  ensure_ready
+  upgrade_lock
+  trap '[ -z "$stage" ] || rm -rf "$stage"; upgrade_unlock' EXIT
+  # Staging directories an interrupted run left behind with no state to go with them; the lock is ours now.
+  for c in .byodt-upgrade.??????; do
+    if stage_ok "$PWD/$c"; then rm -rf "${PWD:?}/$c"; fi
+  done
+  cur="$(env_setting_in .env.example PLATFORM_VERSION)"
+  deployed="$(env_setting PLATFORM_VERSION)"
+  [ "$cur" = "$deployed" ] || die "This bundle is release $cur, but $ENV_FILE runs $deployed: an earlier upgrade by hand is half done. Finish or undo it first."
+  version_ok "$cur" || die "This bundle's release ($cur) is not a version byodt can compare."
+  if [ -z "$UP_VERSION" ] && [ -z "$YES" ] && [ ! -t 0 ]; then
+    die "'$SELF upgrade' with no version moves to the latest release. Without a terminal to confirm that, give the version or add --yes."
+  fi
+  stage="$(mktemp -d "$PWD/.byodt-upgrade.XXXXXX")" || die "Could not make a staging directory."
+  chmod 0700 "$stage"
+  if [ -n "$UP_VERSION" ]; then
+    pins="$(release_pins "https://github.com/$BYODT_RELEASE_REPO/releases/download/v$UP_VERSION/get-byodt.sh" "$stage")" || exit 1
+    tgt="${pins%% *}"; sha="${pins#* }"
+    [ "$tgt" = "$UP_VERSION" ] || die "Release $UP_VERSION's installer names $tgt; it was not used."
+  else
+    pins="$(release_pins "https://github.com/$BYODT_RELEASE_REPO/releases/latest/download/get-byodt.sh" "$stage")" || exit 1
+    tgt="${pins%% *}"; sha="${pins#* }"
+    case "$tgt" in *-*) die "The latest release names a pre-release ($tgt); give the version you mean." ;; esac
+  fi
+  case "$(version_cmp "$tgt" "$cur")" in
+    0) die "Already on $cur. '$SELF update' applies it again." ;;
+    -1) if [ -z "$UP_VERSION" ]; then die "This deployment runs $cur, newer than the latest release, $tgt."; fi
+        die "$tgt is older than $cur: a downgrade is a rollback, not an upgrade. Roll back with the steps the upgrade to $cur printed, from its backup." ;;
+  esac
+  info "Upgrading from $cur to $tgt."
+  file="$stage/byodt-$tgt.tar.gz"
+  release_fetch "https://github.com/$BYODT_RELEASE_REPO/releases/download/v$tgt/byodt-$tgt.tar.gz" "$file" "$UPGRADE_MAX_BUNDLE_BYTES" \
+    || die "Could not download release $tgt's bundle."
+  release_verify "$file" "$tgt" "$sha"
+  release_unpack "$file" "$stage" "$tgt"
+  rm -f "$file" "$file.bundle"
+  trap - EXIT
+  # The new release's own byodt takes over: it checks, asks, backs up and moves the files in. The lock goes with it.
+  local -a carried=()
+  while IFS= read -r c; do carried+=("$c"); done < <(upgrade_carried)
+  exec "$stage/byodt-$tgt/byodt" upgrade --staged ${carried[@]+"${carried[@]}"}
+}
+
+# --- phase 2: the new release's byodt, from the staging directory ---
+
+# The staged run's facts, settled by upgrade_staged.
+U_DEPLOY="" U_STAGE="" U_NEW="" U_FROM="" U_TO=""
+
+# upgrade_staged runs before dispatch resolves anything: it starts in the staging copy, checks where it is, and moves
+# to the deployment, whose engine, database and proxy it then resolves.
+upgrade_staged() {
+  trap 'upgrade_staged_cleanup' EXIT
+  U_NEW="$(pwd -P)"
+  U_STAGE="$(dirname "$U_NEW")"
+  case "$(basename "$U_STAGE")" in .byodt-upgrade.??????) ;; *) die "--staged is how a release's installer hands over an upgrade; it is not run by hand." ;; esac
+  U_DEPLOY="$(dirname "$U_STAGE")"
+  # The installer runs the staged copy by its path: the commands to suggest are the deployment's own byodt, where this
+  # one is about to be moved.
+  case "$SELF" in */.byodt-upgrade.??????/*) SELF="$U_DEPLOY/byodt"; export BYODT_SELF="$SELF" ;; esac
+  upgrade_flags "$@"
+  U_TO="$(env_setting_in "$U_NEW/.env.example" PLATFORM_VERSION)"
+  version_ok "$U_TO" && [ "$(basename "$U_NEW")" = "byodt-$U_TO" ] || die "The staged release is not laid out as a release unpacks."
+  deployment_private_check "$U_DEPLOY"
+  cd "$U_DEPLOY"
+  upgrade_sig_from_env
+  ENGINE=""
+  resolve_db_engine
+  require_engine
+  resolve_proxy
+  ACK_FILE="$U_NEW/THIRD-PARTY-ACKNOWLEDGEMENT"
+  upgrade_lock
+  if [ -e "$UPGRADE_STATE" ] || [ -L "$UPGRADE_STATE" ]; then
+    # An earlier run that stopped before it changed anything but a backup (staged, backed-up, or moving with nothing
+    # moved yet: no old/), with nothing holding the lock, is taken over: this deployment's own byodt may be one that
+    # cannot resume it (a release before upgrades existed).
+    local old_stage takeover=""
+    state_check
+    old_stage="$(state_get stage)"
+    case "$(state_get phase)" in
+      staged|backed-up) takeover=1 ;;
+      moving) [ -d "$old_stage/old" ] || takeover=1 ;;
+    esac
+    [ -n "$takeover" ] || die "An upgrade is already in progress here (phase $(state_get phase)). '$SELF upgrade' resumes it, or '$SELF upgrade --abandon' undoes or drops it."
+    if stage_ok "$old_stage" && [ "$old_stage" != "$U_STAGE" ]; then rm -rf "${old_stage:?}"; fi
+    rm -f "$UPGRADE_STATE"
+    info "An earlier upgrade stopped before it changed anything; starting this one in its place."
+  fi
+  ready || die "This deployment has not started yet (no database password): there is nothing to upgrade. Install the new release instead."
+  U_FROM="$(env_setting_in .env.example PLATFORM_VERSION)"
+  version_ok "$U_FROM" || die "This bundle's release ($U_FROM) is not a version byodt can compare."
+  [ "$U_FROM" = "$(env_setting PLATFORM_VERSION)" ] || die "This bundle is release $U_FROM, but $ENV_FILE runs $(env_setting PLATFORM_VERSION): an earlier upgrade by hand is half done. Finish or undo it first."
+  case "$(version_cmp "$U_TO" "$U_FROM")" in
+    1) ;;
+    0) die "Already on $U_FROM." ;;
+    *) die "$U_TO is older than $U_FROM: a downgrade is a rollback, not an upgrade." ;;
+  esac
+  state_set "phase=staged" "from=$U_FROM" "to=$U_TO" "stage=$U_STAGE" "new=$U_NEW" "health_timeout=$UP_HEALTH_TIMEOUT" \
+    "flags=$(upgrade_carried | tr '\n' ' ')"
+  upgrade_prepare
+}
+
+# upgrade_staged_cleanup: a refusal before the move leaves the deployment as it was. What this run made goes, the
+# staging copy, its state and the lock; a backup already taken stays. An upgrade already in progress is left alone.
+upgrade_staged_cleanup() {
+  [ "$?" = 0 ] && return 0
+  [ -n "$U_DEPLOY" ] && [ -n "$U_STAGE" ] && cd "$U_DEPLOY" 2>/dev/null || return 0
+  if [ -n "$U_STATE_MINE" ]; then
+    case "$(state_get phase)" in
+      staged|backed-up) rm -f "$UPGRADE_STATE" ;;
+      *) return 0 ;;
+    esac
+  elif [ -e "$UPGRADE_STATE" ] && state_trusted && [ "$(state_get stage)" = "$U_STAGE" ]; then
+    # Another run's state names this staging copy: leave both to it.
+    return 0
+  fi
+  if stage_ok "$U_STAGE" "$U_DEPLOY"; then rm -rf "${U_STAGE:?}"; fi
+  upgrade_unlock
+}
+
+# The plan settled by the checks, and the answers.
+P_FILES="" P_EDITED="" P_REMOVED="" P_ADDED="" P_ENV_ADD="" P_ENV_REMOVE="" P_ENV_CHANGE="" P_CONSOLE="" P_DB_KEY="" P_DB_NEW=""
+P_VIA="" P_MANIFEST=""
+
+# example_keys FILE prints every key FILE sets or ships commented as a template (`KEY=` or `# KEY=`).
+example_keys() { sed -n -E 's/^(# )?([A-Z_][A-Z0-9_]*)=.*/\2/p' "$1" | sort -u; }
+
+# example_block FILE KEY prints KEY's template line in FILE with the comment lines right above it.
+example_block() {
+  ENVW_KEY="$2" awk '
+    { line[NR] = $0 }
+    index($0, ENVIRON["ENVW_KEY"] "=") == 1 || index($0, "# " ENVIRON["ENVW_KEY"] "=") == 1 { at = NR }
+    END {
+      if (!at) exit
+      s = at
+      while (s > 1 && line[s - 1] ~ /^#/ && index(line[s - 1], "=") == 0) s--
+      for (i = s; i <= at; i++) print line[i] }' "$1"
+}
+
+# env_has_key KEY: .env sets KEY, or carries its template line.
+env_has_key() { grep -Eq "^[[:space:]]*(export[[:space:]]+)?$1[[:space:]]*=|^# $1=" "$ENV_FILE"; }
+
+# list_drop LIST WORD prints LIST without WORD.
+list_drop() { printf ' %s ' "$1" | sed "s/ $2 / /g; s/^ *//; s/ *\$//"; }
+
+# manifest_current prints the manifest of the release this deployment runs: its own RELEASE_FILE when it is the
+# operator's and names that release, else the one this byodt knows for it. Nothing when neither exists. Lines that are
+# not a hash and a safe relative path are left out.
+manifest_current() {
+  {
+    if [ -f "$RELEASE_FILE" ] && [ ! -L "$RELEASE_FILE" ] && owned_by_operator "$RELEASE_FILE" \
+        && [ "$(sed -n 's/^version=//p' "$RELEASE_FILE")" = "$U_FROM" ]; then
+      cat "$RELEASE_FILE"
+    else
+      known_manifest "$U_FROM"
+    fi
+  } | while read -r sum path; do
+    case "$sum" in *[!0-9a-f]*|'') continue ;; esac
+    [ "${#sum}" = 64 ] && upgrade_path_ok "$path" && ! upgrade_path_reserved "$path" || continue
+    printf '%s  %s\n' "$sum" "$path"
+  done
+}
+
+# upgrade_prepare: every check, then every question, then the backup and the move. Nothing changes before the backup.
+upgrade_prepare() {
+  local path
+  sha256_ready
+  P_FILES="$(cd "$U_NEW" && find . -type f | sed 's|^\./||' | LC_ALL=C sort)"
+  while IFS= read -r path; do
+    upgrade_path_ok "$path" && ! upgrade_path_reserved "$path" || die "The new release ships $path, which an upgrade does not install. Nothing was changed."
+  done <<< "$P_FILES"
+  P_MANIFEST="$(manifest_current)"
+  upgrade_plan_files
+  upgrade_plan_env
+  upgrade_plan_images
+  upgrade_preflight
+  upgrade_ask
+  state_set "edited=$P_EDITED" "removed=$P_REMOVED" "added=$P_ADDED" "env_add=$P_ENV_ADD" "env_change=$P_ENV_CHANGE" \
+    "env_remove=$P_ENV_REMOVE" "console=$P_CONSOLE" "db_key=$P_DB_KEY" "db_new=$P_DB_NEW" "ack=$P_VIA"
+  upgrade_backup
+  upgrade_move
+}
+
+# upgrade_plan_files: files the new release ships that were edited here, files it adds, and files here it no longer
+# ships. A file the new release adds that already exists here is the operator's: it counts as edited, and is backed up.
+upgrade_plan_files() {
+  local sum path
+  if [ -n "$P_MANIFEST" ]; then
+    while read -r sum path; do
+      if printf '%s\n' "$P_FILES" | grep -qxF -- "$path"; then
+        if [ -f "$path" ] && [ "$(sha256_of "$path")" != "$sum" ]; then P_EDITED="$P_EDITED $path"; fi
+      elif [ -e "$path" ]; then
+        # Not shipped any more: left in place as it is, so an edit to it is no reason to stop.
+        P_REMOVED="$P_REMOVED $path"
+      fi
+    done <<< "$P_MANIFEST"
+  else
+    warn "byodt cannot tell whether release $U_FROM's files were edited here (no record of them); any edits are kept in the backup."
+  fi
+  while IFS= read -r path; do
+    printf '%s\n' "$P_MANIFEST" | awk '{ print $2 }' | grep -qxF -- "$path" && continue
+    if [ -e "$path" ]; then
+      # Here already: with a record, the operator's own file at a path the release now ships; without one, most
+      # likely the old release's. Either way it is not "added", and a rollback must not remove it.
+      [ -z "$P_MANIFEST" ] || P_EDITED="$P_EDITED $path"
+    else
+      P_ADDED="$P_ADDED $path"
+    fi
+  done <<< "$P_FILES"
+  P_EDITED="${P_EDITED# }"; P_ADDED="${P_ADDED# }"; P_REMOVED="${P_REMOVED# }"
+  if [ -n "$P_EDITED" ] && [ -z "$UP_REPLACE_EDITED" ]; then
+    die "These files here are not release $U_FROM's as shipped: $P_EDITED. An upgrade replaces them. Local changes belong in compose.override.yaml, which no bundle ships; move them there, or add --replace-edited (they are kept in the backup). Nothing was changed."
+  fi
+}
+
+# upgrade_plan_env: the .env changes, from this release's .env.example to the new one, each checked now so nothing fails
+# after the move. The settings upgrade_key_kept names are never touched.
+upgrade_plan_env() {
+  local k old new
+  for k in $(example_keys "$U_NEW/.env.example"); do
+    upgrade_key_kept "$k" && continue
+    if ! example_keys .env.example | grep -qx "$k"; then
+      if ! env_has_key "$k"; then
+        env_insert_block_check "$(example_block "$U_NEW/.env.example" "$k")" || die "The new .env.example's $k cannot be added to $ENV_FILE safely. Nothing was changed."
+        P_ENV_ADD="$P_ENV_ADD $k"
+      fi
+      continue
+    fi
+    old="$(env_setting_in .env.example "$k")"; new="$(env_setting_in "$U_NEW/.env.example" "$k")"
+    if [ -n "$new" ] && [ "$old" != "$new" ] && [ "$(env_setting "$k")" = "$old" ]; then
+      env_value_ok "$new" || die "The new .env.example's $k holds a value byodt cannot write. Nothing was changed."
+      P_ENV_CHANGE="$P_ENV_CHANGE $k"
+    fi
+  done
+  for k in $(example_keys .env.example); do
+    upgrade_key_kept "$k" && continue
+    example_keys "$U_NEW/.env.example" | grep -qx "$k" && continue
+    if grep -Eq "^[[:space:]]*(export[[:space:]]+)?$k[[:space:]]*=" "$ENV_FILE"; then P_ENV_REMOVE="$P_ENV_REMOVE $k"; fi
+  done
+  P_ENV_ADD="${P_ENV_ADD# }"; P_ENV_CHANGE="${P_ENV_CHANGE# }"; P_ENV_REMOVE="${P_ENV_REMOVE# }"
+}
+
+# upgrade_plan_images: a console image pinned to the old release (console-init would refuse the new one), and the
+# database image the new release was tested with.
+upgrade_plan_images() {
+  local pin tag new
+  pin="$(env_setting CONSOLE_IMAGE)"
+  if [ -n "$pin" ]; then
+    tag="${pin##*:}"
+    if [ "$tag" = "$U_FROM" ]; then
+      P_CONSOLE="${pin%:*}:$U_TO"
+      env_value_ok "$P_CONSOLE" || die "CONSOLE_IMAGE in $ENV_FILE ($pin) cannot be retagged by byodt. Set its tag to $U_TO by hand, or comment it out. Nothing was changed."
+    elif [ "$tag" != "$U_TO" ]; then
+      die "CONSOLE_IMAGE in $ENV_FILE is pinned to $pin, which serves neither $U_FROM nor $U_TO. Set its tag to $U_TO, or comment it out. Nothing was changed."
+    fi
+  fi
+  P_DB_KEY="$(ack_db_key "$DBE")"
+  ack_check_images "$DBE" >/dev/null
+  if [ "$DBE" = neo4j ]; then new="$(sed -n 's/^readonly TESTED_NEO4J_IMAGE="\(.*\)"$/\1/p' "$U_NEW/byodt")"
+  else new="$(sed -n 's/^readonly TESTED_DB_IMAGE="\(.*\)"$/\1/p' "$U_NEW/byodt")"; fi
+  if [ -n "$new" ] && [ "$new" != "$(ack_image "$P_DB_KEY")" ]; then
+    env_value_ok "$new" || die "The new release names a database image byodt cannot write. Nothing was changed."
+    P_DB_NEW="$new"
+  fi
+}
+
+# upgrade_preflight: the project, the disk, and the database the graph backup needs.
+upgrade_preflight() {
+  local free
+  check_project
+  free="$(df -Pk . | awk 'NR == 2 { print $4 }')"
+  case "$free" in ''|*[!0-9]*) ;; *) [ "$free" -ge "$UPGRADE_MIN_FREE_KB" ] || die "Only $((free / 1024)) MiB is free here; an upgrade needs at least $((UPGRADE_MIN_FREE_KB / 1024)) MiB for the new images and the backups. Nothing was changed." ;; esac
+  if [ -n "$UP_SKIP_BACKUP" ]; then
+    [ -z "$UP_MOVE_DB" ] || die "--move-db with --skip-graph-backup: moving the database is one-way, and needs a graph backup to come back from. Nothing was changed."
+    # Without a backup, moving the database is not offered.
+    P_DB_NEW=""
+  elif ! db_query 'RETURN 1;' >/dev/null 2>&1; then
+    die "The database is not running, so the graph cannot be backed up first. Start it ('$SELF up'), or add --skip-graph-backup. Nothing was changed."
+  fi
+}
+
+# upgrade_ask: what the upgrade will do, then every question at once; nothing more is asked after this.
+upgrade_ask() {
+  local k
+  if [ -z "$YES" ] && [ ! -t 0 ]; then
+    die "An upgrade asks before it changes anything. Without a terminal, add --yes. Nothing was changed."
+  fi
+  upgrade_summary
+  if [ -z "$YES" ]; then
+    ask_yes "Upgrade from $U_FROM to $U_TO? [y/N]" n || die "Not upgraded. Nothing was changed."
+  fi
+  if [ -n "$P_DB_NEW" ]; then
+    if [ -n "$UP_MOVE_DB" ] || { [ -z "$YES" ] && ask_yes "Also move the database to $P_DB_NEW? This cannot be undone; the backup comes first. [y/N]" n; }; then :
+    else P_DB_NEW=""; fi
+  fi
+  if [ -n "$P_CONSOLE" ] && [ -z "$YES" ]; then
+    ask_yes "Retag CONSOLE_IMAGE to $P_CONSOLE? [Y/n]" y || die "CONSOLE_IMAGE stays on $U_FROM, which the new release refuses. Nothing was changed."
+  fi
+  if [ -z "$YES" ]; then
+    for k in $P_ENV_ADD; do ask_yes "Add the new setting $k to $ENV_FILE (as .env.example ships it)? [Y/n]" y || P_ENV_ADD="$(list_drop "$P_ENV_ADD" "$k")"; done
+    for k in $P_ENV_CHANGE; do ask_yes "Take the new default for $k ($(env_setting_in "$U_NEW/.env.example" "$k"))? [Y/n]" y || P_ENV_CHANGE="$(list_drop "$P_ENV_CHANGE" "$k")"; done
+    for k in $P_ENV_REMOVE; do ask_yes "Comment out $k, which $U_TO no longer uses? [Y/n]" y || P_ENV_REMOVE="$(list_drop "$P_ENV_REMOVE" "$k")"; done
+  fi
+  # The third-party notice, when the new text, the database image or the model changes what was confirmed. The
+  # notice file is checked here, so a refusal stops the upgrade rather than reading as "not due".
+  ack_file_check
+  if [ -n "$P_DB_NEW" ]; then export "$P_DB_KEY=$P_DB_NEW"; fi
+  ack_check_images "$DBE"
+  if ack_due; then P_VIA="$(ack_confirm "$DBE" "Nothing has changed yet.")" || exit 1; fi
+  if [ -n "$P_DB_NEW" ]; then unset "$P_DB_KEY"; fi
+}
+
+# env_insert_block_check BLOCK: env_insert_block's rule, without writing: no control character, exactly one key.
+env_insert_block_check() {
+  if printf '%s' "$1" | LC_ALL=C tr -d '\n' | LC_ALL=C grep -q '[[:cntrl:]]'; then return 1; fi
+  [ "$(printf '%s\n' "$1" | grep -Ec '^(# )?[A-Z_][A-Z0-9_]*=' || true)" = 1 ]
+}
+
+# upgrade_summary says what the upgrade will do, before anything is asked.
+upgrade_summary() {
+  info "Upgrade from $U_FROM to $U_TO:"
+  [ -z "$P_EDITED" ] || warn "  files here that are not as the release shipped them, replaced (kept in the backup): $P_EDITED"
+  [ -z "$P_ADDED" ] || info "  new files: $P_ADDED"
+  [ -z "$P_REMOVED" ] || info "  files $U_TO no longer ships (left in place, yours to remove): $P_REMOVED"
+  [ -z "$P_ENV_ADD" ] || info "  new settings for $ENV_FILE: $P_ENV_ADD"
+  [ -z "$P_ENV_CHANGE" ] || info "  new defaults: $P_ENV_CHANGE"
+  [ -z "$P_ENV_REMOVE" ] || info "  settings no longer used: $P_ENV_REMOVE"
+  [ -z "$P_CONSOLE" ] || info "  CONSOLE_IMAGE retagged to $P_CONSOLE"
+  if [ -z "$P_DB_NEW" ]; then :
+  elif [ -n "$UP_MOVE_DB" ]; then info "  the database moves to $P_DB_NEW after the graph backup (--move-db; one-way)"
+  else info "  the new release was tested with $P_DB_NEW; $P_DB_KEY stays as it is unless you choose to move it"
+  fi
+  if [ -n "$UP_SKIP_BACKUP" ]; then warn "  the graph is NOT backed up (--skip-graph-backup)"; fi
+}
+
+# upgrade_backup backs up, into a private directory: the graph with this deployment's own (old) byodt, .env, the
+# release record, and every file the old or the new release ships as it is here, edits and the operator's own files at
+# those paths included. .env.secrets is not copied: the upgrade leaves it alone.
+upgrade_backup() {
+  local dir rb path
+  mkdir -p backups
+  dir="backups/upgrade-$U_FROM-to-$U_TO-$(date -u +%Y%m%dT%H%M%SZ)"
+  ( umask 077; mkdir "$dir" ) || die "Could not make $dir."
+  state_set "backup=$dir"
+  if [ -z "$UP_SKIP_BACKUP" ]; then
+    info "Backing up the graph with release ${U_FROM}'s own byodt…"
+    ./byodt backup "$dir" </dev/null || die "The graph backup failed. Nothing was changed; the partial backup is in $dir."
+  fi
+  cp -p "$ENV_FILE" "$dir/env.before-$U_TO" || die "Could not copy $ENV_FILE into $dir."
+  if [ -f "$RELEASE_FILE" ] && [ ! -L "$RELEASE_FILE" ]; then cp -p "$RELEASE_FILE" "$dir/byodt-release.before-$U_TO"; fi
+  rb="$U_STAGE/rb/byodt-$U_FROM"
+  mkdir -p "$rb"
+  { printf '%s\n' "$P_MANIFEST" | awk '{ print $2 }'; printf '%s\n' "$P_FILES"; } | LC_ALL=C sort -u | while IFS= read -r path; do
+    [ -n "$path" ] && [ -f "$path" ] && [ ! -L "$path" ] || continue
+    mkdir -p "$rb/$(dirname "$path")" && cp -p "$path" "$rb/$path" || die "Could not copy $path for the backup."
+  done
+  ( umask 077; tar -czf "$dir/bundle-files-$U_FROM.tar.gz" -C "$U_STAGE/rb" "byodt-$U_FROM" ) || die "Could not pack the files into $dir."
+  rm -rf "${U_STAGE:?}/rb"
+  own_like_deployment backups
+  state_set "phase=backed-up"
+  info "Backed up into $dir."
+}
+
+# upgrade_move moves the new release's files in, journalled: the list is recorded first, byodt goes first (so any
+# half-done state already has the code that resumes it), and each file this deployment had goes to the staging
+# directory's old/ before its replacement comes in. A failure puts everything back.
+upgrade_move() {
+  local list="$U_STAGE/move.list"
+  { printf '%s\n' byodt; printf '%s\n' "$P_FILES" | grep -vx byodt; } > "$list"
+  state_set "phase=moving"
+  trap 'upgrade_undo_move; die "Moving the new files in failed; the old ones are back. The backup is in $(state_get backup)."' EXIT
+  upgrade_move_files
+  trap - EXIT
+  state_set "phase=moved"
+  info "Release ${U_TO}'s files are in place."
+  exec ./byodt upgrade --finish
+}
+
+# upgrade_move_files moves every file still in the staging copy into place. Run again after an interruption, it goes
+# on from where it stopped.
+upgrade_move_files() {
+  local stage new path
+  state_paths_ok
+  stage="$(state_get stage)"; new="$(state_get new)"
+  while IFS= read -r path; do
+    [ -n "$path" ] && [ -e "$new/$path" ] || continue
+    mkdir -p "$(dirname "$path")"
+    if [ -e "$path" ] || [ -L "$path" ]; then
+      if [ ! -e "$stage/old/$path" ]; then mkdir -p "$stage/old/$(dirname "$path")"; mv -f "$path" "$stage/old/$path"; else rm -f "$path"; fi
+    fi
+    mv -f "$new/$path" "$path"
+  done < "$stage/move.list"
+}
+
+# upgrade_undo_move puts back every file the move replaced, and takes the ones it added back to the staging copy.
+upgrade_undo_move() {
+  local stage new path
+  state_paths_ok
+  stage="$(state_get stage)"; new="$(state_get new)"
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    if [ -e "$stage/old/$path" ]; then
+      if [ ! -e "$new/$path" ] && [ -e "$path" ]; then mkdir -p "$new/$(dirname "$path")"; mv -f "$path" "$new/$path"; fi
+      mv -f "$stage/old/$path" "$path"
+    elif [ ! -e "$new/$path" ] && [ -e "$path" ]; then
+      mkdir -p "$new/$(dirname "$path")"; mv -f "$path" "$new/$path"
+    fi
+  done < "$stage/move.list"
+  state_set "phase=backed-up"
+}
+
+# --- phase 3: the moved-in byodt applies ---
+
+upgrade_finish() {
+  local phase k dir removed
+  [ -e "$UPGRADE_STATE" ] || [ -L "$UPGRADE_STATE" ] || die "No upgrade is in progress."
+  state_check
+  sha256_ready
+  phase="$(state_get phase)"
+  case "$phase" in
+    moved|env-done|applied) ;;
+    *) die "The upgrade is at phase $phase, not ready to finish. '$SELF upgrade' resumes it from there." ;;
+  esac
+  state_paths_ok
+  U_FROM="$(state_get from)"; U_TO="$(state_get to)"; U_STAGE="$(state_get stage)"
+  UP_HEALTH_TIMEOUT="$(state_get health_timeout)"
+  case "$UP_HEALTH_TIMEOUT" in ''|*[!0-9]*) UP_HEALTH_TIMEOUT="$UPGRADE_HEALTH_TIMEOUT_DEFAULT" ;; esac
+  if [ "$phase" = moved ]; then
+    # Each change is safe to repeat: a resume after an interruption here applies it again.
+    env_write "$ENV_FILE" PLATFORM_VERSION "$U_TO"
+    for k in $(state_get env_add); do env_has_key "$k" || env_insert_block "$ENV_FILE" "$(example_block .env.example "$k")"; done
+    for k in $(state_get env_change); do env_write "$ENV_FILE" "$k" "$(env_setting_in .env.example "$k")"; done
+    for k in $(state_get env_remove); do env_comment_out "$ENV_FILE" "$k" "no longer used since $U_TO"; done
+    [ -z "$(state_get console)" ] || env_write "$ENV_FILE" CONSOLE_IMAGE "$(state_get console)"
+    [ -z "$(state_get db_new)" ] || env_write "$ENV_FILE" "$(state_get db_key)" "$(state_get db_new)"
+    release_record "$U_TO"
+    [ -z "$(state_get ack)" ] || ack_record "$(state_get ack)"
+    own_like_deployment "$RELEASE_FILE"
+    state_set "phase=env-done"
+    phase=env-done
+  fi
+  if [ "$phase" = env-done ]; then
+    info "Applying release ${U_TO}…"
+    # A child process, so its own errexit stops it at the first failure: a function run as `( … ) || die` would run
+    # with errexit off. The guard lets this one update through.
+    UPGRADE_FINISHING=1 ./byodt update --yes </dev/null \
+      || die "Applying $U_TO failed (above). If the pull failed, the old containers are still running. Fix what it names and run '$SELF upgrade' to go on, or roll back:$(upgrade_rollback_steps with-abandon)"
+    state_set "phase=applied"
+    phase=applied
+  fi
+  if ! wait_healthy "$UP_HEALTH_TIMEOUT"; then
+    die "Release $U_TO did not report healthy within $UP_HEALTH_TIMEOUT seconds. Still starting? '$SELF upgrade' checks again. To go back instead (everything since the backup is lost):$(upgrade_rollback_steps with-abandon)"
+  fi
+  dir="$(state_get backup)"; removed="$(state_get removed)"
+  info "Upgraded from $U_FROM to $U_TO. The backup is in $dir."
+  [ -z "$removed" ] || info "Files $U_TO no longer ships, which you can remove: $removed"
+  info "To roll back later (everything since the backup is lost):$(upgrade_rollback_steps)"
+  if stage_ok "$U_STAGE"; then rm -rf "${U_STAGE:?}"; fi
+  rm -f "$UPGRADE_STATE"
+  upgrade_unlock
+}
+
+# release_record VERSION writes RELEASE_FILE: the release and the SHA-256 of every file it shipped, as they are now, the
+# base the next upgrade checks local edits against.
+release_record() {
+  local path tmp="$RELEASE_FILE.tmp"
+  if [ -L "$RELEASE_FILE" ] || [ -L "$tmp" ]; then die "$RELEASE_FILE or $tmp is a symbolic link; move it aside."; fi
+  rm -f "$tmp"
+  { printf 'version=%s\n' "$1"
+    while IFS= read -r path; do [ -n "$path" ] && [ -f "$path" ] && printf '%s  %s\n' "$(sha256_of "$path")" "$path"; done < "$(state_get stage)/move.list"
+  } > "$tmp" && chmod 0644 "$tmp" && mv -f "$tmp" "$RELEASE_FILE" || die "Could not write $RELEASE_FILE."
+}
+
+# release_record_initial writes RELEASE_FILE on a deployment's first run, from the files the bundle shipped (everything
+# here but what a run creates, the runtime directories and compose.override.yaml: the same set upgrade_path_reserved
+# names; and the .DS_Store files macOS Finder leaves), unless one exists. The first upgrade checks local edits
+# against it.
+release_record_initial() {
+  local tmp="$RELEASE_FILE.tmp" path
+  [ ! -e "$RELEASE_FILE" ] && [ ! -L "$RELEASE_FILE" ] || return 0
+  [ ! -e "$tmp" ] && [ ! -L "$tmp" ] || return 0
+  sha256_tool || { warn "Neither sha256sum nor shasum is installed, so $RELEASE_FILE was not written; the first upgrade will not be able to check local edits."; return 0; }
+  { printf 'version=%s\n' "$(env_setting_in .env.example PLATFORM_VERSION)"
+    find . -type f | sed 's|^\./||' | LC_ALL=C sort | while IFS= read -r path; do
+      upgrade_path_ok "$path" && ! upgrade_path_reserved "$path" || continue
+      case "$path" in .DS_Store|*/.DS_Store) continue ;; esac
+      printf '%s  %s\n' "$(sha256_of "$path")" "$path"
+    done
+  } > "$tmp" && chmod 0644 "$tmp" && mv -f "$tmp" "$RELEASE_FILE" || warn "Could not write $RELEASE_FILE; the first upgrade will not be able to check local edits."
+}
+
+# upgrade_rollback_steps [with-abandon] prints the exact commands that go back to the release before the upgrade, run in
+# the deployment's folder (the first one goes there); with with-abandon, next the one that drops the upgrade's state,
+# while it exists.
+upgrade_rollback_steps() {
+  local dir from to path graph
+  dir="$(state_get backup)"; from="$(state_get from)"; to="$(state_get to)"
+  graph="$(ls -1 "$dir"/byodt-snapshot-* "$dir"/byodt-dump-* 2>/dev/null | head -1 || true)"
+  # In single quotes, which sh, bash and zsh all read the same way; a folder name with a character a terminal does not
+  # print gets no cd line to paste.
+  case "$PWD" in
+    *[![:print:]]*) printf '\n  # in this deployment'"'"'s folder:\n' ;;
+    *) printf "\n  cd '%s'\n" "$(printf '%s' "$PWD" | sed "s/'/'\\\\''/g")" ;;
+  esac
+  [ "${1:-}" != with-abandon ] || printf '  ./byodt upgrade --abandon --yes\n'
+  printf '  ./byodt down\n'
+  # The files the new release added go first: the unpack then brings back everything the old release, and the
+  # operator, had at those paths.
+  for path in $(state_get added); do printf '  rm -f %s\n' "$path"; done
+  printf '  tar -xzf %s/bundle-files-%s.tar.gz --strip-components=1\n' "$dir" "$from"
+  printf '  cp -p %s/env.before-%s .env\n' "$dir" "$to"
+  if [ -f "$dir/byodt-release.before-$to" ]; then printf '  cp -p %s/byodt-release.before-%s .byodt-release\n' "$dir" "$to"
+  else printf '  rm -f .byodt-release\n'; fi
+  if [ -n "$(state_get db_new)" ]; then
+    if db_is_bind; then printf '  mv %s %s.moved-%s   # the newer database wrote it; the old one cannot open it\n' "$(db_data_setting)" "$(db_data_setting)" "$to"
+    else printf '  %s volume rm dethernety_%s   # the newer database wrote it; the old one cannot open it\n' "$ENGINE" "$(db_data_setting)"; fi
+  fi
+  printf '  ./byodt update\n'
+  if [ -n "$graph" ]; then printf '  ./byodt restore %s\n' "$graph"; else printf '  (no graph backup was taken)\n'; fi
+  printf '  ./byodt restart platform\n'
+}
+
+# --- resuming and abandoning (the caller holds the lock) ---
+
+upgrade_resume() {
+  local phase stage to backup flags
+  state_check
+  phase="$(state_get phase)"; stage="$(state_get stage)"; to="$(state_get to)"; backup="$(state_get backup)"
+  flags="$(state_get flags)"
+  info "An upgrade from $(state_get from) to $to is in progress (phase $phase)."
+  case "$phase" in
+    staged|backed-up)
+      # Nothing here has changed yet beyond a backup: start over, to the same release.
+      if stage_ok "$stage"; then rm -rf "${stage:?}"; fi
+      rm -f "$UPGRADE_STATE"; upgrade_unlock
+      info "It had not changed anything yet; starting over."
+      version_ok "$to" || die "The interrupted upgrade names no release; run '$SELF upgrade' again."
+      # The interrupted run's own flags, read before its state went, then this command's: a later --health-timeout wins.
+      set -f; exec ./byodt upgrade "$to" $flags $(upgrade_carried) ;;
+    moving)
+      state_paths_ok
+      if [ -z "$YES" ] && [ ! -t 0 ]; then
+        die "The new files were being moved in when the upgrade stopped. Without a terminal, add --yes to finish the move, or run '$SELF upgrade --abandon' to put the old files back."
+      fi
+      if [ -n "$YES" ] || ask_yes "The new files were being moved in. Finish moving them in (y), or put the old ones back (n)? [Y/n]" y; then
+        upgrade_move_files; state_set "phase=moved"; exec ./byodt upgrade --finish
+      fi
+      upgrade_undo_move; rm -rf "${stage:?}"; rm -f "$UPGRADE_STATE"; upgrade_unlock
+      info "The old files are back; the upgrade was dropped. The backup stays in $backup." ;;
+    moved|env-done|applied)
+      exec ./byodt upgrade --finish ;;
+    *) die "$UPGRADE_STATE has an unknown phase ($phase)." ;;
+  esac
+}
+
+upgrade_abandon() {
+  local phase stage
+  if [ ! -e "$UPGRADE_STATE" ] && [ ! -L "$UPGRADE_STATE" ]; then upgrade_unlock; info "No upgrade is in progress."; return 0; fi
+  state_check
+  phase="$(state_get phase)"; stage="$(state_get stage)"
+  case "$phase" in
+    staged|backed-up) ;;
+    moving)
+      state_paths_ok
+      upgrade_undo_move
+      info "The old files are back." ;;
+    *)
+      info "Release $(state_get to)'s files are in place. Dropping the upgrade does not undo that; the rollback steps do:$(upgrade_rollback_steps)"
+      if [ -z "$YES" ]; then
+        [ -t 0 ] && ask_yes "Drop the upgrade's state now (you run the steps above)? [y/N]" n || die "Kept the upgrade's state."
+      fi ;;
+  esac
+  if stage_ok "$stage"; then rm -rf "${stage:?}"; fi
+  rm -f "$UPGRADE_STATE"
+  upgrade_unlock
+  info "The upgrade was dropped."
+}
+
+# --- the health check ---
+
+# container_health SERVICE prints the health of SERVICE's newest container: healthy, unhealthy, starting, running (no
+# healthcheck), exited, or nothing.
+container_health() {
+  local id
+  id="$(project_containers "$1" | head -1)"
+  [ -n "$id" ] || return 0
+  "$ENGINE" inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$id" 2>/dev/null </dev/null || true
+}
+
+# wait_healthy SECONDS waits until the platform and the front door report healthy and the console runs. An unhealthy
+# report is not the end: a first start after an upgrade can re-ingest and download the model for longer than the
+# platform's healthcheck allows, so it waits until the deadline. Under Podman without a systemd user session
+# healthchecks never run on their own, so they are run here.
+wait_healthy() {
+  local limit="$1" start now p f c id last=0
+  start="$(date +%s)"
+  info "Waiting for release $U_TO to be healthy (up to $limit seconds)…"
+  while :; do
+    p="$(container_health platform)"; f="$(container_health proxy)"; c="$(container_health console)"
+    if [ "$p" = healthy ] && [ "$f" = healthy ] && { [ "$c" = running ] || [ "$c" = healthy ]; }; then info "Healthy."; return 0; fi
+    if [ "$ENGINE" = podman ]; then
+      for id in $(project_containers platform | head -1) $(project_containers proxy | head -1); do podman healthcheck run "$id" >/dev/null 2>&1 </dev/null || true; done
+    fi
+    now="$(date +%s)"
+    if [ "$((now - start))" -ge "$limit" ]; then warn "Last seen: platform ${p:-none}, front door ${f:-none}, console ${c:-none}."; return 1; fi
+    if [ "$((now - last))" -ge 30 ]; then info "  platform: ${p:-none}, front door: ${f:-none}, console: ${c:-none}"; last="$now"; fi
+    # Never past the deadline: a short timeout is checked again right at it.
+    if [ "$((limit - (now - start)))" -lt 5 ]; then sleep 1; else sleep 5; fi
+  done
+}
+
 # --- commands -----------------------------------------------------------------
 cmd_bootstrap() { do_bootstrap; info "Ready. Start with: ${BOLD}$SELF up${RST}"; }
 
@@ -615,27 +2655,10 @@ check_db_image() {
   fi
 }
 
-# env_setting KEY prints KEY's value in .env as compose reads it ('' when unset): the last assignment wins, an `export `
-# prefix and spaces around the name are allowed, an unquoted value ends at ' #', and one pair of surrounding quotes
-# goes. env_value is left as it is for its other callers; this one decides a refusal, so it reads what the platform gets.
-env_setting() {
-  local key="$1" line val
-  [ -f "$ENV_FILE" ] || return 0
-  line="$(grep -E "^[[:space:]]*(export[[:space:]]+)?${key}[[:space:]]*=" "$ENV_FILE" 2>/dev/null | tail -1 || true)"
-  [ -n "$line" ] || return 0
-  val="$(printf '%s' "${line#*=}" | sed -E 's/^[[:space:]]+//')"
-  case "$val" in
-    \"*) val="$(printf '%s' "$val" | sed -E 's/^"([^"]*)".*$/\1/')" ;;
-    \'*) val="$(printf '%s' "$val" | sed -E "s/^'([^']*)'.*\$/\\1/")" ;;
-    *)   val="${val%%[[:space:]]#*}"; val="$(printf '%s' "$val" | sed -E 's/[[:space:]]+$//')" ;;
-  esac
-  printf '%s' "$val"
-}
-
 # --- outbound proxy -----------------------------------------------------------
 
 # What resolve_proxy settles and compose() exports. PROXY_URL carries the proxy's login when it has one, so it is
-# never printed. Empty, they are today's behaviour: every call goes direct.
+# never printed. Empty, they are the behaviour without a proxy: every call goes direct.
 PROXY_URL="" PROXY_NO="" PROXY_CA="" PROXY_CA_DIR=""
 # Loopback and the bundle's own services, always reached directly; compose_services adds any compose.override.yaml
 # declares.
@@ -924,11 +2947,22 @@ check_embedding_env() {
 # labels in both providers' namespaces (Docker Compose: com.docker.compose.*, podman-compose: io.podman.compose.*),
 # never by name or image, so no other project's container is ever selected.
 project_containers() {
-  local ns
+  local ns all=-aq
+  [ "${2:-}" != running ] || all=-q
   resolve_engine
   for ns in com.docker.compose io.podman.compose; do
-    "$ENGINE" ps -aq --filter "label=$ns.project=dethernety" --filter "label=$ns.service=$1" 2>/dev/null || true
+    "$ENGINE" ps "$all" --filter "label=$ns.project=dethernety" --filter "label=$ns.service=$1" 2>/dev/null </dev/null || true
   done | sort -u | grep -v '^$' || true
+}
+
+# db_container prints the id of the project's running database container, for the engine's own `cp` (podman-compose has
+# no `compose cp`); it stops when there is not exactly one.
+db_container() {
+  local ids
+  ids="$(project_containers db running)"
+  [ -n "$ids" ] || die "The database container is not running; start it with '$SELF up'."
+  [ "$(printf '%s\n' "$ids" | wc -l | tr -d ' ')" = 1 ] || die "More than one database container of this project is running ('$SELF status'); stop the extra one first."
+  printf '%s' "$ids"
 }
 
 # remove_old_ollama removes the ollama container an older bundle ran. Compose leaves a service's container running once
@@ -978,8 +3012,14 @@ start_stack() {
 }
 
 cmd_up() {
-  # Always repair the layout (idempotent, silent when complete) so a bundle missing the mode layer or a
-  # runtime dir is fixed here instead of failing inside compose; the one-time password stays gated.
+  upgrade_guard
+  # The checks that can refuse come first, so a refused first start leaves no .env or runtime directory behind. Then
+  # the layout is repaired (idempotent, silent when complete), so a bundle missing the mode layer or a runtime dir is
+  # fixed here instead of failing inside compose; the one-time password stays gated.
+  local fresh=""
+  ready || fresh=fresh
+  check_project "$fresh"
+  ack_gate
   ensure_layout
   ensure_password
   check_password_length
@@ -1009,10 +3049,20 @@ refuse_volume_flags() {
   done
 }
 
-cmd_down() { ensure_ready; refuse_volume_flags "$@"; remove_old_ollama; info "Stopping (data kept)…"; compose down "$@"; }
+cmd_down() {
+  ensure_ready
+  refuse_volume_flags "$@"
+  [ -n "$TAKE_OVER" ] || check_project
+  remove_old_ollama
+  info "Stopping (data kept)…"
+  compose down "$@"
+}
 
 cmd_restart() {
+  upgrade_guard
   ensure_ready
+  check_project
+  ack_gate
   # A recreate binds every runtime dir; one a newer bundle added (data/models) must exist first.
   ensure_layout
   remove_old_ollama
@@ -1033,7 +3083,10 @@ cmd_status() { ensure_ready; compose ps "$@"; }
 cmd_logs() { ensure_ready; compose logs -f "$@"; }
 
 cmd_update() {
+  upgrade_guard
   ensure_ready
+  check_project
+  ack_gate
   # The new bundle may mount a runtime dir the old one did not (data/models): without it, Docker creates it
   # root-owned and the platform cannot write its weights there, and Podman refuses the missing bind source.
   ensure_layout
@@ -1075,6 +3128,7 @@ db_query() {
 # separate system state), so a backup is graph-only: portable, and not a secret-bearing file.
 cmd_backup() {
   ensure_ready
+  check_project
   # An exported DB_ENGINE that differs from the deployment's would stop the running database and act on the other
   # engine's empty store.
   check_engine_switch
@@ -1100,14 +3154,16 @@ cmd_backup() {
   [ -n "$snappath" ] || die "No snapshot available to back up."
 
   local destdir="${1:-backups}"
-  # No chmod here: the snapshot is the whole graph (sensitive), and `compose cp` writes it host-side
-  # as the operator, so nothing needs this dir widened — let the operator's umask govern, and never
-  # broaden a directory the operator named.
+  # The snapshot is the whole graph (sensitive). The engine's `cp` writes it host-side as the operator but with the
+  # container file's mode, so it is narrowed to the operator below; the directory is the operator's umask's, and a
+  # directory the operator named is never widened.
   mkdir -p "$destdir"
   local out="${destdir%/}/byodt-snapshot-$(env_value PLATFORM_VERSION 0)-$(date +%Y%m%d-%H%M%S).snapshot"
   # Copy OUT through the container so this works for both a host bind mount and a named volume (the
   # host cannot see a named volume's files directly). Same mechanism restore uses.
-  compose cp "db:$snappath" "$out" >/dev/null 2>&1 || die "Failed to copy the snapshot out of the db container."
+  local db; db="$(db_container)"
+  "$ENGINE" cp "$db:$snappath" "$out" >/dev/null 2>&1 </dev/null || die "Failed to copy the snapshot out of the db container."
+  chmod go-rwx "$out" || warn "Could not make $out private to you (its file system may not keep modes); keep it where only you can read it."
 
   info "Backup written: ${BOLD}$out${RST} ($(du -h "$out" 2>/dev/null | cut -f1 | tr -d ' '))"
   info "The whole graph is in here (no password) — keep it private and ${BOLD}copy it off-box${RST} so it survives losing this machine."
@@ -1143,6 +3199,7 @@ confirm_restore() {
 # keeps using this deployment's own password. Snapshots are graph-only and version-sensitive.
 cmd_restore() {
   ensure_ready
+  check_project
   local file="${1:-}"
   [ -n "$file" ] || die "usage: $SELF restore <backup-file>"
   [ -f "$file" ] || die "No such backup file: $file"
@@ -1160,11 +3217,12 @@ cmd_restore() {
 
   # Stage the file where memgraph can read it. Host-written files under the data bind mount are not
   # reliably visible inside the container (engine/VM file sharing), so copy it INTO a container-local
-  # path with `compose cp`, then make it world-readable as root — `compose cp` lands it owned by the
+  # path with the engine's `cp`, then make it world-readable as root — `cp` lands it owned by the
   # host uid, which memgraph's uid cannot read. RECOVER SNAPSHOT then copies it into the snapshots dir.
   local staged="/tmp/byodt-restore.snapshot"
   info "Staging the snapshot into the database container…"
-  compose cp "$file" "db:$staged" >/dev/null 2>&1 || die "Could not copy the snapshot into the db container."
+  local db; db="$(db_container)"
+  "$ENGINE" cp "$file" "$db:$staged" >/dev/null 2>&1 </dev/null || die "Could not copy the snapshot into the db container."
   compose exec -u root -T db chmod 0644 "$staged" >/dev/null 2>&1 || die "Could not make the staged snapshot readable."
   info "Restoring — clearing current data and applying the snapshot…"
   if db_query "RECOVER SNAPSHOT \"$staged\" FORCE;"; then
@@ -1280,6 +3338,7 @@ cmd_destroy() {
   # .env.secrets: it holds the DB password, and the database's auth was created with it — delete it
   # while the graph exists and the operator is locked out of their own data.
   refuse_volume_flags "$@"
+  [ -n "$TAKE_OVER" ] || check_project
   remove_old_ollama
   info "Removing the stack — containers and network. Your data and config are kept."
   compose down "$@"
@@ -1328,6 +3387,7 @@ cmd_compose() { ensure_ready; compose "$@"; }
 # --no-deps is required, not a nicety: without it podman-compose starts the dependencies with remove-orphans on.
 cmd_models() {
   [ "${1:-}" = pull ] || die "Usage: $SELF models pull"
+  ack_gate
   do_bootstrap
   check_embedding_env
   local tty=()
@@ -1378,7 +3438,8 @@ tls_status() {
     fi
   else
     info "No certificate — the front door serves plain HTTP."
-    info "Add one with ${BOLD}$SELF tls generate${RST}, or drop your own cert.pem + key.pem into tls/, then ${BOLD}$SELF up${RST}."
+    # The front door renders its config from tls/ when its container starts, so a certificate needs it recreated.
+    info "Add one with ${BOLD}$SELF tls generate${RST}, or drop your own cert.pem + key.pem into tls/, then ${BOLD}$SELF restart proxy${RST} (${BOLD}$SELF up${RST} if the stack is not running)."
   fi
 }
 
@@ -1388,23 +3449,32 @@ ${BOLD}byodt${RST} — manage this Dethernety deployment
 
 ${BOLD}Usage:${RST} $SELF <command> [args]
 
+  setup              The first run: choose the settings and write .env ('setup --help')
   up                 Start the stack / apply changes (bootstraps on first run)
-  down               Stop the stack (data kept)
+  down [--take-over] Stop the stack (data kept)
   restart [service]  Recreate to apply config/mode changes (all, or one service)
   status             Show service state
   logs [service]     Follow logs (all, or one service)
   update             Pull the pinned images and apply
+  upgrade [VERSION]  Move to a newer release, the latest by default ('upgrade --help')
   models pull        Download and verify the embedding model ahead of the first start
   backup [dir]       Back up the graph and copy it out (default: backups/); on Neo4j
                      the database stops while it is dumped
   restore <file>     Replace the graph from a backup (asks to confirm)
-  bootstrap          First-run setup (dirs, database password, mode seed)
-  destroy            Remove the stack (containers + network); data on disk is kept
+  bootstrap          Prepare the folder without starting (dirs, database password, mode seed)
+  destroy [--take-over]
+                     Remove the stack (containers + network); data on disk is kept
   console            Print (and open) the console URL
   tls {generate|status}  Manage the front-door TLS certificate
+  notice [--all]     Print the third-party notice (--all: for both database engines)
+  acknowledge        Show the third-party notice and record its confirmation
   version            Show the pinned release versions
   compose [args]     Run the engine's compose with this bundle's env files
   help               Show this help
+
+setup, up, update, upgrade, restart, models pull and acknowledge take --yes: ask nothing, and count
+the third-party notice as confirmed (it is printed either way). down and destroy take --take-over: they
+also remove the containers another folder started (a deployment moved here from there).
 
 Services: db, console-init, platform, proxy, console
 EOF
@@ -1412,10 +3482,30 @@ EOF
 
 # --- dispatch -----------------------------------------------------------------
 cmd="${1:-help}"; shift || true
-# Settle the database engine for the commands that run the stack. help, version, console, tls and an unknown command
-# do not need it, and a bad DB_ENGINE must not stand in their way.
+# --yes belongs to byodt, not to compose: take it out of the arguments of the commands that accept it.
 case "$cmd" in
-  up|start|down|stop|restart|status|ps|logs|update|pull|upgrade|backup|restore|bootstrap|init|destroy|nuke|compose|models)
+  up|start|update|pull|upgrade|restart|models|acknowledge)
+    args=()
+    for a in "$@"; do if [ "$a" = --yes ]; then YES=1; else args+=("$a"); fi; done
+    set -- ${args[@]+"${args[@]}"} ;;
+esac
+# --take-over belongs to byodt too: down and destroy (and their aliases) then remove the project's containers although
+# another folder started them (a deployment moved here from there; check_project names it).
+TAKE_OVER=""
+case "$cmd" in
+  down|stop|destroy|nuke)
+    args=()
+    for a in "$@"; do if [ "$a" = --take-over ]; then TAKE_OVER=1; else args+=("$a"); fi; done
+    set -- ${args[@]+"${args[@]}"} ;;
+esac
+# A staged upgrade starts in the staging copy and moves to the deployment itself, before anything is resolved here.
+if [ "$cmd" = upgrade ]; then
+  case " $* " in *" --staged "*) upgrade_staged "$@"; exit 0 ;; esac
+fi
+# Settle the database engine for the commands that run the stack, or show what it runs. help, version, console, tls and
+# an unknown command do not need it, and a bad DB_ENGINE must not stand in their way.
+case "$cmd" in
+  up|start|down|stop|restart|status|ps|logs|update|pull|upgrade|backup|restore|bootstrap|init|destroy|nuke|compose|models|acknowledge|notice)
     resolve_db_engine ;;
 esac
 # resolve_proxy runs for every command that can create or recreate a service that calls out, so none of them recreates
@@ -1427,7 +3517,8 @@ case "$cmd" in
   restart)             require_engine; resolve_proxy; cmd_restart "$@" ;;
   status|ps)           require_engine; cmd_status "$@" ;;
   logs)                require_engine; cmd_logs "$@" ;;
-  update|pull|upgrade) require_engine; resolve_proxy; cmd_update "$@" ;;
+  upgrade)             require_engine; resolve_proxy; cmd_upgrade "$@" ;;
+  update|pull)         require_engine; resolve_proxy; cmd_update "$@" ;;
   backup)              require_engine; cmd_backup "$@" ;;
   restore)             require_engine; cmd_restore "$@" ;;
   bootstrap|init)      cmd_bootstrap "$@" ;;
@@ -1437,6 +3528,9 @@ case "$cmd" in
   version|--version)   cmd_version "$@" ;;
   compose)             require_engine; resolve_proxy; cmd_compose "$@" ;;
   models)              require_engine; resolve_proxy; cmd_models "$@" ;;
+  setup)               cmd_setup "$@" ;;
+  acknowledge)         cmd_acknowledge "$@" ;;
+  notice)              cmd_notice "$@" ;;
   help|-h|--help)      usage ;;
   *) printf '%serror:%s unknown command: %s\n\n' "$RED" "$RST" "$cmd" >&2; usage >&2; exit 2 ;;
 esac

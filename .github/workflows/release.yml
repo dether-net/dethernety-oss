@@ -3,13 +3,18 @@ name: Release
 # On a `v*` tag: create the GitHub release, and publish the module payloads as release
 # assets — each cosign-signed, with a signed index over the set.
 #
-# Two jobs, and the split is the point. `modules` runs the workspace's own toolchain
-# — pnpm lifecycle scripts, turbo, tsc, vite — and holds NO id-token. `publish` holds
-# the signing identity and runs cosign, jq and gh, and no workspace code at all. A
-# malicious postinstall in a dependency cannot mint a Sigstore certificate under this
-# project's identity, because the job that runs it has no token to exchange. The image
-# workflow cannot make this split — buildx needs the working tree — which is why this
-# one does.
+# The first three jobs split the work, and the split is the point. `modules` runs the workspace's own toolchain
+# — pnpm lifecycle scripts, turbo, tsc, vite — and `bundle` runs the compose bundle's
+# own code to build and test it and its installer; neither holds an id-token. `publish`
+# holds the signing identity and runs cosign, jq, git and gh, and no workspace code at
+# all. A malicious postinstall in a dependency cannot mint a Sigstore certificate under
+# this project's identity, because the job that runs it has no token to exchange. The
+# image workflow cannot make this split — buildx needs the working tree — which is why
+# this one does.
+#
+# A fourth job, `npm`, builds the npm package from this tag's sources and the installer `publish`
+# signed, and publishes it with provenance through npm's trusted publishing; it runs no repository
+# code either. It is off until the repository variable BYODT_NPM_PUBLISH is true.
 
 on:
   push:
@@ -178,13 +183,162 @@ jobs:
           retention-days: 1
 
   # ---------------------------------------------------------------------------
+  # Build, check and test the compose bundle and its installer. This runs the
+  # bundle's own code (byodt renders the third-party notice, the installer is
+  # tried end to end), so, like `modules`, it holds no token: what it makes
+  # reaches `publish` as an artifact, and `publish` checks it again before
+  # signing anything.
+  # ---------------------------------------------------------------------------
+  bundle:
+    name: Build and test the compose bundle and its installer
+    needs: modules
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      sha256: ${{ steps.pack.outputs.sha256 }}
+      installer_sha256: ${{ steps.render.outputs.sha256 }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # This job runs the bundle's own code: no credential is left in the checkout for it to find.
+          persist-credentials: false
+
+      # The notice every install shows before the first download: one versioned text, whose references byodt fills
+      # in. Its contract is checked here, and a stable release refuses a text still marked TO VERIFY.
+      - name: The third-party notice keeps its contract
+        env:
+          VERSION: ${{ needs.modules.outputs.version }}
+        run: |
+          set -euo pipefail
+          F=deploy/compose/THIRD-PARTY-ACKNOWLEDGEMENT
+          head -1 "$F" | grep -Eq '^Text-Version: [1-9][0-9]*$' || { echo "::error::$F: the first line is not Text-Version: N"; exit 1; }
+          for m in intro memgraph neo4j model nginx mirror confirm; do
+            [ "$(grep -cx "\[$m\]" "$F")" = 1 ] || { echo "::error::$F: the section [$m] is not there exactly once"; exit 1; }
+          done
+          for ph in '{IMAGE}' '{MODEL}' '{KEY}'; do grep -qF "$ph" "$F" || { echo "::error::$F: no $ph"; exit 1; }; done
+          if LC_ALL=C grep -q '[^ -~]' "$F"; then echo "::error::$F: a character other than printable ASCII"; exit 1; fi
+          [ "$(wc -c < "$F")" -le 16384 ] || { echo "::error::$F is over 16 KiB"; exit 1; }
+          if grep -qx 'BYODT_ACK_END' "$F"; then echo "::error::$F holds the installer's heredoc end word"; exit 1; fi
+          case "$VERSION" in
+            *-*) ;;
+            *) if grep -q 'TO VERIFY' "$F"; then echo "::error::$F is still marked TO VERIFY; a stable release cannot ship it"; exit 1; fi ;;
+          esac
+
+      # byodt names the model in the notice and the record; it must be the one the platform downloads.
+      - name: The model byodt names is the platform's default
+        run: |
+          set -euo pipefail
+          ID=$(sed -n "s/^export const DEFAULT_EMBEDDING_PROFILE_ID = '\([a-z0-9.-]*\)';$/\1/p" apps/dt-ws/src/config/embedding-profile-selection.ts)
+          P="packages/dt-module/src/embedding-profiles/${ID}.json"
+          [ -n "$ID" ] && [ -f "$P" ] || { echo "::error::cannot find the default embedding profile (${ID:-none})"; exit 1; }
+          WANT="$(jq -r '.source.repo + "@" + .source.revision' "$P")"
+          GOT=$(sed -n 's/^readonly TESTED_MODEL="\(.*\)"$/\1/p' deploy/compose/byodt)
+          [ "$GOT" = "$WANT" ] || { echo "::error::byodt TESTED_MODEL=$GOT, but the default profile downloads $WANT"; exit 1; }
+
+      # NOTICE lists the third-party images by their full names; they must be the ones this release tests.
+      - name: NOTICE names the tested images
+        run: |
+          set -euo pipefail
+          for img in "$(sed -n 's/^readonly TESTED_DB_IMAGE="\(.*\)"$/\1/p' deploy/compose/byodt)" \
+                     "$(sed -n 's/^readonly TESTED_NEO4J_IMAGE="\(.*\)"$/\1/p' deploy/compose/byodt)" \
+                     "$(grep -E '^PROXY_IMAGE=' deploy/compose/.env.example | cut -d= -f2-)"; do
+            [ -n "$img" ] && grep -qF "  Image:     $img  " deploy/compose/NOTICE || { echo "::error::NOTICE does not name ${img:-an image}"; exit 1; }
+          done
+
+      # git archive takes only tracked files at the tagged commit — never the working tree's runtime dirs — and lays
+      # them under byodt-<v>/. tar.umask=0022: no file in it is writable by group or others, byodt included. --mtime
+      # stamps every entry with the commit's time: given a tree (HEAD:deploy/compose), git archive would otherwise use
+      # the current time, and `publish` could not rebuild the same bytes.
+      - name: Pack the bundle
+        id: pack
+        env:
+          VERSION: ${{ needs.modules.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p bundle
+          git -c tar.umask=0022 archive --mtime="$(git log -1 --format=%cI HEAD)" --format=tar.gz --prefix="byodt-${VERSION}/" \
+            -o "bundle/byodt-${VERSION}.tar.gz" "HEAD:deploy/compose"
+          T="bundle/byodt-${VERSION}.tar.gz"
+          tar -tzf "$T" > names.txt
+          V_RE=$(printf '%s' "$VERSION" | sed 's/\./\\./g')
+          if grep -Ev "^byodt-${V_RE}(/[A-Za-z0-9._-]+)*/?\$" names.txt | grep -q . || grep -q '/\.\.\(/\|$\)' names.txt; then
+            echo "::error::$T holds an unexpected name"; exit 1
+          fi
+          if tar -tvzf "$T" | cut -c1 | grep -qv '^[-d]$'; then echo "::error::$T holds a link or a special file"; exit 1; fi
+          echo "sha256=$(sha256sum "$T" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      # The installer carries the bundle's hash and the notice, rendered by the bundle's own byodt for both engines,
+      # so it can show the notice before it downloads anything.
+      - name: Render get-byodt.sh
+        id: render
+        env:
+          VERSION: ${{ needs.modules.outputs.version }}
+          SHA: ${{ steps.pack.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          mkdir -p work && tar -xzf "bundle/byodt-${VERSION}.tar.gz" -C work
+          ( cd "work/byodt-${VERSION}" && env -i PATH="$PATH" ./byodt notice --all ) > work/notice.txt
+          ACK=$(sha256sum "work/byodt-${VERSION}/THIRD-PARTY-ACKNOWLEDGEMENT" | cut -d' ' -f1)
+          BYODT_RELEASE_REPO="$GITHUB_REPOSITORY" sh deploy/installer/render.sh "$VERSION" "$SHA" "$ACK" work/notice.txt > bundle/get-byodt.sh
+          sh -n bundle/get-byodt.sh || { echo "::error::the rendered get-byodt.sh does not parse"; exit 1; }
+          grep -qx "BYODT_SHA256_PIN=$SHA" bundle/get-byodt.sh || { echo "::error::get-byodt.sh does not pin the bundle's hash"; exit 1; }
+          awk '/^  cat <<.BYODT_ACK_END.$/ { on = 1; next } /^BYODT_ACK_END$/ { on = 0 } on' bundle/get-byodt.sh | cmp -s - work/notice.txt \
+            || { echo "::error::the notice in get-byodt.sh is not what byodt notice --all prints"; exit 1; }
+          echo "sha256=$(sha256sum bundle/get-byodt.sh | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      # The installer, end to end, offline: from the local tarball, with every default, not started.
+      - name: get-byodt.sh installs the bundle it names
+        env:
+          VERSION: ${{ needs.modules.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p try && cd try
+          sh ../bundle/get-byodt.sh --yes --no-start --tarball "../bundle/byodt-${VERSION}.tar.gz" </dev/null
+          grep -qx "PLATFORM_VERSION=${VERSION}" byodt/.env
+          grep -qx 'DB_ENGINE=memgraph' byodt/.env
+          tail -n 1 byodt/third-party-acknowledgement.log | grep -q 'via=handover-yes'
+
+      # The npm package carries this release's get-byodt.sh and runs it; its version is the release's. Its tests run
+      # here, and it is packed here as a check of what it holds; `npm` builds the published copy again from the tag.
+      - name: Pack the npm package
+        env:
+          VERSION: ${{ needs.modules.outputs.version }}
+        run: |
+          set -euo pipefail
+          P=deploy/installer/npm
+          node --test "$P/test/lib.test.mjs"
+          mkdir -p npm-pkg/bin
+          cp "$P/bin/byodt.mjs" npm-pkg/bin/ && cp "$P/lib.mjs" "$P/README.md" npm-pkg/ && cp LICENSE npm-pkg/
+          cp bundle/get-byodt.sh npm-pkg/
+          jq --arg v "$VERSION" '.version = $v' "$P/package.json" > npm-pkg/package.json
+          jq -e '(.scripts // null) == null and (.dependencies // null) == null' npm-pkg/package.json >/dev/null \
+            || { echo "::error::the npm package must have no scripts and no dependencies"; exit 1; }
+          mkdir -p npm-out
+          ( cd npm-pkg && npm pack --ignore-scripts --pack-destination ../npm-out ) > npm-pack.out
+          F="$(tail -1 npm-pack.out)"
+          tar -tzf "npm-out/$F" | LC_ALL=C sort > npm-files.txt
+          printf '%s\n' package/LICENSE package/README.md package/bin/byodt.mjs package/get-byodt.sh package/lib.mjs package/package.json \
+            | cmp -s - npm-files.txt || { echo "::error::the npm package holds other files:"; cat npm-files.txt; exit 1; }
+
+      - name: Upload the bundle and its installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-bundle
+          path: bundle/
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
   # Sign, index, and publish. Holds the release write and the signing identity; runs
   # no workspace code. Everything it signs arrived from a job that could not obtain a
-  # certificate.
+  # certificate, and is rebuilt or checked here before it is signed.
   # ---------------------------------------------------------------------------
   publish:
     name: Sign and publish the release
-    needs: modules
+    needs: [modules, bundle]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -192,8 +346,12 @@ jobs:
       id-token: write
 
     steps:
+      # Nothing in this job pushes: gh and the release action authenticate with their own token, so no credential is
+      # left in the checkout.
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Download staged payloads
         uses: actions/download-artifact@v4
@@ -337,33 +495,64 @@ jobs:
           fi
           rm tampered.json
 
-      # The compose bundle, shipped as a versioned tarball beside the module payloads.
-      # git archive takes only tracked files at the tagged commit — never the working
-      # tree's runtime dirs (data/, tls/, backups/, .env.secrets) — and lays them under
-      # byodt-<v>/ so an extract yields one named directory. Signed with the same identity
-      # as every other asset; the committed .env.example already agrees with the tag
-      # (asserted in the modules job), so it ships as-is.
-      - name: Package and sign the bundle tarball
+      # The compose bundle and its installer, built and tested by the bundle job.
+      - name: Download the bundle and its installer
+        uses: actions/download-artifact@v4
+        with:
+          name: compose-bundle
+          path: bundle
+
+      # The bundle job ran the bundle's code; nothing here does. What it made is checked by hash in transit, and then
+      # rebuilt here without it: the tarball by git archive from this job's own checkout of the tag, the installer from
+      # this checkout's template, the pins computed here, and the notice text the job rendered. Only what matches is
+      # signed.
+      - name: The bundle and its installer survived the artifact hop, and are what the tag makes
+        env:
+          VERSION: ${{ needs.modules.outputs.version }}
+          SHA: ${{ needs.bundle.outputs.sha256 }}
+          INSTALLER_SHA: ${{ needs.bundle.outputs.installer_sha256 }}
+        run: |
+          set -euo pipefail
+          T="bundle/byodt-${VERSION}.tar.gz"
+          [ "$(sha256sum "$T" | cut -d' ' -f1)" = "$SHA" ] || { echo "::error::$T is not the tarball the bundle job made"; exit 1; }
+          [ "$(sha256sum bundle/get-byodt.sh | cut -d' ' -f1)" = "$INSTALLER_SHA" ] || { echo "::error::get-byodt.sh is not the one the bundle job made"; exit 1; }
+          mkdir -p rebuilt
+          git -c tar.umask=0022 archive --mtime="$(git log -1 --format=%cI HEAD)" --format=tar.gz --prefix="byodt-${VERSION}/" \
+            -o "rebuilt/byodt-${VERSION}.tar.gz" "HEAD:deploy/compose"
+          cmp -s "$T" "rebuilt/byodt-${VERSION}.tar.gz" || { echo "::error::$T is not what git archive makes of the tag"; exit 1; }
+          ACK=$(tar -xOzf "$T" "byodt-${VERSION}/THIRD-PARTY-ACKNOWLEDGEMENT" | sha256sum | cut -d' ' -f1)
+          awk '/^  cat <<.BYODT_ACK_END.$/ { on = 1; next } /^BYODT_ACK_END$/ { on = 0 } on' bundle/get-byodt.sh > rebuilt/notice.txt
+          [ -s rebuilt/notice.txt ] && [ "$(wc -c < rebuilt/notice.txt)" -le 16384 ] || { echo "::error::the installer's notice is empty or too long"; exit 1; }
+          if LC_ALL=C grep -q '[^ -~]' rebuilt/notice.txt; then echo "::error::the installer's notice holds a character other than printable ASCII"; exit 1; fi
+          sed -e "s|@VERSION@|${VERSION}|g" -e "s|@SHA256@|${SHA}|g" -e "s|@ACK_SHA256@|${ACK}|g" -e "s|@REPO@|${GITHUB_REPOSITORY}|g" \
+              deploy/installer/get-byodt.sh.in \
+            | NOTICE_FILE=rebuilt/notice.txt awk '$0 == "@ACK_TEXT@" { while ((getline line < ENVIRON["NOTICE_FILE"]) > 0) print line; next } { print }' \
+            > rebuilt/get-byodt.sh
+          cmp -s bundle/get-byodt.sh rebuilt/get-byodt.sh || { echo "::error::get-byodt.sh is not this tag's template with this release's pins"; exit 1; }
+          sh -n bundle/get-byodt.sh || { echo "::error::get-byodt.sh does not parse"; exit 1; }
+
+      - name: Sign the bundle tarball and its installer
         env:
           VERSION: ${{ needs.modules.outputs.version }}
         run: |
           set -euo pipefail
-          mkdir -p bundle
-          git archive --format=tar.gz --prefix="byodt-${VERSION}/" \
-            -o "bundle/byodt-${VERSION}.tar.gz" "HEAD:deploy/compose"
           cosign sign-blob "bundle/byodt-${VERSION}.tar.gz" \
             --bundle "bundle/byodt-${VERSION}.tar.gz.bundle" --yes
+          cosign sign-blob bundle/get-byodt.sh --bundle bundle/get-byodt.sh.bundle --yes
 
-      - name: The bundle tarball verifies against the exact identity
+      - name: The bundle tarball and its installer verify against the exact identity
         env:
           IDENTITY: https://github.com/${{ github.workflow_ref }}
           VERSION: ${{ needs.modules.outputs.version }}
         run: |
           set -euo pipefail
-          cosign verify-blob "bundle/byodt-${VERSION}.tar.gz" \
-            --bundle "bundle/byodt-${VERSION}.tar.gz.bundle" \
-            --certificate-identity "${IDENTITY}" \
-            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          for f in "bundle/byodt-${VERSION}.tar.gz" bundle/get-byodt.sh; do
+            jq -e '.mediaType // "" | startswith("application/vnd.dev.sigstore.bundle")' "$f.bundle" >/dev/null \
+              || { echo "::error::$f.bundle is not the new Sigstore bundle format"; exit 1; }
+            cosign verify-blob "$f" --bundle "$f.bundle" \
+              --certificate-identity "${IDENTITY}" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          done
 
       - name: Extract changelog for this version
         id: changelog
@@ -402,7 +591,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           draft: true
-          prerelease: ${{ contains(github.ref_name, '-rc') }}
+          # Any pre-release suffix (-rc.1, -beta.1, …): such a release is never "latest", which installers follow.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           body: ${{ steps.changelog.outputs.BODY }}
           fail_on_unmatched_files: true
           files: |
@@ -410,14 +600,52 @@ jobs:
             staging/*.tar.gz.bundle
             staging/modules.json
             staging/modules.json.bundle
-            bundle/byodt-*.tar.gz
-            bundle/byodt-*.tar.gz.bundle
+            bundle/byodt-${{ needs.modules.outputs.version }}.tar.gz
+            bundle/byodt-${{ needs.modules.outputs.version }}.tar.gz.bundle
+            bundle/get-byodt.sh
+            bundle/get-byodt.sh.bundle
 
+      # The draft's bundle, downloaded back, must be the bytes the installer pins, before anyone can fetch either.
+      - name: The draft's bundle is the one the installer pins
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.modules.outputs.version }}
+          SHA: ${{ needs.bundle.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          mkdir -p drafted
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir drafted \
+            --pattern "byodt-${VERSION}.tar.gz" --pattern "byodt-${VERSION}.tar.gz.bundle" --pattern get-byodt.sh --pattern get-byodt.sh.bundle
+          [ "$(sha256sum "drafted/byodt-${VERSION}.tar.gz" | cut -d' ' -f1)" = "$SHA" ] || { echo "::error::the draft's bundle is not the pinned one"; exit 1; }
+          for f in "byodt-${VERSION}.tar.gz.bundle" get-byodt.sh get-byodt.sh.bundle; do
+            cmp -s "drafted/$f" "bundle/$f" || { echo "::error::the draft's $f is not the one signed"; exit 1; }
+          done
+
+      # `byodt upgrade` with no version follows the release GitHub marks as latest. A stable release takes that mark
+      # only when it is newer than the current one, so a patch to an older line does not take it back; a pre-release
+      # never takes it.
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release edit "$TAG" --draft=false --repo "$GITHUB_REPOSITORY"
+          VERSION: ${{ needs.modules.outputs.version }}
+        run: |
+          set -euo pipefail
+          LATEST=true
+          case "$VERSION" in
+            *-*) LATEST=false ;;
+            *)
+              # Only a repository with no published release yet may have no latest; any other failure stops here.
+              if CURRENT="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>"$RUNNER_TEMP/latest.err")"; then :
+              elif grep -q "HTTP 404" "$RUNNER_TEMP/latest.err"; then CURRENT=""
+              else cat "$RUNNER_TEMP/latest.err"; echo "::error::could not read the repository's latest release"; exit 1; fi
+              CURRENT="${CURRENT#v}"
+              if [ -n "$CURRENT" ] && [ "$(printf '%s\n' "$CURRENT" "$VERSION" | sort -V | tail -1)" != "$VERSION" ]; then
+                LATEST=false
+              fi ;;
+          esac
+          gh release edit "$TAG" --draft=false --latest="$LATEST" --repo "$GITHUB_REPOSITORY"
 
       - name: Summary
         env:
@@ -442,10 +670,100 @@ jobs:
             echo
             echo "### Compose bundle"
             echo
-            echo "Download, extract, and run:"
+            echo "Install it (the installer verifies the bundle; with cosign, its signature too):"
             echo
             echo '```'
-            echo "curl -fsSLO https://github.com/${REPO}/releases/download/${TAG}/byodt-${TAG#v}.tar.gz"
-            echo "tar xzf byodt-${TAG#v}.tar.gz && cd byodt-${TAG#v} && ./byodt up"
+            echo "curl --proto '=https' --tlsv1.2 -fsSL https://github.com/${REPO}/releases/download/${TAG}/get-byodt.sh | sh"
             echo '```'
+            echo
+            echo "Or by hand: download byodt-${TAG#v}.tar.gz, verify it, extract it, and run ./byodt setup."
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # Publish the npm package, with provenance, through npm's trusted publishing:
+  # no stored token. It builds the package itself from this tag's sources and
+  # the get-byodt.sh `publish` signed, never from a tarball another job made
+  # (a tarball can read differently to tar and to npm), and runs no repository
+  # code. Inert until the package name
+  # and the trusted publisher are settled: set the repository variable
+  # BYODT_NPM_PUBLISH to true to switch it on.
+  #
+  # What it trusts: whoever can push a v* tag can publish, so the tag ruleset is
+  # the root of trust for npm as for the GitHub release. The notice text inside
+  # get-byodt.sh is the one the bundle job rendered; `publish` bounds it but does
+  # not re-render it, since rendering runs the bundle's code.
+  # ---------------------------------------------------------------------------
+  npm:
+    name: Publish the npm package
+    needs: [modules, bundle, publish]
+    if: ${{ vars.BYODT_NPM_PUBLISH == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      # Read as data only: nothing from this checkout runs.
+      - name: Checkout the tag
+        uses: actions/checkout@v4
+        with:
+          path: src
+          persist-credentials: false
+
+      - name: Download the bundle and its installer
+        uses: actions/download-artifact@v4
+        with:
+          name: compose-bundle
+          path: bundle
+
+      # Trusted publishing needs npm 11.5.1 or later; Node 24 ships it, so no npm is installed here.
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      # The package directory is built here from the tag's files and the signed installer; npm packs it on publish.
+      - name: Build the package from this tag and the signed installer
+        env:
+          INSTALLER_SHA: ${{ needs.bundle.outputs.installer_sha256 }}
+          VERSION: ${{ needs.modules.outputs.version }}
+        run: |
+          set -euo pipefail
+          NPM_VERSION="$(npm --version)"
+          [ "$(printf '%s\n' 11.5.1 "$NPM_VERSION" | sort -V | head -1)" = 11.5.1 ] \
+            || { echo "::error::npm $NPM_VERSION is older than trusted publishing needs (11.5.1)"; exit 1; }
+          [ "$(sha256sum bundle/get-byodt.sh | cut -d' ' -f1)" = "$INSTALLER_SHA" ] \
+            || { echo "::error::bundle/get-byodt.sh is not the installer this release signed"; exit 1; }
+          N=src/deploy/installer/npm
+          mkdir -p pkg/bin
+          cp "$N/bin/byodt.mjs" pkg/bin/ && cp "$N/lib.mjs" "$N/README.md" pkg/ && cp src/LICENSE pkg/ && cp bundle/get-byodt.sh pkg/
+          jq --arg v "$VERSION" '.version = $v' "$N/package.json" > pkg/package.json
+          jq -e '(.scripts // null) == null and (.dependencies // null) == null and (.bundleDependencies // null) == null' pkg/package.json >/dev/null \
+            || { echo "::error::the npm package must have no scripts and no dependencies"; exit 1; }
+          ( cd pkg && npm pack --dry-run --json --ignore-scripts ) | jq -r '.[0].files[].path' | LC_ALL=C sort > files.txt
+          printf '%s\n' LICENSE README.md bin/byodt.mjs get-byodt.sh lib.mjs package.json \
+            | cmp -s - files.txt || { echo "::error::the npm package would hold other files:"; cat files.txt; exit 1; }
+
+      - name: Publish
+        env:
+          VERSION: ${{ needs.modules.outputs.version }}
+        run: |
+          set -euo pipefail
+          NAME="$(jq -r .name src/deploy/installer/npm/package.json)"
+          # A pre-release goes to `next`; a stable release becomes `latest` only when it is newer than the current
+          # one, so a patch to an older line does not take `latest` back.
+          TAG=latest
+          case "$VERSION" in
+            *-*) TAG=next ;;
+            *)
+              # Only a package not published yet may have no `latest`; any other failure to read it stops here.
+              if CURRENT="$(npm view "$NAME" dist-tags.latest 2>view.err)"; then :
+              elif grep -q E404 view.err; then CURRENT=""
+              else cat view.err; echo "::error::could not read the package's latest version"; exit 1; fi
+              if [ -n "$CURRENT" ] && [ "$(printf '%s\n' "$CURRENT" "$VERSION" | sort -V | tail -1)" != "$VERSION" ]; then
+                TAG=previous
+              fi ;;
+          esac
+          npm publish ./pkg --provenance --access public --ignore-scripts --tag "$TAG"

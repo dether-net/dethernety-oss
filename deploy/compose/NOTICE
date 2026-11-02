@@ -26,7 +26,7 @@ licenses; consult each image for its complete bill of materials.
 
 ------------------------------------------------------------------------------
 Memgraph — graph database (compose service: db, the default DB_ENGINE=memgraph)
-  Image:     memgraph/memgraph:3.13.2  (Docker Hub, published by Memgraph)
+  Image:     docker.io/memgraph/memgraph:3.13.2  (Docker Hub, published by Memgraph)
   License:   Business Source License 1.1 (BSL 1.1)
   Homepage:  https://memgraph.com
 
@@ -39,7 +39,7 @@ Memgraph — graph database (compose service: db, the default DB_ENGINE=memgraph
 
 ------------------------------------------------------------------------------
 Neo4j Community Edition — graph database (compose service: db, when DB_ENGINE=neo4j)
-  Image:     neo4j:5.26-community  (Docker Hub Official Image)
+  Image:     docker.io/library/neo4j:5.26.32-community  (Docker Hub Official Image)
   License:   GNU General Public License v3 (GPLv3)
   Homepage:  https://neo4j.com
 
@@ -63,7 +63,7 @@ EmbeddingGemma — embedding model weights (downloaded by the platform; not in t
 
 ------------------------------------------------------------------------------
 nginx — reverse proxy / TLS terminator (compose service: proxy)
-  Image:     nginx:1.27-alpine  (Docker Hub Official Image)
+  Image:     docker.io/nginx:1.27-alpine  (Docker Hub Official Image)
   License:   BSD 2-Clause
   Homepage:  https://nginx.org
 

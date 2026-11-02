@@ -10,8 +10,11 @@
 #   bash deploy/tests/byodt-refuse-foreign-link.sh
 set -euo pipefail
 
+# No test may reach the network: stand-ins for curl, wget and cosign that fail loudly come before the system's.
+export PATH="$(cd "$(dirname "$0")" && pwd)/no-network:$PATH"
+
 BYODT="$(cd "$(dirname "$0")/../compose" && pwd)/byodt"
-for f in path_owner owned_by_operator refuse_foreign_entry; do
+for f in stat_field path_owner owned_by_operator refuse_foreign_entry; do
   fn="$(sed -n "/^$f() {\$/,/^}\$/p" "$BYODT")"
   [ -n "$fn" ] || { echo "FAIL: no $f in $BYODT"; exit 1; }
   eval "$fn"

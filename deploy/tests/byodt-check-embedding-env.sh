@@ -13,10 +13,13 @@
 # would find no file and report nothing, so a refused file would pass.
 set -euo pipefail
 
+# No test may reach the network: stand-ins for curl, wget and cosign that fail loudly come before the system's.
+export PATH="$(cd "$(dirname "$0")" && pwd)/no-network:$PATH"
+
 THIS_TEST="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 
 BYODT="$(cd "$(dirname "$0")/../compose" && pwd)/byodt"
-for f in env_setting check_embedding_env path_owner owned_by_operator; do
+for f in env_setting env_setting_in check_embedding_env stat_field path_owner owned_by_operator; do
   fn="$(sed -n "/^$f() {\$/,/^}\$/p" "$BYODT")"
   [ -n "$fn" ] || { echo "FAIL: no $f in $BYODT"; exit 1; }
   eval "$fn"

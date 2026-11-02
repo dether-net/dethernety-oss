@@ -7,6 +7,9 @@
 #   bash deploy/tests/byodt-check-db-image.sh
 set -euo pipefail
 
+# No test may reach the network: stand-ins for curl, wget and cosign that fail loudly come before the system's.
+export PATH="$(cd "$(dirname "$0")" && pwd)/no-network:$PATH"
+
 BYODT="$(cd "$(dirname "$0")/../compose" && pwd)/byodt"
 
 tested_line="$(grep -E '^readonly TESTED_DB_IMAGE=' "$BYODT")"

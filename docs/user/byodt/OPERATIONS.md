@@ -23,24 +23,32 @@ Run it from the bundle directory. It always operates on the bundle it lives in, 
 
 | Command | What it does |
 |---|---|
+| `./byodt setup` | The first run: ask for the settings, show the third-party notice, and write `.env`. See [Installation → Set up with `./byodt setup`](./INSTALLATION.md#set-up-with-byodt-setup). |
 | `./byodt up` | Start the deployment, and apply configuration changes. Performs first-run setup if needed. |
-| `./byodt down` | Stop the deployment. Data is kept. |
+| `./byodt down [--take-over]` | Stop the deployment. Data is kept. `--take-over`: see [A deployment in another folder](#a-deployment-in-another-folder). |
 | `./byodt restart [service]` | Recreate the containers to apply a change — all of them, or one named service. |
 | `./byodt status` | Show the state of every service. |
 | `./byodt logs [service]` | Follow the logs — all services, or one. |
 | `./byodt update` | Pull the pinned images and apply them. |
+| `./byodt upgrade [VERSION]` | Move to a newer release, the latest by default. See [Upgrading to a new release](#upgrading-to-a-new-release). |
 | `./byodt models pull` | Download and verify the embedding model's weights into `data/models` ahead of the first start. |
 | `./byodt backup [dir]` | Back up the graph and copy it out. Defaults to `backups/`. On Neo4j the database stops while it is dumped. |
 | `./byodt restore <file>` | Replace the graph from a backup. Asks you to confirm. |
 | `./byodt bootstrap` | First-run setup only: directories, database password, mode layer. `up` does this for you. |
-| `./byodt destroy` | Remove the containers and the network. Data on disk is kept. |
+| `./byodt destroy [--take-over]` | Remove the containers and the network. Data on disk is kept. |
 | `./byodt console` | Print the console URL, and open it where the platform supports that. |
 | `./byodt tls generate [hostname]` | Generate a self-signed front-door certificate. |
 | `./byodt tls status` | Show the installed certificate, or report that there is none. |
+| `./byodt notice [--all]` | Print the third-party notice, without asking. `--all`: for both databases. |
+| `./byodt acknowledge` | Show the third-party notice and record your confirmation. See [Installation → The third-party notice](./INSTALLATION.md#the-third-party-notice). |
 | `./byodt version` | Show the control script's version and the pinned release set. |
 | `./byodt compose [args]` | Run your engine's `compose` with this bundle's configuration and compose files. |
 
-Several commands accept a familiar alias: `start`, `stop`, `ps`, `pull`, `upgrade`, `init`, `nuke`, `open`. They do exactly what the primary name does.
+Several commands accept a familiar alias: `start`, `stop`, `ps`, `pull`, `init`, `nuke`, `open`. They do exactly what the primary name does. `upgrade` is no longer an alias of `update`: it is a command of its own.
+
+`setup`, `up`, `update`, `upgrade`, `restart`, `models pull` and `acknowledge` take `--yes`: ask nothing, and count the third-party notice as confirmed. It is printed either way.
+
+`byodt` names itself in its messages the way you ran it: `./byodt …` from the bundle directory, or the path you used.
 
 **Service names**, for the commands that take one:
 
@@ -62,6 +70,28 @@ db   console-init   platform   proxy   console
 `down` stops and removes the containers and leaves your data, configuration, and images alone. `./byodt up` brings the deployment back exactly as it was.
 
 > **Flags that delete data are refused.** `down` and `destroy` reject `-v`, `--volumes`, and `--rmi` rather than passing them through, so a reflexive `down -v` cannot wipe a graph stored in a named volume. Safe flags still work.
+
+### A deployment in another folder
+
+Every bundle's deployment has the same compose project name, `dethernety`, so two bundle folders on one host would act on the same containers, and, with a named volume, on the same graph. `byodt` therefore checks, before `up`, `update`, `restart`, `down`, `stop`, `destroy`, `backup`, `restore`, `upgrade` and `setup --start` act, that no other folder runs or ran this project. When one does, it names that folder and changes nothing:
+
+```
+error: this bundle's compose project is already used by another directory:
+    /home/you/dethernety-old
+Running this here would act on its containers. Upgrade that deployment instead ('./byodt upgrade' in it), or
+stop it there ('./byodt down'). If this deployment was moved here from that directory, run './byodt down --take-over'
+here once to remove the old containers, then start it here.
+```
+
+- **Two deployments, on purpose:** only one can run at a time. Stop the other one in its own folder (`./byodt down` there), then start this one.
+- **You moved the deployment here** (copied or renamed its folder): the old containers still carry the old folder's path. Remove them once from here, then start here:
+
+  ```sh
+  ./byodt down --take-over
+  ./byodt up
+  ```
+
+  `destroy --take-over` does the same and prints the wipe commands, as `destroy` does. `--take-over` removes the project's containers whichever folder started them, so do not use it while another deployment you want to keep is running.
 
 ## Applying a change
 
@@ -112,7 +142,7 @@ Logs are followed. `Ctrl-C` stops the stream and nothing else.
 ```
 
 ```
-byodt 1.3.0
+byodt 1.4.0
 Pinned release (from .env):
   PLATFORM_VERSION=X.Y.Z
   DB_IMAGE=…
@@ -191,9 +221,11 @@ On Neo4j:
 ==> The whole graph is in here (no password) — keep it private and copy it off-box so it survives losing this machine.
 ```
 
-The filename records the version the backup was taken on, which is what lets `restore` warn you about a mismatch later. A Neo4j dump is created readable by you only.
+The filename records the version the backup was taken on, which is what lets `restore` warn you about a mismatch later. The file is readable by you only: a Memgraph snapshot is narrowed to you once it is copied out, and a Neo4j dump is created that way. On a file system that does not keep modes, `byodt` warns: `Could not make … private to you (its file system may not keep modes); keep it where only you can read it.`
 
-The database must be running and reachable when you start a backup — the command probes it first and stops with a clear message if it is not.
+The database must be running and reachable when you start a backup — the command probes it first and stops with a clear message if it is not. `backup` and `restore` also refuse to act on a deployment another folder runs; see [A deployment in another folder](#a-deployment-in-another-folder).
+
+On Memgraph under Podman, `backup` and `restore` copy the snapshot with `podman cp`, so they work with `podman-compose` as with Docker Compose.
 
 On Neo4j the dump goes through a private working directory that `byodt` makes in the bundle root for each backup or restore — `.byodt-dump.XXXXXX`, mode `0700`, owned by you — and mounts into the one-off `neo4j-admin` container only. It is removed when the command ends, also on failure. The dump never passes through `data/`.
 
@@ -221,7 +253,7 @@ Memgraph also writes in-place snapshots every `SNAPSHOT_INTERVAL_SEC` seconds (d
 Your configuration and the database password are untouched, so the restored graph opens with this deployment's own credentials.
 
 ```
-==> Restore complete. If the app still shows old or empty data, run 'byodt restart platform'.
+==> Restore complete. If the app still shows old or empty data, run './byodt restart platform'.
 ```
 
 On Memgraph, if a failure occurs partway, the current graph is left unchanged and the command says so. On Neo4j the load replaces the graph, so a failed load may already have removed the current one: the command stops with `neo4j-admin could not load the dump — see its output above. The load replaces the graph, so the current one may be gone: restore again from a backup you know is good.`, and the database is started again. A failure before the load — staging the file, or stopping `db` — changes nothing.
@@ -244,7 +276,7 @@ With no certificate:
 
 ```
 ==> No certificate — the front door serves plain HTTP.
-==> Add one with byodt tls generate, or drop your own cert.pem + key.pem into tls/, then byodt restart proxy.
+==> Add one with ./byodt tls generate, or drop your own cert.pem + key.pem into tls/, then ./byodt restart proxy (./byodt up if the stack is not running).
 ```
 
 With one, it prints the certificate's subject, issuer, and validity dates.
@@ -289,9 +321,287 @@ Browsers only expose the cryptography the cloud sign-in flow needs on a secure c
 
 ## Upgrading to a new release
 
-A release moves as one unit: the platform image, the console image, and the module payloads all follow `PLATFORM_VERSION`. The graph database image is the exception — an update leaves `DB_IMAGE`, or `NEO4J_IMAGE` on Neo4j, where it is (see step 4).
+A release moves as one unit: the platform image, the console image, and the module payloads all follow `PLATFORM_VERSION`. The graph database image is the exception: an upgrade leaves `DB_IMAGE`, or `NEO4J_IMAGE` on Neo4j, where it is, unless you choose to move the database.
 
-### 1. Back up first
+`./byodt upgrade` does the whole upgrade: it downloads and checks the new release, backs up, moves the new files in, brings `.env` into line, applies the release, and waits until it is healthy. The new release's [installer](./INSTALLATION.md#install-with-the-installer) does the same with `--upgrade`. A deployment on 0.13.0 has no `./byodt upgrade` yet; see [Upgrading from 0.13.0](#upgrading-from-0130). To do it all yourself instead, see [Upgrading by hand](#upgrading-by-hand).
+
+### Upgrade with `./byodt upgrade`
+
+From the deployment's folder:
+
+```sh
+./byodt upgrade            # to the latest release
+./byodt upgrade X.Y.Z      # to a given release
+```
+
+Or run the new release's installer, which finds the deployment, or takes it from `--dir`:
+
+```sh
+VERSION=X.Y.Z
+curl --proto '=https' --tlsv1.2 -fsSL "https://github.com/dether-net/dethernety-oss/releases/download/v${VERSION}/get-byodt.sh" \
+  | sh -s -- --upgrade --dir /path/to/your/deployment
+```
+
+Both end in the same place: the new release's own `byodt` does the work from the third step below on. The installer downloads through your shell's `HTTPS_PROXY`; `./byodt upgrade` downloads through the proxy `.env` names, with the login from `.env.secrets`. A TLS-inspecting proxy's CA must then be in the host's trust store: `proxy-ca/` reaches only the containers.
+
+**Before you start:**
+
+- **The database must be running**, because the upgrade backs up the graph first. If it is not, the upgrade stops with `The database is not running, so the graph cannot be backed up first. Start it ('./byodt up'), or add --skip-graph-backup. Nothing was changed.`
+- **At least 2048 MiB free** in the deployment's folder, for the new images and the backups.
+- **The network**, as for the first start: the release assets on `github.com`, the new images, and new model weights if the release changed the model (see [Installation → Network access for the first start](./INSTALLATION.md#network-access-for-the-first-start)). The container engine pulls with its own proxy setting.
+- **Copy the previous backups off the machine.** The upgrade takes its own backup, on the same machine.
+
+### What an upgrade does
+
+In this order. Nothing in the deployment changes before step 5.
+
+1. **Finds the release.** It reads the version and the bundle's SHA-256 from that release's `get-byodt.sh`, as data, never run. With no version, it takes the latest release, which is never a pre-release.
+2. **Downloads and checks the bundle** into a private staging folder inside the deployment, `.byodt-upgrade.XXXXXX`: over HTTPS only, at most 50 MiB, with the SHA-256 the release published, and with cosign, its signature (see [Signatures](#signatures)). Then it hands over to the new release's own `byodt`.
+3. **Checks everything first**, with the new release's code: the files the old release shipped, against the record of them (a file you edited stops the upgrade unless you add `--replace-edited`, if the new release ships it too); the `.env` changes; a `CONSOLE_IMAGE` pin; that no other folder runs this deployment; the free disk; and that the database answers.
+4. **Asks every question at once.** It shows what it will do, then asks `Upgrade from A to B? [y/N]`, then about each change below, and shows the [third-party notice](./INSTALLATION.md#the-third-party-notice) if the new release changes what you confirmed, or if there is no record of a confirmation yet, as on every deployment coming from 0.13.0. Nothing is asked after this.
+5. **Backs up** into `backups/upgrade-A-to-B-<time>/`, a folder only you can read:
+   - the graph, taken by the current release's own `./byodt backup`;
+   - `.env`, as `env.before-B`, and the release record `.byodt-release`, as `byodt-release.before-B`;
+   - every file the old or the new release ships, as it is here, your edits included, as `bundle-files-A.tar.gz`.
+
+   `.env.secrets` is not copied: the upgrade leaves it alone.
+6. **Moves the new files in**, by rename, keeping a journal so an interruption can be resumed or undone. `byodt` itself goes first. Files the new release no longer ships stay where they are, as they are, and are listed for you to remove.
+7. **Brings `.env` into line** with the new `.env.example`, as you answered:
+   - `PLATFORM_VERSION` is set to the new release;
+   - a setting the new release adds is appended, with its comment, as `.env.example` ships it;
+   - a default the new release changed is taken only where your value is still the old default;
+   - a setting the new release no longer uses is commented out, with `# no longer used since B` after it;
+   - a `CONSOLE_IMAGE` pinned to the old release is retagged to the new one;
+   - the database image (`DB_IMAGE`, or `NEO4J_IMAGE` on Neo4j) changes only if you chose to move the database: `--move-db`, or `y` to `Also move the database to …?`.
+
+   Except as above, it never changes `CONSOLE_IMAGE`, `DB_ENGINE`, `DB_DATA`, `DB_IMAGE`, any `NEO4J_*` setting, `CONTAINER_ENGINE`, `FRONT_DOOR_*`, `HTTPS_PROXY`, `NO_PROXY` or `UPGRADE_REQUIRE_SIGNATURE`. It also writes the new release record and, if you confirmed it, the notice's record.
+8. **Applies the release** with `./byodt update`: it pulls the new images and recreates the deployment.
+9. **Waits until it is healthy**: the platform and the front door healthy, and the console running, for up to `--health-timeout` seconds (1200 by default), with a progress line every 30 seconds.
+10. **Prints the result** and the exact [rollback steps](#rolling-back-an-upgrade).
+
+A run, trimmed:
+
+```
+==> Upgrading from A to B.
+==> SHA-256 matches release B.
+==> Signature verified: the release workflow of dether-net/dethernety-oss at vB signed it.
+==> Upgrade from A to B:
+==>   new files: …
+Upgrade from A to B? [y/N] y
+==> Backing up the graph with release A's own byodt…
+==> Backup written: backups/upgrade-A-to-B-20261101T182842Z/byodt-snapshot-A-20261101-182844.snapshot (15M)
+==> Backed up into backups/upgrade-A-to-B-20261101T182842Z.
+==> Release B's files are in place.
+==> Applying release B…
+==> Pulling the pinned images…
+    …your container engine's pull and start output…
+==> Updated.
+==> Waiting for release B to be healthy (up to 1200 seconds)…
+==>   platform: starting, front door: healthy, console: running
+==> Healthy.
+==> Upgraded from A to B. The backup is in backups/upgrade-A-to-B-20261101T182842Z.
+==> To roll back later (everything since the backup is lost):
+  …the rollback steps…
+```
+
+### Options
+
+`./byodt upgrade --help` lists them. On the installer's command line they are passed on to the upgrade, except `--allow-unsigned` and `--require-signature`, which the installer applies itself.
+
+| Option | What it does |
+|---|---|
+| `--yes` | Ask nothing: confirm the upgrade, accept every `.env` change, and count the third-party notice as confirmed. It never moves the database, and never implies `--allow-unsigned`. |
+| `--move-db` | Also move the database to the image the new release was tested with. One-way, and only after the graph backup: the upgrade refuses it with `--skip-graph-backup`. |
+| `--replace-edited` | Go ahead although files the release shipped were edited here. They are replaced, and kept in the backup. |
+| `--skip-graph-backup` | For when the database is not running: go on without backing up the graph. The rest of the backup is still taken, and the database is not moved. |
+| `--require-signature` | Refuse unless cosign verifies the new release. `UPGRADE_REQUIRE_SIGNATURE=true` in `.env` does the same for every upgrade. |
+| `--allow-unsigned` | Let an unattended upgrade use a release cosign did not verify. Its SHA-256 is still checked. |
+| `--health-timeout SECS` | How long to wait for the new release to be healthy. Default 1200. |
+| `--abandon` | Drop an interrupted upgrade: undo a half-done move, or print the rollback steps. See [If an upgrade stops](#if-an-upgrade-stops). |
+
+**Local changes belong in `compose.override.yaml`**, which no release ships, so an upgrade never touches it. A shipped file you edited stops the upgrade before it changes anything, when the new release ships it too:
+
+```
+error: These files here are not release A's as shipped: compose.yaml. An upgrade replaces them. Local changes belong in compose.override.yaml, which no bundle ships; move them there, or add --replace-edited (they are kept in the backup). Nothing was changed.
+```
+
+**Moving the database.** When the new release was tested with another database image than yours, the summary says so, and at a terminal the upgrade asks `Also move the database to …? This cannot be undone; the backup comes first. [y/N]`. `--move-db` answers yes; `--yes` alone answers no. A newer database writes data an older one cannot open, which is why the rollback steps then move the data aside.
+
+### Signatures
+
+The SHA-256 is always checked. What happens next depends on cosign:
+
+| Situation | What the upgrade does |
+|---|---|
+| cosign installed, and it verifies the bundle against the release's exact identity | Goes on: `Signature verified: the release workflow of dether-net/dethernety-oss at vB signed it.` |
+| cosign installed, and it does not verify | Stops, with cosign's output: `cosign could not verify the new bundle's signature against release B's identity (above). Nothing was changed.` |
+| No cosign, at a terminal | Warns that the bundle's authenticity was not checked, and asks `Use it anyway? [y/N]`. The installer asks `The bundle's signature was not verified. Upgrade with it anyway? [y/N]`. |
+| No cosign, unattended (`--yes`, or no terminal) | Refuses, unless you pass `--allow-unsigned`. The installer says `cosign did not verify the bundle, and an unattended upgrade does not run code it cannot verify.`, then the same two ways forward. |
+| No cosign, and a signature is required | Refuses, whatever else you pass. |
+
+The unattended refusal names both ways forward:
+
+```
+error: cosign is not installed, so the bundle's signature was not checked, and an unattended upgrade does not run code it cannot verify. Install cosign (https://github.com/sigstore/cosign), or pass --allow-unsigned knowingly. Nothing was changed.
+```
+
+Install cosign, or pass `--allow-unsigned` once you have decided that the SHA-256 is enough. `--yes` never implies `--allow-unsigned`: an unattended upgrade runs code it cannot verify only when you said so.
+
+**Requiring a signature.** `--require-signature`, or `UPGRADE_REQUIRE_SIGNATURE=true` in the deployment's `.env` (see [Configuration → Upgrades](./CONFIGURATION.md#upgrades)), refuses any bundle cosign did not verify. With the `.env` setting, `--allow-unsigned` is refused before anything is downloaded. A value other than `true` or `false` stops the upgrade before anything is downloaded too: `.env sets UPGRADE_REQUIRE_SIGNATURE=yes, which is neither true nor false. Nothing was changed.` Because `.env` may hold it, an upgrade run by an account that cannot read `.env` stops: `byodt cannot read .env, which may require a signature (UPGRADE_REQUIRE_SIGNATURE). Run the upgrade as the account that owns it. Nothing was changed.`
+
+**`curl`, else `wget`.** The upgrade downloads with `curl` when it is installed. `wget` cannot hold a download to HTTPS, so a download through it counts as transport that is not guaranteed HTTPS; without cosign, the refusal says so. The SHA-256 and the signature rule apply the same way.
+
+### Without a terminal
+
+An upgrade asks before it changes anything. From a script, add `--yes`, and name the version: `./byodt upgrade` with no version moves to the latest release, which it does unattended only with `--yes` too.
+
+```sh
+./byodt upgrade X.Y.Z --yes
+```
+
+Without `--yes` and without a terminal, it stops: `An upgrade asks before it changes anything. Without a terminal, add --yes. Nothing was changed.`
+
+### If an upgrade stops
+
+An interrupted upgrade (a lost connection, a closed terminal, a failed pull, a reboot) is resumed by running the same command again:
+
+```sh
+./byodt upgrade
+```
+
+It reads where it stopped from its journal, `.byodt-upgrade.state`, and goes on from there:
+
+| Where it stopped | What `./byodt upgrade` does |
+|---|---|
+| Before the files moved (nothing changed but a backup) | Starts over, to the same release, with the options the interrupted run was given (such as `--move-db` or `--health-timeout`), then any you give now. A `--health-timeout` given now wins. |
+| While the new files were moving in | Asks `The new files were being moved in. Finish moving them in (y), or put the old ones back (n)? [Y/n]`. Without a terminal, `--yes` finishes the move, and `./byodt upgrade --abandon` puts the old files back. |
+| After the files moved | Finishes: `.env`, the apply, and the health check. |
+
+While the new files are in place but not yet applied, `./byodt up`, `update` and `restart` refuse, so that nothing starts the new files with the old `.env`:
+
+```
+error: An upgrade to B is half done (phase moved). Finish it with './byodt upgrade', or undo it with './byodt upgrade --abandon'.
+```
+
+In the other phases they only warn that an upgrade is pending.
+
+They also stop, in any phase, when `.byodt-upgrade.state` is not a regular file owned by you (or root) with mode 600, since it names folders an upgrade moves and removes:
+
+```
+error: .byodt-upgrade.state is not this deployment's own (a link, another account's, or readable by others); byodt does not act on it. Check it, and remove it to drop the upgrade.
+```
+
+**When the apply or the health check fails**, the upgrade stops and prints the rollback steps:
+
+- `Applying B failed (above). If the pull failed, the old containers are still running. Fix what it names and run './byodt upgrade' to go on, or roll back:` and the steps. A failed pull leaves the running deployment as it was.
+- `Release B did not report healthy within 1200 seconds. Still starting? './byodt upgrade' checks again. To go back instead (everything since the backup is lost):` and the steps. A first start that re-ingests data or downloads the model can take longer than the timeout; run `./byodt upgrade` again to wait some more.
+
+**Dropping an upgrade** with `./byodt upgrade --abandon`:
+
+| Where it stopped | What `--abandon` does |
+|---|---|
+| Before the files moved | Removes the staging folder and the journal. The backup stays. |
+| While the files were moving in | Puts the old files back, then drops the upgrade. |
+| After the files moved | Prints the rollback steps, and asks `Drop the upgrade's state now (you run the steps above)? [y/N]`. Dropping it undoes nothing: the steps do. With `--yes`, it drops it without asking. |
+
+Only one upgrade runs at a time: a second one stops with `Another upgrade is running here (.byodt-upgrade.lock, process …). Wait for it. If none is running, remove .byodt-upgrade.lock (and .byodt-upgrade.lock.takeover, if it is there) and run the command again.` A lock whose process has ended is taken over, under a second lock, `.byodt-upgrade.lock.takeover`, so that only one upgrade takes it over. A lock that names no process yet counts as held.
+
+### Rolling back an upgrade
+
+An upgrade prints the exact steps that take the deployment back to the release before it, from its backup, at the end and whenever it stops after the files moved. Keep them, and keep the backup folder. **Everything created since the backup is lost.**
+
+```
+==> To roll back later (everything since the backup is lost):
+  cd '/path/to/your/deployment'
+  ./byodt down
+  rm -f <a file B added>
+  tar -xzf backups/upgrade-A-to-B-20261101T182842Z/bundle-files-A.tar.gz --strip-components=1
+  cp -p backups/upgrade-A-to-B-20261101T182842Z/env.before-B .env
+  cp -p backups/upgrade-A-to-B-20261101T182842Z/byodt-release.before-B .byodt-release
+  ./byodt update
+  ./byodt restore backups/upgrade-A-to-B-20261101T182842Z/byodt-snapshot-A-20261101-182844.snapshot
+  ./byodt restart platform
+```
+
+- **They start with a `cd`** into the deployment's folder; run them in order, from there. When the upgrade stopped partway, `./byodt upgrade --abandon --yes` comes next: it drops the upgrade's journal before the files go back.
+- **The `rm -f` lines** remove the files the new release added, one line each, so that the unpack brings back exactly what was there before, your own files included.
+- **The release record** is put back from the backup, or removed (`rm -f .byodt-release`) when the old release had none.
+- **After `--move-db`** a line moves the newer database's data aside (with the default `DB_DATA`, `mv ./data/memgraph ./data/memgraph.moved-B`), or removes its named volume, because the older database cannot open it.
+- **`./byodt restore` asks you to type `restore`** before it replaces the graph.
+- **After `--skip-graph-backup`** the restore line reads `(no graph backup was taken)`: restore a backup of your own, if you took one.
+
+### Same version and downgrades
+
+An upgrade only moves forward:
+
+- **The same release:** `Already on A. './byodt update' applies it again.` The installer says `The deployment in … already runs release A; '…/byodt update' applies it again.`, or, for a folder that was set up but never started, `The deployment in … already holds release A, and has not been started yet; '…/byodt up' starts it.`
+- **An older release:** `B is older than A: a downgrade is a rollback, not an upgrade. Roll back with the steps the upgrade to A printed, from its backup.`
+
+Nothing is changed either way.
+
+### Upgrading from 0.13.0
+
+Release 0.13.0's `byodt` has no upgrade: its `./byodt upgrade` is another name for `update`. It ignores the version, pulls 0.13.0's images again, and stays on 0.13.0:
+
+```
+$ ./byodt upgrade X.Y.Z
+==> Pulling the pinned images…
+    …
+==> Applying…
+    …
+==> Updated.
+```
+
+To upgrade a 0.13.0 deployment, run the new release's installer with `--upgrade`, naming the deployment's folder:
+
+```sh
+VERSION=X.Y.Z
+curl --proto '=https' --tlsv1.2 -fsSL "https://github.com/dether-net/dethernety-oss/releases/download/v${VERSION}/get-byodt.sh" \
+  | sh -s -- --upgrade --dir /path/to/byodt-0.13.0
+```
+
+The new release's `byodt` then does everything [described above](#what-an-upgrade-does). It knows the files 0.13.0 shipped, so your edits are found as on any other release. The graph backup is taken by 0.13.0's own `byodt`, and the rollback steps bring back 0.13.0's, whose `restore` also asks you to type `restore`. From then on, `./byodt upgrade` does the next upgrade.
+
+**If it stops** before the first file moved in, the deployment still has 0.13.0's `byodt`, whose `upgrade` cannot resume it. Run the installer again: it takes the upgrade over, and says `An earlier upgrade stopped before it changed anything; starting this one in its place.` If it stopped later, the new `byodt` is already in place: run `./byodt upgrade` to go on.
+
+### Upgrading on Podman
+
+On Memgraph with `podman-compose`, this release backs up and restores the graph through `podman cp`, so `./byodt upgrade` works as it does on Docker. On a host that also has Docker, set the Compose provider first; see [Installation → Podman specifics](./INSTALLATION.md#podman-specifics).
+
+**From 0.13.0, on Memgraph and `podman-compose`**, the upgrade's graph backup is taken by 0.13.0's `byodt`, which copies with `compose cp`, a command `podman-compose` does not have. The upgrade stops there with `Failed to copy the snapshot out of the db container.`, and nothing is changed. Take the snapshot by hand, then upgrade without the graph backup.
+
+1. From the deployment's folder, with the deployment running, take a Memgraph snapshot and copy it out. In `bash`:
+
+   ```sh
+   id="$(podman ps -q --filter label=com.docker.compose.project=dethernety --filter label=com.docker.compose.service=db)"
+   podman exec -i "$id" sh -c 'FLAGS_password="$MEMGRAPH_PASSWORD" mgconsole --username "$MEMGRAPH_USER" --fromenv=password' <<< 'CREATE SNAPSHOT;'
+   snap="$(podman exec "$id" sh -c 'ls -t /var/lib/memgraph/snapshots | head -1')"
+   mkdir -p backups && podman cp "$id:/var/lib/memgraph/snapshots/$snap" backups/before-upgrade.snapshot
+   ls -l backups/before-upgrade.snapshot
+   ```
+
+   The password stays inside the database container: `mgconsole` reads it from the container's own environment. The copy keeps the container file's mode; `chmod 600 backups/before-upgrade.snapshot` makes it readable by you only.
+
+2. Upgrade with the installer, without the graph backup:
+
+   ```sh
+   VERSION=X.Y.Z
+   curl --proto '=https' --tlsv1.2 -fsSL "https://github.com/dether-net/dethernety-oss/releases/download/v${VERSION}/get-byodt.sh" \
+     | sh -s -- --upgrade --dir /path/to/byodt-0.13.0 --skip-graph-backup
+   ```
+
+   The summary says `the graph is NOT backed up (--skip-graph-backup)`, and the rest of the backup is taken as usual.
+
+The rollback steps of such an upgrade read `(no graph backup was taken)`: the graph to go back to is `backups/before-upgrade.snapshot`. On the new release, `./byodt restore backups/before-upgrade.snapshot` restores it. 0.13.0's own Memgraph `restore` copies with `compose cp` too, so after a rollback to 0.13.0 it cannot load the snapshot on `podman-compose`.
+
+### Upgrading by hand
+
+Without `./byodt upgrade`, these are the steps. `./byodt upgrade` does all of them, and checks each one first. Two things it does that a hand upgrade does not:
+
+- **The release record.** `.byodt-release` keeps naming the old release, so the next `./byodt upgrade` cannot tell which shipped files you edited. It warns, and keeps any edits in its backup.
+- **The third-party notice.** When the new release changes what you confirmed, the next `./byodt update` shows the notice and asks before it pulls.
+
+#### 1. Back up first
 
 ```sh
 ./byodt backup
@@ -299,13 +609,13 @@ A release moves as one unit: the platform image, the console image, and the modu
 
 Copy the file off the machine. A backup may not load across versions, so treat it as protection against a failed upgrade, not a guaranteed rollback.
 
-### 2. Get the new bundle
+#### 2. Get the new bundle
 
 Download and verify it exactly as in [Installation → Get the bundle](./INSTALLATION.md#get-the-bundle). Behind an outbound proxy, export `HTTPS_PROXY` in your shell first, as on the first install.
 
 > **Note:** An upgrade needs the network again: the new images' layers, the new release's module index and payloads, and new model weights if the release changed the model. The hosts are the ones in [Installation → Network access for the first start](./INSTALLATION.md#network-access-for-the-first-start). Behind a proxy, the container engine pulls with its own proxy setting, as on the first install; on a host with no direct route out, `./byodt update` cannot pull without it. On Docker, `./byodt update` warns before it pulls when the daemon has no proxy. A failed pull leaves the running deployment as it was.
 
-### 3. Replace the bundle files, keep your own
+#### 3. Replace the bundle files, keep your own
 
 The tarball contains only the shipped files — the control script, the compose files, the configuration template, the proxy configuration, and the notices. It contains none of your generated files, so unpacking it over your existing bundle directory replaces the former and leaves the latter alone:
 
@@ -314,9 +624,9 @@ VERSION=X.Y.Z    # the release you are moving to
 tar xzf "byodt-${VERSION}.tar.gz" --strip-components=1 -C /path/to/your/bundle
 ```
 
-Your `.env`, `.env.secrets`, `mode/`, `tls/`, `proxy-ca/`, `data/`, and `backups/` are untouched.
+Your `.env`, `.env.secrets`, `mode/`, `tls/`, `proxy-ca/`, `data/`, `backups/`, `.byodt-release` and `third-party-acknowledgement.log` are untouched.
 
-### 4. Bring `.env` into line with the new `.env.example`
+#### 4. Bring `.env` into line with the new `.env.example`
 
 `.env.example` is the release manifest. Compare it with your `.env`:
 
@@ -324,7 +634,7 @@ Your `.env`, `.env.secrets`, `mode/`, `tls/`, `proxy-ca/`, `data/`, and `backups
 diff .env .env.example
 ```
 
-**Set `PLATFORM_VERSION` to the new version.** That is the whole version change — the platform image, the console image, and the module payloads all follow it. Also take any changes to `PROXY_IMAGE`, and read the new file's comments for settings that were added or retired. `./byodt update` never edits `.env` for you. Keep your current `DB_IMAGE` (on Neo4j, `NEO4J_IMAGE`, which `byodt` recorded on the first run), even if the new bundle names a newer database, unless you decide to move the database (below).
+**Set `PLATFORM_VERSION` to the new version.** That is the whole version change — the platform image, the console image, and the module payloads all follow it. Also take any changes to `PROXY_IMAGE`, and read the new file's comments for settings that were added or retired. `./byodt update` never changes your settings in `.env`: it only records a missing `CONTAINER_ENGINE` or `DB_ENGINE` (on Neo4j, `NEO4J_IMAGE` too). Keep your current `DB_IMAGE` (on Neo4j, `NEO4J_IMAGE`, which `byodt` recorded on the first run), even if the new bundle names a newer database, unless you decide to move the database (below).
 
 **The outbound proxy keys.** `.env.example` has an "Outbound proxy" section with `HTTPS_PROXY` and `NO_PROXY`, both commented out; an `.env` carried over from an older bundle has neither. They are optional, as are `HTTPS_PROXY_USERINFO` in `.env.secrets` and the CA file `proxy-ca/proxy-ca.pem`: add them only if the host reaches the internet through a proxy (see [Configuration → Outbound proxy](./CONFIGURATION.md#outbound-proxy)). An older bundle passed no proxy variables to its containers, so an engine that copies your shell's or your Docker client's proxy settings into containers could pass them on. A bundle with these keys sets every proxy variable of its containers explicitly, and uses only what `.env` says.
 
@@ -332,7 +642,7 @@ diff .env .env.example
 
 > **If you have uncommented `CONSOLE_IMAGE` to use a mirror**, move its tag to the new version too. The console refuses to serve a platform version it was not built for, so an override left on the old tag aborts the start. Leaving the key commented out — the default — makes this impossible.
 
-### 5. Apply
+#### 5. Apply
 
 ```sh
 ./byodt update
@@ -340,9 +650,9 @@ diff .env .env.example
 
 This first checks `.env` (see [Upgrading from a release with the `ollama` service](#upgrading-from-a-release-with-the-ollama-service) for what it refuses and what it only notes), then pulls the newly pinned images and recreates the deployment. The one-shot runs again and installs the new release's signed modules; the reference-data ingest is skipped if the corpus has not changed.
 
-If the one-shot refuses the start, `./byodt update` fails with an error that ends `'byodt logs console-init' says why.` Read that log, fix what it names, and run `./byodt update` again.
+If the one-shot refuses the start, `./byodt update` fails with an error that ends `'./byodt logs console-init' says why.` Read that log, fix what it names, and run `./byodt update` again.
 
-### 6. Verify
+#### 6. Verify
 
 ```sh
 ./byodt status
@@ -352,7 +662,7 @@ Then open the console and confirm: a **Healthy** verdict, every module `placed` 
 
 ### Upgrading from a release with the `ollama` service
 
-From control script **1.2.0** on, the bundle no longer runs the old `ollama` service: the platform embeds in process. Upgrading a deployment that ran the `ollama` service follows the steps above, with these additions.
+From control script **1.2.0** on, the bundle no longer runs the old `ollama` service: the platform embeds in process. Upgrading a deployment that ran the `ollama` service follows the steps of [Upgrading by hand](#upgrading-by-hand), with these additions.
 
 1. **Back up, and keep what a rollback needs**, as in step 1: `./byodt backup`, and copy the file off the machine. Also save your current `.env`, and keep the previous release's bundle tarball:
 
@@ -417,7 +727,7 @@ sudo rm -rf data/models
 ./byodt destroy
 ```
 
-Removes the containers and the network. **Nothing on disk is deleted** — not your data, not your configuration, not your certificate. `./byodt up` brings it all back as it was.
+Removes the containers and the network. **Nothing on disk is deleted** — not your data, not your configuration, not your certificate. `./byodt up` brings it all back as it was. Like `down`, it refuses while another folder runs the deployment, and takes `--take-over`; see [A deployment in another folder](#a-deployment-in-another-folder).
 
 The command then prints the exact commands to wipe the graph *if you want to*, correct for your storage setting — either removing the data directory, or removing the named volume with your engine. On Neo4j under rootless Podman it adds the `podman unshare rm -rf` form, because the database files belong to the container's user. Read what it prints; it is generated for your deployment, not a generic example.
 
@@ -444,7 +754,7 @@ Anything the named commands do not cover:
 
 This runs your engine's `compose` with the bundle's configuration and secret files already supplied, and with the compose files for your database engine: `compose.yaml`, then `compose.memgraph.yaml` or `compose.neo4j.yaml`, then `compose.override.yaml` if you have one. That is the part that is tedious to get right by hand, and a bare `compose` call without the engine's file has no database service.
 
-> **The safety rails do not apply here.** `./byodt compose down -v` will delete a named-volume graph, where `./byodt down -v` refuses. Use the escape hatch when you know what you are doing.
+> **The safety rails do not apply here.** `./byodt compose down -v` will delete a named-volume graph, where `./byodt down -v` refuses. The escape hatch also does not check for [a deployment in another folder](#a-deployment-in-another-folder), and never shows the [third-party notice](./INSTALLATION.md#the-third-party-notice), so a `./byodt compose pull` downloads without it. Use the escape hatch when you know what you are doing.
 
 > **Note:** `./byodt compose config` prints every service's environment in full, including the database password and, if you set one, the outbound proxy's login. Do not paste its output anywhere public.
 

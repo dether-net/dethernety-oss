@@ -21,7 +21,18 @@ This guide takes you from an empty machine to a running Dethernety deployment th
 
 ## At a glance
 
-If your machine already meets the [requirements](#requirements), these commands are the whole installation. Replace `X.Y.Z` with the version from the [latest release](https://github.com/dether-net/dethernety-oss/releases/latest).
+If your machine already meets the [requirements](#requirements), there are two ways to install. Replace `X.Y.Z` with the version from the [latest release](https://github.com/dether-net/dethernety-oss/releases/latest).
+
+**With the installer.** From the first release that ships it, each release has an installer, `get-byodt.sh`, among its files. One command downloads the bundle, checks it, unpacks it into `./byodt`, and asks you a few questions:
+
+```sh
+VERSION=X.Y.Z
+curl --proto '=https' --tlsv1.2 -fsSL "https://github.com/dether-net/dethernety-oss/releases/download/v${VERSION}/get-byodt.sh" | sh
+```
+
+See [Install with the installer](#install-with-the-installer) for what it checks, its options, and how to run it without a terminal. A release without `get-byodt.sh` installs by hand.
+
+**By hand.** These commands are the whole installation:
 
 ```sh
 VERSION=X.Y.Z
@@ -67,7 +78,9 @@ The rest of this guide walks through each step, explains what the first start do
 | **Memory** | Enough for the database plus the platform. Memgraph runs with a **4096 MiB** memory limit — the measured floor for the reference-data ingest. Neo4j runs with a **2 GB** heap and a **1 GB** page cache, plus what the JVM needs beyond those. The platform holds the embedding model in memory, which adds roughly 0.8–0.9 GiB. |
 | **CPU** | No fixed minimum. The timings in this guide are for a 4-vCPU host, which matches the embedder's default of 4 inference threads (`EMBEDDING_THREADS`; see [Configuration → Embedding](./CONFIGURATION.md#embedding)). |
 | **Network (first start and upgrades)** | Access to the container registries, GitHub release assets, and Hugging Face, directly or through an outbound proxy. See [Network access for the first start](#network-access-for-the-first-start). |
-| **Optional tools** | [cosign](https://github.com/sigstore/cosign) to verify the bundle's signature. `curl` for the health checks. |
+| **For the installer** | Linux or macOS (on Windows, inside WSL), with `sh`, `tar`, `curl` (or `wget`), and `sha256sum` or `shasum`. |
+| **For `byodt`** | `sha256sum` or `shasum` too. `byodt` needs one to record your confirmation of the third-party notice, and to upgrade; other commands do not. Without one, the notice counts as not yet confirmed, so a first start, and any `up`, `update`, `restart` or `models pull` run at a terminal or with `--yes`, asks for it and then stops. See [Troubleshooting](./TROUBLESHOOTING.md#neither-sha256sum-nor-shasum-is-installed). |
+| **Optional tools** | [cosign](https://github.com/sigstore/cosign) to verify the bundle's signature; the installer and `./byodt upgrade` use it when it is installed. `curl` for the health checks. |
 
 > **Warning:** On a VM-backed runtime — **Docker Desktop**, or a **Podman machine** on macOS or Windows — the memory that counts is the memory the *virtual machine* is allowed, not the host's. If the VM is capped at 4 GB or less, raise it in the runtime's settings before you start. The reference-data ingest is deliberately not retried when the database runs out of memory.
 
@@ -89,7 +102,7 @@ On the first start, the script detects the engine (Docker first, then Podman) an
 
 ### Podman specifics
 
-Podman works fully. Three things to know:
+Podman works fully, with Docker Compose v2 or with `podman-compose`: installing, backing up, restoring and upgrading included. (An upgrade from 0.13.0 on Memgraph and `podman-compose` needs one step by hand; see [Operations → Upgrading on Podman](./OPERATIONS.md#upgrading-on-podman).) Four things to know:
 
 1. **On macOS, start the machine first.** Podman runs containers inside a virtual machine that is not started for you:
 
@@ -102,6 +115,14 @@ Podman works fully. Three things to know:
 2. **Use the named volume for database storage on a VM-backed runtime.** This applies to a Podman machine and to Docker Desktop alike; see the warning in [Optional: choose your settings first](#optional-choose-your-settings-first).
 
 3. **Rootless is expected.** The containers write into the bundle's runtime directories under an unprivileged user id that does not match yours, so the control script creates those directories world-writable on every start. You do not need to do anything. Do not tighten them by hand: the next start widens them again.
+
+4. **On a host that also has Docker, choose the Compose provider.** This applies when `byodt` runs Podman: with `CONTAINER_ENGINE=podman`, or when Docker's `docker compose` does not work, since `byodt` tries Docker first. `podman compose` runs Docker's `docker-compose` when it finds it, and `docker-compose` reaches Podman only through the Podman API socket. Without the socket running, the first start fails with a message such as `failed to connect to the docker API at unix:///run/user/<uid>/podman/podman.sock`. To have Podman use `podman-compose`, set this in the shell you run `byodt` from, and in your shell profile so that it stays set:
+
+   ```sh
+   export PODMAN_COMPOSE_PROVIDER=podman-compose
+   ```
+
+   Or keep `docker-compose` and start the socket: `systemctl --user start podman.socket`.
 
 ### Network access for the first start
 
@@ -242,6 +263,8 @@ unset PROXY_LOGIN
 
 The login then sits in your shell's environment. Run `unset HTTPS_PROXY` when you are done, unless `podman-compose` pulls with it (step 1).
 
+The installer follows the same `HTTPS_PROXY`, login included, and hands the proxy URL to `./byodt setup` as its `--https-proxy`, so setup writes it into `.env` without asking for it; of the login, setup only offers to save it (step 3). See [Install with the installer → Through an outbound proxy](#through-an-outbound-proxy).
+
 The deployment does not use this shell value. It uses only the proxy `.env` names (step 3). When your shell sets a different one, `byodt` prints a notice, with any login masked, and goes on with `.env`'s:
 
 ```
@@ -249,6 +272,8 @@ The deployment does not use this shell value. It uses only the proxy `.env` name
 ```
 
 ### 3. Set the proxy for the deployment
+
+**With `./byodt setup`** (the installer runs it for you), answer its proxy questions, or give its proxy flags: it writes `HTTPS_PROXY` and `NO_PROXY` into `.env`, the login into `.env.secrets`, and the CA into `proxy-ca/`, and checks them as every later command does. See [Set up with `./byodt setup`](#set-up-with-byodt-setup). Then go on with step 4. The rest of this step does the same by hand.
 
 From the bundle directory, create `.env` first. The first start creates it from `.env.example` only when it is missing, and a `.env` without the proxy sends everything direct:
 
@@ -323,9 +348,351 @@ The warning does not stop the start: a registry mirror on your own network pulls
 
 ---
 
+## Install with the installer
+
+From the first release that ships it, each release publishes an installer, `get-byodt.sh`, beside its bundle; a release without one installs by hand (see [Get the bundle](#get-the-bundle)). It downloads that release's bundle, checks it, unpacks it into a new folder, and hands over to the bundle's own [`./byodt setup`](#set-up-with-byodt-setup). It also upgrades an existing deployment to its release; see [Operations → Upgrading to a new release](./OPERATIONS.md#upgrading-to-a-new-release).
+
+### Run it
+
+```sh
+VERSION=X.Y.Z
+curl --proto '=https' --tlsv1.2 -fsSL "https://github.com/dether-net/dethernety-oss/releases/download/v${VERSION}/get-byodt.sh" | sh
+```
+
+Options go after `sh -s --`:
+
+```sh
+curl --proto '=https' --tlsv1.2 -fsSL "https://github.com/dether-net/dethernety-oss/releases/download/v${VERSION}/get-byodt.sh" | sh -s -- --dir ~/dethernety
+```
+
+- **Use the URL with the version in it.** The script carries its release's version and the SHA-256 of that release's bundle, written in when the release was published, so the URL decides exactly what is installed.
+- **It installs into `./byodt`**, in the directory you run it from, unless you name another folder with `--dir`. The folder must not exist yet. It becomes the deployment, so put it somewhere durable (see the warning in [Get the bundle](#get-the-bundle)).
+- **The questions come from the terminal**, even when the script itself arrives through a pipe.
+
+To check the installer itself before you run it, download it with its signature and verify it as you would the bundle:
+
+```sh
+BASE="https://github.com/dether-net/dethernety-oss/releases/download/v${VERSION}"
+curl --proto '=https' --tlsv1.2 -fsSLO "${BASE}/get-byodt.sh"
+curl --proto '=https' --tlsv1.2 -fsSLO "${BASE}/get-byodt.sh.bundle"
+cosign verify-blob get-byodt.sh \
+  --bundle get-byodt.sh.bundle \
+  --certificate-identity "https://github.com/dether-net/dethernety-oss/.github/workflows/release.yml@refs/tags/v${VERSION}" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+sh get-byodt.sh
+```
+
+### What it checks
+
+For a new install, in this order, stopping at the first check that fails (an upgrade is described in [Operations](./OPERATIONS.md#upgrading-to-a-new-release)):
+
+1. **The machine.** Linux or macOS, with `tar`. On Windows, run it inside WSL.
+2. **An existing deployment.** It never installs over one; see [When a deployment is already there](#when-a-deployment-is-already-there).
+3. **The target folder.** It must not exist yet, and its parent must be a directory no other account can change (see [Folders other accounts can change](#folders-other-accounts-can-change)).
+4. **The third-party notice.** It is shown before anything is downloaded, and you confirm it (see [The third-party notice](#the-third-party-notice)):
+
+   ```
+   Nothing has been downloaded yet.
+   Continue? [y/N]
+   ```
+
+5. **The download.** `byodt-X.Y.Z.tar.gz`, over HTTPS only, and at most 50 MiB: a larger file is not a release's. It needs `curl` or `wget`; with neither, it stops here: `Neither curl nor wget is installed.`
+6. **The SHA-256.** It must equal the one written into the installer. It needs `sha256sum` or `shasum`; with neither, it stops here.
+
+   ```
+   ==> SHA-256 matches the release (…).
+   ```
+
+7. **The signature, when cosign is installed.** The installer downloads `byodt-X.Y.Z.tar.gz.bundle` and verifies it against the exact signing identity: the release workflow of `dether-net/dethernety-oss` at the tag `vX.Y.Z`, `https://github.com/dether-net/dethernety-oss/.github/workflows/release.yml@refs/tags/vX.Y.Z`, issued by `https://token.actions.githubusercontent.com`. An asset from any other release, or signed by anything else, does not pass.
+
+   ```
+   ==> Signature verified: the release workflow of dether-net/dethernety-oss at vX.Y.Z signed it.
+   ```
+
+   Without cosign it goes on, and says so:
+
+   ```
+   warning: cosign is not installed: the bundle's integrity was checked, its authenticity was not. Install cosign to verify the signature too.
+   ```
+
+8. **What is inside.** Every entry must sit under `byodt-X.Y.Z/`, be a plain file or directory, and not be something that belongs to a deployment rather than a release, such as `.env`, `.env.secrets` or `data/`. It is unpacked in a private working folder beside the target, with nothing writable by other accounts, and moved into place:
+
+   ```
+   ==> Unpacked release X.Y.Z into ./byodt.
+   ```
+
+Then it runs `./byodt setup` in the new folder, at your terminal, with the options you gave it. Setup does not show the notice again, unless an image it names points at a mirror of your own (see [The third-party notice](#the-third-party-notice)).
+
+### Options
+
+| Option | What it does |
+|---|---|
+| `--dir DIR` | The folder to install into (default `./byodt`), or the deployment to upgrade. |
+| `--upgrade` | Upgrade the deployment found. Needed when there is no terminal to ask, and with `--yes`. |
+| `--yes` | Ask nothing: take the defaults, and count the third-party notice as confirmed. The notice is printed either way. |
+| `--https-proxy URL` | The proxy for this download, as `http://host:port`, with no login in it. Default: your shell's `HTTPS_PROXY`. See [Through an outbound proxy](#through-an-outbound-proxy). |
+| `--tarball FILE` | Install from this bundle file instead of downloading it. It is checked all the same; its signature only from `FILE.bundle` beside it. |
+| `--require-signature` | Refuse unless cosign is installed and verifies the bundle. |
+| `--allow-unsigned` | Let an unattended upgrade use a bundle cosign did not verify. Its SHA-256 is still checked. |
+| `-h`, `--help` | Print the options. |
+
+**Any other option goes to the bundle's own `./byodt setup`** (on a new install) or `./byodt upgrade` (on an upgrade). For example, `--db neo4j --start` reaches setup. The installer passes on only values made of letters, digits and `. _ : / @ % + , = ~ ! & ' ( ) * ; -`.
+
+### Without a terminal
+
+From a script or a provisioning tool, nobody can answer the questions. Then:
+
+- **Without `--yes`**, the installer prints the notice and stops before it downloads anything:
+
+  ```
+  error: There is no terminal to confirm the notice above on. Run this at a terminal, or add --yes.
+  ```
+
+- **With `--yes`**, it prints the notice, counts it as confirmed, and setup takes its defaults and your flags:
+
+  ```sh
+  curl --proto '=https' --tlsv1.2 -fsSL "https://github.com/dether-net/dethernety-oss/releases/download/v${VERSION}/get-byodt.sh" \
+    | sh -s -- --yes --dir ~/dethernety --db neo4j --start
+  ```
+
+  ```
+  ==> --yes: counted as the confirmation of the notice above.
+  ```
+
+`--yes` means unattended at a terminal too: nothing is asked. With `--yes`, or without a terminal, an existing deployment is upgraded only with `--upgrade` (at a terminal without `--yes`, the installer asks), and an upgrade uses a bundle cosign did not verify only with `--allow-unsigned`. `--yes` never implies either.
+
+### Through an outbound proxy
+
+The installer's own downloads (the bundle and its signature, and cosign's calls) go through the proxy in your shell's `HTTPS_PROXY` (or `https_proxy`), or through `--https-proxy`:
+
+- **A login comes only from the environment.** Put it in `HTTPS_PROXY`, percent-encoded, as in [Behind an outbound proxy → 2](#2-get-the-bundle-through-the-proxy). `--https-proxy` refuses one, because an argument shows in the process list:
+
+  ```
+  error: Give --https-proxy without a login (http://host:port): an argument shows in the process list. A login comes only from HTTPS_PROXY in the environment.
+  ```
+
+- **The proxy is `http://host:port`** (or `https://host:port`), with nothing after the port.
+- **The login never reaches a command line.** The proxy reaches `curl`, `wget` and `cosign` through their environment, and the installer prints it masked:
+
+  ```
+  ==> Downloading byodt-X.Y.Z.tar.gz from the dether-net/dethernety-oss release (through http://***@proxy.example.internal:3128)…
+  ```
+
+**`curl`, else `wget`.** The installer uses `curl` when it is installed, held to HTTPS and TLS 1.2 or later. `wget` is the fallback, and it cannot refuse a redirect to plain HTTP, so a `wget` download counts as transport that is not guaranteed HTTPS. That changes nothing about what is used: the SHA-256 written into the installer decides, and with cosign the signature is checked the same way.
+
+**The 50 MiB cap** holds on both. `curl` refuses a larger file up front, and the installer stops with `error: Could not download the bundle.`; `wget` stops at the cap:
+
+```
+error: https://… is larger than a release's file is.
+```
+
+Nothing is left behind either way.
+
+**The deployment's own proxy.** The installer hands the proxy to `./byodt setup` as its `--https-proxy`, so setup writes it into `.env` as `HTTPS_PROXY`, and, at a terminal, asks for the hosts to reach directly and a TLS-inspecting proxy's CA. A login from your shell is saved into `.env.secrets` only after you answer `y` to `Save the proxy login for user '…' that the installer was given? [y/N]`, or with `--proxy-login-from-env` on the installer's command line; with `--yes` and without that flag, setup says it did not save it. The containers must be able to use that proxy: setup refuses one they cannot, such as `127.0.0.1` (see [Configuration → Outbound proxy](./CONFIGURATION.md#outbound-proxy)). At a terminal it asks again; with `--yes` it stops with `The proxy settings were refused (see above). Nothing was changed.`, and the unpacked folder stays. Run `./byodt setup` in it yourself, with the deployment's own proxy settings.
+
+### With npm
+
+`get-byodt.sh` from the release, as above, is the primary way to install. Once a release is published to npm, the same installer also runs through `npx`. Each package version is the release of the same version, and carries that release's `get-byodt.sh` with the same pins written in. The package's name:
+
+```sh
+PKG=@dethernety/byodt
+```
+
+```sh
+npx "$PKG@X.Y.Z"
+npx "$PKG@X.Y.Z" --dir ~/dethernety --yes
+```
+
+- It runs the package's `get-byodt.sh` with `/bin/sh`, and nothing else. It takes the same options, and asks at the terminal the same way.
+- It needs Node.js 18 or later. On Windows it stops with `Dethernety's self-hosted deployment runs on Linux or macOS. On Windows, run this inside WSL.`
+- It takes npm's `node_modules/.bin` folders out of `PATH` before it starts the installer, so `curl`, `cosign`, `tar` and the container engine are always the system's.
+- Without `@X.Y.Z`, `npx` runs the latest release. Name the version, as with the URL.
+
+### When a deployment is already there
+
+An existing deployment is upgraded, never installed over. With `--dir`, the installer looks only in that folder. Without it, it looks in the folders the container engine has started this bundle's deployment from, and in the `byodt*` folders of the directory you run it from.
+
+| What it finds | What happens |
+|---|---|
+| One deployment, on another release | At a terminal, it asks `Upgrade the deployment in … from A to B? [y/N]`. Without one, or after `n`: `There is a deployment in …. Upgrade it (--upgrade), or name another folder for a new one with --dir. Nothing was changed.` |
+| One deployment, already on this release | `The deployment in … already runs release X.Y.Z; '…/byodt update' applies it again. To install another one, name its folder with --dir. Nothing was changed.` |
+| One deployment, on this release, set up but never started | `The deployment in … already holds release X.Y.Z, and has not been started yet; '…/byodt up' starts it. To install another one, name its folder with --dir. Nothing was changed.` |
+| An upgrade to this release half done there | `An upgrade is half done in …. '…/byodt upgrade' goes on with it, or '…/byodt upgrade --abandon' undoes it. Nothing was changed.` |
+| More than one | It lists them: `More than one deployment was found (above). Name the one to upgrade with --dir.` |
+| The target folder exists, and is not a deployment | `… already exists. Choose another folder with --dir, or upgrade the deployment in it (--upgrade); a folder a refused setup left behind holds nothing yet, and can be removed.` |
+
+An upgrade started by the installer is described in [Operations → Upgrading to a new release](./OPERATIONS.md#upgrading-to-a-new-release). Every refusal is in [Troubleshooting → Installing and upgrading](./TROUBLESHOOTING.md#installing-and-upgrading).
+
+### Folders other accounts can change
+
+The installer, `./byodt setup`, and `./byodt upgrade` act only on folders that are yours (or root's) and that no other account can write to. The deployment holds its own data and secrets, and runs code from its folder. A folder whose group may write counts as one other accounts can change, unless the group is your own private group: the group named after you, which many Linux distributions give every user, and which makes new folders group-writable by default (a `umask` of `002`). A shared folder such as `/tmp` is refused:
+
+```
+error: Other accounts can change /tmp; install where only you can (--dir). The deployment holds its own data and secrets, so a shared folder such as /tmp is the wrong place for it anyway.
+```
+
+To fix a folder of your own: `chmod go-w <folder>`.
+
+---
+
+## Set up with `./byodt setup`
+
+`./byodt setup` is a bundle's first run: it asks for the settings that are hard to change later, shows the [third-party notice](#the-third-party-notice), and writes `.env`. The installer runs it for you. After a [manual download](#get-the-bundle), run it yourself from the bundle directory:
+
+```sh
+./byodt setup
+```
+
+You can skip it: `./byodt up` on a fresh bundle still creates `.env` with the defaults (see [Optional: choose your settings first](#optional-choose-your-settings-first)).
+
+### The questions
+
+It asks only at a terminal, and only what no flag answered. `./byodt setup --help` lists the flags.
+
+| Question | Flag | Default |
+|---|---|---|
+| `Graph database, memgraph or neo4j [memgraph]:` | `--db memgraph\|neo4j` | `memgraph` |
+| The third-party notice, then `Continue? [y/N]` | `--yes` | — |
+| `Keep the database in the engine's named volume? [Y/n]`, asked only on Docker Desktop or a Podman machine | `--db-data bind\|volume` | `volume` there; elsewhere `bind`, in `./data/<engine>` |
+| `Reach the console and the platform from other machines too (binds 0.0.0.0)? [y/N]` | `--bind 127.0.0.1\|0.0.0.0` | `127.0.0.1`, this machine only |
+| `Port [3000]:` | `--port N` | `3000` |
+| `Does this machine reach the internet only through an HTTPS proxy? [y/N]`, then `The proxy, as http://host:port:` | `--https-proxy URL`, with no login in it | none |
+| `More hosts to reach directly, comma-separated (empty for none):` | `--no-proxy LIST` | none |
+| `The proxy login as user:password, the password percent-encoded (empty for none):`, typed without echo | none: a login is never a flag. `--proxy-login-from-env` takes it from `BYODT_SETUP_PROXY_USERINFO`, as the installer passes it | none |
+| `The CA certificate file of a TLS-inspecting proxy (empty for none):` | `--proxy-ca FILE` | none |
+| `Start the stack now? [y/N]` | `--start`, `--no-start` | no |
+
+The proxy's hosts, login and CA are asked only when there is a proxy. `--yes` asks nothing: every question no flag answered takes its default, and the notice counts as confirmed.
+
+Without a terminal and without `--yes`, setup refuses at once:
+
+```
+error: setup asks its questions at a terminal. Without one, add --yes, with flags for anything other than the defaults ('./byodt setup --help'). Nothing was changed.
+```
+
+### What it writes
+
+| File | What |
+|---|---|
+| `.env` | A copy of `.env.example`, with your answers set where a hand edit would put them: `DB_ENGINE`, `FRONT_DOOR_BIND`, `FRONT_DOOR_PORT`, `DB_DATA` or `NEO4J_DATA` for the named volume, and `HTTPS_PROXY` and `NO_PROXY` for a proxy. |
+| `.env.secrets` | Only for a proxy login: `HTTPS_PROXY_USERINFO`, mode `0600`. The database password is generated on the first start, not here. |
+| `proxy-ca/proxy-ca.pem` | A copy of the CA file you named. |
+| `.byodt-release` | The release and the SHA-256 of every file it shipped. The first upgrade checks your local edits against it. |
+| `third-party-acknowledgement.log` | The record of your confirmation of the notice. |
+
+It checks the proxy settings with the same checks every later command makes. Any refusal removes what it wrote, so a refused setup leaves the folder as it was. Setup runs once per folder: it refuses when `.env` exists (`.env exists: this folder is already set up. Edit .env, or move it aside to run setup again.`), or `.env.secrets` does (the folder has run before). Once setup has finished, change a setting by editing `.env` (see [Configuration](./CONFIGURATION.md)).
+
+At the end it says what it wrote, and what to watch for:
+
+```
+==> Wrote .env: DB_ENGINE=memgraph, FRONT_DOOR_BIND=127.0.0.1, FRONT_DOOR_PORT=3000.
+==> Ready. Start with: ./byodt up
+```
+
+`byodt` names itself in its messages the way you ran it, so after the installer the line reads `./byodt/byodt up`, or the path you gave with `--dir`.
+
+- **Another port than 3000:** `Port N: 3000 is a pre-registered loopback address for cloud sign-in; another port may need the identity provider to know it.`
+- **A port already in use:** `warning: Something already answers on 127.0.0.1:N; the start may fail until it is free.`
+- **Bound to `0.0.0.0`:** a warning that anyone who can reach the port has full access, and, at a terminal, `Generate a self-signed TLS certificate now ('./byodt tls generate')? [y/N]`.
+
+### Starting from setup
+
+With `--start` (or `y` to `Start the stack now?`), setup checks before it writes anything that no other folder runs this bundle's deployment (see [Operations → A deployment in another folder](./OPERATIONS.md#a-deployment-in-another-folder)), then starts it with `./byodt up`. It says what the first start downloads:
+
+```
+==> Starting. It downloads the platform and console images, and docker.io/memgraph/memgraph:3.13.2 docker.io/nginx:1.27-alpine, then the embedding model (about 1.26 GB) on the first start.
+```
+
+It names the database and front-door images that are not on the machine yet, and the model's size. It gives no total: the size of an image download depends on what your engine already holds.
+
+### Database volumes an earlier deployment left
+
+Every bundle's deployment uses the same compose project name, `dethernety`, so the named volumes `dethernety_memgraph-data` and `dethernety_neo4j-data` outlive a deployment whose folder is gone. Setup looks for them before it writes anything, warns about each one it finds, and never removes one.
+
+**A volume this deployment would mount** (you chose the named volume for that engine):
+
+```
+warning: The volume dethernety_memgraph-data remains from an earlier deployment of this bundle, and this one would mount it: that graph's database users were made with another password, so its first start would be refused. Before it, set DB_DATA=./data/memgraph in .env to keep the database in a folder instead (less robust on a VM-backed engine); if you no longer need that graph, remove it with 'docker volume rm dethernety_memgraph-data' (this deletes it for good).
+```
+
+The first start would be refused, because the platform would be locked out of that graph. Choose one:
+
+- **You want that graph:** do not start this folder. Start the deployment it belongs to, or restore a backup of it into this one once this one runs on a folder.
+- **You do not need it:** remove the volume with the command the warning gives. This deletes the graph for good.
+- **Keep both:** set `DB_DATA=./data/memgraph` (on Neo4j, `NEO4J_DATA=./data/neo4j`) in `.env` before the first start, or run setup with `--db-data bind`.
+
+With `--start`, setup refuses before it writes anything, and says `Run setup with --db-data bind to keep the database in a folder instead`.
+
+**A volume this deployment does not use:**
+
+```
+warning: The volume dethernety_neo4j-data remains from an earlier deployment of this bundle; its graph may still be in it. This one does not use it. To use that graph, stop this one and start the deployment it belongs to ('./byodt up' in its folder); if you no longer need it, remove it with 'docker volume rm dethernety_neo4j-data' (this deletes it for good).
+```
+
+Nothing stops the start. The volume only takes disk space.
+
+---
+
+## The third-party notice
+
+Before your machine downloads any third-party software, the installer and `byodt` show a short notice. It is Dethernety's own statement of fact about the third-party software this deployment runs: the database image, the front door's nginx image, and the embedding model, where each comes from, and the licence each is published under. Dethernety does not distribute any of them. Your container engine pulls the images from the registries the notice lists, and the platform downloads the model's weights from Hugging Face.
+
+```
+THIRD-PARTY SOFTWARE
+
+This deployment runs the third-party software listed below. Dethernety does
+not distribute it: your machine downloads it from the sources listed (your
+container engine pulls the images, and the platform downloads the model on
+its first start or on './byodt models pull').
+
+- Memgraph (graph database)
+  Image:    docker.io/memgraph/memgraph:3.13.2
+  Licence:  Memgraph Business Source License 1.1 (with an Additional Use Grant)
+  Terms:    https://github.com/memgraph/memgraph/blob/master/licenses/BSL.txt
+
+…the embedding model and nginx, in the same form…
+
+The images also contain operating-system packages under their own licences.
+
+You are responsible for using this software under its licence.
+
+Nothing has been downloaded yet.
+Continue? [y/N]
+```
+
+The images it names are the ones this deployment will run, read from `.env` and `compose.override.yaml`. The installer, which runs before you choose, lists both databases. When an image points at another repository than the one the release was tested with, a mirror of your own, for example, the notice adds a paragraph that says so.
+
+### What confirming means
+
+Answering `y`, or passing `--yes`, confirms that you have read the notice and that you are responsible for using that software under its licence. It is not a licence agreement, and the notice does not say it is: it does not accept any publisher's licence for you, and Dethernety grants no rights to software it does not distribute. The licences are the ones the **Terms** lines link to. `--yes` counts as the confirmation, and the notice is printed either way.
+
+### The record
+
+Each confirmation is one line in `third-party-acknowledgement.log`, in the deployment's folder: the time (UTC), the notice's text version and SHA-256, the database image, the model, the front-door image, how it was confirmed (`tty` or `yes`, or `handover-tty` or `handover-yes` when the installer showed it), and the release. It shows that this text was shown and confirmed for this deployment, not who confirmed it.
+
+`byodt` keeps the record only in a folder that is yours and that other accounts cannot change (see [Folders other accounts can change](#folders-other-accounts-can-change)), and counts a record another account could have written as no record. Otherwise it stops before the first download, with a message such as:
+
+```
+error: Other accounts can change this directory (…), so byodt does not record the third-party notice here. Make it yours and not writable by others (chmod go-w .), and run the command again.
+```
+
+### When it is shown again
+
+The notice is asked for again only when what you confirmed changes: a new version of its text, another database image (a new tag included), or another model. A new front-door image does not count. `./byodt setup`, `up`, `update`, `restart`, `models pull` and `upgrade` show it when it is due, before they download or change anything.
+
+On a deployment that has already run, with no terminal and no `--yes`, a due notice never stops a command: it is printed, followed by `warning: The notice above has not been confirmed for this deployment. Run './byodt acknowledge' at a terminal, or with --yes, to record it.` On a deployment that has not run yet, the command stops instead, as setup does.
+
+| Command | What it does |
+|---|---|
+| `./byodt notice` | Prints the notice for this deployment, without asking. `--all` prints it for both databases, as the installer shows it. |
+| `./byodt acknowledge` | Shows the notice, asks, and records your confirmation. Takes `--yes`. |
+| `./byodt compose …` | The raw escape hatch. It never shows the notice, so a pull through it is not preceded by one. |
+
+---
+
 ## Get the bundle
 
-The deployment ships as a signed release asset: a tarball holding the control script, the compose files, and a configuration template.
+To install by hand rather than with [the installer](#install-with-the-installer): the deployment ships as a signed release asset, a tarball holding the control script, the compose files, and a configuration template.
 
 1. **Find the version.** Open the releases page and note the version you want:
 
@@ -377,7 +744,7 @@ The deployment ships as a signed release asset: a tarball holding the control sc
 
 ## Optional: choose your settings first
 
-You can skip this section. The first start creates `.env` from `.env.example` and starts straight away with defaults that suit a single operator on a trusted machine:
+You can skip this section, and you do not need it after [`./byodt setup`](#set-up-with-byodt-setup), which asks for these settings and writes `.env` for you. Without setup, the first start creates `.env` from `.env.example` and starts straight away with defaults that suit a single operator on a trusted machine:
 
 | Setting | Default |
 |---|---|
@@ -435,7 +802,7 @@ Ready: the platform loads the model from there without downloading it.
 - `Ctrl-C` stops it and keeps nothing partial.
 - When it prints `Ready`, the first start loads the model from disk instead of downloading it.
 
-> **Note:** `models pull` performs first-run setup, so it creates `.env` with the defaults if it does not exist yet. Make your [settings choices](#optional-choose-your-settings-first) first.
+> **Note:** `models pull` performs first-run setup, so it creates `.env` with the defaults if it does not exist yet. Make your [settings choices](#optional-choose-your-settings-first) first, or run [`./byodt setup`](#set-up-with-byodt-setup). On a bundle not set up yet, it shows the [third-party notice](#the-third-party-notice) first.
 
 > **Note:** The model is licensed under the [Gemma Terms of Use](https://ai.google.dev/gemma/terms). The platform logs the licence before it downloads, and `./byodt models pull` prints it.
 
@@ -460,9 +827,13 @@ From the bundle directory:
 ./byodt up
 ```
 
-That is the whole installation: the command performs first-run setup, then starts the stack. Expect output like this:
+That is the whole installation: the command performs first-run setup, then starts the stack. On a bundle that `./byodt setup` has not set up, it first shows the [third-party notice](#the-third-party-notice) and asks you to confirm it; without a terminal, add `--yes`. Expect output like this:
 
 ```
+THIRD-PARTY SOFTWARE
+…the notice…
+Nothing has been downloaded yet.
+Continue? [y/N] y
 ==> Created .env from .env.example — review it before starting.
 ==> Container engine: docker (recorded CONTAINER_ENGINE in .env).
 ==> Database engine: memgraph (recorded DB_ENGINE in .env).
@@ -471,10 +842,12 @@ That is the whole installation: the command performs first-run setup, then start
 ==> Starting the stack…
     …your container engine's pull and start output…
 ==> Up. Console: http://127.0.0.1:3000/console/
-==> First start downloads the embedding model once (about 1.26 GB; 'byodt models pull' does it ahead) and ingests reference data — 'byodt logs platform' and 'byodt logs console-init' to follow.
+==> First start downloads the embedding model once (about 1.26 GB; './byodt models pull' does it ahead) and ingests reference data — './byodt logs platform' and './byodt logs console-init' to follow.
 ```
 
-The first line asks you to review `.env`, but the start does not wait: it goes ahead with the defaults. If you meant to change a setting first, see [Optional: choose your settings first](#optional-choose-your-settings-first).
+After `./byodt setup`, the notice and the `Created .env` and `Database engine` lines do not appear: setup did that part.
+
+The `Created .env` line asks you to review `.env`, but the start does not wait: it goes ahead with the defaults. If you meant to change a setting first, see [Optional: choose your settings first](#optional-choose-your-settings-first).
 
 > **Important:** `./byodt up` returning does **not** mean the deployment is ready. It means the containers have started. The platform may still be downloading the embedding model and embedding classes in the background. Use the checks in [Verify the deployment is healthy](#verify-the-deployment-is-healthy) to know when it is done.
 
@@ -546,7 +919,7 @@ The two halves of `console-init` fail differently, on purpose:
 
 | Problem | What happens |
 |---|---|
-| **A version, schema, or embedding-model problem** | The start is aborted and the platform is not started. A schema that disagrees with the code serving it must not serve, and a model that did not make the reference vectors would not match them. `./byodt up` fails with an error ending `'byodt logs console-init' says why.` |
+| **A version, schema, or embedding-model problem** | The start is aborted and the platform is not started. A schema that disagrees with the code serving it must not serve, and a model that did not make the reference vectors would not match them. `./byodt up` fails with an error ending `'./byodt logs console-init' says why.` |
 | **A module or data problem** | The fault is recorded and the stack still comes up. You get a running deployment with a specific diagnosis in the console, instead of a silent empty one. |
 
 Either way, go to [Troubleshooting](./TROUBLESHOOTING.md): every state the one-shot can report is listed there with its fix. For a first start that seems stuck, see [It is taking a very long time](./TROUBLESHOOTING.md#it-is-taking-a-very-long-time).

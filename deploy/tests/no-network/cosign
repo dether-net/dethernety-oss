@@ -1,0 +1,5 @@
+#!/bin/sh
+# A byodt stub test reached for cosign: no test may use the network. A test that needs a stand-in puts its own first
+# on PATH.
+echo "no-network: a test called cosign $*" >&2
+exit 99
