@@ -982,7 +982,7 @@ curl -fsS http://127.0.0.1:3000/health
 ```json
 {
   "status": "healthy",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "services": {
     "database": { "status": "up", "responseTime": 1 },
     "graphql":  { "status": "up" },
