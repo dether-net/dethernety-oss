@@ -4,7 +4,7 @@
  * attached ids and connects only the difference — otherwise every repeat call appends
  * a parallel SUPPORTS edge.
  *
- * The read (FIND_CONTROLS) must cover exactly the three typed fields the write
+ * The read (FIND_CONTROLS) must cover exactly the four typed fields the write
  * connects on. These tests pin that pairing, the two dedup paths, and the
  * already-fully-attached short-circuit.
  */
@@ -18,6 +18,7 @@ const harness = (attached: {
   components?: string[]
   boundaries?: string[]
   dataFlows?: string[]
+  data?: string[]
 } = {}) => {
   const dt = new DtControl({} as any) as any
 
@@ -29,6 +30,7 @@ const harness = (attached: {
         supportedComponents: (attached.components ?? []).map(id => ({ id, name: id })),
         supportedBoundaries: (attached.boundaries ?? []).map(id => ({ id, name: id })),
         supportedDataFlows: (attached.dataFlows ?? []).map(id => ({ id, name: id })),
+        supportedData: (attached.data ?? []).map(id => ({ id, name: id })),
       },
     ],
   })
@@ -38,6 +40,7 @@ const harness = (attached: {
     supportedComponents: [],
     supportedBoundaries: [],
     supportedDataFlows: [],
+    supportedData: [],
   })
 
   dt.dtUtils.performQuery = performQuery
@@ -46,7 +49,7 @@ const harness = (attached: {
 }
 
 /**
- * The ids offered to each of the three typed connect paths. Each path gets one operand with the ids in an `in`
+ * The ids offered to each of the four typed connect paths. Each path gets one operand with the ids in an `in`
  * list: the platform translates each operand into its own subqueries, so one operand per id would grow the
  * statement with the element count.
  */
@@ -60,6 +63,7 @@ const connectedIds = (performMutation: ReturnType<typeof vi.fn>) => {
     components: idsOf(input.supportedComponents.connect),
     boundaries: idsOf(input.supportedBoundaries.connect),
     dataFlows: idsOf(input.supportedDataFlows.connect),
+    data: idsOf(input.supportedData.connect),
   }
 }
 
@@ -75,21 +79,45 @@ describe('DtControl.assignControlToElements — idempotent across sequential cal
       components: ['e3'],
       boundaries: ['e3'],
       dataFlows: ['e3'],
+      data: ['e3'],
     })
   })
 
-  it('broadcasts an un-attached id to all three typed paths (type resolved by the WHERE)', async () => {
+  it('broadcasts an un-attached id to all four typed paths (type resolved by the WHERE)', async () => {
     const { dt, performMutation } = harness()
 
     await dt.assignControlToElements({ controlId: 'ctrl-1', elementIds: ['unknown-type'] })
 
-    // Subtraction never needs the id's label: "absent from all three read arrays"
+    // Subtraction never needs the id's label: "absent from all four read arrays"
     // is decidable without it, so the broadcast trick is preserved.
     expect(connectedIds(performMutation)).toEqual({
       components: ['unknown-type'],
       boundaries: ['unknown-type'],
       dataFlows: ['unknown-type'],
+      data: ['unknown-type'],
     })
+  })
+
+  it('subtracts a data item the control already supports, the same as any element', async () => {
+    const { dt, performMutation } = harness({ components: ['e1'], data: ['d1'] })
+
+    await dt.assignControlToElements({ controlId: 'ctrl-1', elementIds: ['d1', 'd2', 'e1'] })
+
+    expect(connectedIds(performMutation)).toEqual({
+      components: ['d2'],
+      boundaries: ['d2'],
+      dataFlows: ['d2'],
+      data: ['d2'],
+    })
+  })
+
+  it('fires no mutation when the only id is a data item already supported, and lists it among the elements', async () => {
+    const { dt, performMutation } = harness({ data: ['d1'] })
+
+    const result = await dt.assignControlToElements({ controlId: 'ctrl-1', elementIds: ['d1'] })
+
+    expect(performMutation).not.toHaveBeenCalled()
+    expect(result.elements.map((e: any) => e.id)).toEqual(['d1'])
   })
 
   it('dedupes the incoming list — the same id three times is listed once', async () => {

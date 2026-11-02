@@ -117,6 +117,26 @@ export const clientFreeTools: BaseTool[] = [
 ]
 
 /**
+ * Tools whose GraphQL documents select a data item's controls, which a platform older than that field refuses. The
+ * entry point checks the platform for the field before running one of them. Each entry says which calls send such a
+ * document: the model tools always do (a model read or write carries its data items), `manage_controls` only for the
+ * actions that read or write a control's elements.
+ */
+const DATA_CONTROLS_ACTIONS = new Set(['list', 'assign', 'push-greenfield'])
+const dataControlsCalls = new Map<BaseTool, (args: Record<string, unknown>) => boolean>([
+  [importModelTool, () => true],
+  [exportModelTool, () => true],
+  [updateModelTool, () => true],
+  [createModelTool, () => true],
+  [updateAttributesTool, () => true],
+  [manageControlsTool, (args) => typeof args.action === 'string' && DATA_CONTROLS_ACTIONS.has(args.action)],
+])
+
+/** Whether this call of `tool` sends a document that selects a data item's controls. */
+export const needsDataControls = (tool: BaseTool, args: Record<string, unknown>): boolean =>
+  dataControlsCalls.get(tool)?.(args) ?? false
+
+/**
  * Tools that require a GraphQL client (16)
  */
 export const clientDependentTools: BaseTool[] = [

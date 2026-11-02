@@ -112,6 +112,29 @@ describe('buildCoverageView — element-scope routing', () => {
     expect(pii.techniques.map((t) => t.techniqueId)).toEqual(['T1213', 'T1530']) // unioned, deduped, id-sorted
     expect(pii.techniques.find((t) => t.techniqueId === 'T1530')).toMatchObject({ name: 'Data from Cloud Storage', tactics: [TACTIC['Initial Access']] })
   })
+  it('the off-grid disclosure lists the controls applied to each Data element itself, by name, and keeps Data off the grid', () => {
+    const v = buildCoverageView(coverage([
+      exposure({ exposureId: 'd1', elementId: 'data1', elementKind: 'Data', techniques: [technique('T1530')] }),
+      exposure({ exposureId: 'd2', elementId: 'data2', elementKind: 'Data', techniques: [technique('T1005')] }),
+    ]), [
+      { id: 'data1', name: 'PII store', type: 'Data', findings: [{ id: 'd1', dispositionKind: null }],
+        supportingControls: [{ id: 'c1', name: 'Tokenisation' }, { id: 'c2', name: 'Field encryption' }] },
+      { id: 'data2', name: 'Card data', type: 'Data', findings: [{ id: 'd2', dispositionKind: null }], supportingControls: [] },
+    ])
+    expect(v.rows).toEqual([])
+    const pii = v.offGrid.dataMapped.find((d) => d.elementId === 'data1')
+    expect(pii.controls).toEqual([{ id: 'c2', name: 'Field encryption' }, { id: 'c1', name: 'Tokenisation' }]) // by name
+    expect(v.offGrid.dataMapped.find((d) => d.elementId === 'data2').controls).toEqual([])
+    // A Data element's controls are listed, never graded: none is called mismatched.
+    expect(v.mismatchByElement.data1).toBeUndefined()
+    expect(v.summary.defenseInDepth).toBe(0)
+  })
+  it('a model whose Data elements carry no control has no structural gap for Data', () => {
+    const v = buildCoverageView(coverage([
+      exposure({ exposureId: 'd1', elementId: 'data1', elementKind: 'Data', techniques: [technique('T1530')] }),
+    ]), [{ id: 'data1', name: 'PII store', type: 'Data', findings: [{ id: 'd1', dispositionKind: null }], supportingControls: [] }])
+    expect(v.structuralGaps).toEqual([])
+  })
   it('a dispositioned Data exposure does not enter the off-grid disclosure (live-only, like the grid)', () => {
     const v = buildCoverageView(coverage([
       exposure({ exposureId: 'd1', elementId: 'data1', elementKind: 'Data', techniques: [technique('T1530')] }),

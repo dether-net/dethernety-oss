@@ -7,7 +7,8 @@
 
   // Props
   interface Props {
-    selectedItem: Node | Edge | null;
+    // Only gates the table: an element panel passes its node or edge, the data dialog its data item.
+    selectedItem: Node | Edge | { id: string } | null;
     selectedControlIds: string[];
     controls: Control[];
   }

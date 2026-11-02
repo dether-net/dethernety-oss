@@ -24,6 +24,8 @@ Local files and the platform each own different things:
 
 **Push is a publish operation, not a sync.** Your local files are the manuscript; the platform is the published version. When you push, the local model replaces the platform model entirely.
 
+One exception: a data item's controls. A data item in `data-items.json` with a `controls` list (including `[]`) gets exactly that list on the platform, but a data item **without** a `controls` key keeps the controls it already has there. To remove a control from a data item, write the list without it; to remove them all, write `"controls": []`. Never delete the key — that leaves the platform's controls in place. (For components, boundaries, and flows, an absent `controls` key does clear them.)
+
 ---
 
 ## Pushing to the Platform
@@ -71,6 +73,8 @@ Component "Orders DB": Could not resolve component class (id=…, name=Database,
 Your files keep the class you chose for that element, and its answers. Each push reminds you with the warning above until the class is available on the platform (for example, once its module is installed there) or you choose another class for the element.
 
 **If the platform refuses a change.** When the platform refuses a change, such as binding an element to a class, the push fails with an error that names the element and gives the platform's reason — for example, `Could not bind "API" to class <id> (<code>): <reason>`. The rest of the push is still written. Fix the cause and push again.
+
+**If a push, pull, or control assignment fails with "Platform too old for this Dethereal version".** The platform you are connected to predates controls on data items, which this version of Dethereal reads and writes. The plugin checks for this before it pushes, pulls, or assigns controls, and stops with this error instead of a failure that does not say why; the message names the platform's address. Update the platform, or use a Dethereal version released before controls on data items.
 
 ### Gate 2 Pre-Flight
 

@@ -356,8 +356,9 @@ documented but not engine-integrated. No automated detection coverage scoring.
 | Boundary | `structure.json` | The boundary's `controls[]` field (walk the `defaultBoundary` tree to find by id) |
 | Component | `structure.json` | The component's `controls[]` field (within its parent boundary's `components[]`) |
 | Data flow | `dataflows.json` | The flow's `controls[]` field |
+| Data item | `data-items.json` | The data item's `controls[]` field |
 
-**Do NOT** write controls to `attributes/boundaries/<id>.json`, `attributes/components/<id>.json`, or `attributes/dataFlows/<id>.json` — controls placed there are invisible to the sync pipeline and never become Control relationships on the platform. Other enrichment data (encryption_in_transit, monitoring_tools, auth_failure_mode, etc.) goes in attribute files; controls do not.
+**Do NOT** write controls to `attributes/boundaries/<id>.json`, `attributes/components/<id>.json`, `attributes/dataFlows/<id>.json`, or `attributes/dataItems/<id>.json` — controls placed there are invisible to the sync pipeline and never become Control relationships on the platform. Other enrichment data (encryption_in_transit, monitoring_tools, auth_failure_mode, etc.) goes in attribute files; controls do not.
 
 **Source field:** When writing `controls[]` entries, set a `source` field on each ControlReference:
 
@@ -391,17 +392,18 @@ The decision tree below should be read alongside the path selection table in [co
 |----------|-------|
 | **`rank` returned candidates** (brownfield from `manage_controls` rank) | Use the candidate's `controlId` field: `{ id: "<controlId>", name: "<controlName>", source: "declared" }`. Never use `controlClassId` here. |
 | **`rank` returned empty AND the element has an assigned class** (greenfield with class binding) | **Default:** use the file-first path in [Per-Control Configuration Files](#per-control-configuration-files) — write `controls/<temp-id>.json` with `lifecycle: "greenfield"`, one `classes[]` entry per applicable ControlClass, and let `/dethereal:sync push` create the platform Control. Discover ControlClasses via `match_classes(elements: [{name: "<control idea>", ...}], classLabel: 'CONTROL', moduleIds)` — the element's own class assignment is a ComponentClass and is never valid here. **Legacy alternative:** call `mcp__plugin_dethereal_dethereal__manage_controls(action: 'create', name: "...", class_ids: ["<controlClassId-1>", "<controlClassId-2>"], element_ids: [...])` first; the tool returns `{ control: { id, name } }`; THEN write `{ id: "<new-control-id>", name: "...", source: "declared" }` to `structure.json`. |
-| **`rank` returned empty AND the element has no assigned class**, OR platform unreachable (greenfield, name-only) | `{ id: null, name: "<descriptive name>", source: "declared" }`. The platform's `resolveControls()` will create a Control by name on next sync, but it will not be bound to any ControlClass. |
+| **`rank` returned empty AND the element has no assigned class**, OR platform unreachable (greenfield, name-only) | `{ id: null, name: "<descriptive name>", source: "declared" }`. This creates nothing. On the next push, `resolveControls()` resolves the entry to an EXISTING Control by an exact, case-insensitive name match, and only when exactly one Control matches. An unknown or ambiguous name is reported as unresolved and the entry stays in the file. To create a new Control, use `manage_controls` (`create`, or `push-greenfield` for a `controls/<temp-id>.json` file). |
 
 **Rules:**
 - Default to `declared` for controls added during user-facing prompts
 - Set `discovered` only when code evidence directly implies the control (e.g., `tls_enabled: true` implies a TLS control)
 - Upgrade to `both` when a user confirms a control that was also found in code
 - The `source` field is informational in V1 — the Analysis Engine does not currently differentiate by source
+- To remove a control from a data item, write its `controls[]` without that entry (or `[]`). Never delete the key: on push an absent `controls` key leaves a data item's platform controls as they are, while on a boundary, component or flow it clears them
 
 ## Per-Control Configuration Files
 
-Per-instance ControlClass attributes live in `controls/<id>.json` files, NOT inline in `structure.json` / `dataflows.json`. The `controls[]` arrays in structural files keep the minimal `{ id, name, source }` reference shape. See [CONTROL_LIBRARY.md §3-4](../../../docs/architecture/dethereal/CONTROL_LIBRARY.md#3-proposed-layout--controls-folder).
+Per-instance ControlClass attributes live in `controls/<id>.json` files, NOT inline in `structure.json` / `dataflows.json` / `data-items.json`. The `controls[]` arrays in structural files keep the minimal `{ id, name, source }` reference shape. See [CONTROL_LIBRARY.md §3-4](../../../docs/architecture/dethereal/CONTROL_LIBRARY.md#3-proposed-layout--controls-folder).
 
 ### Greenfield Controls (file-first path)
 

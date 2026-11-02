@@ -15,7 +15,7 @@ tags: ['intermediate', 'guide', 'controls', 'browser', 'countermeasures', 'mitre
 
 A **control** is a reusable protective measure that lives in the Browser, independent of any single model, and can be assigned to many elements at once:
 
-- **Create once, use everywhere**: the same control can be assigned to components, data flows, boundaries, and whole models
+- **Create once, use everywhere**: the same control can be assigned to components, data flows, boundaries, data items, and whole models
 - **Classes do the work**: a control gets its substance from one or more **control classes** supplied by modules
 - **Countermeasures are generated**: configuring an assigned class produces the control's countermeasures, each carrying its MITRE ATT&CK and D3FEND relations
 - **Mixed control types**: combine technical, administrative, and process classes in a single control
@@ -65,7 +65,7 @@ Control classes are supplied by **modules** — you do not author them in the co
 
 ### Universal control assignment
 
-A control can be assigned to any element type, from that element's own settings surface. In every case the pattern is the same: a **Controls** tab listing controls, with a checkbox per row.
+A control can be assigned to any element type, including a data item, from that element's own settings surface. In every case the pattern is the same: a **Controls** tab listing controls, with a checkbox per row.
 
 **From a component, data flow, or security boundary**:
 - Double-click the node or the flow arrow on the canvas to open its **settings panel**
@@ -73,6 +73,13 @@ A control can be assigned to any element type, from that element's own settings 
 - Tick a control's checkbox to assign it — assignment saves immediately, with no separate Save step
 - Untick to unassign. This asks first: *Remove control '…' from this element?*
 - Click the **shield-plus** button to pull in controls that aren't listed yet; the dialog that opens lists the controls in your Browser folders, and its **+** button creates a new control on the spot
+- Click the **pencil** button on a row to open the full **Control** dialog for that control
+
+**From a data item**:
+- In an element's **Data** tab, click the pencil icon on the data item's row to open its **Data** dialog — see [The Data Tab](COMPONENT_CONFIGURATION_GUIDE.md#the-data-tab)
+- Open the **Controls** tab. It appears once the data item exists: while you are still creating it (**Create New Data Entity**), save it first, and the dialog switches to edit mode with the tab in place
+- The table lists the controls assigned to this data item. Click the **shield-plus** button to add one — the same picker as on an element; a control you pick is saved at once
+- Untick to unassign. This asks first: *Remove control '…' from this data entity?* (or *Remove N controls…* when you untick several). Confirm, and the removal is saved; cancel, and the control stays assigned
 - Click the **pencil** button on a row to open the full **Control** dialog for that control
 
 **From the Model dialog**:
@@ -88,6 +95,7 @@ Assignment does not change a control's countermeasures — those are fixed by th
 
 - A control assigned **directly to an element** covers that element.
 - A control assigned **to a security boundary** also covers the components that sit directly inside that boundary. Deeper nesting is not credited — a control on a grandparent boundary does not reach a grandchild's components.
+- A control assigned **to a data item** covers that data item's own exposures, through the direct assignment only. It does not cover the components, data flows, or boundaries the data item is attached to, and a control on any of those does not cover the data item. A data item does not sit inside a security boundary, so a boundary's controls never reach it. Gap analysis takes such a control into account for the data item's exposures.
 - A control assigned **to a model** is recorded against the model. It is a useful statement of a system-wide standard, but it is not counted as covering the model's individual components, flows, and boundaries. Assign it where you want the credit.
 
 So define your security standard once as a control, then assign it wherever it genuinely applies. A single "Encryption Control" can protect a database component, an API data flow, and a network boundary at the same time — it is the same control, with the same countermeasures, credited against three elements.
@@ -177,6 +185,8 @@ Open any component, data flow, or boundary's **settings panel**:
 
 - **Controls tab**: the controls assigned to this element, with the classes each one carries
 - **Exposures tab**: the security weaknesses detected on this element, with the ATT&CK techniques that exploit them
+
+For a data item, the **Data** dialog has the same **Controls** and **Exposures** tabs.
 
 Countermeasures are not listed on the element — they belong to the control. Open a control from the **Controls** tab (the pencil button) to see what protection it actually provides.
 

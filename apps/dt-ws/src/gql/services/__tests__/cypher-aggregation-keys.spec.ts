@@ -76,10 +76,12 @@ describe('Cypher aggregation keys — the rewritten statements', () => {
     expect(aggregationKeyViolations(cypher)).toEqual([]);
   });
 
-  it('getControlsAssignedModels collects the data-flow branch beside ids1, then adds them', () => {
+  it('getControlsAssignedModels collects each branch beside the lists before it, then adds them', () => {
     const cypher = statementIn(SCHEMA, 'AS combined');
-    expect(keysBeside(cypher, 'ids2')).toEqual(['cid', 'ids1']);
-    expect(columnsOf(cypher)).toContainEqual(['cid', 'ids1 + ids2 AS combined']);
+    expect(keysBeside(cypher, 'ids2')).toEqual(['cid', 'c', 'ids1']);
+    expect(keysBeside(cypher, 'ids3')).toEqual(['cid', 'c', 'ids1', 'ids2']);
+    expect(keysBeside(cypher, 'ids4')).toEqual(['cid', 'ids1', 'ids2', 'ids3']);
+    expect(columnsOf(cypher)).toContainEqual(['cid', 'ids1 + ids2 + ids3 + ids4 AS combined']);
     expect(aggregationKeyViolations(cypher)).toEqual([]);
   });
 });

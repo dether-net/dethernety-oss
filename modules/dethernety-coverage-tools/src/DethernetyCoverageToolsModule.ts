@@ -190,7 +190,7 @@ class DethernetyCoverageToolsModule implements DTModule {
   // bug). Only Component and SecurityBoundary declare `BELONGS_TO`, so the
   // boundary-inherited hop is a structural no-op for DataFlow and Data elements
   // (they are credited DIRECT `SUPPORTS` only) — also matching the reference
-  // resolver and the no-`supportedData` reality.
+  // resolver, which reads a Data element's own controls the same way.
   private static readonly SUPPORT_ANCHOR = `
     MATCH (element)-[:HAS_EXPOSURE]->(exp:Exposure)-[:EXPLOITED_BY]->(t:MitreAttackTechnique)
     OPTIONAL MATCH (element)<-[:SUPPORTS]-(:Control)-[:HAS_COUNTERMEASURE]->(cmDirect:Countermeasure)

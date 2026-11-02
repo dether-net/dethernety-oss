@@ -103,17 +103,17 @@ const InputSchema = z.object({
   name: z.string().optional().describe('Control name — required for create, substring filter for list. For update: omitted = unchanged'),
   description: z.string().optional().describe('Control description. For update: omitted = unchanged'),
   class_type: z.string().optional().describe('Control class type filter (for list action)'),
-  element_ids: z.array(z.string()).optional().describe('Element IDs — for list: filter controls supporting these elements; for assign: elements to link'),
+  element_ids: z.array(z.string()).optional().describe('Element IDs — for list: filter controls supporting these elements; for assign: elements to link (components, boundaries, data flows or data items)'),
   module_id: z.string().optional().describe('Module ID filter (for list action)'),
   module_name: z.string().optional().describe('Module name filter (for list action)'),
-  element_types: z.array(z.string()).optional().describe('Element types for rank action (e.g. PROCESS, STORE, EXTERNAL_ENTITY)'),
+  element_types: z.array(z.string()).optional().describe('Element types for rank action (e.g. PROCESS, STORE, EXTERNAL_ENTITY, DATA_FLOW, DATA)'),
   top_n: z.number().optional().describe('Number of top candidates to return for rank action (default 5)'),
   // Control-library
   directory_path: z.string().optional().describe('Path to the model directory (required for pull-controls / push-* / tombstone / set-local-edited)'),
   // Same security constraint as control_id — pull-controls writes one
   // controls/<id>.json per id, so each must be safe for filesystem use.
   control_ids: z.array(z.string().regex(/^[A-Za-z0-9_-]+$/, 'control_ids[] entries must contain only [A-Za-z0-9_-]')).optional().describe('Control IDs to pull in a single batched call (pull-controls)'),
-  supporting_element_ids: z.array(z.string()).optional().describe('Element IDs to attach via SUPPORTS edges during push-greenfield'),
+  supporting_element_ids: z.array(z.string()).optional().describe('Element IDs (components, boundaries, data flows, data items) to attach via SUPPORTS edges during push-greenfield'),
   live_assigned_model_ids: z.array(z.string()).nullable().optional().describe('Pre-fetched assignedModelIds — caller passes result of getControlsAssignedModels to avoid a redundant round-trip'),
   this_model_id: z.string().optional().describe('The id of the model being synced (push-brownfield Step E — recognises alone-vs-shared)'),
   decision: z.any().optional().describe('BrownfieldDecision object: { sharedOwnership: "cancel"|"push-anyway"|"clone-and-swap"|"push-unverified", perKey?: Record<`${classIdx}.${key}`, { chosen: "keep"|"accept-theirs"|"merge", merged? }>, queryFailureReason?, queryAttempts? }'),
@@ -179,7 +179,7 @@ type ManageControlsInput = z.infer<typeof InputSchema>
 
 export class ManageControlsTool extends ClientDependentTool<ManageControlsInput, unknown> {
   readonly name = 'manage_controls'
-  readonly description = 'Create, read, update, delete, assign, and rank security controls on the Dethernety platform. Controls can be assigned to component classes, linked to exposures via countermeasures, and assigned to model elements. Use "list" with filters (name, class_type, element_ids, module_name) for flexible search. Use "rank" with element_types to get pre-scored control candidates for a boundary or element set. Control-library actions (require directory_path): "pull-controls" materialises controls/<id>.json files for the given control_ids; "push-greenfield" drives a local temp-id Control through create + WAL-protected id rewrite + setInstantiationAttributes + assignControlToElements; "push-brownfield" runs the §7 Steps 0–F safety pipeline (caller passes fresh_platform_attrs, live_assigned_model_ids, decision); "tombstone" flips lifecycle to tombstoned while preserving pendingEdit; "set-local-edited" applies an edit through the two-write rule (caller MUST use this rather than editing controls/<id>.json directly so pendingEdit semantics are preserved). Never hand-edit lifecycle or platformState in controls/<id>.json — they are owned by the sync state machine; after any platform-side change run "pull-controls" to regenerate canonical files.'
+  readonly description = 'Create, read, update, delete, assign, and rank security controls on the Dethernety platform. Controls can be assigned to component classes, linked to exposures via countermeasures, and assigned to model elements (components, boundaries, data flows and data items). Use "list" with filters (name, class_type, element_ids, module_name) for flexible search. Use "rank" with element_types to get pre-scored control candidates for a boundary or element set. Control-library actions (require directory_path): "pull-controls" materialises controls/<id>.json files for the given control_ids; "push-greenfield" drives a local temp-id Control through create + WAL-protected id rewrite + setInstantiationAttributes + assignControlToElements; "push-brownfield" runs the §7 Steps 0–F safety pipeline (caller passes fresh_platform_attrs, live_assigned_model_ids, decision); "tombstone" flips lifecycle to tombstoned while preserving pendingEdit; "set-local-edited" applies an edit through the two-write rule (caller MUST use this rather than editing controls/<id>.json directly so pendingEdit semantics are preserved). Never hand-edit lifecycle or platformState in controls/<id>.json — they are owned by the sync state machine; after any platform-side change run "pull-controls" to regenerate canonical files.'
   readonly inputSchema = InputSchema
 
   /**
@@ -533,9 +533,9 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
 
           // Report what actually attached, not what was asked for.
           //
-          // dt-core broadcasts every id to all three typed connect paths and each
+          // dt-core broadcasts every id to all four typed connect paths and each
           // path's WHERE filter is type-scoped, so an id that names nothing — or
-          // that is the wrong node type for all three — is SILENTLY SKIPPED and
+          // that is the wrong node type for all four — is SILENTLY SKIPPED and
           // the mutation still succeeds. Reporting `input.element_ids.length`
           // therefore claimed success for ids the platform never connected.
           //
@@ -563,9 +563,9 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
                   warnings: [
                     `${skipped.length} of ${requested.length} element id(s) were not attached and were ` +
                     `silently skipped by the platform: ${skipped.join(', ')}. A control connects only to ` +
-                    `Component, SecurityBoundary and DataFlow — a data-item id can never attach (Data has ` +
-                    `no supporting-control relationship), and an unknown id matches nothing. The full ` +
-                    `post-update element set is in \`control\` above.`,
+                    `Component, SecurityBoundary, DataFlow and Data elements, so an unknown id, or the id of ` +
+                    `anything else (a model, an exposure), matches nothing. The full post-update element set ` +
+                    `is in \`control\` above.`,
                   ],
                 }
               : {}),

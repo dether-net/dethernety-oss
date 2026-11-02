@@ -261,7 +261,8 @@ oss/apps/dethereal/src/
 ├── index.ts                        # Server entry point, MCP handlers
 ├── config.ts                       # Configuration validation, debug mode
 ├── client/
-│   └── apollo-client.ts            # Apollo Client factory (auth/unauth)
+│   ├── apollo-client.ts            # Apollo Client factory (auth/unauth)
+│   └── platform-capabilities.ts    # Probe for the platform fields the plugin's documents need
 ├── auth/
 │   ├── index.ts                    # Auth module exports
 │   ├── oauth-flow.ts               # OAuth orchestration (PKCE + browser)
@@ -497,19 +498,29 @@ The two are not interchangeable. `bearer` is the OAuth **access token** — only
    └─ Continue if satisfied (always satisfied when authDisabled)
    │
    ▼
-5. Validate input with Zod schema (tool.run -> safeParse)
+5. Check platform capability (gated calls only: needsDataControls(tool, args))
+   ├─ Gated: export_model, import_model, update_model, create_threat_model,
+   │  update_attributes, and manage_controls actions list / assign / push-greenfield
+   ├─ missingPlatformCapability(apolloClient, baseUrl) queries Data.controls once
+   │  per platform (a pass is cached; a refusal is re-asked on the next call)
+   ├─ Refused: { error: "Platform too old for this Dethereal version",
+   │  message: <names the platform's origin>, tool }
+   └─ Continue if the field exists, or if the probe could not tell
+   │
+   ▼
+6. Validate input with Zod schema (tool.run -> safeParse)
    ├─ Validation failure: return { success: false, error: "Invalid input: ..." }
    │
    ▼
-6. Execute tool.execute(input, context)
+7. Execute tool.execute(input, context)
    │
    ▼
-7. Format MCP response
+8. Format MCP response
    ├─ Success: { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
    └─ Error: { content: [{ type: 'text', text: JSON.stringify({ error, data }) }], isError: true }
    │
    ▼
-8. Redact: every registered session token is replaced with "[redacted]" in the
+9. Redact: every registered session token is replaced with "[redacted]" in the
    response text (the same pass runs on everything written to stderr)
 ```
 

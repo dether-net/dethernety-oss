@@ -16,6 +16,10 @@ export const ADD_DATA_ITEM = gql`
         regulatoryFlags
         origin
         isCredential
+        controls {
+          id
+          name
+        }
         # elements {
         #   id
         # }
@@ -45,6 +49,10 @@ export const UPDATE_DATA_ITEM = gql`
         regulatoryFlags
         origin
         isCredential
+        controls {
+          id
+          name
+        }
         # elements {
         #   id
         # }

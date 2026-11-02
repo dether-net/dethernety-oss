@@ -1252,10 +1252,20 @@ function updateDataFlowIds(flow: DataFlow, idMapping: Map<string, string>): Data
 function updateDataItemIds(item: DataItem, idMapping: Map<string, string>): DataItem {
   const newId = idMapping.get(item.id) || item.id
 
-  return {
+  const updated: DataItem = {
     ...item,
     id: newId,
   }
+
+  // Update control IDs
+  if (item.controls) {
+    updated.controls = item.controls.map(ctrl => ({
+      ...ctrl,
+      id: idMapping.get(ctrl.id) || ctrl.id,
+    }))
+  }
+
+  return updated
 }
 
 /**

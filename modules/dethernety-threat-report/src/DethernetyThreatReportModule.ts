@@ -180,8 +180,8 @@ interface ModelGraphFlow {
  *  null ⇒ unclassified (never coerced to a level). Feeds the Component Profile
  *  data-handled sub-block: the frontend reverse-indexes `handledBy` to list, per
  *  element, the Data it handles, then joins each `id` to its existing `ledger`
- *  entry for that Data's own exposures (coverage is attributed to the handling
- *  element — Data nodes carry no typed control support). Data exposures are NOT
+ *  entry for that Data's own exposures (a Data element's own controls are its
+ *  ledger entry's supportingControls; nothing is credited across HANDLES). Data exposures are NOT
  *  duplicated here; only the sensitivity + handling topology the ledger lacks. */
 interface ModelGraphDataNode {
   id: string;

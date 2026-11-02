@@ -373,13 +373,22 @@ interface StoredTokens {
    └─ Continue if satisfied (always satisfied when authDisabled)
    │
    ▼
-5. Validate input with Zod schema
+5. Check platform capability (gated calls only)
+   ├─ Gated: export_model, import_model, update_model, create_threat_model,
+   │  update_attributes; manage_controls list / assign / push-greenfield
+   ├─ Probe the platform for Data.controls (a pass is cached per platform)
+   ├─ If refused
+   │  └─ Return "Platform too old for this Dethereal version" error
+   └─ Continue if present, or if the probe could not tell
    │
    ▼
-6. Execute tool.execute(input, context)
+6. Validate input with Zod schema
    │
    ▼
-7. Format response
+7. Execute tool.execute(input, context)
+   │
+   ▼
+8. Format response
    ├─ Success: { content: [{ type: 'text', text: JSON.stringify(data) }] }
    └─ Error: { content: [...], isError: true }
 ```

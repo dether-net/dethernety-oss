@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => ({
     getAttributesFromClassRelationship: vi.fn().mockResolvedValue({}),
     setInstantiationAttributesWithStaleCount: vi.fn().mockResolvedValue(1),
     updateDataItem: vi.fn().mockResolvedValue(true),
+    isOperationLoading: vi.fn().mockReturnValue(false),
     createDataItem: vi.fn().mockResolvedValue({ id: 'd1' }),
     selectedItem: { id: 'el1' } as { id: string } | null,
     modelId: 'm1',

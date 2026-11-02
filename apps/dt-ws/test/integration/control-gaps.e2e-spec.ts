@@ -248,6 +248,56 @@ describe('ControlGapsResolverService — live test database (e2e)', () => {
     expect(s.coveragePct).toBe(100);
   });
 
+  it('a control on a Data element mitigates that element\'s exposure; one on the component handling it does not', async () => {
+    // Coverage reaches a Data element through a direct SUPPORTS edge only. The component that HANDLES the data
+    // carries a control answering the same mitigation, and it must not mark the Data exposure mitigated; the
+    // control on the Data element itself must.
+    const seed = (withDataControl: boolean) => `
+      CREATE (m:Model {id: 'model-d', name: 'MD'})
+      CREATE (b:SecurityBoundary {id: 'b-d', name: 'BD'})
+      CREATE (m)-[:CONTAINS]->(b)
+      CREATE (c:Component {id: 'comp-d', name: 'Store', type: 'STORE'})
+      CREATE (c)-[:BELONGS_TO]->(b)
+      CREATE (d:Data {id: 'data-d', name: 'Card numbers'})
+      CREATE (m)-[:CONTAINS]->(d)
+      CREATE (c)-[:HANDLES]->(d)
+      CREATE (e:Exposure {id: 'exp-d', name: 'Unencrypted at rest'})
+      CREATE (d)-[:HAS_EXPOSURE]->(e)
+      CREATE (t:MitreAttackTechnique {id: 'tech-d', attack_id: 'T1530', name: 'Data from Cloud Storage'})
+      CREATE (e)-[:EXPLOITED_BY]->(t)
+      CREATE (mit:MitreAttackMitigation {id: 'mit-d', attack_id: 'M1041', name: 'Encrypt Sensitive Information'})
+      CREATE (mit)-[:MITIGATION_DEFENDS_AGAINST_TECHNIQUE]->(t)
+      CREATE (cm:Countermeasure {id: 'cm-d', name: 'Encryption at rest'})
+      CREATE (cm)-[:RESPONDS_WITH]->(mit)
+      CREATE (cc:ControlClass {id: 'cc-d', name: 'Encryption Class'})
+      CREATE (cm)-[:IS_COUNTERMEASURE_OF]->(cc)
+      CREATE (mod:Module {id: 'mod-d-id', name: 'mod-d'})
+      CREATE (mod)-[:HAS_CLASS]->(cc)
+      CREATE (onComp:Control {id: 'ctrl-on-comp', name: 'Disk encryption'})
+      CREATE (onComp)-[:HAS_COUNTERMEASURE]->(cm)
+      CREATE (onComp)-[:SUPPORTS]->(c)
+      ${withDataControl ? `
+      CREATE (onData:Control {id: 'ctrl-on-data', name: 'Field encryption'})
+      CREATE (onData)-[:HAS_COUNTERMEASURE]->(cm)
+      CREATE (onData)-[:SUPPORTS]->(d)` : ''}
+    `;
+
+    await runWrite(seed(false));
+    const handledOnly = await gaps('model-d');
+    // No control on the Data element at all, and the mitigation is addressable by an installed class: unmitigated,
+    // not configuredCoverage, so the component's control was not read as applying to the data.
+    expect(handledOnly.coverageSummary.mitigated).toBe(0);
+    expect(handledOnly.coverageSummary.configuredCoverage).toBe(0);
+    expect(handledOnly.unmitigatedExposures.map((x: any) => x.exposureId)).toEqual(['exp-d']);
+
+    await clearGraph(mg.driver);
+    await runWrite(seed(true));
+    const direct = await gaps('model-d');
+    expect(direct.coverageSummary.totalExposures).toBe(1);
+    expect(direct.coverageSummary.mitigated).toBe(1);
+    expect(direct.unmitigatedExposures).toEqual([]);
+  });
+
   // ATLAS links reuse the ATT&CK edge types; controlGaps reads ATT&CK only. On the
   // shared ATLAS smoke fixture the result must equal the result with every MitreAtlas*
   // node removed: the ATLAS-only exposure has no ATT&CK chain, the mixed exposure is

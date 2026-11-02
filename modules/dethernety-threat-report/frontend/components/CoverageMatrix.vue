@@ -132,13 +132,14 @@
           @keydown.space.prevent="dataMapped.length && (showData = !showData)"
         >
           <span v-if="dataMapped.length" class="trd-offgrid-caret" aria-hidden="true">{{ showData ? '▾' : '▸' }}</span>
-          {{ view.offGrid.dataMappedCount }} Data exposure(s) map to ATT&CK; data-level coverage is not assessable —
-          see Residual Risk (controls are attributed to the handling element, never to Data).
+          {{ view.offGrid.dataMappedCount }} Data exposure(s) map to ATT&CK; they are not charted on the grid —
+          see Residual Risk. Controls applied to a Data element itself are listed with it.
         </div>
-        <!-- The mapping IS known (a fact about the exposure) even though coverage is
-             not assessable for Data — disclosed here OFF-GRID: no tier fill/glyph, so
-             a chip is identity + launcher, never a coverage claim. One row per Data
-             element (drill → its profile); chips open the shared technique dialog. -->
+        <!-- The mapping IS known (a fact about the exposure) even though Data is not
+             charted — disclosed here OFF-GRID: no tier fill/glyph, so a chip is identity
+             + launcher, never a coverage claim. One row per Data element (drill → its
+             profile); chips open the shared technique dialog. The Data element's own
+             controls follow, by name, as assigned — not graded. -->
         <div v-if="showData" class="trd-offgrid-list">
           <div v-for="d in dataMapped" :key="d.elementId" class="trd-offgrid-row">
             <button
@@ -148,6 +149,9 @@
               :title="`open ${d.elementName} profile`"
             >{{ d.elementName }}</button>
             <TechniqueChips :techniques="d.techniques" dense @show="infoTech = $event" />
+            <span v-if="d.controls.length" class="trd-offgrid-controls">
+              controls: {{ d.controls.map((c) => c.name).join(', ') }}
+            </span>
           </div>
         </div>
       </div>
@@ -436,6 +440,7 @@
   .trd-offgrid-caret { font-size: 0.65rem; opacity: 0.7; flex: 0 0 auto; }
   .trd-offgrid-list { margin: 0.45rem 0 0.1rem 1rem; display: flex; flex-direction: column; gap: 0.35rem; }
   .trd-offgrid-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+  .trd-offgrid-controls { opacity: 0.75; font-size: 0.85em; }
 
   /* Fills the remaining column height (flex:1) and is the single scroll region —
      both axes scroll HERE (sticky headers pin to it), and because it sizes to the

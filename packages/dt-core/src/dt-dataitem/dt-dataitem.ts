@@ -5,6 +5,18 @@ import { DataItem } from '../interfaces/core-types-interface.js'
 import { ADD_DATA_ITEM, UPDATE_DATA_ITEM, DELETE_DATA_ITEM } from './dt-dataitem-gql.js'
 import { DtClass, ChangeElementBindingResult } from '../dt-class/dt-class.js'
 import { localEnumToPlatform, ORIGIN_LEVELS, SENSITIVITY_LEVELS } from '../schemas/index.js'
+import { linkInput, LinkBaselines } from '../dt-utils/link-delta.js'
+
+/** A data item's controls as a caller may hold them: ids, or the `{ id, name }` objects the platform returns. */
+export type DataItemControlRefs = readonly (string | { id?: string | null } | null | undefined)[]
+
+/**
+ * The ids of a control list. An object read back from the platform names its control by `id`, and it is mapped here
+ * rather than left to the link builder: the builder drops every entry that is not a string, and a whole-list write
+ * left with nothing usable disconnects every control the item has.
+ */
+const toControlIdList = (controls: DataItemControlRefs | undefined): (string | undefined)[] | undefined =>
+  controls?.map((control) => (typeof control === 'string' ? control : control?.id ?? undefined))
 
 /**
  * Bundled-method return shape: the residual UPDATE_DATA_ITEM surfaces
@@ -37,11 +49,12 @@ export class DtDataItem {
    * @param classId - The ID of the class of the data item
    * @param elementId - The ID of the element of the data item
    * @param modelId - The ID of the model of the data item
+   * @param controls - Controls to apply to the new item (ids, or `{ id }` objects)
    * @returns The created data item
    */
   createDataItem = async (
-    { name, description, classId, elementId, modelId, sensitivity, regulatoryFlags, origin, isCredential }:
-    { name: string, description: string, elementId: string, classId: string | null, modelId: string, sensitivity?: string, regulatoryFlags?: string[], origin?: string, isCredential?: boolean | null }
+    { name, description, classId, elementId, modelId, sensitivity, regulatoryFlags, origin, isCredential, controls }:
+    { name: string, description: string, elementId: string, classId: string | null, modelId: string, sensitivity?: string, regulatoryFlags?: string[], origin?: string, isCredential?: boolean | null, controls?: DataItemControlRefs }
   ): Promise<DataItem | null> => {
     try {
       // Asset-context on create: set present fields only (fresh node, nothing to
@@ -55,11 +68,15 @@ export class DtDataItem {
         ...(platformOrigin ? { origin: platformOrigin } : {}),
         ...(typeof isCredential === 'boolean' ? { isCredential } : {}),
       }
+      // A fresh node has no controls, so the list is a delta against an empty baseline: connect only, the one
+      // operation the create input offers.
+      const controlsInput = linkInput(toControlIdList(controls), { controls: [] }, 'controls')
       const variables = {
         input: [{
           name,
           description,
           ...assetContext,
+          ...(controlsInput !== undefined && { controls: controlsInput }),
           model: {
             connect: {
               where: {
@@ -138,10 +155,12 @@ export class DtDataItem {
    * @param classId - When truthy: targets CLASS kind. When null: targets NONE.
    *   When `undefined` (omitted): no binding change attempted; `bindingResult`
    *   returned as null. Backend identity-short-circuits if unchanged.
+   * @param controls - The item's controls (ids, or `{ id }` objects). Absent leaves them untouched. With
+   *   `baselineLinks` the write is the change from that baseline; without, the list replaces the item's controls.
    * @returns UpdateDataItemResult — both halves observable.
    */
   updateDataItem = async (
-    { dataItemId, name, description, classId, attributes: _attributes, sensitivity, regulatoryFlags, origin, isCredential }:
+    { dataItemId, name, description, classId, attributes: _attributes, sensitivity, regulatoryFlags, origin, isCredential, controls, baselineLinks }:
     {
       dataItemId: string | null,
       name?: string,
@@ -154,6 +173,8 @@ export class DtDataItem {
       regulatoryFlags?: string[],
       origin?: string | null,
       isCredential?: boolean | null,
+      controls?: DataItemControlRefs,
+      baselineLinks?: LinkBaselines,
     }
   ): Promise<UpdateDataItemResult> => {
     if (!dataItemId) {
@@ -189,6 +210,9 @@ export class DtDataItem {
       // The input can legitimately end up with no keys at all, when a save changes only the class
       // binding above. That still goes to the server: the caller needs the row back to re-pin its copy,
       // and an update naming no field returns it unchanged.
+      //
+      // Controls follow the link-list contract every element writer shares (see link-delta.ts).
+      const controlsInput = linkInput(toControlIdList(controls), baselineLinks, 'controls')
       const variables = {
         dataId: dataItemId,
         input: {
@@ -205,6 +229,7 @@ export class DtDataItem {
             origin: { set: localEnumToPlatform(origin, ORIGIN_LEVELS) ?? null },
           }),
           ...(isCredential !== undefined && { isCredential: { set: isCredential } }),
+          ...(controlsInput !== undefined && { controls: controlsInput }),
         },
       }
 

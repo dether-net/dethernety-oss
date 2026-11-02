@@ -96,7 +96,7 @@ One model element with its findings and supporting controls.
 | `findings` | `LedgerFinding[]` | The element's findings (exposures). Empty when the element has none. |
 | `supportingControls` | `LedgerControl[]` | Controls attached to this element. Context only — never a coverage claim. |
 
-All four element kinds are first-class ledger entries. `Data` elements appear here with their own findings (their exposures are not duplicated into the model graph's data nodes); the model graph contributes only the sensitivity and handling topology the ledger does not carry.
+All four element kinds are first-class ledger entries. `Data` elements appear here with their own findings and the controls applied to them (their exposures are not duplicated into the model graph's data nodes); the model graph contributes only the sensitivity and handling topology the ledger does not carry.
 
 ### LedgerFinding
 
@@ -239,7 +239,7 @@ A `Data` node with its author-asserted sensitivity and the elements that handle 
 | `sensitivity` | `string \| null` | The author-asserted sensitivity level. **`null` means unclassified** — never coerced to a level, and not the same as the lowest level. |
 | `handledBy` | `string[]` | Ids of the elements (components, flows, or boundaries) that handle this data. |
 
-**`handledBy` powers the Component Profile's data relations in both directions.** The frontend reverse-indexes `handledBy` so that, per element, it can list the data that element handles; and for each handled data id it joins back to that data's own ledger entry for the data's findings (coverage is attributed to the handling element, not to the data node, because data nodes carry no typed control support). Reading the field forward gives "which elements handle this data"; reverse-indexing it gives "which data does this element handle".
+**`handledBy` powers the Component Profile's data relations in both directions.** The frontend reverse-indexes `handledBy` so that, per element, it can list the data that element handles; and for each handled data id it joins back to that data's own ledger entry for the data's findings. That entry's `supportingControls` are the controls applied to the data node itself; they are not credited to the elements that handle it, nor are the handlers' controls credited to the data. Reading the field forward gives "which elements handle this data"; reverse-indexing it gives "which data does this element handle".
 
 ---
 

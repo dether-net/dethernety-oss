@@ -63,10 +63,13 @@ export function computePostureSummary(ledger, opts = {}) {
   // this is element-level, consistent with Boundary Crossings / Residual Risk).
   // Iterates the RAW ledger because
   // these elements are typically finding-free (aggregateLedger's groups drop
-  // finding-free elements). NEVER folded into a coverage number.
+  // finding-free elements). NEVER folded into a coverage number. Data elements are left
+  // out, as the coverage view leaves them out: Data is off the grid, and its own controls
+  // are listed with it in Coverage & Gaps.
   const didControls = new Set()
   let didElements = 0
   for (const el of els) {
+    if (el?.type === 'Data') continue
     const live = (el.findings ?? []).filter(isLive)
     if (live.length > 0) continue
     const controls = el.supportingControls ?? []

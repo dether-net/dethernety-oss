@@ -184,7 +184,7 @@ greenfield ──[create OK + WAL-protected id write-back]──▶ partially-pu
 
 The right-hand arrow originates from **brownfield** (a Control that was successfully pushed and later deleted on the platform), not from `partially-pushed`.
 
-- **greenfield → partially-pushed.** As soon as the platform create returns, write the server id back via the WAL-protected id-rewrite mechanism (see [§7 ID write-back](#id-write-back-wal-protected)) — into the per-control file and into every `controls[]` reference in `structure.json` / `dataflows.json` — before attempting any per-class attribute mutation. Flip lifecycle to `partially-pushed`. This is the idempotency anchor — a retry after this point will not duplicate the Control on the platform.
+- **greenfield → partially-pushed.** As soon as the platform create returns, write the server id back via the WAL-protected id-rewrite mechanism (see [§7 ID write-back](#id-write-back-wal-protected)) — into the per-control file and into every `controls[]` reference in `structure.json` / `dataflows.json` / `data-items.json` — before attempting any per-class attribute mutation. Flip lifecycle to `partially-pushed`. This is the idempotency anchor — a retry after this point will not duplicate the Control on the platform.
 - **partially-pushed → brownfield.** When all `classes[]` entries have `pushedAt >= localEditedAt` and SUPPORTS edges are confirmed, flip to `brownfield` and populate `platformState`.
 - **partially-pushed → partially-pushed (retry).** Resumable. Skip class entries whose `pushedAt >= localEditedAt` (already-pushed work is not re-applied).
 - **brownfield → tombstoned.** Pull-time `getControl(id)` returning 404 (or `getControls({ids: [...]})` returning the id with no payload) flips the file to `tombstoned`. The `pendingEdit` block (if any) is preserved so the operator can recover edits via clone-and-swap.
@@ -196,7 +196,7 @@ The right-hand arrow originates from **brownfield** (a Control that was successf
 | **Control deleted on platform** (next pull's `getControl` returns 404) | Flag the local file with `lifecycle: "tombstoned"` and warn at next `/dethereal:enrich --focus controls` or `/dethereal:status`. Do not auto-delete the local file — operator may want to recover it as a greenfield re-create. The corresponding `controls[]` references in `structure.json` are left in place; sync will fail to resolve them and surface a `Could not resolve control` warning, which the operator can fix by re-running enrich or removing the reference. |
 | **Local-side Control rename** | Not supported in V1. The `name` field is platform-authoritative for brownfield Controls and is overwritten on every pull (we pull by id, so resolution is unaffected). To rename, clone-and-swap (§6 option 3). |
 | **ControlClass removed from a Control on platform** | Pull drops the corresponding `classes[]` entry from the local file and emits a warning. If the agent had pending local edits in that entry (`pendingEdit` populated), they are surfaced to the operator before the drop (cancel / accept loss / clone-and-swap). |
-| **Orphan local file** (`controls/<id>.json` exists with no matching `controls[]` reference in `structure.json` or `dataflows.json`) | Validator emits a warning (not error). Cleaned up by the operator or by a future `pnpm dethereal gc` command. Out of scope for V1 to auto-delete — could mask real bugs. |
+| **Orphan local file** (`controls/<id>.json` exists with no matching `controls[]` reference in `structure.json`, `dataflows.json` or `data-items.json`) | Validator emits a warning (not error). Cleaned up by the operator or by a future `pnpm dethereal gc` command. Out of scope for V1 to auto-delete — could mask real bugs. |
 
 ### No demotion
 
@@ -218,27 +218,37 @@ Brownfield attribute edits must be gated because Controls are shared across mode
 
 Before any brownfield attribute push, sync queries the platform for the **live** set of model IDs (`liveAssignedModelIds`) that reference each touched Control. Fresh query at push time, not the cached `platformState.assignedModelIds` (which is for `/dethereal:status` drift display only). Single batched GraphQL call per push.
 
-The platform schema has Models reaching elements via `(:Model)-[:CONTAINS]->(:SecurityBoundary)<-[:BELONGS_TO*]-(:Component|:SecurityBoundary)` for boundary/component supports, and via `(:Component)-[:FLOWS]-(:DataFlow)` for data-flow supports. A naive single-pattern query that uses `HAS_CHILD*` (which doesn't exist as an edge label) would always return zero models for DataFlow-attached Controls, silently passing the safety check — verified against the live Memgraph schema. The correct batched query:
+The platform schema has Models reaching elements via `(:Model)-[:CONTAINS]->(:SecurityBoundary)<-[:BELONGS_TO*]-(:Component|:SecurityBoundary)` for boundary/component supports, via `(:Component)-[:FLOWS]-(:DataFlow)` for data-flow supports, and via `(:Model)-[:CONTAINS]->(:Data)` for data supports; a Control can also `SUPPORTS` a Model directly. A naive single-pattern query that uses `HAS_CHILD*` (which doesn't exist as an edge label) would always return zero models for DataFlow-attached Controls, silently passing the safety check — verified against the live Memgraph schema. The correct batched query (the `getControlsAssignedModels` `@cypher` statement in `oss/apps/dt-ws/schema/schema.graphql`, comments abridged):
 
 ```cypher
 UNWIND $controlIds AS cid
 MATCH (c:Control {id: cid})
-OPTIONAL MATCH (c)-[:SUPPORTS]->(e)
-OPTIONAL MATCH (m1:Model)-[:CONTAINS]->(:SecurityBoundary)<-[:BELONGS_TO*0..10]-(e)
-  WHERE e:Component OR e:SecurityBoundary
-OPTIONAL MATCH (e2:DataFlow)<-[:SUPPORTS]-(c)
-OPTIONAL MATCH (e2)-[:FLOWS]-(:Component)-[:BELONGS_TO*0..10]->(:SecurityBoundary)<-[:CONTAINS]-(m2:Model)
-WITH cid, collect(DISTINCT m1.id) + collect(DISTINCT m2.id) AS ms
-UNWIND ms AS m
-WITH cid, m WHERE m IS NOT NULL
-RETURN cid AS controlId, collect(DISTINCT m) AS modelIds
+// Branch 1: Component / SecurityBoundary supports
+OPTIONAL MATCH (c)-[:SUPPORTS]->(e) WHERE e:Component OR e:SecurityBoundary
+OPTIONAL MATCH (m1:Model)-[:CONTAINS]->(:SecurityBoundary)<-[:BELONGS_TO*0..50]-(e)
+WITH cid, c, collect(DISTINCT m1.id) AS ids1
+// Branch 2: DataFlow supports, via FLOWS-attached Components
+OPTIONAL MATCH (c)-[:SUPPORTS]->(df:DataFlow)
+OPTIONAL MATCH (df)-[:FLOWS]-(:Component)-[:BELONGS_TO*0..50]->(:SecurityBoundary)<-[:CONTAINS]-(m2:Model)
+WITH cid, c, ids1, collect(DISTINCT m2.id) AS ids2
+// Branch 3: Data supports, via the Model that CONTAINS the Data element
+OPTIONAL MATCH (c)-[:SUPPORTS]->(:Data)<-[:CONTAINS]-(m3:Model)
+WITH cid, c, ids1, ids2, collect(DISTINCT m3.id) AS ids3
+// Branch 4: a Control that SUPPORTS the Model itself
+OPTIONAL MATCH (c)-[:SUPPORTS]->(m4:Model)
+WITH cid, ids1, ids2, ids3, collect(DISTINCT m4.id) AS ids4
+WITH cid, ids1 + ids2 + ids3 + ids4 AS combined
+WITH cid, [m IN combined WHERE m IS NOT NULL] AS filtered
+WITH cid, [i IN range(0, size(filtered)-1) WHERE NOT filtered[i] IN filtered[0..i] | filtered[i]] AS modelIds
+RETURN { controlId: cid, modelIds: modelIds } AS result
 ```
 
 Notes:
-- Variable-length paths capped at `*0..10` defensively (real boundary depth is 3–5; cap prevents pathological plans on cyclic/malformed graphs). Implementation should log a metric whenever a returned path actually used depth ≥ 8 — that signals graph corruption (cycles or malformed `BELONGS_TO`) worth investigating.
+- Variable-length paths capped at `*0..50` defensively (the cap prevents pathological plans on cyclic/malformed graphs). An earlier `*0..10` cap under-counted assigned models on boundary trees nested 12+ levels deep, which biases the shared-ownership check toward "alone".
 - Separate `OPTIONAL MATCH` clauses, not comma-joined multi-patterns — known Memgraph planner weakness.
-- Components and DataFlows are handled in separate branches because DataFlow reaches a Model only via its `FLOWS`-attached Components.
-- The trailing `UNWIND ms / collect(DISTINCT m)` block deduplicates **across branches**: a Control supporting both a Component and a DataFlow that route to the same Model returns one model id, not two. The simpler `collect(DISTINCT m1.id) + collect(DISTINCT m2.id)` form deduplicates only within each branch.
+- Components and DataFlows are handled in separate branches because DataFlow reaches a Model only via its `FLOWS`-attached Components. Each branch is collected in its own `WITH` before the next starts, so a Control supporting both a Component and a DataFlow does not multiply rows.
+- A Data element counts for the Model that `CONTAINS` it. The elements that `HANDLE` it are not followed.
+- The trailing list comprehensions deduplicate **across branches**: a Control supporting both a Component and a DataFlow that route to the same Model returns one model id, not two. Each `collect(DISTINCT ...)` deduplicates only within its branch. The comprehension keeps the row of a Control with no SUPPORTS edges, where an `UNWIND` of the empty list would drop it.
 - Empty result for a Control with no SUPPORTS edges = `modelIds == []`, treated as safe to edit (Control was just created and not yet referenced).
 - **DataFlow branch is currently untested in demo fixtures.** demo1/demo2 contain zero `(:Control)-[:SUPPORTS]->(:DataFlow)` edges (verified live). Whoever writes integration tests for `getControlsAssignedModels` must build a synthetic Control→DataFlow fixture; do not assume the demo dataset exercises this path.
 - **Required indexes.** Memgraph has no auto-index on `id` properties. Without per-label indexes on `id` the query does a full label scan per `UNWIND` row — at production scale (~10k controls × 50 in batch) that's ~500k row touches per push. The migration that adds the required indexes is listed in [§9 Platform / database](#platform--database) — confirmed via live `EXPLAIN`: `Filter (c :Control), {c.id} / ScanAll (c)` becomes `ScanAllByLabelProperties (c :Control {id})` after the index lands.
@@ -564,7 +574,7 @@ Decision DEC-CL-2: pull is **eager** at the start of the control pass, not lazy 
 **`STALE_TTL`: 15 minutes.** Within a single control-pass session (typically 10–25 minutes), auto-pulled data is fresh enough that a second invocation in the same session does not re-query the platform. Beyond that, risk of pulling stale data into an agent's context window outweighs the saved latency. Configurable via `.dethereal/config.json` for operators with slow connections. The TTL gates whether the **next** invocation re-pulls; an in-flight agent always works against the snapshot it pulled at session start, regardless of how long the session runs (see [DEC-CL-9](#11-decisions)).
 
 ```
-1. Read structure.json + dataflows.json — collect all referenced control IDs (including null-id refs)
+1. Read structure.json + dataflows.json + data-items.json — collect all referenced control IDs (including null-id refs)
 2. Compute the "stale" subset:
      - controls/<id>.json does not exist, OR
      - file.platformState.lastSyncedAt is older than STALE_TTL
@@ -602,7 +612,7 @@ For each controls/<id>.json with lifecycle in {"greenfield", "partially-pushed"}
       Apply the WAL-protected id rewrite (see "ID write-back" below) to:
         - replace temp id with serverControl.id in controls/<tempId>.json
         - replace temp id with serverControl.id in every controls[] reference in
-          structure.json and dataflows.json that held the temp id
+          structure.json, dataflows.json and data-items.json that held the temp id
         - flip lifecycle to "partially-pushed"
         - rename the file: controls/<tempId>.json → controls/<serverControl.id>.json
     # From this point forward, a retry will NOT duplicate the Control.
@@ -618,11 +628,15 @@ For each controls/<id>.json with lifecycle in {"greenfield", "partially-pushed"}
       persist controls/<id>.json
 
   Step C — Assign SUPPORTS edges:
-    For each element that references this control id in structure.json or dataflows.json:
-      assignControlToElement(serverControl.id, elementId)
-        # Backed by updateControls(connect: ...) under the hood; the @neo4j/graphql
-        # connect operator is upsert-shaped — re-running with the same (control, element)
-        # pair does not create a duplicate edge or error.
+    Collect every element or data item that references this control id in
+    structure.json, dataflows.json or data-items.json, then:
+      assignControlToElements({ controlId: serverControl.id, elementIds })
+        # Backed by dt-core's assignControlToElements → updateControls(connect: ...).
+        # The @neo4j/graphql connect operator is NOT upsert-shaped: it compiles to a bare
+        # relationship CREATE, so connecting an already-attached (control, element) pair
+        # appends a parallel SUPPORTS edge. assignControlToElements therefore reads the
+        # control's attached elements first and connects only the difference, which is
+        # what makes a re-run of this step safe.
 
   Step D — Finalize:
     If all classes[] entries have pushedAt >= localEditedAt AND all SUPPORTS edges confirmed:
@@ -818,7 +832,7 @@ For each controls/<id>.json with lifecycle: "brownfield":
 
 #### ID write-back (WAL-protected)
 
-Greenfield Step A's id rewrite touches multiple files: `controls/<tempId>.json` (rename + content edit), `structure.json` (every `controls[]` entry holding the temp id), and `dataflows.json` (same). POSIX gives no multi-file atomic transaction; a naive sequential implementation that crashes mid-rewrite leaves the server id present on the platform but absent from the local files, and the next push will create a duplicate Control on the platform — exactly the bug DEC-CL-8 is meant to prevent.
+Greenfield Step A's id rewrite touches multiple files: `controls/<tempId>.json` (rename + content edit), `structure.json` (every `controls[]` entry holding the temp id), `dataflows.json` (same), and `data-items.json` (same; skipped when the model has none). POSIX gives no multi-file atomic transaction; a naive sequential implementation that crashes mid-rewrite leaves the server id present on the platform but absent from the local files, and the next push will create a duplicate Control on the platform — exactly the bug DEC-CL-8 is meant to prevent.
 
 The mechanism is a **write-ahead log**.
 
@@ -833,7 +847,7 @@ The mechanism is a **write-ahead log**.
       "kind": "greenfield-id-rewrite",
       "tempId": "greenfield-abc",
       "serverId": "<uuid>",
-      "filePaths": ["structure.json", "dataflows.json"],
+      "filePaths": ["structure.json", "dataflows.json", "data-items.json", "controls/greenfield-abc.json"],
       "controlFileRename": {
         "from": "controls/greenfield-abc.json",
         "to":   "controls/<uuid>.json"
@@ -844,7 +858,7 @@ The mechanism is a **write-ahead log**.
       "kind": "clone-and-swap",
       "oldId": "<original-uuid>",
       "newId": "<clone-uuid>",
-      "filePaths": ["structure.json", "dataflows.json"],
+      "filePaths": ["structure.json", "dataflows.json", "data-items.json"],
       "controlFileWrite": "controls/<clone-uuid>.json",
       "controlFileDelete": "controls/<original-uuid>.json",
       "createdAt": "<iso>"
@@ -929,7 +943,7 @@ Listed in dependency order. Items at the top must land before items below them. 
 | `CREATE INDEX ON :Control(id);` migration | Memgraph / migration script | Required before the §6 query is run on any non-trivial control inventory. Without it the query does a full Control label scan per `UNWIND` row. Confirmed live: `Filter (c :Control), {c.id} / ScanAll (c)` becomes `ScanAllByLabelProperties (c :Control {id})` after the index lands. |
 | `CREATE INDEX ON :Model(id);`, `CREATE INDEX ON :SecurityBoundary(id);` | Memgraph / migration script | Same §6 query benefits from these on the m1/m2 hops. **Verified live (round-5 review): both indexes are currently absent on the demo Memgraph** — the migration must actually create them, not just declare them required. |
 | `CREATE INDEX ON :ControlClass(id);` | Memgraph / migration script | Required for the new `getControlInstantiationAttributes` `@cypher` query (below). Without it, the IS_INSTANCE_OF lookup in the Step B refresh degrades to a full ControlClass label scan per touched class. |
-| `CREATE INDEX ON :Component(id);` | Memgraph / migration script | Required for SUPPORTS-edge lookups in greenfield Step C (`assignControlToElement(serverControl.id, elementId)`) and for any Component-scoped traversal added by future enhancements. |
+| `CREATE INDEX ON :Component(id);` | Memgraph / migration script | Required for SUPPORTS-edge lookups in greenfield Step C (`assignControlToElements({ controlId, elementIds })`) and for any Component-scoped traversal added by future enhancements. |
 
 ### dt-core — new GraphQL primitives
 
@@ -1149,7 +1163,7 @@ The WAL pre-write rename (Appendix A.9) closes this seam by treating the rebindi
 
 1. Pre-`createControl` — write `<modelDir>/.dethereal/pending-id-rewrite.json` with `{tempId, intendedFiles, intendedRename}`.
 2. Invoke `createControl(name, classes)` against the platform; receive `serverId`.
-3. Rewrite every reference (`structure.json`, `dataflows.json`, `controls/greenfield-abc.json` body) `tempId → serverId`.
+3. Rewrite every reference (`structure.json`, `dataflows.json`, `data-items.json`, `controls/greenfield-abc.json` body) `tempId → serverId`.
 4. Rename `controls/greenfield-abc.json → controls/<serverId>.json`. Atomic on POSIX.
 5. Delete the journal file. Push completes.
 

@@ -886,3 +886,63 @@ describe('validate — unparseable attribute files', () => {
   })
 })
 
+
+describe('ValidateModelTool — data item controls', () => {
+  it('validates a data item\'s control list, and refuses one that is not a list', async () => {
+    const ok = await validateModelTool.run(
+      { data: JSON.stringify([{ id: 'di-1', name: 'Cards', controls: [{ id: 'c-1', name: 'Field encryption' }, { name: 'By name only' }] }]), file_type: 'data-items' },
+      context,
+    )
+    expect((ok.data as any)?.valid).toBe(true)
+
+    const bad = await validateModelTool.run(
+      { data: JSON.stringify([{ id: 'di-1', name: 'Cards', controls: 'c-1' }]), file_type: 'data-items' },
+      context,
+    )
+    expect((bad.data as any)?.valid).toBe(false)
+  })
+
+  it('does not call a control file an orphan when only a data item references it', async () => {
+    const tmpDir = await fs.mkdtemp(path.join(process.cwd(), '.test-dataitem-controls-'))
+    try {
+      const write = (file: string, data: unknown) => fs.writeFile(path.join(tmpDir, file), JSON.stringify(data), 'utf-8')
+      const controlId = '0b9c6a52-5d0e-4c1f-9f39-2a6f2f6a1f10'
+      await write('manifest.json', { schemaVersion: '2.0.0', format: 'split', model: { id: null, name: 'm', defaultBoundaryId: 'b1' }, modules: [] })
+      await write('structure.json', { defaultBoundary: { id: 'b1', name: 'Root', components: [], boundaries: [] } })
+      await write('dataflows.json', { dataFlows: [] })
+      await write('data-items.json', { dataItems: [{ id: 'di-1', name: 'Cards', controls: [{ id: controlId, name: 'Field encryption' }] }] })
+      await fs.mkdir(path.join(tmpDir, 'controls'))
+      await write(`controls/${controlId}.json`, { id: controlId, name: 'Field encryption', source: 'declared', lifecycle: 'brownfield', classes: [] })
+
+      const result = await validateModelTool.run({ directory_path: tmpDir }, context)
+      const messages = ((result.data as any)?.warnings ?? []).map((w: { message: string }) => w.message)
+
+      expect(messages.filter((m: string) => m.startsWith('Orphan control file'))).toEqual([])
+      expect(messages.filter((m: string) => m.startsWith('Missing control file'))).toEqual([])
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('ValidateModelTool — data item controls in the source breakdown', () => {
+  it('counts the controls of a model whose only controls sit on data items', async () => {
+    const tmpDir = await fs.mkdtemp(path.join(process.cwd(), '.test-dataitem-source-'))
+    try {
+      const write = (file: string, data: unknown) => fs.writeFile(path.join(tmpDir, file), JSON.stringify(data), 'utf-8')
+      await write('manifest.json', { schemaVersion: '2.0.0', format: 'split', model: { id: null, name: 'm', defaultBoundaryId: 'b1' }, modules: [] })
+      await write('structure.json', { defaultBoundary: { id: 'b1', name: 'Root', components: [], boundaries: [] } })
+      await write('dataflows.json', { dataFlows: [] })
+      await write('data-items.json', { dataItems: [{ id: 'di-1', name: 'Cards', controls: [
+        { id: 'c-1', name: 'Field encryption', source: 'discovered' },
+        { id: 'c-2', name: 'Tokenisation' },
+      ] }] })
+
+      const breakdown = await (validateModelTool as any).computeLocalCoverageBreakdown(tmpDir)
+
+      expect(breakdown.source_breakdown).toEqual({ discovered: 1, declared: 1, both: 0 })
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true })
+    }
+  })
+})

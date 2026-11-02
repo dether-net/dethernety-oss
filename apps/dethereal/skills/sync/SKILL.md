@@ -197,7 +197,7 @@ Both tools also publish the model's **asset context**: model scope (read from `.
 4. **Control ID Pinning:** After successful push, check local model files for name-only control references (`id: null`).
    If any exist:
    - Call `mcp__plugin_dethereal_dethereal__manage_controls(action: 'list')` to get the platform control inventory
-   - For each name-only control reference in `structure.json` and `dataflows.json`, match by exact name (or a name matching a single control when case is ignored) against platform controls
+   - For each name-only control reference in `structure.json`, `dataflows.json` and `data-items.json`, match by exact name (or a name matching a single control when case is ignored) against platform controls
    - If matched: write the resolved platform ID back to the local JSON file:
      `{ id: null, name: "WAF", source: "declared" }` → `{ id: "ctrl-xyz", name: "WAF", source: "declared" }`
    - Write updated files to disk
@@ -579,20 +579,20 @@ If P7 had no work (empty gather in P7.1), keep the original P6 footer:
 
 For each control file in P7.1's bucket 2 (`lifecycle === 'greenfield' || lifecycle === 'partially-pushed'`):
 
-**Step G1 — derive `supporting_element_ids`.** Walk both `structure.json` and `dataflows.json`, collecting the id of every element whose `controls[]` array contains the new control's id (or its temp `greenfield-...` id, prior to platform creation):
+**Step G1 — derive `supporting_element_ids`.** Walk `structure.json`, `dataflows.json` and `data-items.json`, collecting the id of every element or data item whose `controls[]` array contains the new control's id (or its temp `greenfield-...` id, prior to platform creation):
 
 ```
 supportingElementIds = []
-for each boundary, component, flow in structure + dataflows:
+for each boundary, component, flow, data item in structure + dataflows + data-items:
   if element.controls?.some(c => c.id === <control.id>):
     supportingElementIds.push(element.id)
 ```
 
 If `supportingElementIds` is empty, render a warning before pushing:
 ```
-Greenfield control "<name>" has no supporting elements in structure or dataflows.
+Greenfield control "<name>" has no supporting elements in structure, dataflows or data-items.
 The Control will be created on the platform with no SUPPORTS edges. If that's not
-intended, edit structure.json / dataflows.json to add controls[] references first,
+intended, edit structure.json / dataflows.json / data-items.json to add controls[] references first,
 then re-run /dethereal:sync.
 Continue anyway? (y/n)
 ```
@@ -612,7 +612,7 @@ mcp__plugin_dethereal_dethereal__manage_controls(
 )
 ```
 
-The engine drives Steps A→D from CL §7 greenfield: create-on-platform, WAL-protected id rewrite (file rename + every `controls[]` reference in structure/dataflows rewritten from temp id to server id), per-class `setInstantiationAttributes`, lifecycle flip to `brownfield`. The WAL replay invoked by the pre-dispatch handles crash-recovery if the rewrite is interrupted.
+The engine drives Steps A→D from CL §7 greenfield: create-on-platform, WAL-protected id rewrite (file rename + every `controls[]` reference in structure/dataflows/data-items rewritten from temp id to server id), per-class `setInstantiationAttributes`, lifecycle flip to `brownfield`. The WAL replay invoked by the pre-dispatch handles crash-recovery if the rewrite is interrupted.
 
 On success, render:
 ```
@@ -723,7 +723,7 @@ This verb is local-only: the platform-side Control is not deleted. Use the platf
    - **`3` (clear-journal)** — destructive; require **verbatim confirmation**:
      ```
      Deleting the journal will leave .dethereal/pending-id-rewrite.json absent.
-     Local files (controls/, structure.json, dataflows.json) are NOT modified.
+     Local files (controls/, structure.json, dataflows.json, data-items.json) are NOT modified.
      You are responsible for reconciling them manually.
 
      Type 'clear-journal' to confirm (anything else cancels):
@@ -738,7 +738,7 @@ This verb is local-only: the platform-side Control is not deleted. Use the platf
 
      Suggested manual checks:
        - Verify exactly one of {controls/<tempId>.json, controls/<serverId>.json} exists
-       - grep -r "<tempId>" structure.json dataflows.json   (should return no hits)
+       - grep -r "<tempId>" structure.json dataflows.json data-items.json   (should return no hits)
      ```
 
 5. **Re-run** `/dethereal:sync status` after a successful repair to confirm the directory is clean.
@@ -819,13 +819,13 @@ The tool writes: `manifest.json`, `structure.json`, `dataflows.json`, `data-item
 
 ### L4.5. Materialize Control Library Files
 
-`export_model` writes `structure.json` and `dataflows.json` with `controls[]` references but does NOT write the per-control files at `controls/<id>.json`. Without this step, the local view shows Control references that have no local backing file — `/dethereal:enrich --focus controls` would re-pull each one individually, and the `controls/` directory drifts silently from `structure.json` between pulls.
+`export_model` writes `structure.json`, `dataflows.json` and `data-items.json` with `controls[]` references but does NOT write the per-control files at `controls/<id>.json`. Without this step, the local view shows Control references that have no local backing file — `/dethereal:enrich --focus controls` would re-pull each one individually, and the `controls/` directory drifts silently from `structure.json` between pulls.
 
-**Discover the Control id set** by walking the freshly-pulled structure + dataflows:
+**Discover the Control id set** by walking the freshly-pulled structure + dataflows + data-items:
 
 ```
 controlIds = new Set()
-for each component / boundary / flow in structure.json + dataflows.json:
+for each component / boundary / flow / data item in structure.json + dataflows.json + data-items.json:
   for each ref in element.controls[] (if any):
     controlIds.add(ref.id)
 ```
@@ -843,7 +843,7 @@ Render a one-line confirmation in the post-pull summary:
 Controls library: <K> file(s) refreshed under controls/.
 ```
 
-If `pull-controls` returns an error for a specific id (e.g. tombstoned + lifecycle mismatch), surface as a warning in the summary; do not abort the pull. The structure/dataflows files are already on disk in their refreshed state.
+If `pull-controls` returns an error for a specific id (e.g. tombstoned + lifecycle mismatch), surface as a warning in the summary; do not abort the pull. The structure/dataflows/data-items files are already on disk in their refreshed state.
 
 **Why this lives in pull and not enrich**: the rule is "`/dethereal:sync pull` returns a self-consistent model directory — no follow-up `pull-controls` required." `/dethereal:enrich --focus controls` still calls `pull-controls` for newly-discovered Control references during enrichment, but a fresh pull no longer leaves `controls/` empty against a populated `structure.json`.
 
@@ -970,9 +970,9 @@ Pulled "<model-name>" from platform.
   conflict detection against the freshly-pulled platform state. (See CL A.5)
 ```
 
-**Callout when structure/dataflows referenced a Control id that the platform no longer returns** (tombstoned server-side between the export_model call and the pull-controls call — a known race):
+**Callout when structure/dataflows/data-items referenced a Control id that the platform no longer returns** (tombstoned server-side between the export_model call and the pull-controls call — a known race):
 ```
-  Note: <Q> Control reference(s) in structure/dataflows had no matching entry
+  Note: <Q> Control reference(s) in structure/dataflows/data-items had no matching entry
   in the platform response — likely tombstoned server-side after the structure
   pull. These ids have no local controls/<id>.json; next /dethereal:sync push
   will prompt for per-reference removal. Re-run /dethereal:sync pull once

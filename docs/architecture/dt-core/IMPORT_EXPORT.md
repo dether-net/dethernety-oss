@@ -8,6 +8,7 @@
 - [Import Process](#import-process)
 - [ID Mapping](#id-mapping)
 - [Boundary Zoning and Conduits](#boundary-zoning-and-conduits)
+- [Data Item Controls](#data-item-controls)
 - [Resolution Strategies](#resolution-strategies)
 - [Progress Tracking](#progress-tracking)
 - [Error Handling](#error-handling)
@@ -331,6 +332,7 @@ interface ImportSplitResult extends ImportResult {
 │  Step 6: Create Data Items (75%)                                        │
 │  └── Create data classifications                                        │
 │      ├── Resolve class IDs                                              │
+│      ├── Resolve controls and connect them at create                    │
 │      ├── Link to elements using mapped IDs                              │
 │      └── Map old ID → new ID                                            │
 │                                                                         │
@@ -428,6 +430,48 @@ Both paths write **OUTBOUND-canonical**: `prepareConduitsForWrite` keeps only th
 ### Export (split)
 
 `DtExportSplit` re-derives conduits from the raw connection reads via `flattenConduits`, and writes each zoning field **only when it carries a value** — `zone` only when non-null, `domains` / `planes` / `conduits` only when non-empty. A zoneless boundary therefore serializes with no zoning keys at all, closing the round-trip: nothing written on export, nothing to clobber on the next import.
+
+---
+
+## Data Item Controls
+
+A data item's controls — the `SUPPORTS` edges from a control to the item — round-trip through export, import, and update in `data-items.json`. The writer contract they reach the graph through is in [GraphQL Operations — Link deltas](./GRAPHQL_OPERATIONS.md#link-deltas--controls-and-dataitems).
+
+**Source files:** `schemas/data-items.schema.ts`, `dt-export/dt-export-split.ts`, `dt-import/dt-import.ts`, `dt-update/dt-update.ts`.
+
+### In the split format
+
+Each item in `data-items.json` may carry `controls: ControlReference[]`, the same reference shape boundaries, components, and data flows use in `structure.json` / `dataflows.json`:
+
+```json
+{
+  "id": "data-user",
+  "name": "User Credentials",
+  "controls": [{ "id": "ctrl-vault", "name": "Secrets Vault" }]
+}
+```
+
+### Export
+
+`DtExportSplit` writes `controls` **only when the item has at least one**, as `{ id, name }` per control (no `source`). An item with no controls serializes with no `controls` key.
+
+### Import
+
+`DtImport` resolves an item's `controls` through the [control resolver](#control-resolution) and passes the ids to `createDataItem`, which connects them as it creates the item rather than in a later step. A reference that does not resolve is reported in `unresolvedControls` with the data item as its owner.
+
+### Update (push)
+
+On an existing data item, `DtUpdate` treats the `controls` key differently from the element files:
+
+| `controls` in `data-items.json` | Data item | Boundary, component, data flow |
+|---------------------------------|-----------|--------------------------------|
+| A list (including `[]`) | **Replaces** the item's controls | Replaces |
+| Absent | **Left as they are** | Cleared |
+| A list, but the control catalog is incomplete or unavailable | Left as they are | Left as they are |
+
+The absent key preserves because files written before data items carried controls have no `controls` key, and pushing one must not strip controls attached on the platform since. To remove a control from a data item, write the list without it; to remove all of them, write `[]`. Deleting the key changes nothing.
+
+A data item the push creates gets its resolved `controls` connected at create, as on import.
 
 ---
 
@@ -532,13 +576,13 @@ Import and update resolve control references through one `ControlResolver` (`pac
 2. **Exact name** — attached only when exactly one control has that name.
 3. **Name ignoring case and surrounding spaces** — attached only when exactly one control matches.
 
-There is no partial-name match: a reference to "Firewall" does not attach "Perimeter Firewall". A reference that matches no control, or a name that several controls share, attaches nothing; it is reported in the result's `unresolvedControls` (`reason: 'not_found' | 'ambiguous'`, with the candidate controls for an ambiguous one, and `owner`: the model or the boundary, component or data flow it came from, by its id in the model file) and in a warning, which names the model or element and lists an ambiguous reference's candidate ids.
+There is no partial-name match: a reference to "Firewall" does not attach "Perimeter Firewall". A reference that matches no control, or a name that several controls share, attaches nothing; it is reported in the result's `unresolvedControls` (`reason: 'not_found' | 'ambiguous'`, with the candidate controls for an ambiguous one, and `owner`: the model or the boundary, component, data flow or data item it came from, by its id in the model file) and in a warning, which names the model or element and lists an ambiguous reference's candidate ids.
 
 On update, a name several controls share never removes a control: if the element (or the model) already has one or more of the candidates, they stay attached and a warning says so, and the reference is not reported as unresolved. Only when it has none of them is the reference reported.
 
 When the catalog could not be fetched in full (the all-folders fetch failed), an update leaves every element's controls as they are and reports one `resolve_controls` error. An import attaches only by id, since a name unique among the controls that were fetched may be shared by one in a folder; it reports every other reference with `reason: 'catalog_unavailable'`.
 
-Dethereal's push rewrites the local model files from the platform afterwards. It writes each entry of `unresolvedControls` back to the `controls[]` of its owner, as the local file has it (including fields such as `source`), so an unresolved reference stays in `manifest.json`, `structure.json` or `dataflows.json` until it is pinned by id or removed. A reference whose element is no longer in the model is named in a warning instead.
+Dethereal's push rewrites the local model files from the platform afterwards. It writes each entry of `unresolvedControls` back to the `controls[]` of its owner, as the local file has it (including fields such as `source`), so an unresolved reference stays in `manifest.json`, `structure.json`, `dataflows.json` or `data-items.json` until it is pinned by id or removed. A reference whose element or data item is no longer in the model is named in a warning instead.
 
 ---
 

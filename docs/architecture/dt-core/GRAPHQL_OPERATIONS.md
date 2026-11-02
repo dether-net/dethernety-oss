@@ -44,8 +44,9 @@ Two contracts govern the element update writers — `DtModel.updateModel`, `DtCo
 `DtBoundary.updateBoundaryNode`, `DtDataflow.updateDataFlow`, and `DtDataItem.updateDataItem`. They are
 what lets a caller send only the fields a user actually edited instead of the whole element it last
 loaded, and they are what stops one person's save from rewriting a field somebody else just changed.
-**Presence gating** holds for all five; **link deltas** apply to the four that carry `controls` /
-`dataItems` lists.
+**Presence gating** holds for all five; **link deltas** apply to the `controls` / `dataItems` lists
+each of them carries, and to the `controls` of `DtDataItem.createDataItem`, which on a fresh node can
+only connect.
 
 The caller's half of the same story — how a store decides what counts as edited, and why the
 relationship baseline must be captured **before** the optimistic merge — is in
@@ -104,8 +105,8 @@ element** names one item among many, so it is dropped and the rest of the write 
 
 **Source:** `packages/dt-core/src/dt-utils/link-delta.ts` → `linkInput`, `buildLinkOps`, `idOperands`
 
-The four writers that carry link lists (`updateComponent`, `updateBoundaryNode`, `updateDataFlow` for
-`controls` + `dataItems`; `updateModel` for `controls`) all route them through `linkInput`, which decides
+The writers that carry link lists (`updateComponent`, `updateBoundaryNode`, `updateDataFlow` for
+`controls` + `dataItems`; `updateModel` and `updateDataItem` for `controls`) all route them through `linkInput`, which decides
 the shape of one link key from the list and the caller's `baselineLinks`. There are two different
 absences, and collapsing them is the one mistake that turns a bulk write into a delta against nothing:
 
@@ -114,6 +115,13 @@ absences, and collapsing them is the one mistake that turns a bulk write into a 
 | absent | — | **Key omitted.** The element does not define this list, so it was not edited and must not be written. The conduit and import "safe node" passes rely on this to preserve associations. |
 | present | absent | **Replace:** `{ disconnect: {}, connect: idOperands(ids) }`. The caller is asserting the whole list — correct for an import or a bulk write. |
 | present | present | **Delta:** `buildLinkOps(current, baselines[key] ?? [])` — connect only what was added, disconnect only what was removed, and omit the key entirely when nothing changed. A baseline holding nothing for the key is a delta against an empty list, not a missing baseline. |
+
+`DtDataItem.createDataItem` routes its `controls` through `linkInput` too, against an empty baseline:
+a fresh node has no controls, so the list becomes a **connect-only** delta — the one operation the
+create input offers — and an empty list sends no key. Both data-item writers take the list as ids or
+as the `{ id, name }` objects the platform returns, and map objects to their ids before `linkInput`
+sees them: the builder drops every entry that is not a string with something other than whitespace
+in it, so a whole-list replace left with nothing usable would disconnect every control the item has.
 
 The replace shape's `disconnect` stays **unconditional** on purpose: `connect` compiles to a bare
 relationship `CREATE`, so a disconnect that spared the incoming ids would re-create every
@@ -494,8 +502,8 @@ Manages data classification entities.
 
 | Method | Description | Parameters | Returns |
 |--------|-------------|------------|---------|
-| `createDataItem` | Create new data item, attached to an element and a model | `{ name, description, elementId, classId: string \| null, modelId, sensitivity?, regulatoryFlags?, origin?, isCredential? }` | `Promise<DataItem \| null>` |
-| `updateDataItem` | Update data item — bundled binding + residual write. When `classId` is supplied the call routes the binding portion through `DtClass.changeElementBinding` and the residual property update through the auto-generated `updateData` mutation. | `{ dataItemId, name?, description?, classId?, sensitivity?, regulatoryFlags?, origin?, isCredential?, attributes? }` | `Promise<UpdateDataItemResult>` |
+| `createDataItem` | Create new data item, attached to an element and a model, optionally with controls (connect only) | `{ name, description, elementId, classId: string \| null, modelId, sensitivity?, regulatoryFlags?, origin?, isCredential?, controls? }` | `Promise<DataItem \| null>` |
+| `updateDataItem` | Update data item — bundled binding + residual write. When `classId` is supplied the call routes the binding portion through `DtClass.changeElementBinding` and the residual property update through the auto-generated `updateData` mutation. `controls` follow the [link-delta](#link-deltas--controls-and-dataitems) contract against `baselineLinks`. | `{ dataItemId, name?, description?, classId?, sensitivity?, regulatoryFlags?, origin?, isCredential?, attributes?, controls?, baselineLinks? }` | `Promise<UpdateDataItemResult>` |
 | `deleteDataItem` | Delete data item | `{ dataItemId }` | `Promise<boolean>` |
 
 > **`updateDataItem` return shape.** `UpdateDataItemResult` is `{ dataItem: DataItem \| null, bindingResult: ChangeElementBindingResult \| null, residualOk: boolean }`. The bundled return surfaces both halves so callers can render partial-failure UX: if the class binding committed but the residual property update failed, `bindingResult.success` is `true`, `dataItem` is `null`, and `residualOk` is `false`. The frontend uses this to fire a separate "settings could not be saved" toast in addition to the class-change delta-receipt snackbar.
@@ -517,7 +525,9 @@ Manages data classification entities.
 > **The model push is a full sync.** When `DtUpdate` pushes `data-items.json` onto existing data items, a
 > field the file omits is sent as an explicit clear (`sensitivity`, `origin`, and `isCredential` as `null`,
 > `regulatoryFlags` as `[]`), so the platform matches the file. Interactive callers such as the Data
-> dialog send only what the user edited.
+> dialog send only what the user edited. `controls` are the exception: a file that lists them replaces
+> the item's controls, and a file with no `controls` key leaves them as they are — see
+> [Import/Export — Data Item Controls](./IMPORT_EXPORT.md#data-item-controls).
 
 > **Three states for `classId`.** Truthy targets `CLASS`, explicit `null` targets `NONE` (sweeping
 > SYSTEM-derived findings), and **omitted** attempts no binding change at all — `bindingResult` comes
@@ -527,6 +537,13 @@ Manages data classification entities.
 > **The deduplication key names the fields.** `update-dataitem-<id>-<sorted input keys>` rather than
 > `update-dataitem-<id>`: a class pick fires a save without awaiting it, and an id-only key would let a
 > **Save** pressed during that flight join it and never be written. `DtModel.updateModel` keys the same way.
+
+> **Every DataItem selection that feeds a client cache carries `controls { id name }`.** That is
+> `ADD_DATA_ITEM`, `UPDATE_DATA_ITEM`, the `dataItems` of `UPDATE_COMPONENT` / `UPDATE_BOUNDARY` /
+> `UPDATE_DATA_FLOW`, and the model `dataItems` of `DUMP_MODEL_DATA`; `DataItem.controls` is typed
+> `Control[]`. A client cache that replaces a data item wholesale with whatever a response returned
+> would otherwise strip the item's controls whenever the response came from a selection that left the
+> field out — an element save returns its data items too.
 
 ---
 
@@ -705,7 +722,7 @@ Manages security controls.
 | `updateControl` | Update control — bundled binding + residual write. The binding portion routes through `DtClass.changeElementBinding` and the residual property update through the auto-generated `updateControls` mutation. | `{ controlId, name, description, controlClasses: string[], folderId }` | `Promise<UpdateControlResult>` |
 | `deleteControl` | Delete control | `{ controlId }` | `Promise<boolean>` |
 | `findControls` | Filtered control search; an `elementIds` filter takes a Cypher-helper path instead of the polymorphic interface query | `{ controlId?, name?, classId?, classType?, elementIds?, moduleId?, moduleName? }` | `Promise<Control[]>` |
-| `assignControlToElements` | Attach a control to elements, read-before-write so an already-attached pair is not re-created | `{ controlId, elementIds }` | `Promise<Control \| null>` |
+| `assignControlToElements` | Attach a control to components, boundaries, data flows and data items, read-before-write so an already-attached pair is not re-created | `{ controlId, elementIds }` | `Promise<Control \| null>` |
 | `getControlsAssignedModels` | Which models each control supports | `{ ids: string[] }` | `Promise<Map<string, string[]>>` |
 | `getControlInstantiationAttributes` | Per-`(Control, ControlClass)` edge attributes | `{ controlIds: string[] }` | `Promise<{ controlId, classId, attributes }[]>` |
 | `controlGaps` | Control-gap analysis over the MITRE framework chain — unmitigated / unaddressable exposures, recommended controls, coverage summary | `{ modelId, topN?, limit? }` | `Promise<ControlGapsResult>` |
@@ -724,7 +741,11 @@ Manages security controls.
 > `CREATE`, so connecting an already-attached pair appends a parallel `SUPPORTS` edge. The method reads
 > the current set and connects only the difference — the same non-idempotence that drives the
 > [link deltas](#link-deltas--controls-and-dataitems) and the conduit reconcile. The difference goes as
-> one `in` operand on each typed path, so the write stays the same size however many elements it names.
+> one `in` operand on each of the four typed paths — `supportedComponents`, `supportedBoundaries`,
+> `supportedDataFlows`, `supportedData` — so the write stays the same size however many elements it
+> names. `FIND_CONTROLS` reads exactly those four, and the read has to cover every path the write
+> connects on: a path the read missed would get a duplicate edge on every repeat call. The returned
+> control's synthesized `elements` joins the elements of all four paths, data items included.
 
 > **`setInstantiationAttributes` delegates.** It calls `DtClass.setInstantiationAttributesWithStaleCount`
 > with the control id as `componentId` and narrows the result to `{ success, errorMessage }`.

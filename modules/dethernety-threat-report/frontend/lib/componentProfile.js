@@ -19,8 +19,9 @@
 // come from `aggregateLedger` (run over the single element) — so the Component
 // Profile's posture is identical to the Residual Risk view's by construction. The
 // data sub-block joins `modelGraph.dataNodes` (HANDLES topology + sensitivity,
-// gathered backend-side) to each Data's OWN ledger exposures; coverage is
-// attributed to the handling element, never to the Data node. Controls are muted
+// gathered backend-side) to each Data's OWN ledger exposures; a handler's coverage
+// is its own, and a control applied to a Data node is that node's own, credited to
+// neither side across HANDLES. Controls are muted
 // defense-in-depth context — the technique-set intent partition needs the coverage
 // engine and is NOT here.
 
@@ -167,10 +168,10 @@ export function computeComponentProfile(elementId, { ledger, modelGraph, zoning 
   }
 
   // Data sub-block — each Data this element HANDLES, with its sensitivity and its
-  // OWN exposures (joined from the ledger). Coverage stays attributed to the
-  // handling element (this one), never to the Data node. Sorted by sensitivity
-  // rank desc, then name. (For a Data target this is empty — the element IS the
-  // data; its exposures show in ownExposures.)
+  // OWN exposures (joined from the ledger). This element's coverage stays its own;
+  // the Data node's controls are not credited to it, nor its to the Data. Sorted
+  // by sensitivity rank desc, then name. (For a Data target this is empty — the
+  // element IS the data; its exposures show in ownExposures.)
   const dataHandled = dataNodes
     .filter((d) => Array.isArray(d.handledBy) && d.handledBy.includes(elementId))
     .map((d) => {

@@ -730,7 +730,7 @@ Because a data item is one object in the model, the same item can be attached to
 1. **Open the element's settings**: Double-click a component, boundary, or data flow on the canvas
 2. **Open the Data tab**: Click the **Data** tab in the settings panel
 3. **Add a data item**: Click the **+** button to the right of the search bar
-4. **Fill in the Data dialog**: It opens with three tabs — **General**, **Attributes**, and **Exposures**
+4. **Fill in the Data dialog**: It opens with three tabs — **General**, **Attributes**, and **Exposures**. A fourth, **Controls**, appears once the data item is saved — see [Editing and Deleting Data Items](#editing-and-deleting-data-items)
 
 **General tab:**
 - **Name**: Descriptive name for the data type (e.g., "Customer Payment Information", "User Authentication Tokens")
@@ -845,6 +845,7 @@ Switch the view to **All** to attach a data item that is not yet on this element
 ### Editing and Deleting Data Items
 
 - **Edit**: Click the pencil icon in the data item's row to reopen the Data dialog. Changes to name, description, class, or attributes apply everywhere the data item is attached.
+- **Controls**: The reopened Data dialog has a **Controls** tab listing the controls assigned to the data item. Click the **shield-plus** button to add one with the same picker as on an element; a control you pick is saved at once. Untick a control to remove it — a confirmation asks *Remove control '…' from this data entity?* first. While a save of the data item is still running, a pick or an untick is refused with a warning, and so is the dialog's own save (the **content-save** button at the bottom), including the save that runs on its own after you pick a class on the **General** tab. A refused save keeps your edits in the form, so you can press the button again. Try again when the save is done; the warning suggests reloading the page if it does not finish. A control on a data item covers that data item's own exposures, not the elements it is attached to — see [Working with Security Controls](WORKING_WITH_SECURITY_CONTROLS.md#universal-control-assignment).
 - **Delete**: Click the trash-can icon. A confirmation asks *Are you sure you want to delete this Data Item: …?* — confirm, and the data item is removed from the model and from every element it was attached to.
 
 **Important**: Deleting a data item affects every element that uses it. If you only want it off the current element, detach it instead.

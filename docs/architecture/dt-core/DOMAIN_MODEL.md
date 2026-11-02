@@ -425,6 +425,7 @@ interface DataItem extends Element {
   regulatoryFlags?: string[]                        // Free-text compliance labels (see canonical vocabulary)
   origin?: string | null                            // DataOrigin token (SCREAMING_SNAKE); null ⇒ unclassified
   isCredential?: boolean | null                     // null ⇒ unknown; false is an answer
+  controls?: Control[]                              // Controls applied to this item (SUPPORTS); writers take the ids
 }
 ```
 

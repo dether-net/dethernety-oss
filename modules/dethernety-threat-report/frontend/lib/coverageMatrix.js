@@ -12,8 +12,11 @@
 //   - LIVE-ONLY disposition filter — only live exposures (`dispositionKind == null`
 //     OR `AFFIRMED`) enter the live grid/counts; muted/dispositioned ones are excluded
 //     but COUNTED (never silently dropped — they still render in the Residual Risk view).
-//   - Data exposures OFF the grid (controls can't SUPPORTS Data → permanent-UNCOVERED
-//     would be a false catastrophe); ATT&CK-mapped Data feeds the completeness count.
+//   - Data exposures OFF the grid. A control can be applied to a Data element, but most
+//     models attribute data protection to the elements that handle the data, so charting
+//     Data would show permanent-UNCOVERED rows — a false catastrophe. ATT&CK-mapped Data
+//     feeds the completeness count, and the disclosure lists each Data element's own
+//     controls (as assigned, never as a coverage grade).
 //   - SecurityBoundary exposures fold into the Posture Summary counts, NOT matrix rows.
 //   - tier-segregated, function-classified counts — NEVER a percentage, NEVER a
 //     single "Covered: N", NEVER a cross-tier rollup.
@@ -111,8 +114,13 @@ export function buildCoverageView(coverage, ledger) {
   // element id -> display name, so the matrix can name the impacted element(s)
   // inline (rather than only on drill-through).
   const nameById = new Map()
+  // element id -> the controls applied to it, for the off-grid Data disclosure.
+  const controlsById = new Map()
   for (const el of ledgerEls) {
-    if (el && el.id) nameById.set(el.id, el.name || el.id)
+    if (el && el.id) {
+      nameById.set(el.id, el.name || el.id)
+      controlsById.set(el.id, el.supportingControls ?? [])
+    }
     for (const f of el.findings ?? []) {
       if (f && f.id) dispositionById.set(f.id, f.dispositionKind ?? null)
     }
@@ -143,11 +151,12 @@ export function buildCoverageView(coverage, ledger) {
   let softCount = 0
   let dataMappedCount = 0
   let dispositionedExcluded = 0
-  // Data exposures are OFF the coverage grid (a control can't SUPPORTS Data, so
-  // coverage is not assessable) — but the ATT&CK mapping itself IS a known fact
-  // about the exposure. Collect it, grouped by the Data element, so Coverage & Gaps
-  // can reveal (off-grid, no tier encoding) WHICH techniques each Data element maps
-  // to — never a coverage claim, just the mapping the banner used to only count.
+  // Data exposures are OFF the coverage grid (see the header: charting them would
+  // grade data whose protection sits on its handling elements) — but the ATT&CK
+  // mapping itself IS a known fact about the exposure. Collect it, grouped by the
+  // Data element, so Coverage & Gaps can reveal (off-grid, no tier encoding) WHICH
+  // techniques each Data element maps to — never a coverage claim, just the mapping
+  // the banner used to only count.
   const dataMappedByElement = new Map()
 
   for (const e of coverage.exposures) {
@@ -162,7 +171,7 @@ export function buildCoverageView(coverage, ledger) {
       continue
     }
     if (e.elementKind === 'Data') {
-      // off the grid (controls can't SUPPORTS Data); count toward completeness
+      // off the grid; count toward completeness
       dataMappedCount++
       // …and retain the technique mapping (deduped, resolved) so Coverage & Gaps can
       // disclose it without ever charting Data as covered/uncovered. Grouped per Data
@@ -267,12 +276,17 @@ export function buildCoverageView(coverage, ledger) {
 
   // --- off-grid Data → ATT&CK disclosure: one drillable entry per Data element,
   //     its techniques deduped + id-sorted (the chips the Coverage & Gaps banner
-  //     reveals) ---
+  //     reveals), and the controls applied to that Data element itself, by name —
+  //     a fact about the model, listed without a coverage grade ---
   const dataMapped = [...dataMappedByElement.entries()]
     .map(([elementId, d]) => ({
       elementId,
       elementName: nameById.get(elementId) ?? elementId,
       techniques: d.techs.sort((a, b) => a.techniqueId.localeCompare(b.techniqueId)),
+      controls: (controlsById.get(elementId) ?? [])
+        .filter((c) => c && c.id)
+        .map((c) => ({ id: c.id, name: c.name || c.id }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
     }))
     .sort((a, b) => a.elementName.localeCompare(b.elementName))
 
@@ -287,13 +301,20 @@ export function buildCoverageView(coverage, ledger) {
   const structuralGaps = ELEMENT_CLASSES.filter((c) => classHasElement[c] && !classHasControl[c])
 
   // --- defense-in-depth: supporting controls model-wide that cover NOTHING ---
+  // Not over Data: its controls are listed, never graded (see mismatchByElement below).
   const allSupportingControls = new Set()
-  for (const el of ledgerEls) for (const c of el.supportingControls ?? []) if (c?.id) allSupportingControls.add(c.id)
+  for (const el of ledgerEls) {
+    if (el?.type === 'Data') continue
+    for (const c of el.supportingControls ?? []) if (c?.id) allSupportingControls.add(c.id)
+  }
   const defenseInDepth = [...allSupportingControls].filter((c) => !allCoveringControls.has(c)).length
 
   // --- mismatched controls per element: supports the element, covers none of its gaps ---
+  // Not for Data: its exposures stay off the grid, so no covering control is collected
+  // for it, and calling its controls mismatched would grade it.
   const mismatchByElement = {}
   for (const el of ledgerEls) {
+    if (el?.type === 'Data') continue
     const supporting = (el.supportingControls ?? []).map((c) => c?.id).filter(Boolean)
     if (!supporting.length) continue
     const covering = coveringControlsByElement.get(el.id) ?? new Set()

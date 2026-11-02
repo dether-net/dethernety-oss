@@ -179,3 +179,23 @@ describe('DtExportSplit — data-item origin / isCredential', () => {
     expect(split.dataItems[0]).not.toHaveProperty('is_credential');
   });
 });
+
+describe('DtExportSplit — data-item controls', () => {
+  const withItems = (dataItems: ExportedModel['dataItems']): ExportedModel => ({
+    id: 'm1', name: 'M', description: '',
+    defaultBoundary: { id: 'b0', name: 'root', description: '', components: [] },
+    dataItems,
+  });
+
+  it('writes the control references the platform holds, by id and name', () => {
+    const split = convert(withItems([
+      { id: 'd1', name: 'Cards', description: '', controls: [{ id: 'c-enc', name: 'Field encryption' }] },
+    ] as any));
+    expect(split.dataItems[0].controls).toEqual([{ id: 'c-enc', name: 'Field encryption' }]);
+  });
+
+  it('omits the key when the item has no controls, as for every element', () => {
+    const split = convert(withItems([{ id: 'd1', name: 'Cards', description: '', controls: [] }] as any));
+    expect(split.dataItems[0]).not.toHaveProperty('controls');
+  });
+});

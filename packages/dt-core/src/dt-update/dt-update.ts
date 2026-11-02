@@ -450,6 +450,7 @@ export class DtUpdate {
           for (const dataitem of modelData.dataItems) {
             this.existingDataitemIds.add(dataitem.id)
             this.idMapping.set(dataitem.id, dataitem.id)
+            this.attachedControlIds.set(dataitem.id, controlIdsOf(dataitem.controls))
           }
         }
       }
@@ -728,6 +729,15 @@ export class DtUpdate {
 
         // Check if data item exists
         if (itemId && this.existingDataitemIds.has(itemId)) {
+          // Controls REPLACE when the file lists them (including []), and are left as they are when the key is
+          // absent. Unlike an element's, an absent key is not a clear: files written before data items carried
+          // controls have no key, and pushing one must not strip the controls set on the platform since. A list
+          // that cannot be resolved (the catalogue is unavailable) is left unset as well, which preserves.
+          const resolvedControls = await this.resolveControls(
+            itemData.controls,
+            { kind: 'DATA', id: itemId, name: itemData.name },
+            this.attachedControlIds.get(itemId)
+          )
           // Update existing data item
           const result = await this.dtDataitem.updateDataItem({
             dataItemId: itemId,
@@ -742,7 +752,8 @@ export class DtUpdate {
             sensitivity: itemData.sensitivity ?? null,
             regulatoryFlags: itemData.regulatory_flags ?? [],
             origin: itemData.origin ?? null,
-            isCredential: itemData.is_credential ?? null
+            isCredential: itemData.is_credential ?? null,
+            controls: resolvedControls
           })
           // Map + mark processed regardless of outcome: the item EXISTS, so it must
           // not become an orphan-delete target even if the update itself failed.
@@ -771,6 +782,10 @@ export class DtUpdate {
           }
         } else {
           // Create new data item
+          const createdControls = await this.resolveControls(
+            itemData.controls,
+            { kind: 'DATA', id: itemData.id, name: itemData.name }
+          )
           const createdItem = await this.dtDataitem.createDataItem({
             name: itemData.name,
             description: itemData.description || '',
@@ -780,7 +795,8 @@ export class DtUpdate {
             sensitivity: itemData.sensitivity,
             regulatoryFlags: itemData.regulatory_flags,
             origin: itemData.origin,
-            isCredential: itemData.is_credential
+            isCredential: itemData.is_credential,
+            controls: createdControls
           })
 
           if (createdItem && itemData.id) {

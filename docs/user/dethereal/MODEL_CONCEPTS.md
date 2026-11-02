@@ -342,7 +342,7 @@ Per-element attribute files containing security properties. Each element type ha
 
 ### controls/
 
-Per-Control files for the control library. Each Control referenced by the model (via `controls[]` on a component, boundary, or flow in `structure.json` / `dataflows.json`) gets a file here. See [Controls and the Control Library](#controls-and-the-control-library) below.
+Per-Control files for the control library. Each Control referenced by the model (via `controls[]` on a component, boundary, flow, or data item in `structure.json` / `dataflows.json` / `data-items.json`) gets a file here. See [Controls and the Control Library](#controls-and-the-control-library) below.
 
 ### ID Handling
 
@@ -381,7 +381,7 @@ Per-model workflow metadata inside each model directory:
 
 ## Controls and the Control Library
 
-Controls are reusable security controls (e.g., "Database Encryption Package", "SOC Monitoring") that one or more model elements reference. They live in the platform's library and are mirrored locally as `controls/<id>.json` — one file per Control referenced by your model. References from elements live in `controls[]` arrays on components, boundaries, and flows.
+Controls are reusable security controls (e.g., "Database Encryption Package", "SOC Monitoring") that one or more model elements reference. They live in the platform's library and are mirrored locally as `controls/<id>.json` — one file per Control referenced by your model. References from elements live in `controls[]` arrays on components, boundaries, flows, and data items (`data-items.json`).
 
 ### Why Controls are separate from attributes
 

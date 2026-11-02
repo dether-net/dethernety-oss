@@ -102,6 +102,10 @@ export const UPDATE_DATA_FLOW = gql`
           regulatoryFlags
           origin
           isCredential
+          controls {
+            id
+            name
+          }
           # elements {
           #   id
           # }

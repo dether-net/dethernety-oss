@@ -363,6 +363,16 @@ export class DtExportSplit {
     if (origin) result.origin = origin
     if (typeof item.isCredential === 'boolean') result.is_credential = item.isCredential
 
+    // Control references, present-only like every element's (provenance is not emitted; see convertToStructureBoundary).
+    if (item.controls && item.controls.length > 0) {
+      result.controls = item.controls
+        .filter(ctrl => ctrl.id)
+        .map(ctrl => ({
+          id: ctrl.id!,
+          name: ctrl.name,
+        }))
+    }
+
     return result
   }
 
