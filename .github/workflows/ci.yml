@@ -443,7 +443,7 @@ jobs:
   bundle:
     name: Compose bundle (both compose providers)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     env:
       # Force podman to broker to the PYTHON provider. Left to itself it prefers Docker Compose v2
       # when installed — which it is on this runner — and the podman leg would then be a second
@@ -454,6 +454,41 @@ jobs:
         working-directory: deploy/compose
     steps:
       - uses: actions/checkout@v4
+
+      # The upgrade test upgrades a real 0.13.0 bundle, built from its release tag; the checkout has no tags. Without the
+      # tag that case would skip, so a failed fetch fails the job.
+      - name: Fetch the v0.13.0 tag for the upgrade test
+        working-directory: .
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v0.13.0:refs/tags/v0.13.0
+
+      # The npm package that runs a release's installer: its own rules (no dependencies or scripts, the arguments and
+      # exit status passed through, Windows pointed to WSL).
+      - name: npm installer package tests
+        working-directory: deploy/installer/npm
+        run: node --test test/lib.test.mjs
+
+      # The wrapper's stub tests: each runs byodt in scratch bundles with a stand-in engine on PATH, so none needs
+      # the providers installed below.
+      - name: byodt stub tests
+        run: |
+          set -euo pipefail
+          for t in ../tests/byodt-*.sh; do
+            echo "== $t"
+            bash "$t"
+          done
+
+      # A change to the third-party notice's text must raise its Text-Version above the base's: every deployment is
+      # then asked to confirm it again.
+      - name: A changed third-party notice raises its Text-Version
+        if: github.event_name == 'pull_request'
+        working-directory: .
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          F: deploy/compose/THIRD-PARTY-ACKNOWLEDGEMENT
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$BASE"
+          bash deploy/tests/ack-text-version.sh "$BASE" "$F"
 
       # Install both engines' prerequisites rather than assuming the runner image carries them.
       # This job exists because an unverified assumption about the environment shipped a broken

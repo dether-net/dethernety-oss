@@ -1,0 +1,43 @@
+Text-Version: 1
+
+[intro]
+THIRD-PARTY SOFTWARE
+
+This deployment runs the third-party software listed below. Dethernety does
+not distribute it: your machine downloads it from the sources listed (your
+container engine pulls the images, and the platform downloads the model on
+its first start or on './byodt models pull').
+
+[memgraph]
+- Memgraph (graph database)
+  Image:    {IMAGE}
+  Licence:  Memgraph Business Source License 1.1 (with an Additional Use Grant)
+  Terms:    https://github.com/memgraph/memgraph/blob/master/licenses/BSL.txt
+
+[neo4j]
+- Neo4j Community Edition (graph database)
+  Image:    {IMAGE}
+  Licence:  GNU General Public License v3
+  Terms:    https://neo4j.com/licensing/
+
+[model]
+- EmbeddingGemma 300m (embedding model, ONNX conversion)
+  Source:   Hugging Face, {MODEL}
+  Licence:  Gemma Terms of Use
+  Terms:    https://ai.google.dev/gemma/terms
+            https://ai.google.dev/gemma/prohibited_use_policy
+
+[nginx]
+- nginx (web server, the deployment's front door)
+  Image:    {IMAGE}
+  Licence:  BSD 2-Clause
+  Terms:    https://nginx.org/LICENSE
+
+[mirror]
+{KEY} points at {IMAGE}, not at the repository this release was tested with.
+Dethernety does not know what that registry serves.
+
+[confirm]
+The images also contain operating-system packages under their own licences.
+
+You are responsible for using this software under its licence.

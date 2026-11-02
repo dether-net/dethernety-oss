@@ -69,7 +69,7 @@ podman machine start
 
 ### `Not set up yet`
 
-> `error: Not set up yet — run 'byodt bootstrap' (or just 'byodt up', which does it for you).`
+> `error: Not set up yet — run './byodt bootstrap' (or just './byodt up', which does it for you).`
 
 **Cause.** A command that needs a configured deployment ran against a bundle that has not been set up — a fresh extract, or one where `.env`, `.env.secrets`, or `mode/mode.env` was removed.
 
@@ -83,7 +83,7 @@ That repairs the layout and starts the deployment. If `.env.secrets` was deleted
 
 ### `Refusing '-v'`
 
-> `error: Refusing '-v' — it deletes data/images this command keeps by design. Remove the graph explicitly instead ('byodt destroy' prints how).`
+> `error: Refusing '-v' — it deletes data/images this command keeps by design. Remove the graph explicitly instead ('./byodt destroy' prints how).`
 
 **Cause.** You passed `-v`, `--volumes`, or `--rmi` to `down` or `destroy`. These commands keep your data by design, so they refuse flags that would contradict that rather than silently obeying.
 
@@ -109,7 +109,7 @@ and run the wipe command it prints for your storage setting.
 >
 > `==> data/ollama (…) holds the old embedding server's model and is no longer used. Once the new start has worked: sudo rm -rf data/ollama`
 
-**Cause.** Notices, not errors. `./byodt up`, `./byodt update` and `./byodt models pull` report every `OLLAMA_*` line, and an `EMBEDDING_URL` or `EMBEDDING_SIMILARITY_THRESHOLD` line, left in `.env` by an older release, and a leftover `data/ollama` directory with its size. None of them stops the start, and `byodt` never edits `.env` or deletes `data/ollama` for you.
+**Cause.** Notices, not errors. `./byodt up`, `./byodt update` and `./byodt models pull` report every `OLLAMA_*` line, and an `EMBEDDING_URL` or `EMBEDDING_SIMILARITY_THRESHOLD` line, left in `.env` by an older release, and a leftover `data/ollama` directory with its size. None of them stops the start. These commands never remove the lines or delete `data/ollama` for you: they never change your settings in `.env`, and only record a missing `CONTAINER_ENGINE` or `DB_ENGINE` (on Neo4j, `NEO4J_IMAGE` too).
 
 **Fix.** Optional. Remove the named lines from `.env` whenever convenient. Once the new release has started and works, reclaim the disk:
 
@@ -187,9 +187,93 @@ FRONT_DOOR_PORT=3100
 
 Note that port 3000 is a pre-registered loopback callback address, so moving off it means registering your callbacks explicitly if you later connect the deployment. See [Configuration → Front door](./CONFIGURATION.md#front-door).
 
+### `this bundle's compose project is already used by another directory`
+
+> ```
+> error: this bundle's compose project is already used by another directory:
+>     /home/you/dethernety-old
+> Running this here would act on its containers. Upgrade that deployment instead ('./byodt upgrade' in it), or
+> stop it there ('./byodt down'). If this deployment was moved here from that directory, run './byodt down --take-over'
+> here once to remove the old containers, then start it here.
+> ```
+
+**Cause.** Every bundle's deployment has the compose project name `dethernety`, and containers of that project, running or stopped, were started from the folder it names. Acting here would act on them: start this folder's services in their place, or stop, back up, restore or remove the other folder's. `up`, `update`, `restart`, `down`, `stop`, `destroy`, `backup`, `restore`, `upgrade` and `setup --start` all refuse, and change nothing.
+
+**Fix.** It depends on what the other folder is:
+
+- **Another deployment you keep:** only one runs at a time. Run `./byodt down` in that folder, then the command here. To move it to a newer release, upgrade it in its own folder instead of installing a new one.
+- **This deployment, before you moved it here:** remove the old containers once from here, then start here:
+
+  ```sh
+  ./byodt down --take-over
+  ./byodt up
+  ```
+
+- **An old folder you no longer need:** `./byodt down` in it, or `./byodt down --take-over` here.
+
+See [Operations → A deployment in another folder](./OPERATIONS.md#a-deployment-in-another-folder).
+
+### `The volume dethernety_… remains from an earlier deployment of this bundle, and this one would mount it`
+
+> `error: The volume dethernety_memgraph-data remains from an earlier deployment of this bundle, and this one would mount it: that graph's database users were made with another password, so the platform would be locked out. Set DB_DATA=./data/memgraph in .env to keep the database in a folder instead (less robust on a VM-backed engine), or upgrade the deployment it belongs to; if you no longer need that graph, remove it with 'docker volume rm dethernety_memgraph-data' (this deletes it for good), and run the command again.`
+
+From `./byodt setup --start` the advice reads `Run setup with --db-data bind` instead of the `.env` setting. Setup also warns about such a volume before it writes anything, whether or not it starts.
+
+**Cause.** This folder has not started yet, and it keeps its database in the named volume, which an earlier deployment of the bundle left. Its database users were created with that deployment's password, not this folder's, so the platform would be locked out of it.
+
+**Fix.** Choose one:
+
+- **You want that graph:** start the deployment it belongs to instead, or upgrade it.
+- **You want both:** keep this one's database in a folder: set `DB_DATA=./data/memgraph` (on Neo4j, `NEO4J_DATA=./data/neo4j`) in `.env`, and start again.
+- **You no longer need that graph:** remove the volume with the command the message gives. This deletes it for good.
+
+See [Installation → Database volumes an earlier deployment left](./INSTALLATION.md#database-volumes-an-earlier-deployment-left).
+
+### `There is no terminal to confirm the notice above on`
+
+> `error: There is no terminal to confirm the notice above on. Run the command at a terminal, or add --yes. Nothing has been downloaded yet.`
+
+The installer's form reads `Run this at a terminal, or add --yes.`
+
+**Cause.** The deployment has not run yet, and its first download is waiting for the [third-party notice](./INSTALLATION.md#the-third-party-notice) to be confirmed: by `y` at a terminal, or by `--yes`. A script or a provisioning tool has no terminal.
+
+**Fix.** Run the command at a terminal, or add `--yes`, which counts as the confirmation. The notice is printed either way. On a deployment that has already run, a notice that is due is asked for at a terminal, where `n` stops the command with `Not confirmed. Nothing has changed yet.`; with no terminal and no `--yes`, it never stops a command: it is printed with a warning, and `./byodt acknowledge` records it later.
+
+### `Other accounts can change this directory (…), so byodt does not record the third-party notice here`
+
+> `error: Other accounts can change this directory (/srv/shared/byodt), so byodt does not record the third-party notice here. Make it yours and not writable by others (chmod go-w .), and run the command again.`
+
+`./byodt setup` and `./byodt acknowledge` say `does not record the notice here`.
+
+**Cause.** `byodt` keeps the record of the notice, `third-party-acknowledgement.log`, only in a folder that is yours and that no other account can write to. A group that may write counts as another account, unless it is your own private group (the group named after you).
+
+**Fix.** Make the folder yours and not writable by others, from inside it:
+
+```sh
+chmod go-w .
+```
+
+If another account owns it, give it to yours (`sudo chown "$(id -u):$(id -g)" .`), or install into a folder of your own. On a deployment that has already run, the command only warns and goes on.
+
+### `failed to connect to the docker API at unix:///run/user/…/podman/podman.sock`
+
+> `failed to connect to the docker API at unix:///run/user/<uid>/podman/podman.sock; check if the path is correct and if the daemon is running: …`
+>
+> `error: The start was refused or failed: './byodt status' shows which service; if console-init stopped it, './byodt logs console-init' says why.`
+
+**Cause.** Podman, on a host that also has Docker. `podman compose` found Docker's `docker-compose` and ran it, and `docker-compose` reaches Podman through the Podman API socket, which is not running.
+
+**Fix.** Make Podman use `podman-compose`, in this shell and in your shell profile, then run the command again:
+
+```sh
+export PODMAN_COMPOSE_PROVIDER=podman-compose
+```
+
+Or start the socket: `systemctl --user start podman.socket`. See [Installation → Podman specifics](./INSTALLATION.md#podman-specifics).
+
 ### The platform never starts, and `console-init` exited non-zero
 
-**Symptom.** `./byodt up` or `./byodt update` fails with an error that ends `'byodt logs console-init' says why.`
+**Symptom.** `./byodt up` or `./byodt update` fails with an error that ends `'./byodt logs console-init' says why.`
 
 **Cause.** The one-shot aborted the start. It does that for exactly three classes of problem: the pinned versions disagree, the platform's embedding model is not the one the reference data was embedded with, or the schema could not be placed. In each case the platform is deliberately held back — a schema that disagrees with the code serving it must not serve, and a model that did not make the reference vectors would not match them.
 
@@ -258,6 +342,337 @@ If the message instead says the platform's **default** embedding profile does no
    A fresh database adopts the password currently on disk, and a backup carries no credentials, so this works.
 
 This is why `./byodt destroy` prints a warning about `.env.secrets` every time. Back that file up separately — see [Configuration → The generated secret file](./CONFIGURATION.md#the-generated-secret-file).
+
+---
+
+## Installing and upgrading
+
+Every refusal below changes nothing unless it says otherwise: the installer and `./byodt upgrade` check before they act. The installer prints its messages as `error: …`, as `byodt` does.
+
+### `There is a deployment in …`
+
+> `error: There is a deployment in /home/you/byodt. Upgrade it (--upgrade), or name another folder for a new one with --dir. Nothing was changed.`
+
+**Cause.** The installer found a deployment: in `--dir`, or, without `--dir`, in a folder the container engine started this bundle's deployment from, or in a `byodt*` folder of the directory you ran it in. It never installs over one. Without a terminal, or with `--yes`, it does not ask whether to upgrade it.
+
+**Fix.** To upgrade that deployment, add `--upgrade` (and `--dir` to name it). To install a second one, name a new folder with `--dir`; only one of the two can run at a time.
+
+### `… already exists. Choose another folder with --dir`
+
+> `error: ./byodt already exists. Choose another folder with --dir, or upgrade the deployment in it (--upgrade); a folder a refused setup left behind holds nothing yet, and can be removed.`
+
+**Cause.** The folder the installer would create exists, and is not a deployment. Often it is one an earlier run unpacked, whose setup then refused.
+
+**Fix.** Name another folder with `--dir`. If the folder is one a refused setup left (it holds the bundle's files and no `.env`), remove it, or run `./byodt setup` inside it.
+
+### `The deployment in … already runs release …` / `… already holds release …, and has not been started yet`
+
+> `error: The deployment in /home/you/byodt already runs release X.Y.Z; '/home/you/byodt/byodt update' applies it again. To install another one, name its folder with --dir. Nothing was changed.`
+>
+> `error: The deployment in /home/you/byodt already holds release X.Y.Z, and has not been started yet; '/home/you/byodt/byodt up' starts it. To install another one, name its folder with --dir. Nothing was changed.`
+
+**Cause.** You ran the installer of the release the deployment is already on. The second message is for a folder that was set up but never started, such as one whose setup ran without `--start`. `./byodt upgrade X.Y.Z` says `Already on X.Y.Z.`
+
+**Fix.** Nothing to upgrade. `./byodt update` pulls the pinned images and applies them again; on a folder that has not been started yet, `./byodt up` starts it.
+
+### `An upgrade is half done in …`
+
+> `error: An upgrade is half done in /home/you/byodt. '/home/you/byodt/byodt upgrade' goes on with it, or '/home/you/byodt/byodt upgrade --abandon' undoes it. Nothing was changed.`
+
+**Cause.** An upgrade to this release stopped partway, and the deployment's own `byodt` is already this release's.
+
+**Fix.** Run the command it names. See [Operations → If an upgrade stops](./OPERATIONS.md#if-an-upgrade-stops).
+
+### `More than one deployment was found`
+
+> `error: More than one deployment was found (above). Name the one to upgrade with --dir.`
+
+**Fix.** Run the installer again with `--dir` naming the deployment to upgrade, or a new folder to install into.
+
+### `… holds a deployment, but another account owns it or can change it`
+
+> `error: /srv/byodt holds a deployment, but another account owns it or can change it; this script does not act on it. To install a new one elsewhere, name its folder with --dir.`
+
+`./byodt upgrade` says `… can be changed by other accounts, or is not yours: byodt does not upgrade it. Nothing was changed.`, or names a file: `…/.env is missing, a link, or not yours: byodt does not upgrade it. Nothing was changed.`
+
+**Cause.** An upgrade runs the new release's code in place of the deployment's, so it acts only on a folder, `byodt`, `.env` and `.env.example` that are yours (or root's), not links, in a folder no other account can write to. A group that may write counts as another account, unless it is your own private group. See [Installation → Folders other accounts can change](./INSTALLATION.md#folders-other-accounts-can-change).
+
+**Fix.** Run the upgrade as the account that owns the deployment, or make the folder yours and not writable by others (`chmod go-w <folder>`).
+
+### `Other accounts can change …; install where only you can (--dir)`
+
+> `error: Other accounts can change /tmp; install where only you can (--dir). The deployment holds its own data and secrets, so a shared folder such as /tmp is the wrong place for it anyway.`
+
+**Cause.** The folder the installer would create the deployment in is writable by other accounts, so one of them could change where it lands.
+
+**Fix.** Install into a folder of your own, with `--dir`, for example under your home directory. A folder writable only by your own private group is accepted.
+
+### `Give --https-proxy without a login`
+
+> `error: Give --https-proxy without a login (http://host:port): an argument shows in the process list. A login comes only from HTTPS_PROXY in the environment.`
+
+**Cause.** `--https-proxy` carried `user:password@`. Any account that lists processes can read a command's arguments.
+
+**Fix.** Give the login through `HTTPS_PROXY` in your shell, as in [Installation → Behind an outbound proxy → 2](./INSTALLATION.md#2-get-the-bundle-through-the-proxy), and leave `--https-proxy` out. The installer also refuses a proxy it cannot use as given: `The proxy is …: write it as http://host:port.`, or, for a space, a double quote, `#`, `?` or `$` in it, `percent-encode its login`.
+
+### `… is larger than a release's file is`
+
+> `error: https://github.com/dether-net/dethernety-oss/releases/download/vX.Y.Z/byodt-X.Y.Z.tar.gz is larger than a release's file is.`
+
+With `curl`, the same case reads `error: Could not download the bundle.`, after `curl`'s own message.
+
+**Cause.** The download was larger than 50 MiB, which no release's bundle is. Something between you and the release host, such as a proxy's error page or a captive portal, answered instead. Nothing was kept.
+
+**Fix.** Check the URL, and what your proxy returns for it. `Could not download the bundle.` on its own also means the release host could not be reached, or there is no such release.
+
+### `The bundle's SHA-256 is …, not the … this release published`
+
+> `error: The bundle's SHA-256 is …, not the … this release published. It was not used.`
+
+`./byodt upgrade` says `The downloaded bundle is not the one release X.Y.Z published (SHA-256 mismatch). Nothing was changed.`
+
+**Cause.** The file is not the release's bundle: a download cut short or altered on the way, or a `--tarball` file from another release.
+
+**Fix.** Run it again. With `--tarball`, use the bundle file of the installer's own release. If it keeps failing, do not work around it: something is changing the download.
+
+### `Neither sha256sum nor shasum is installed`
+
+> `error: Neither sha256sum nor shasum is installed; files cannot be checked.`
+
+The installer says `Neither sha256sum nor shasum is installed; the download cannot be checked.`
+
+**Cause.** The installer checks the bundle by its SHA-256. `byodt` needs one of these tools for two things only: to record your confirmation of the third-party notice, and to upgrade. Other commands, such as `down`, `status`, `logs`, `backup` and `restore`, do not.
+
+- **`./byodt upgrade`** stops when it checks the downloaded bundle, before it changes anything.
+- **`./byodt setup` and `./byodt acknowledge`** stop when they would record the confirmation. Setup removes what it wrote.
+- **`./byodt up`, `update`, `restart` and `models pull`** cannot tell, without a tool, that the notice you confirmed is unchanged, so it counts as not yet confirmed. On a first start, at a terminal, or with `--yes`, they ask for it, and stop when they would record your confirmation. Without a terminal and without `--yes`, on a deployment that has run, they print the notice with a warning and go on.
+
+On a first run, `./byodt setup` and `./byodt bootstrap` also warn: `Neither sha256sum nor shasum is installed, so .byodt-release was not written; the first upgrade will not be able to check local edits.` Setup then stops as above; `bootstrap`, which shows no notice, goes on.
+
+**Fix.** Install one: `sha256sum` comes with GNU coreutils on Linux, and `shasum` with Perl on macOS. Then run the command again.
+
+### `cosign could not verify the bundle's signature`
+
+> `error: cosign could not verify the bundle's signature against this release's identity (above). It was not used.`
+
+**Cause.** cosign is installed and checked the bundle's signature against the release workflow of `dether-net/dethernety-oss` at this release's tag, and it did not match. Its own output is above the message. A signature from another release, or a bundle file that was changed, fails here.
+
+**Fix.** Read cosign's output. It may need to reach Sigstore's public services; behind a proxy, cosign uses the same proxy as the download. Do not use the bundle until it verifies.
+
+### `an unattended upgrade does not run code it cannot verify`
+
+> `error: cosign did not verify the bundle, and an unattended upgrade does not run code it cannot verify. Install cosign (https://github.com/sigstore/cosign), or pass --allow-unsigned knowingly. Nothing was changed.`
+
+`./byodt upgrade` says `cosign is not installed, so the bundle's signature was not checked, and an unattended upgrade …`, with `and it came through wget, which cannot hold the download to HTTPS` added when `curl` is not installed.
+
+**Cause.** The upgrade runs without a terminal, or with `--yes`, and cosign did not verify the bundle: it is not installed, or, with `--tarball`, there is no `.bundle` file beside the tarball. An unattended upgrade does not run code whose signature nobody checked. `--yes` never implies `--allow-unsigned`.
+
+**Fix.** Either:
+
+- **Install [cosign](https://github.com/sigstore/cosign)**, and run the upgrade again. It then verifies the signature.
+- **Or pass `--allow-unsigned`**, once you have decided that the SHA-256 check is enough. The bundle's integrity is still checked; its authenticity is not.
+
+At a terminal, without `--yes`, the upgrade asks instead.
+
+### `A signature is required, but …`
+
+> `error: A signature is required, but cosign is not installed (https://github.com/sigstore/cosign).`
+>
+> `error: A signature is required, but there is no …/byodt-X.Y.Z.tar.gz.bundle beside the tarball to verify.`
+>
+> `error: A signature is required, but cosign is not installed, so the bundle's signature was not checked. Nothing was changed.`
+
+The first two are the installer's; the third is `./byodt upgrade`'s.
+
+**Cause.** A signature is required, by `--require-signature` or by `UPGRADE_REQUIRE_SIGNATURE=true` in the deployment's `.env`, and none could be checked.
+
+**Fix.** Install cosign. With `--tarball`, put the release's `byodt-X.Y.Z.tar.gz.bundle` beside the tarball.
+
+### `… sets UPGRADE_REQUIRE_SIGNATURE=true, so --allow-unsigned does not apply`
+
+> `error: /home/you/byodt/.env sets UPGRADE_REQUIRE_SIGNATURE=true, so --allow-unsigned does not apply. Nothing was changed.`
+>
+> `error: .env sets UPGRADE_REQUIRE_SIGNATURE=true, so --allow-unsigned does not apply. Nothing was changed.`
+
+**Cause.** The deployment requires a signature for every upgrade (see [Configuration → Upgrades](./CONFIGURATION.md#upgrades)), and the installer or `./byodt upgrade` was given `--allow-unsigned`. It is refused before anything is downloaded, whether or not cosign is installed.
+
+**Fix.** Install cosign and drop `--allow-unsigned`. To allow an unverified upgrade, remove the setting from `.env` first: a decision for whoever owns the deployment.
+
+### `… sets UPGRADE_REQUIRE_SIGNATURE=…, which is neither true nor false`
+
+> `error: /home/you/byodt/.env sets UPGRADE_REQUIRE_SIGNATURE=yes, which is neither true nor false. Nothing was changed.`
+>
+> `error: .env sets UPGRADE_REQUIRE_SIGNATURE=yes, which is neither true nor false. Nothing was changed.`
+
+**Cause.** The deployment's `.env` sets `UPGRADE_REQUIRE_SIGNATURE` to a value other than `true`, `false` (in any case) or empty. A value such as `yes`, `1` or `on` may have been meant as `true`, so the installer's `--upgrade` and `./byodt upgrade` stop before anything is downloaded rather than count it as off. `./byodt upgrade` stops on it before it resumes or abandons an upgrade too.
+
+**Fix.** Set it to `true` or `false` in `.env` (see [Configuration → Upgrades](./CONFIGURATION.md#upgrades)), or remove the line, and run the command again.
+
+### `Cannot read …/.env, which may require a signature`
+
+> `error: Cannot read /home/you/byodt/.env, which may require a signature (UPGRADE_REQUIRE_SIGNATURE). Run this as the account that owns it. Nothing was changed.`
+
+`./byodt upgrade` says `byodt cannot read .env, which may require a signature (UPGRADE_REQUIRE_SIGNATURE). Run the upgrade as the account that owns it. Nothing was changed.`
+
+**Cause.** The account running the upgrade cannot read the deployment's `.env`, so it cannot tell whether `.env` requires a signature, and does not guess.
+
+**Fix.** Run the upgrade as the account that owns the deployment.
+
+### `setup asks its questions at a terminal`
+
+> `error: setup asks its questions at a terminal. Without one, add --yes, with flags for anything other than the defaults ('./byodt setup --help'). Nothing was changed.`
+
+**Fix.** Run it at a terminal, or add `--yes` and give the settings as flags. See [Installation → Set up with `./byodt setup`](./INSTALLATION.md#set-up-with-byodt-setup).
+
+### `.env exists: this folder is already set up`
+
+> `error: .env exists: this folder is already set up. Edit .env, or move it aside to run setup again.`
+>
+> `error: .env.secrets exists: this folder has run before. Restore its .env instead of running setup, or move .env.secrets aside.`
+
+**Cause.** Setup is the first run of a folder only. A folder with `.env.secrets` has started before, and that file holds the database password its graph was created with.
+
+**Fix.** Edit `.env` to change a setting (see [Configuration](./CONFIGURATION.md)). Do not move `.env.secrets` aside while the folder holds a graph: the platform would be locked out of it.
+
+### `The proxy login the installer was given is not saved`
+
+> `warning: The proxy login the installer was given is not saved: add --proxy-login-from-env to save it, or put HTTPS_PROXY_USERINFO in .env.secrets yourself.`
+
+**Cause.** Your shell's `HTTPS_PROXY` carried a login, which the installer used for its own download. Setup saves it into the deployment only when you say so: a shell's proxy login is often a personal or domain credential.
+
+**Fix.** If the deployment should use it, add `HTTPS_PROXY_USERINFO` to `.env.secrets` yourself (see [Configuration → The outbound proxy's login](./CONFIGURATION.md#the-outbound-proxys-login)). If the deployment has never been started, you can instead remove its folder and run the installer again with `--proxy-login-from-env`. Running the installer again over the folder does not work: it refuses a folder that already holds a deployment.
+
+### `These files here are not release …'s as shipped`
+
+> `error: These files here are not release X.Y.Z's as shipped: compose.yaml. An upgrade replaces them. Local changes belong in compose.override.yaml, which no bundle ships; move them there, or add --replace-edited (they are kept in the backup). Nothing was changed.`
+
+**Cause.** You edited a file that the old release shipped and the new release ships too, or a file of your own sits where the new release adds one. An upgrade replaces those files, so it stops before it changes anything. A file the new release no longer ships does not count, edited or not: it is left in place as it is, and listed as one the new release no longer ships. Neither does a `.DS_Store` that macOS Finder leaves: the record of shipped files, `.byodt-release`, leaves it out.
+
+**Fix.** Move your change into `compose.override.yaml` (see [Configuration → Local changes to the compose files](./CONFIGURATION.md#local-changes-to-the-compose-files)) and put the file back as shipped, or add `--replace-edited`: the edited file is replaced, and kept in the upgrade's backup.
+
+### `The database is not running, so the graph cannot be backed up first`
+
+> `error: The database is not running, so the graph cannot be backed up first. Start it ('./byodt up'), or add --skip-graph-backup. Nothing was changed.`
+
+**Fix.** Start the deployment and run the upgrade again. Use `--skip-graph-backup` only when you have a backup of your own, or the graph does not matter: the rollback steps then have no graph to restore, and the database is not moved.
+
+### `Failed to copy the snapshot out of the db container`
+
+> `error: Failed to copy the snapshot out of the db container.`
+
+**Cause.** On an upgrade from 0.13.0 of a Memgraph deployment, on Podman with `podman-compose`: the graph backup is taken by 0.13.0's `byodt`, which copies with `compose cp`, and `podman-compose` has none. The upgrade stops with nothing changed. This release's `./byodt backup` copies with the engine's own `cp`, so elsewhere this message means the copy itself failed.
+
+**Fix.** Take the snapshot by hand and upgrade with `--skip-graph-backup`, as in [Operations → Upgrading on Podman](./OPERATIONS.md#upgrading-on-podman).
+
+### `Only … MiB is free here`
+
+> `error: Only 1500 MiB is free here; an upgrade needs at least 2048 MiB for the new images and the backups. Nothing was changed.`
+
+**Fix.** Free disk space on the file system that holds the deployment, then run the upgrade again.
+
+### `CONSOLE_IMAGE in .env is pinned to …, which serves neither …`
+
+> `error: CONSOLE_IMAGE in .env is pinned to …, which serves neither A nor B. Set its tag to B, or comment it out. Nothing was changed.`
+
+**Cause.** `CONSOLE_IMAGE` points at a mirror with a tag of neither release. The upgrade retags a pin only when its tag is the old release.
+
+**Fix.** Set the tag to the new release, or comment the line out so that the console image follows `PLATFORM_VERSION`.
+
+### `This bundle is release …, but .env runs …`
+
+> `error: This bundle is release A, but .env runs B: an earlier upgrade by hand is half done. Finish or undo it first.`
+
+**Cause.** `PLATFORM_VERSION` in `.env` and the bundle's files name different releases: an upgrade by hand that set one but not the other.
+
+**Fix.** Finish the hand upgrade ([Operations → Upgrading by hand](./OPERATIONS.md#upgrading-by-hand)), or set `PLATFORM_VERSION` back to the bundle's release, then run `./byodt upgrade`.
+
+### `An upgrade asks before it changes anything. Without a terminal, add --yes.`
+
+> `error: An upgrade asks before it changes anything. Without a terminal, add --yes. Nothing was changed.`
+>
+> `error: './byodt upgrade' with no version moves to the latest release. Without a terminal to confirm that, give the version or add --yes.`
+
+**Fix.** Run it at a terminal, or add `--yes` and name the version. See [Operations → Without a terminal](./OPERATIONS.md#without-a-terminal).
+
+### `Already on …` / `… is older than …: a downgrade is a rollback, not an upgrade`
+
+> `error: Already on X.Y.Z. './byodt update' applies it again.`
+>
+> `error: A is older than B: a downgrade is a rollback, not an upgrade. Roll back with the steps the upgrade to B printed, from its backup.`
+
+**Fix.** An upgrade only moves forward. To go back, run the rollback steps the earlier upgrade printed; see [Operations → Rolling back an upgrade](./OPERATIONS.md#rolling-back-an-upgrade).
+
+### `An upgrade to … is half done`
+
+> `error: An upgrade to B is half done (phase moved). Finish it with './byodt upgrade', or undo it with './byodt upgrade --abandon'.`
+
+**Cause.** `./byodt up`, `update` or `restart` ran while an upgrade had moved the new files in but not yet applied them. Starting now would run the new files with the old `.env`.
+
+**Fix.** Run `./byodt upgrade` to finish it, or `./byodt upgrade --abandon`. See [Operations → If an upgrade stops](./OPERATIONS.md#if-an-upgrade-stops).
+
+### `.byodt-upgrade.state is not this deployment's own`
+
+> `error: .byodt-upgrade.state is not this deployment's own (a link, another account's, or readable by others); byodt does not act on it. Check it, and remove it to drop the upgrade.`
+
+**Cause.** The upgrade's journal is not a regular file owned by you (or root) with mode 600. It names the folders an upgrade moves and removes, so `byodt` does not read it. `./byodt up`, `update` and `restart` stop on it, whatever phase it names, and so does `./byodt upgrade`.
+
+**Fix.** Look at it (`ls -l .byodt-upgrade.state`). If you do not know where it came from, remove it: that drops the upgrade, and the commands run again. If an upgrade had started moving its files in, roll back with the steps it printed, from its backup (see [Operations → Rolling back an upgrade](./OPERATIONS.md#rolling-back-an-upgrade)). If it is your upgrade's own journal and only its mode changed, `chmod 600 .byodt-upgrade.state` lets the upgrade go on.
+
+### `The new files were being moved in when the upgrade stopped`
+
+> `error: The new files were being moved in when the upgrade stopped. Without a terminal, add --yes to finish the move, or run './byodt upgrade --abandon' to put the old files back.`
+
+**Fix.** At a terminal, `./byodt upgrade` asks which way to go. Without one, `./byodt upgrade --yes` finishes the move and the upgrade; `./byodt upgrade --abandon` puts the old files back.
+
+### `Another upgrade is running here`
+
+> `error: Another upgrade is running here (.byodt-upgrade.lock, process 12345). Wait for it. If none is running, remove .byodt-upgrade.lock (and .byodt-upgrade.lock.takeover, if it is there) and run the command again.`
+
+**Cause.** Another upgrade holds the lock, or is taking it over. A lock that names no process yet (`process unknown`) counts as held: another upgrade may be taking it at that moment.
+
+**Fix.** Wait for the other upgrade. If no such process runs (`ps -p 12345`), or the message still says `process unknown` when you run the command again, remove the lock and the takeover lock beside it, if there is one, then run the command again:
+
+```sh
+rm -rf .byodt-upgrade.lock .byodt-upgrade.lock.takeover
+```
+
+A lock whose process has ended is normally taken over without this message.
+
+### `Could not download https://…/get-byodt.sh`
+
+> `error: Could not download https://github.com/dether-net/dethernety-oss/releases/download/vX.Y.Z/get-byodt.sh.`
+
+**Cause.** `./byodt upgrade` reads the release's version and SHA-256 from that release's installer, and could not fetch it: there is no such release, the release publishes no installer, or the release host is not reachable (through the proxy `.env` names, if any).
+
+**Fix.** Check the version on the releases page, and the network. Behind a TLS-inspecting proxy, the host's trust store must hold its CA.
+
+### `Applying … failed`
+
+> `error: Applying B failed (above). If the pull failed, the old containers are still running. Fix what it names and run './byodt upgrade' to go on, or roll back:` followed by the rollback steps.
+
+**Cause.** The upgrade moved the new files in and set `.env`, then `./byodt update` failed: most often an image pull (no route to the registry, or no proxy for the container engine). A failed pull leaves the old containers running.
+
+**Fix.** Fix what the output above names, then run `./byodt upgrade`. It applies again from where it stopped. Or roll back with the printed steps.
+
+### `Release … did not report healthy within … seconds`
+
+> `error: Release B did not report healthy within 1200 seconds. Still starting? './byodt upgrade' checks again. To go back instead (everything since the backup is lost):` followed by the rollback steps.
+
+**Cause.** After the apply, the platform or the front door was not healthy, or the console not running, within `--health-timeout` seconds. A first start after an upgrade can re-ingest the reference data and download the model, and take longer.
+
+**Fix.** Look at `./byodt status` and `./byodt logs platform`. Then run `./byodt upgrade` to wait again, or roll back with the printed steps.
+
+### `./byodt upgrade X.Y.Z` on 0.13.0 prints `Updated.` and stays on 0.13.0
+
+```
+==> Pulling the pinned images…
+==> Applying…
+==> Updated.
+```
+
+**Cause.** Release 0.13.0's `byodt` has no upgrade: its `upgrade` is another name for `update`, and it ignores the version.
+
+**Fix.** Upgrade with the new release's installer and `--upgrade`; see [Operations → Upgrading from 0.13.0](./OPERATIONS.md#upgrading-from-0130). If that upgrade stopped before the first file moved in, the deployment still has 0.13.0's `byodt`: run the installer again, which takes the upgrade over.
 
 ---
 
@@ -739,6 +1154,24 @@ If the database is not running, `./byodt up`. If it is running but the probe fai
 
 **Fix.** Confirm the deployment is actually holding data — the console's **Data ingest** panel shows the statement count from the reference ingest beneath its status. If the graph really is empty, there is nothing to back up yet.
 
+### `The database container is not running` / `More than one database container of this project is running`
+
+> `error: The database container is not running; start it with './byodt up'.`
+>
+> `error: More than one database container of this project is running ('./byodt status'); stop the extra one first.`
+
+**Cause.** Memgraph only. `backup` and `restore` copy the snapshot with the container engine's own `cp` (`docker cp` or `podman cp`), into or out of the deployment's one running database container, found by its compose labels.
+
+**Fix.** Start the deployment (`./byodt up`), or, for the second message, find the extra container with `./byodt status` and your engine's `ps`, and stop it.
+
+### `Could not make … private to you`
+
+> `warning: Could not make backups/byodt-snapshot-….snapshot private to you (its file system may not keep modes); keep it where only you can read it.`
+
+**Cause.** Memgraph only. A backup's snapshot is made readable by you only once it is copied out, and the file system it was written to does not keep file modes, as some network and removable file systems do not.
+
+**Fix.** The backup itself is complete. Keep it in a folder only you can read, or write backups to a file system that keeps modes: `./byodt backup /path/to/dir`.
+
 ### `That backup was taken on version X; this deployment is Y`
 
 **Cause.** A warning, not an error. The filename records the version the backup was taken on, and it differs from what this deployment runs. Snapshots and dumps are version-sensitive and may not load across versions.
@@ -761,7 +1194,7 @@ If the database is not running, `./byodt up`. If it is running but the probe fai
 
 ### `neo4j-admin could not dump the database`
 
-> `error: neo4j-admin could not dump the database. If it says the store needs recovery, the database did not shut down cleanly: start it ('byodt up'), let it finish starting, and run the backup again.`
+> `error: neo4j-admin could not dump the database. If it says the store needs recovery, the database did not shut down cleanly: start it ('./byodt up'), let it finish starting, and run the backup again.`
 
 **Cause.** Neo4j only. `neo4j-admin` refuses to dump a store that was not shut down cleanly; its own output above the message says why. `byodt` starts the database again either way.
 
@@ -783,9 +1216,9 @@ If the database is not running, `./byodt up`. If it is running but the probe fai
 
 **Fix.** Make sure the destination directory is writable by you and has room for the graph, then run `./byodt backup` again. The database is started again either way.
 
-### `Could not start the database — start it with 'byodt up'`
+### `Could not start the database — start it with './byodt up'`
 
-> `warning: Could not start the database — start it with 'byodt up'.`
+> `warning: Could not start the database — start it with './byodt up'.`
 
 **Cause.** Neo4j only. A backup or restore stopped the database, and starting it again failed.
 

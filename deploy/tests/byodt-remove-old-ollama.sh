@@ -8,6 +8,9 @@
 #   bash deploy/tests/byodt-remove-old-ollama.sh
 set -euo pipefail
 
+# No test may reach the network: stand-ins for curl, wget and cosign that fail loudly come before the system's.
+export PATH="$(cd "$(dirname "$0")" && pwd)/no-network:$PATH"
+
 BYODT="$(cd "$(dirname "$0")/../compose" && pwd)/byodt"
 for f in project_containers remove_old_ollama check_console_init; do
   fn="$(sed -n "/^$f() {\$/,/^}\$/p" "$BYODT")"

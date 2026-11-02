@@ -18,6 +18,9 @@
 #   bash deploy/tests/byodt-proxy.sh
 set -euo pipefail
 
+# No test may reach the network: stand-ins for curl, wget and cosign that fail loudly come before the system's.
+export PATH="$(cd "$(dirname "$0")" && pwd)/no-network:$PATH"
+
 SRC="$(cd "$(dirname "$0")/../compose" && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -59,7 +62,7 @@ SECRET_PART="s3cr%23t"
 bundle() {
   local b="$work/$1" ui="$2"; shift 2
   rm -rf "$b"; mkdir -p "$b"
-  cp "$SRC/byodt" "$SRC/compose.yaml" "$SRC/compose.memgraph.yaml" "$SRC/compose.neo4j.yaml" "$b/"
+  cp "$SRC/byodt" "$SRC/compose.yaml" "$SRC/compose.memgraph.yaml" "$SRC/compose.neo4j.yaml" "$SRC/THIRD-PARTY-ACKNOWLEDGEMENT" "$b/"
   printf '%s\n' "PLATFORM_VERSION=9.9.9" "CONTAINER_ENGINE=docker" "NEO4J_USERNAME=dethernety" "$@" > "$b/.env"
   printf 'NEO4J_PASSWORD=%s\n' "$PASSWORD" > "$b/.env.secrets"
   [ -z "$ui" ] || printf 'HTTPS_PROXY_USERINFO=%s\n' "$ui" >> "$b/.env.secrets"
@@ -67,7 +70,11 @@ bundle() {
   : > "$CALLS"; rm -f "$CALLS.env" "$CALLS.info" "$CALLS.svcimage"
   printf '%s' "$b"
 }
-run() { ( cd "$B" && ./byodt "$@" ) </dev/null >"$work/out" 2>&1; }
+# The commands that download confirm the third-party notice; with no terminal here, --yes does.
+run() {
+  case "$1" in up|start|update|pull|restart|models) set -- "$@" --yes ;; esac
+  ( cd "$B" && ./byodt "$@" ) </dev/null >"$work/out" 2>&1
+}
 got() { sed -n "s/^$1=//p" "$CALLS.env" 2>/dev/null; }
 # refused NAME WHAT [ENV LINES...]: up refuses that .env, starts nothing, and says WHAT.
 refused() {
@@ -260,12 +267,12 @@ done
 # --- compose.yaml: who gets what -----------------------------------------------------------------------------------
 for svc in console-init platform console; do
   block="$(sed -n "/^  $svc:\$/,/^  [a-z#-]/p" "$SRC/compose.yaml")"
-  printf '%s\n' "$block" | grep -q 'HTTPS_PROXY: ${BYODT_HTTPS_PROXY:-}' && printf '%s\n' "$block" | grep -q 'NO_PROXY: ${BYODT_NO_PROXY:-}' \
-    && printf '%s\n' "$block" | grep -q 'HTTP_PROXY: ""' && printf '%s\n' "$block" | grep -q './proxy-ca:/proxy-ca:ro' \
+  grep -q 'HTTPS_PROXY: ${BYODT_HTTPS_PROXY:-}' <<< "$block" && grep -q 'NO_PROXY: ${BYODT_NO_PROXY:-}' <<< "$block" \
+    && grep -q 'HTTP_PROXY: ""' <<< "$block" && grep -q './proxy-ca:/proxy-ca:ro' <<< "$block" \
     && ok "compose.yaml gives $svc the proxy, an empty HTTP_PROXY and the CA directory" || bad "compose.yaml's $svc lacks the proxy wiring"
 done
 block="$(sed -n "/^  platform:\$/,/^  [a-z#-]/p" "$SRC/compose.yaml")"
-printf '%s\n' "$block" | grep -q 'NODE_USE_ENV_PROXY: ${BYODT_NODE_USE_ENV_PROXY:-}' \
+grep -q 'NODE_USE_ENV_PROXY: ${BYODT_NODE_USE_ENV_PROXY:-}' <<< "$block" \
   && ok "compose.yaml gives the platform NODE_USE_ENV_PROXY from byodt" || bad "compose.yaml's platform lacks NODE_USE_ENV_PROXY"
 n="$(cat "$SRC/compose.yaml" "$SRC/compose.memgraph.yaml" "$SRC/compose.neo4j.yaml" | grep -c 'NODE_USE_ENV_PROXY:' || true)"
 [ "$n" = 1 ] && ok "no other service gets NODE_USE_ENV_PROXY" || bad "NODE_USE_ENV_PROXY is set $n times across the compose files"
@@ -275,7 +282,7 @@ done
 for spec in "compose.yaml proxy" "compose.memgraph.yaml db" "compose.neo4j.yaml db"; do
   read -r file svc <<< "$spec"
   block="$(sed -n "/^  $svc:\$/,/^  [a-z#-]/p" "$SRC/$file")"
-  printf '%s\n' "$block" | grep -q 'HTTPS_PROXY: ""' && printf '%s\n' "$block" | grep -q 'NO_PROXY: ""' \
+  grep -q 'HTTPS_PROXY: ""' <<< "$block" && grep -q 'NO_PROXY: ""' <<< "$block" \
     && ok "$file sets the proxy empty for $svc" || bad "$file does not set the proxy empty for $svc"
 done
 

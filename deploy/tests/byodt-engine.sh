@@ -15,6 +15,9 @@
 #   bash deploy/tests/byodt-engine.sh
 set -euo pipefail
 
+# No test may reach the network: stand-ins for curl, wget and cosign that fail loudly come before the system's.
+export PATH="$(cd "$(dirname "$0")" && pwd)/no-network:$PATH"
+
 SRC="$(cd "$(dirname "$0")/../compose" && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -65,13 +68,17 @@ mode_of() { perl -e 'printf "%o", (stat $ARGV[0])[2] & 07777' "$1"; }
 bundle() {
   local b="$work/$1"; shift
   rm -rf "$b"; mkdir -p "$b"
-  cp "$SRC/byodt" "$SRC/compose.yaml" "$SRC/compose.memgraph.yaml" "$SRC/compose.neo4j.yaml" "$b/"
+  cp "$SRC/byodt" "$SRC/compose.yaml" "$SRC/compose.memgraph.yaml" "$SRC/compose.neo4j.yaml" "$SRC/THIRD-PARTY-ACKNOWLEDGEMENT" "$b/"
   printf '%s\n' "PLATFORM_VERSION=9.9.9" "CONTAINER_ENGINE=docker" "$@" > "$b/.env"
   printf 'NEO4J_PASSWORD=not-a-real-password\n' > "$b/.env.secrets"; chmod 0600 "$b/.env.secrets"
   : > "$CALLS"; rm -f "$CALLS.stdin" "$CALLS.loaded" "$CALLS.mode" "$CALLS.dir"
   printf '%s' "$b"
 }
-run() { ( cd "$B" && ./byodt "$@" ) </dev/null >"$work/out" 2>&1; }
+# The commands that download confirm the third-party notice; with no terminal here, --yes does.
+run() {
+  case "$1" in up|start|update|pull|restart|models) set -- "$@" --yes ;; esac
+  ( cd "$B" && ./byodt "$@" ) </dev/null >"$work/out" 2>&1
+}
 boot() { ( cd "$B" && ./byodt bootstrap ) </dev/null >"$work/boot" 2>&1; }
 compose_line() { grep -m1 '^compose ' "$CALLS" || true; }
 # the calls that matter for a backup or restore, in order
@@ -155,7 +162,7 @@ run up || rc=$?
 # about it recorded or made — the next command without the export is a Memgraph deployment still.
 for verb in up bootstrap; do
   B="$(bundle u-$verb)"; mkdir -p "$B/data/memgraph"; : > "$B/data/memgraph/snapshot"; rc=0
-  ( cd "$B" && DB_ENGINE=neo4j ./byodt "$verb" ) </dev/null >"$work/out" 2>&1 || rc=$?
+  ( cd "$B" && DB_ENGINE=neo4j ./byodt "$verb" --yes ) </dev/null >"$work/out" 2>&1 || rc=$?
   if [ "$rc" -ne 0 ] && ! grep -q '^DB_ENGINE=' "$B/.env" && ! grep -q '^NEO4J_IMAGE=' "$B/.env" \
     && [ ! -e "$B/data/neo4j" ] && [ ! -e "$B/data/neo4j-logs" ]; then
     ok "$verb with an exported DB_ENGINE=neo4j over Memgraph data is refused, and records and makes nothing"
@@ -185,7 +192,7 @@ if grep -qF "exec -T db sh -c NEO4J_PASSWORD=\"\${NEO4J_AUTH#neo4j/}\" exec cyph
 else bad "neo4j db_query: $(cat "$CALLS")"; fi
 [ "$(cat "$CALLS.mode")" = 700 ] && ok "the dump directory is private (0700)" || bad "dump directory mode: $(cat "$CALLS.mode" 2>/dev/null)"
 case "$(cat "$CALLS.dir")" in "$B"/.byodt-dump.*) ok "the dump directory is in the bundle, not under data/" ;; *) bad "dump directory: $(cat "$CALLS.dir")" ;; esac
-out_file="$(ls "$work/q2-backups"/byodt-dump-9.9.9-*.dump 2>/dev/null | head -1)"
+out_file="$(ls "$work/q2-backups"/byodt-dump-9.9.9-*.dump 2>/dev/null | sed -n 1p)"
 if [ -n "$out_file" ] && [ "$(cat "$out_file")" = graph ] && [ "$(mode_of "$out_file")" = 600 ] && no_work_dirs; then
   ok "neo4j backup: copied out as byodt-dump-<version>-<time>.dump, mode 0600, and the private directory removed"
 else bad "neo4j backup output: ${out_file:-none} $(ls -la "$work/q2-backups" 2>&1) $(ls -a "$B")"; fi
@@ -265,6 +272,11 @@ B="$(bundle v1 DB_ENGINE=postgres)"; rc=0
 [ "$rc" -eq 0 ] && grep -q 'DB_ENGINE=postgres' "$work/out" && ok "version runs, and shows DB_ENGINE, whatever its value" || bad "version with a bad DB_ENGINE: rc $rc: $(cat "$work/out")"
 rc=0; ( cd "$B" && ./byodt frobnicate ) </dev/null >"$work/out" 2>&1 || rc=$?
 grep -q 'unknown command: frobnicate' "$work/out" && ok "an unknown command says so, whatever DB_ENGINE is" || bad "unknown command: $(cat "$work/out")"
+
+# tls status, with no certificate, names the command that applies one: the front door is recreated, not just started.
+rc=0; ( cd "$B" && ./byodt tls status ) </dev/null >"$work/out" 2>&1 || rc=$?
+grep -q "into tls/, then ./byodt restart proxy" "$work/out" && ! grep -q "then ./byodt up" "$work/out" \
+  && ok "tls status says a certificate is applied with restart proxy" || bad "tls status: rc $rc: $(cat "$work/out")"
 
 # version lists the Neo4j image a Neo4j deployment's .env names (a key with a digit in it).
 B="$(bundle v2 DB_ENGINE=neo4j NEO4J_IMAGE=docker.io/library/neo4j:5.26-enterprise)"; rc=0

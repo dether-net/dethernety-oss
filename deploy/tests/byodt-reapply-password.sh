@@ -14,6 +14,9 @@
 #   bash deploy/tests/byodt-reapply-password.sh
 set -euo pipefail
 
+# No test may reach the network: stand-ins for curl, wget and cosign that fail loudly come before the system's.
+export PATH="$(cd "$(dirname "$0")" && pwd)/no-network:$PATH"
+
 SRC="$(cd "$(dirname "$0")/../compose" && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -47,13 +50,17 @@ GENERATED="0123456789abcdef0123456789abcdef0123456789abcdef"
 bundle() {
   local b="$work/$1" pw="$2"; shift 2
   rm -rf "$b"; mkdir -p "$b"
-  cp "$SRC/byodt" "$SRC/compose.yaml" "$SRC/compose.memgraph.yaml" "$SRC/compose.neo4j.yaml" "$b/"
+  cp "$SRC/byodt" "$SRC/compose.yaml" "$SRC/compose.memgraph.yaml" "$SRC/compose.neo4j.yaml" "$SRC/THIRD-PARTY-ACKNOWLEDGEMENT" "$b/"
   printf '%s\n' "PLATFORM_VERSION=9.9.9" "CONTAINER_ENGINE=docker" "NEO4J_USERNAME=dethernety" "$@" > "$b/.env"
   printf 'NEO4J_PASSWORD=%s\n' "$pw" > "$b/.env.secrets"; chmod 0600 "$b/.env.secrets"
   : > "$CALLS"
   printf '%s' "$b"
 }
-run() { ( cd "$B" && ./byodt "$@" ) </dev/null >"$work/out" 2>&1; }
+# The commands that download confirm the third-party notice; with no terminal here, --yes does.
+run() {
+  case "$1" in up|start|update|pull|restart|models) set -- "$@" --yes ;; esac
+  ( cd "$B" && ./byodt "$@" ) </dev/null >"$work/out" 2>&1
+}
 reapply_calls() { grep -c ' exec -T db sh -c ' "$CALLS" || true; }
 
 # --- the flag ---------------------------------------------------------------------------------------------------
@@ -85,13 +92,13 @@ esac
 if grep -q "$GENERATED" "$CALLS"; then bad "the password appears on a host command line"; else ok "the password is on no host command line"; fi
 if grep -q "$GENERATED" "$work/out"; then bad "the password is printed"; else ok "the password is not printed"; fi
 # The re-apply needs a healthy database, which the start waits for: it must come after `up -d`.
-up_at="$(grep -n ' up -d' "$CALLS" | head -1 | cut -d: -f1)"
-re_at="$(grep -n ' exec -T db sh -c ' "$CALLS" | head -1 | cut -d: -f1)"
+up_at="$(grep -n -m1 ' up -d' "$CALLS" | cut -d: -f1)"
+re_at="$(grep -n -m1 ' exec -T db sh -c ' "$CALLS" | cut -d: -f1)"
 if [ -n "$up_at" ] && [ -n "$re_at" ] && [ "$re_at" -gt "$up_at" ]; then ok "the re-apply runs after the start"; else bad "the re-apply does not run after the start ($up_at, $re_at)"; fi
 if grep -q 'shorter than 32 characters' "$work/out"; then bad "the generated password is warned about"; else ok "the generated password is not warned about"; fi
 # What follows `up` on its stdin (a pasted line, a script's next command) stays there: the re-apply reads none of it.
 : > "$CALLS"; : > "$CALLS.stdin"
-if ( cd "$B" && ./byodt up ) <<<"the next command" >"$work/out" 2>&1; then ok "up succeeds with input waiting on stdin"; else bad "up failed with input waiting on stdin: $(cat "$work/out")"; fi
+if ( cd "$B" && ./byodt up --yes ) <<<"the next command" >"$work/out" 2>&1; then ok "up succeeds with input waiting on stdin"; else bad "up failed with input waiting on stdin: $(cat "$work/out")"; fi
 if [ "$(reapply_calls)" = 1 ] && [ ! -s "$CALLS.stdin" ]; then
   ok "the re-apply leaves the caller's stdin alone"
 else

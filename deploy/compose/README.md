@@ -10,7 +10,9 @@ embedding model's weights.
 - Docker with the Compose plugin, or Podman 4.1+ with a Compose provider (and, on
   macOS, a running Podman machine) — the bundle auto-detects which on the first run
   (it probes `docker compose` then `podman compose`); set `CONTAINER_ENGINE` in
-  `.env` to force one
+  `.env` to force one. On a host with both Docker and Podman, `podman compose` may run
+  Docker's `docker-compose`, which needs the Podman socket: set
+  `PODMAN_COMPOSE_PROVIDER=podman-compose`, or start `podman.socket`
 - Several gigabytes of free disk and memory — the stack runs a graph database
   alongside the platform, which holds the embedding model in memory; the model's
   weights take about 1.26 GB in `data/models`
@@ -20,12 +22,29 @@ embedding model's weights.
 ## Quickstart
 
 ```sh
+./byodt setup     # optional: choose the database, port and proxy, and write .env
 ./byodt up
 ```
 
-That's it. On the first run `byodt` seeds `.env` from the template, generates the
-database password, creates the runtime directories, and starts the stack; later
-runs just start it. Open <http://127.0.0.1:3000>.
+That's it. Before anything is downloaded, `byodt` shows a short third-party notice
+and asks you to confirm it (see [Third-party software](#third-party-software)). On
+the first run `byodt` seeds `.env` from the template (unless `setup` wrote it),
+generates the database password, creates the runtime directories, and starts the
+stack; later runs just start it. Open <http://127.0.0.1:3000>.
+
+From the first release that ships it, each release also publishes an installer,
+`get-byodt.sh`, that downloads this bundle, checks its SHA-256 (and, with cosign,
+its signature), unpacks it and runs `./byodt setup`:
+
+```sh
+curl --proto '=https' --tlsv1.2 -fsSL https://github.com/dether-net/dethernety-oss/releases/download/vX.Y.Z/get-byodt.sh | sh
+```
+
+`sh get-byodt.sh --help` lists its options. `./byodt setup --help` lists setup's
+flags; without a terminal, give `--yes` and the flags for anything other than the
+defaults. Setup also warns about a database volume an earlier deployment of this
+bundle left (`dethernety_memgraph-data`, `dethernety_neo4j-data`), and never
+removes one.
 
 `byodt` is the deployment's control script — a thin wrapper over Docker or Podman
 Compose that carries the two env files every command needs: the readable configuration
@@ -115,7 +134,9 @@ Leave `EMBEDDING_MODEL` unset: the platform embeds with the model the release's
 MITRE data was made with, and refuses any other. `./byodt up` and `./byodt update`
 refuse an `.env` that still sets `EMBEDDING_MODEL=embeddinggemma` (the old
 `ollama` service's model) and note `OLLAMA_*`, `EMBEDDING_URL` and
-`EMBEDDING_SIMILARITY_THRESHOLD` lines as no longer used; they never edit `.env`.
+`EMBEDDING_SIMILARITY_THRESHOLD` lines as no longer used. They never change your
+settings in `.env`; they only record a missing `CONTAINER_ENGINE` or `DB_ENGINE`
+(on Neo4j, `NEO4J_IMAGE` too).
 
 `DB_IMAGE` is copied into `.env` on the first run and kept across upgrades;
 `./byodt up` and `./byodt update` warn when it differs from the tested image. Moving
@@ -162,15 +183,54 @@ enable authentication (see below). Either change is applied on the next `./byodt
 ./byodt logs platform       # follow a service's logs
 ./byodt restart console     # recreate a service (re-reads config + the mode layer)
 ./byodt update              # pull the pinned images and apply
+./byodt upgrade [X.Y.Z]     # move to a newer release (the latest by default)
 ./byodt models pull         # download + verify the embedding model ahead of the first start
 ./byodt down                # stop (data kept)
 ./byodt destroy             # remove the stack; data on disk is kept (rm it yourself to wipe)
 ./byodt backup              # back up the graph into backups/ (copy it off-box)
 ./byodt restore <file>      # replace the graph from a backup (asks to confirm)
+./byodt notice              # print the third-party notice
 ```
 
 `./byodt help` lists every command. Each wraps your container engine's `compose` with
 the bundle's env files; `./byodt compose …` is the escape hatch for anything not covered.
+It is raw: it shows no third-party notice and has none of the checks below.
+
+Every bundle's stack has the compose project name `dethernety`. `up`, `update`,
+`restart`, `down`, `stop`, `destroy`, `backup`, `restore`, `upgrade`, and `setup`
+when it starts the stack, refuse to act while another folder runs, or ran, the
+project, and name that folder. If you moved
+this deployment here from that folder, run `./byodt down --take-over` here once to
+remove the old containers, then `./byodt up`.
+
+## Upgrading
+
+```sh
+./byodt upgrade             # to the latest release
+./byodt upgrade X.Y.Z       # to a given release
+```
+
+The new release's own `byodt` does the work: it checks first (files you edited,
+the `.env` changes, free disk, a running database), asks every question at once,
+backs up into `backups/upgrade-<from>-to-<to>-<time>/` (the graph, `.env`, and the
+shipped files), moves the new files in, updates `.env`, applies the release, waits
+until it is healthy, and prints the exact rollback steps. Run `./byodt upgrade`
+again to resume an interrupted one (one that had changed nothing yet starts over,
+with the options it was given), or `./byodt upgrade --abandon` to drop it.
+`./byodt upgrade --help` lists the options (`--yes`, `--move-db`,
+`--skip-graph-backup`, `--replace-edited`, `--health-timeout`, `--allow-unsigned`,
+`--require-signature`).
+
+The SHA-256 is always checked; with cosign the signature is too. An unattended
+upgrade (`--yes`, or no terminal) refuses a release cosign did not verify unless
+you pass `--allow-unsigned`; `--yes` never implies it. `UPGRADE_REQUIRE_SIGNATURE=true`
+in `.env` requires a signature for every upgrade, and `--allow-unsigned` is then
+refused; a value other than `true` or `false` stops the upgrade. Local changes belong in `compose.override.yaml`, which no release ships.
+
+Release 0.13.0's `byodt` has no upgrade (its `upgrade` only runs `update`): upgrade
+a 0.13.0 deployment with the new release's installer and `--upgrade --dir <folder>`.
+The full procedure, rolling back, and the Podman notes are in the
+[Operations guide](https://github.com/dether-net/dethernety-oss/blob/main/docs/user/byodt/OPERATIONS.md#upgrading-to-a-new-release).
 
 ## Upgrading from a bundle with the `ollama` service
 
@@ -190,6 +250,9 @@ class once. The full procedure, and rolling back, are in the
 `./byodt backup` copies the graph into `backups/`. A backup is the **graph only** — no password
 inside — so you can move it between machines, and it is not a secret-bearing file. **Copy backups off this machine**:
 one sitting next to the data it protects is lost with the machine.
+
+A backup file is readable by you only. On Memgraph under Podman, backup and restore
+copy with `podman cp`, so they work with podman-compose too.
 
 On **Memgraph** it takes a consistent snapshot with no downtime:
 
@@ -278,6 +341,18 @@ both must be registered with your identity provider as redirect URIs (exact matc
   for refreshing the recipe from your account.
 
 If sign-in is rejected at the provider, the console shows the exact value to register.
+
+## Third-party software
+
+Before your machine downloads third-party software (the database image, the front
+door's nginx image, and the embedding model), `byodt` shows the notice in
+`THIRD-PARTY-ACKNOWLEDGEMENT`: what that software is, where your machine downloads it
+from, and its licence. Dethernety does not distribute it. Confirming (`y`, or `--yes`)
+says you have read it and are responsible for using that software under its licence;
+it is not a licence agreement. Each confirmation is recorded in
+`third-party-acknowledgement.log`, in a folder only you can change. The notice is
+asked for again only for a new text, another database image, or another model.
+`./byodt notice` prints it; `./byodt acknowledge` records it.
 
 ## License
 

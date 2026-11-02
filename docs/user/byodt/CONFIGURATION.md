@@ -23,7 +23,7 @@ Everything you can change about the deployment lives in three files in the bundl
 
 All three are read on every command. `.env` and `.env.secrets` are deliberately separate so the password stays out of the file you open, share, and diff.
 
-None of the three exists in the release tarball — the first `./byodt up` creates all of them. A later start never overwrites them.
+None of the three exists in the release tarball. [`./byodt setup`](./INSTALLATION.md#set-up-with-byodt-setup) writes `.env` from your answers (and `.env.secrets` only for a proxy login), and the first `./byodt up` creates whatever is still missing: `.env` with the defaults, the database password, and the mode layer. A later start never overwrites them.
 
 ---
 
@@ -43,7 +43,8 @@ A configuration change is not live until the affected containers are **recreated
 | Connected or disconnected the cloud, in the console | `./byodt restart` |
 | Mounted or unmounted a content module, in the console | `./byodt restart platform` |
 | Updated the knowledge graph, in the console | `./byodt restart platform` |
-| The pinned image versions, to move to a new release | `./byodt update` |
+| The pinned image versions, to move to a new release | `./byodt update`, or let `./byodt upgrade` do it — see [Operations → Upgrading to a new release](./OPERATIONS.md#upgrading-to-a-new-release) |
+| `UPGRADE_REQUIRE_SIGNATURE` | Nothing: the next upgrade reads it |
 
 Two rules of thumb behind that table:
 
@@ -56,7 +57,7 @@ Two rules of thumb behind that table:
 
 ## The `.env` reference
 
-`.env` is created from `.env.example`, which stays in the bundle as the annotated original. Every setting below appears in it, in this order — some only commented out (`CONTAINER_ENGINE`, `EMBEDDING_THREADS`, `SETTINGS_URL`, `HTTPS_PROXY`, `NO_PROXY`), and `EMBEDDING_MODEL` only by mention. The database-engine settings — `DB_ENGINE`, `NEO4J_IMAGE`, `NEO4J_DATA`, `NEO4J_HEAP_SIZE` and `NEO4J_PAGECACHE_SIZE` — may have no line in it: add the line to `.env` to change one. Without a line, `byodt` uses the default given here, and records `DB_ENGINE` in `.env` on the first run — on Neo4j, `NEO4J_IMAGE` too.
+`.env` is created from `.env.example`, which stays in the bundle as the annotated original. Every setting below appears in it — some only commented out (`CONSOLE_IMAGE`, `CONTAINER_ENGINE`, `DB_ENGINE`, `NEO4J_IMAGE`, `NEO4J_DATA`, `NEO4J_HEAP_SIZE`, `NEO4J_PAGECACHE_SIZE`, `EMBEDDING_THREADS`, `SETTINGS_URL`, `HTTPS_PROXY`, `NO_PROXY`, `UPGRADE_REQUIRE_SIGNATURE`), and `EMBEDDING_MODEL` only by mention. A `.env` made by an earlier release can lack a line the template now has. An upgrade adds a setting that is new in the release, as the template ships it, but not the settings it leaves alone, which [What an upgrade does](./OPERATIONS.md#what-an-upgrade-does) lists. To change a setting that has no line, add the line to `.env`. Without a line, `byodt` uses the default given here. It records `CONTAINER_ENGINE` and `DB_ENGINE` in `.env` when `./byodt up`, `restart`, `update` or `bootstrap` finds them missing — on the first run, or in the update an upgrade ends with — and on Neo4j, `NEO4J_IMAGE` too.
 
 Spell boolean values exactly `true` or `false`. Do not rename any of these keys — the deployment reads them by name.
 
@@ -156,9 +157,9 @@ The platform embeds in process with its built-in model, **`embeddinggemma-300m-r
 **Leave `EMBEDDING_MODEL` unset.** The reference data's MITRE vectors were embedded with the built-in model, and a different model's queries would not match them. So any other value is refused before anything starts:
 
 - `EMBEDDING_MODEL=embeddinggemma` — the model the old `ollama` service ran — is refused by `./byodt up`, `./byodt update` and `./byodt models pull` with an instruction to remove the line, however it is quoted, exported, or followed by a comment.
-- Any other value is checked by `console-init` against the model this release's MITRE data was embedded with; on a mismatch it stops the start and the platform does not start. `./byodt up` then fails with `'byodt logs console-init' says why`.
+- Any other value is checked by `console-init` against the model this release's MITRE data was embedded with; on a mismatch it stops the start and the platform does not start. `./byodt up` then fails with `'./byodt logs console-init' says why`.
 
-Settings of the old `ollama` service — `OLLAMA_IMAGE` and any other `OLLAMA_*` line, `EMBEDDING_URL`, `EMBEDDING_SIMILARITY_THRESHOLD` — are no longer used. `./byodt up`, `./byodt update` and `./byodt models pull` print a notice for each one they find; you can remove the lines. `./byodt update` never edits `.env` for you.
+Settings of the old `ollama` service — `OLLAMA_IMAGE` and any other `OLLAMA_*` line, `EMBEDDING_URL`, `EMBEDDING_SIMILARITY_THRESHOLD` — are no longer used. `./byodt up`, `./byodt update` and `./byodt models pull` print a notice for each one they find; you can remove the lines. `./byodt update` does not remove them: it never changes your settings in `.env`, and only records a missing `CONTAINER_ENGINE` or `DB_ENGINE` there (on Neo4j, `NEO4J_IMAGE` too).
 
 **The model's weights** (about 1.26 GB) live in `data/models` on the host, mounted into the platform. The platform downloads them once from Hugging Face on the first start and verifies each file's sha256; `./byodt models pull` does it ahead of time. A recreate or an upgrade that keeps the same model does not download them again. They are not secret and need no backup: a lost `data/models` is downloaded again on the next start.
 
@@ -201,7 +202,7 @@ For a host whose only way to the internet is an HTTP proxy. The setup, in order,
 
 Applied on `./byodt up` (or `./byodt restart`). The proxy's login, `HTTPS_PROXY_USERINFO`, lives in `.env.secrets`, and the CA of a proxy that inspects TLS in `proxy-ca/proxy-ca.pem`; both are described below.
 
-**`byodt` reads it from `.env` only, never from your shell.** Operators behind a proxy often export one, and an upgrade must not start sending a deployment through a proxy it worked without. When your shell sets a different `HTTPS_PROXY`, `byodt` prints a notice and goes on with `.env`'s. It reads the setting for the commands that can create or recreate a service that calls out: `up`, `restart`, `update`, `models pull` and `compose`. `down`, `status`, `logs`, `backup`, `restore` and `destroy` do not read it, so a bad value does not stand in their way.
+**`byodt` reads it from `.env` only, never from your shell.** Operators behind a proxy often export one, and an upgrade must not start sending a deployment through a proxy it worked without. When your shell sets a different `HTTPS_PROXY`, `byodt` prints a notice and goes on with `.env`'s. It reads the setting for the commands that can create or recreate a service that calls out: `up`, `restart`, `update`, `models pull` and `compose`, and for `upgrade`, which downloads the new release through it (with the login from `.env.secrets`; a TLS-inspecting proxy's CA must be in the host's trust store for that download, since `proxy-ca/` reaches only the containers). `down`, `status`, `logs`, `backup`, `restore` and `destroy` do not read it, so a bad value does not stand in their way.
 
 **What goes through the proxy.** Only HTTPS. Everything the deployment fetches from outside is HTTPS, and every plain-HTTP call stays inside the stack or on your own network. So there is no `HTTP_PROXY`: plain HTTP is never sent to the proxy, and `byodt` warns that an `HTTP_PROXY` line in `.env` is not used. `console-init`, the platform and the console get the setting. The database and the front door call nothing outside the stack, and get every proxy variable set empty. Image pulls do not use it either: the container engine pulls with its own setting (see [Installation → Give the container engine the proxy](./INSTALLATION.md#1-give-the-container-engine-the-proxy)).
 
@@ -238,6 +239,14 @@ The CA reaches only the deployment's containers. For image pulls through an insp
 > - **What is sent.** It can read the operator's cloud token, users' sign-in tokens, the threat-model attributes sent for evaluation, and knowledge-graph queries.
 >
 > Signed content stays checked against what does not come from the network. Code modules are verified against a trusted root embedded in the console image and the identity pinned to the release. Cloud artifacts are verified against the signer your cloud recipe names. The model's weights are checked against the sha256 the platform image pins. A change to any of them fails its check.
+
+### Upgrades
+
+| Setting | What it does | Default | Change it when |
+|---|---|---|---|
+| `UPGRADE_REQUIRE_SIGNATURE` | `true` makes every upgrade of this deployment refuse a release that cosign did not verify, as `--require-signature` does. An upgrade given `--allow-unsigned` is refused before anything is downloaded. `false`, or an empty value, leaves it to the flags. Any other value stops every upgrade. | Unset — an upgrade without a verified signature asks at a terminal, and needs `--allow-unsigned` unattended | cosign is installed on this host and no upgrade should run without it. |
+
+Both `./byodt upgrade` and the installer's `--upgrade` read it from this deployment's `.env`, as compose would read the line (quotes and an `export ` prefix are fine). `true` and `false` count in any case, so `True` counts as `true`. Any other value, such as `yes`, `1` or `on`, may have been meant as `true`, so the upgrade stops before anything is downloaded, with `.env sets UPGRADE_REQUIRE_SIGNATURE=yes, which is neither true nor false. Nothing was changed.` An upgrade never changes the setting. An account that cannot read `.env` cannot tell whether it is set, so its upgrade stops instead of going on without it. See [Operations → Signatures](./OPERATIONS.md#signatures).
 
 ---
 
@@ -416,6 +425,19 @@ It is always rewritten, **never deleted** — a missing file would break the ver
 **Do not hand-edit this file — reading it is fine.** The console is its author, it validates everything it writes, and it refuses values that do not belong there; a hand edit gets none of those checks, and a connect or a disconnect replaces the file whole, so it would not survive one anyway. Make changes from the console instead; see [Cloud](./CLOUD.md).
 
 There is one good reason to open it. Nothing in the console shows you who may currently sign in, so the `DEPLOYMENT_ALLOWLIST` line here is the only place to check whether an apply dropped somebody — see [Troubleshooting → I need to see who is on the access list](./TROUBLESHOOTING.md#i-need-to-see-who-is-on-the-access-list).
+
+---
+
+## Files `byodt` keeps for itself
+
+Besides your configuration, `byodt` keeps a few records in the bundle directory. Leave them in place: they belong to the deployment, not to a release. No release ships them; `byodt` writes them itself.
+
+| Path | What it is |
+|---|---|
+| `.byodt-release` | The release this deployment runs, and the SHA-256 of every file that release shipped. Written by `./byodt setup` or the first start, and by each upgrade. The next upgrade checks your local edits against it. |
+| `third-party-acknowledgement.log` | One line for each confirmation of the third-party notice. See [Installation → The third-party notice](./INSTALLATION.md#the-third-party-notice). |
+| `backups/upgrade-<from>-to-<to>-<time>/` | Each upgrade's backup: the graph, `.env`, the release record and the old release's files. Readable by you only. The upgrade's rollback steps restore from it. |
+| `.byodt-upgrade.state`, `.byodt-upgrade.lock`, `.byodt-upgrade.lock.takeover`, `.byodt-upgrade.XXXXXX/` | An upgrade in progress: its journal, its lock (and, while it takes over a stale lock, the takeover lock), and its staging folder. They go when the upgrade finishes or is dropped. Do not remove them by hand while an upgrade is half done; run `./byodt upgrade`, or `./byodt upgrade --abandon`. |
 
 ---
 

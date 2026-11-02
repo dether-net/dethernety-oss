@@ -1,0 +1,26 @@
+{
+  "name": "@dethernety/byodt",
+  "version": "0.0.0",
+  "description": "Install Dethernety's self-hosted deployment, or upgrade one: runs the release's own get-byodt.sh",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dether-net/dethernety-oss.git",
+    "directory": "deploy/installer/npm"
+  },
+  "homepage": "https://github.com/dether-net/dethernety-oss",
+  "type": "module",
+  "bin": {
+    "byodt": "bin/byodt.mjs"
+  },
+  "files": [
+    "bin/byodt.mjs",
+    "lib.mjs",
+    "get-byodt.sh",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

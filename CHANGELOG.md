@@ -50,6 +50,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Image pulls use the Docker daemon's own proxy setting, not `.env`.** `./byodt up` and
   `./byodt update` warn before they pull when `.env` sets a proxy and the daemon has none. A failed
   embedding-model download names the host that failed, never the path or query of its URL.
+- **Setup warns about a database volume an earlier deployment left.** When
+  `dethernety_memgraph-data` or `dethernety_neo4j-data`, a volume an earlier deployment of the
+  bundle left, exists, setup names it and says whether this deployment would mount it or not. If
+  it would, its first start would be refused; setting `DB_DATA` or `NEO4J_DATA` to a folder avoids
+  that. If not, the old graph may still be in it: start the deployment it belongs to again, with
+  this one stopped, to use it. The warning gives the `volume rm` command to run if that graph is
+  no longer needed. Nothing is removed for you.
+- **Each release publishes an installer, `get-byodt.sh`, signed like the bundle.** Run with
+  `curl --proto '=https' --tlsv1.2 -fsSL https://github.com/dether-net/dethernety-oss/releases/download/vX.Y.Z/get-byodt.sh | sh`,
+  it downloads that release's bundle over HTTPS (at most 50 MiB), checks the SHA-256 the release
+  wrote into the installer and, with cosign installed, the release workflow's signature at that
+  exact tag, unpacks it into a new folder (`./byodt`, or `--dir`), and runs `./byodt setup`. It
+  refuses an existing folder, never installs over a deployment, and upgrades one with `--upgrade`.
+  Options: `--dir`, `--upgrade`, `--yes`, `--https-proxy`, `--tarball`, `--require-signature`,
+  `--allow-unsigned`; any other option goes to setup or upgrade. Without a terminal it needs
+  `--yes`. A proxy login comes only from `HTTPS_PROXY` or `https_proxy` in the environment:
+  `--https-proxy` refuses one.
+- **An npm package that wraps the same installer, `@dethernety/byodt`.** Each package version is
+  the release of the same version and carries its `get-byodt.sh`, which it runs with `/bin/sh`
+  (`npx <package>@X.Y.Z`). It has no dependencies and no install scripts, and stops on Windows (use
+  WSL). Publishing it to npm is switched on separately; until then, and after, `get-byodt.sh` from
+  the release is the primary way to install.
+- **`./byodt setup`, the first run of a bundle.** It asks for the database, the data storage (on
+  Docker Desktop or a Podman machine), the bind address, the port, the outbound proxy (its hosts,
+  login and CA), and whether to start, and writes `.env` (and `.env.secrets` only for a proxy
+  login). Every question has a flag; `--yes` takes the defaults. Without a terminal and without
+  `--yes` it refuses, and a refusal leaves the folder as it was.
+- **A third-party notice before the first download.** `byodt` and the installer show which
+  third-party software the deployment runs (the database image, nginx, the embedding model), where
+  the machine downloads it from, and its licence, and ask you to confirm that you have read it and
+  are responsible for using that software under its licence. It is not a licence agreement. Each
+  confirmation is a line in `third-party-acknowledgement.log`; the notice is asked for again only
+  for a new text, another database image, or another model. `./byodt notice [--all]` prints it,
+  `./byodt acknowledge` records it. `./byodt compose …` never shows it.
+- **`./byodt upgrade [VERSION]` moves a deployment to a newer release.** The new release's own
+  `byodt` checks first (edited shipped files, the `.env` changes, free disk, a running database),
+  asks every question at once, backs up into `backups/upgrade-<from>-to-<to>-<time>/` (the graph,
+  `.env`, the shipped files), moves the new files in, updates `.env`, applies the release, waits
+  until it is healthy, and prints the rollback steps. An interrupted upgrade resumes with
+  `./byodt upgrade`, or is dropped with `--abandon`; one interrupted before it changed anything
+  starts over, with the options it was given and any given now. Options: `--yes`, `--move-db`,
+  `--replace-edited`, `--skip-graph-backup`, `--require-signature`, `--allow-unsigned`,
+  `--health-timeout`. An unattended upgrade refuses a release cosign did not verify unless
+  `--allow-unsigned`; `--yes` never implies it.
+- **`UPGRADE_REQUIRE_SIGNATURE=true` in `.env`** makes every upgrade of the deployment require a
+  verified signature. An upgrade given `--allow-unsigned` is refused before anything is
+  downloaded. `false`, in any case, or an empty value leaves it to the flags; any other value, such
+  as `yes` or `1`, stops the upgrade before anything is downloaded. An upgrade by an account that
+  cannot read `.env` stops.
+- **`.byodt-release` records the release a deployment runs** and the SHA-256 of every file it
+  shipped. The next upgrade checks local edits against it.
 
 ### Changed
 
@@ -67,6 +118,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `NODE_EXTRA_CA_CERTS` is set, and no longer loads a `root.crt` from the directory that variable
   points into. If your identity provider's certificate is signed by a private CA, add that CA to
   `proxy-ca/proxy-ca.pem` in the compose bundle; elsewhere, point `NODE_EXTRA_CA_CERTS` at it.
+- **`./byodt` now refuses to act on another folder's deployment.** `up`, `update`, `restart`,
+  `down`, `stop`, `destroy`, `backup`, `restore`, `upgrade`, and `setup` when it starts the stack
+  (`--start`, or a yes at its question), refuse when the deployment's compose project (all bundles
+  share the project name `dethernety`) is running, or ran, from another folder, and they name that
+  folder. Before, `up` in a leftover folder took over another folder's containers, and `down` or
+  `destroy` there stopped its running deployment. A deployment moved here from another folder
+  removes the old folder's containers once with `./byodt down --take-over` (or
+  `destroy --take-over`), then starts here.
+- **The first `./byodt up` refuses to mount a database volume an earlier deployment left.** When the
+  database would use the named volume `dethernety_memgraph-data` or `dethernety_neo4j-data` and that
+  volume already exists, the first `up` of a folder stops, and so does `setup` when it starts the
+  stack: that graph's database users were made with another password, so the platform would be
+  locked out. Setting `DB_DATA` or `NEO4J_DATA` to a folder avoids it (`--db-data bind` in setup);
+  the message gives the `volume rm` command for a graph you no longer need.
+- **`./byodt upgrade` is a command of its own.** It was another name for `update`. Release 0.13.0's
+  `byodt` keeps the old meaning: upgrade a 0.13.0 deployment with the new release's installer and
+  `--upgrade`.
+- **The first start of a bundle shows the third-party notice and waits for a confirmation.**
+  `./byodt up`, `update`, `restart` and `models pull` on a deployment that has not run yet stop
+  without a terminal unless `--yes` is given. On a deployment that has run, a due notice is asked
+  for at a terminal, where `n` stops the command; with no terminal and no `--yes`, it is printed
+  with a warning and never stops a command.
+- **`byodt` names itself in its messages the way it was run**, `./byodt up` rather than `byodt up`,
+  so a suggested command works as printed.
+- **`byodt` records the notice only in a folder no other account can change.** A group-writable
+  folder counts as one other accounts can change, unless the group is the operator's own private
+  group.
 
 ### Fixed
 
@@ -124,6 +202,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unchanged, and a failure only warns. Neo4j is unaffected. If you set your own password, use a
   long random value, which the faster hash relies on: on Memgraph, `byodt` warns when it is
   shorter than 32 characters. See *How Memgraph stores it* in the BYODt configuration guide.
+- **`./byodt backup` and `./byodt restore` now work on Podman with podman-compose for a Memgraph
+  database.** They copied the graph snapshot with `compose cp`, which podman-compose does not have,
+  so they failed with "Failed to copy the snapshot out of the db container." (backup) or "Could not
+  copy the snapshot into the db container." (restore). An upgrade backs up the graph first, so an
+  upgrade on such a deployment stopped there, with nothing changed. `byodt` now copies the snapshot
+  with the container engine's own `cp` (`docker cp` or `podman cp`) on the project's database
+  container, which both engines have. Neo4j deployments were not affected. The snapshot a manual
+  `./byodt backup` writes is now readable by its owner only (it kept the container file's mode
+  before). An upgrade from 0.13.0 on Podman still runs 0.13.0's own backup and fails there; take a
+  snapshot of the graph by hand with `podman cp` and upgrade with `--skip-graph-backup`.
 
 ### Security
 

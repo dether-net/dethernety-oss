@@ -13,11 +13,19 @@ The **BYODt deployment** runs the whole Dethernety platform on a machine you con
 
 There is no source checkout and no build toolchain. A container engine is the only prerequisite.
 
+From the first release that ships it, each release publishes an installer that downloads the bundle, checks its SHA-256 and, with cosign, its signature, and asks a few questions:
+
+```sh
+curl --proto '=https' --tlsv1.2 -fsSL https://github.com/dether-net/dethernety-oss/releases/download/vX.Y.Z/get-byodt.sh | sh
+```
+
+Once a release is published to npm, the same installer also runs through `npx` (see [Installation → With npm](./INSTALLATION.md#with-npm)). You can also download and verify the bundle by hand. In the deployment's folder, one command then starts it:
+
 ```sh
 ./byodt up
 ```
 
-That one command sets the deployment up on first run and starts it every time after. Everything runs locally; the deployment reaches the network only to pull its images, the embedding model's weights, and the signed module payloads for the release it is pinned to — directly, or through an outbound proxy (see [Installation](./INSTALLATION.md#behind-an-outbound-proxy)).
+It sets the deployment up on first run if nothing else did, and starts it every time after. `./byodt upgrade` moves it to a newer release, with a backup and printed rollback steps. Everything runs locally; the deployment reaches the network only to pull its images, the embedding model's weights, and the signed module payloads for the release it is pinned to — directly, or through an outbound proxy (see [Installation](./INSTALLATION.md#behind-an-outbound-proxy)).
 
 New here? Go to **[Installation](./INSTALLATION.md)**.
 
@@ -84,9 +92,11 @@ Full detail, including Podman specifics and the setup behind a proxy, is in [Ins
 
 ```sh
 ./byodt help        # every command
+./byodt setup       # the first run: choose the settings, write .env
 ./byodt status      # what is running
 ./byodt logs platform
 ./byodt backup
+./byodt upgrade     # move to the latest release
 ```
 
 It operates on the bundle it lives in, so it can be run from anywhere. Always go through it: the database service is in a separate file per engine, so a bare `docker compose up` does not start the stack. The full command reference is in [Operations](./OPERATIONS.md).
@@ -106,9 +116,10 @@ The release tarball extracts to a single directory containing these files:
 | `compose.memgraph.yaml`, `compose.neo4j.yaml` | The database service, one file per engine. `byodt` uses the one `DB_ENGINE` names. |
 | `.env.example` | The configuration template, and the release manifest for the tested image set. |
 | `proxy/nginx.conf`, `proxy/40-tls.sh` | The front-door configuration and its TLS entrypoint. |
+| `THIRD-PARTY-ACKNOWLEDGEMENT` | The third-party notice `byodt` shows before your machine downloads third-party software. |
 | `README.md`, `LICENSE`, `NOTICE` | Quickstart, licence, and third-party notices. |
 
-The first start creates the rest — `.env`, `.env.secrets`, `mode/`, `modules/`, `schema/`, `data/`, `tls/`, and `proxy-ca/`. Those are yours: they hold your configuration, your database password, and your data. Nothing in them is overwritten by a later start.
+`./byodt setup` and the first start create the rest — `.env`, `.env.secrets`, `mode/`, `modules/`, `schema/`, `data/`, `tls/`, and `proxy-ca/`, plus `byodt`'s own records, `.byodt-release` and `third-party-acknowledgement.log`. Those are yours: they hold your configuration, your database password, and your data. Nothing in them is overwritten by a later start, and an upgrade changes `.env` only as it tells you, keeping a copy in its backup.
 
 ## Two ways to run it
 
@@ -124,9 +135,9 @@ Your data never moves either way: the graph stays in your database in both modes
 
 | Guide | What it covers |
 |---|---|
-| [Installation](./INSTALLATION.md) | Prerequisites, the network access the first start needs, the setup behind an outbound proxy, getting the bundle, the first start, what happens during it, and how to confirm the deployment is healthy. **Start here.** |
+| [Installation](./INSTALLATION.md) | Prerequisites, the network access the first start needs, the setup behind an outbound proxy, the installer (from the first release that ships it, or through npm once a release is published there), `./byodt setup`, the third-party notice, getting the bundle by hand, the first start, what happens during it, and how to confirm the deployment is healthy. **Start here.** |
 | [Configuration](./CONFIGURATION.md) | Every setting in `.env`, including the outbound proxy, the choice of database engine, the secret file and the proxy login it can hold, where the database keeps its data, and how to apply a change. |
-| [Operations](./OPERATIONS.md) | The `byodt` command reference and the day-to-day tasks: start, stop, inspect, back up, restore, TLS, upgrade, remove. |
+| [Operations](./OPERATIONS.md) | The `byodt` command reference and the day-to-day tasks: start, stop, inspect, back up, restore, TLS, upgrade (with `./byodt upgrade`, resuming, rolling back, from 0.13.0, on Podman), remove. |
 | [Cloud](./CLOUD.md) | Connecting the deployment to cloud sign-in and content packages from the console, and disconnecting again. |
 | [Troubleshooting](./TROUBLESHOOTING.md) | Symptom, cause, and fix for the failures this deployment actually produces. |
 
@@ -143,6 +154,8 @@ The Dethernety platform and the operator console are licensed under the **GNU AG
 The deployment also *references* third-party container images — the graph database and the proxy — which your container engine pulls directly from their publishers. The bundle does not redistribute them. Read `NOTICE` in the bundle for their licences and provenance; note in particular that **Memgraph is licensed BSL 1.1, whose production-use terms bind you as the operator directly**, and that **Neo4j Community Edition is licensed GPLv3**.
 
 The platform's embedding model, **EmbeddingGemma 300m** (Google), is not in the bundle or in any image either: the platform downloads its weights from Hugging Face on the first start. The model is licensed under the **[Gemma Terms of Use](https://ai.google.dev/gemma/terms)**; the platform logs the licence before it downloads, and `./byodt models pull` prints it.
+
+Before your machine downloads any of this third-party software, the installer and `byodt` show a short notice that lists it, where it comes from, and its licence, and ask you to confirm that you have read it and are responsible for using that software under its licence. The confirmation is recorded in the deployment's folder. It is not a licence agreement. See [Installation → The third-party notice](./INSTALLATION.md#the-third-party-notice).
 
 ## For developers
 
