@@ -30,7 +30,7 @@
     "@dethernety/dt-module": "workspace:*",
     "@dethernety/embedder": "workspace:*",
     "@graphql-tools/schema": "^10.1.5",
-    "@langchain/langgraph-sdk": "^1.12.8",
+    "@langchain/langgraph-sdk": "^1.12.9",
     "@neo4j/graphql": "7.2.0",
     "@nestjs/apollo": "^13.4.5",
     "@nestjs/common": "^11.2.8",
@@ -40,7 +40,7 @@
     "@nestjs/platform-express": "^11.2.8",
     "@nestjs/serve-static": "^5.0.5",
     "@types/jsonwebtoken": "^9.0.10",
-    "axios": "^1.20.0",
+    "axios": "^1.21.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "express": "5.2.1",
@@ -55,7 +55,7 @@
     "neo4j-driver": "^5.28.3",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
-    "ws": "^8.22.0"
+    "ws": "^8.22.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -68,7 +68,7 @@
     "@types/supertest": "^7.2.1",
     "@typescript-eslint/eslint-plugin": "^8.72.1",
     "@typescript-eslint/parser": "^8.72.1",
-    "eslint": "^10.13.0",
+    "eslint": "^10.14.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.7",
     "jest": "^30.5.2",
