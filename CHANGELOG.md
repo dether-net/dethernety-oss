@@ -5,7 +5,71 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.14.0] - 2026-11-02
+
+The compose bundle can reach the internet through an outbound HTTPS proxy. Each release now
+publishes a signed installer, `get-byodt.sh`, and `get-byodt.sh` from the release is the way to
+install. The npm package `@dether.net/byodt` is the same installer, once it is published to npm.
+`./byodt setup` is the first run of a new bundle, and `./byodt upgrade` moves a deployment to a
+newer release in place. `byodt` and the installer show a third-party notice before the first
+download. byodt is 1.4.0.
+
+A control can be applied to a Data element: in the API, in dt-core, in the data dialog and in
+Dethereal 0.5.0. The threat report lists a Data element's own controls. A slow remote module now
+serves its read-only fallback and stays in service. The settings window no longer saves the wrong
+values, drops a class change or shows old attribute values when a save and a load overlap. Database
+logins on Memgraph are fast.
+
+**Upgrading:** this is the first release with `get-byodt.sh` and `./byodt upgrade`. A 0.13.0
+deployment cannot upgrade itself: 0.13.0's `./byodt upgrade` is another name for `update`, ignores
+the version and stays on 0.13.0. Upgrade it once with this release's installer, naming the
+deployment's folder, or by hand as before (see the operator guide's Operations, *Upgrading from
+0.13.0* and *Upgrading by hand*):
+
+```sh
+curl --proto '=https' --tlsv1.2 -fsSL https://github.com/dether-net/dethernety-oss/releases/download/v0.14.0/get-byodt.sh \
+  | sh -s -- --upgrade --dir /path/to/your/deployment
+```
+
+From 0.14.0 on, `./byodt upgrade` does the next upgrade. **On Memgraph with `podman-compose`**, the
+graph backup of an upgrade from 0.13.0 is taken by 0.13.0's own `byodt`, and it fails there: take
+the snapshot by hand and add `--skip-graph-backup` to the installer command above (see Operations,
+*Upgrading on Podman*). **Signatures:** without a terminal, an upgrade needs `--yes`. Without
+cosign, an upgrade given `--yes` or run without a terminal refuses the release unless you add
+`--allow-unsigned`; at a terminal, without `--yes`, it asks first. A signature cosign rejects always
+stops the upgrade. Install cosign to have the signature checked. To make a missing signature stop
+every upgrade, `--allow-unsigned` included, set `UPGRADE_REQUIRE_SIGNATURE=true` in `.env`.
+
+**Operators:** a proxy that reached the containers from your shell under Podman, or from the Docker
+client's `~/.docker/config.json`, no longer reaches them; if the stack needs one, set `HTTPS_PROXY`
+in `.env` (see *Changed*). The JWT guard no longer builds an HTTPS agent of its own or loads a
+`root.crt` from beside the file `NODE_EXTRA_CA_CERTS` names (see *Changed*). If that variable named
+your identity provider's server certificate and its private CA was in the `root.crt` beside it, the
+guard no longer trusts that CA: point `NODE_EXTRA_CA_CERTS` at the CA itself. In the compose bundle,
+add the CA to `proxy-ca/proxy-ca.pem`, beside any proxy CA already in that file; console-init, the
+platform and the console then trust it for all their outbound HTTPS (see *Added*, the proxy CA
+entry). A `NODE_EXTRA_CA_CERTS` that already named the CA itself is unaffected.
+
+**`TEMPLATE_OPERATION_TIMEOUT_MS`:** the compose bundle does not pass it to the platform, so this
+concerns dt-ws run outside the bundle, or given the variable through `compose.override.yaml`.
+0.13.0 checked its range but did not use it. dt-ws now waits that long for a module's template or
+guide, and raises a value below 20000 to 20000 (see *Fixed*). Before upgrading, check that the
+value is how long you want dt-ws to wait, or remove it to get the default, 30000.
+
+**Moved folders:** if you moved a deployment's folder to a new path, run `./byodt down --take-over`
+once in the new folder before you start it: `byodt` now refuses to act on another folder's
+deployment (see *Changed*). **Memgraph:** `./byodt up` and `./byodt update`, the upgrade's own apply
+included, set a password of the generated shape again to move it to the faster hash; with the
+generated password there is nothing to do (see *Fixed*). A password of another shape (anything but
+lowercase hex of 32 characters or more) keeps the slower hash until you set it again in the
+database (see *How Memgraph stores it* in the BYODt configuration guide).
+
+**Module authors:** `@dethernety/dt-module` is 0.14.0. A module whose manifest declares
+`compatibility.dtModule` must declare `^0.14.0` to be packaged against it (see *Changed*).
+`dethernety-threat-report` is 2.1.0. **API callers:** `Data.controls` and `Control.supportedData`
+are new (see *Added*). **Dethereal users:** Dethereal 0.5.0 needs this platform: it checks for
+`Data.controls` and stops on an older platform (see *Changed*). Upgrade the platform first.
+Dethereal is published separately from this release.
 
 ### Added
 
@@ -38,9 +102,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and no service log carried it.
 - **`NO_PROXY` takes exact host names or addresses.** Each may have an optional `:port`, and they
   are separated by commas; CIDR, ranges, wildcards and a leading dot are refused. Do not rely on an
-  entry to cover its subdomains: the platform's core HTTPS agent matches the exact name only, so list
-  every host, `login.example.com` and not `example.com`. `./byodt` adds
-  loopback and the stack's own service names, including any service in `compose.override.yaml`.
+  entry to cover its subdomains: the platform's core HTTPS agent matches the exact name only, so
+  list every host, `login.example.com` and not `example.com`. `./byodt` adds loopback and the
+  stack's own service names, including any service in `compose.override.yaml`.
 - **A TLS-inspecting proxy's CA goes in `proxy-ca/proxy-ca.pem`.** It must be the only file in
   `proxy-ca/`: owned by you, readable by every account (`chmod 0644`), not writable by group or
   others, and not a symbolic link. After replacing it, run `./byodt restart platform console`.
@@ -92,8 +156,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `./byodt upgrade`, or is dropped with `--abandon`; one interrupted before it changed anything
   starts over, with the options it was given and any given now. Options: `--yes`, `--move-db`,
   `--replace-edited`, `--skip-graph-backup`, `--require-signature`, `--allow-unsigned`,
-  `--health-timeout`. An unattended upgrade refuses a release cosign did not verify unless
-  `--allow-unsigned`; `--yes` never implies it.
+  `--health-timeout`. A signature cosign rejects always stops the upgrade. Without cosign, an
+  upgrade given `--yes` or run without a terminal refuses the release unless `--allow-unsigned` is
+  given, and `--yes` never implies it; at a terminal, without `--yes`, it asks first.
 - **`UPGRADE_REQUIRE_SIGNATURE=true` in `.env`** makes every upgrade of the deployment require a
   verified signature. An upgrade given `--allow-unsigned` is refused before anything is
   downloaded. `false`, in any case, or an empty value leaves it to the flags; any other value, such
@@ -116,9 +181,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   boundary, component or data flow an absent key clears them. To remove a control from a data
   item, write the list without it, or `[]`; never delete the key. `manage_controls assign` attaches
   data items too. 0.4.18 was never published: its changes ship in 0.5.0.
-- **The threat report lists a Data element's own controls.** The off-grid Data disclosure in
-  Coverage & Gaps names the controls applied to each Data element, as assigned and without a
-  coverage grade. Data exposures stay off the coverage grid.
+- **The threat report lists a Data element's own controls.** In `dethernety-threat-report` 2.1.0,
+  the off-grid Data disclosure in Coverage & Gaps names the controls applied to each Data element,
+  as assigned and without a coverage grade. Data exposures stay off the coverage grid.
 
 ### Changed
 
@@ -141,9 +206,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`--start`, or a yes at its question), refuse when the deployment's compose project (all bundles
   share the project name `dethernety`) is running, or ran, from another folder, and they name that
   folder. Before, `up` in a leftover folder took over another folder's containers, and `down` or
-  `destroy` there stopped its running deployment. A deployment moved here from another folder
-  removes the old folder's containers once with `./byodt down --take-over` (or
-  `destroy --take-over`), then starts here.
+  `destroy` there stopped its running deployment. If you moved a deployment's folder to a new path,
+  run `./byodt down --take-over` (or `destroy --take-over`) once in the new folder before you start
+  it: it removes the containers the old path started.
 - **The first `./byodt up` refuses to mount a database volume an earlier deployment left.** When the
   database would use the named volume `dethernety_memgraph-data` or `dethernety_neo4j-data` and that
   volume already exists, the first `up` of a folder stops, and so does `setup` when it starts the
@@ -169,6 +234,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it checks that the platform has `Data.controls`, and remembers a platform that has it. On an
   older platform those calls stop with "Platform too old for this Dethereal version" and a message
   that names the platform. Upgrade the platform first.
+- **`@dethernety/dt-module` is 0.14.0, and its one API change is additive:** the new export
+  `REMOTE_MODULE_CALL_TIMEOUT_MS` (see *Added*). The changes in behaviour are in `DtRemoteModule`:
+  once registered, `getMetadata` answers from the entry it registered (see *Fixed*), a served
+  read-only fallback is logged (see *Added*), and an error from the content service masks the login
+  of a URL in its message as `://***@`. Declaring `compatibility.dtModule` in `manifest.json` is
+  optional; a module that declares it must declare `"compatibility": { "dtModule": "^0.14.0" }` to
+  be packaged against dt-module 0.14.0. For a 0.x version a caret range pins the minor version, so
+  `scripts/package-module.js` refuses a manifest that still declares `^0.13.0` against dt-module
+  0.14.0, and produces no package. `dethernety-general`, `dethernety-coverage-tools` and
+  `dethernety-threat-report` declare `^0.14.0`.
 
 ### Fixed
 
@@ -2986,6 +3061,7 @@ greenfield ID rebinding, and append-only audit log (#104).
 - GraphQL API with real-time subscriptions
 - OIDC/JWT authentication support
 
+[0.14.0]: https://github.com/dether-net/dethernety-oss/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/dether-net/dethernety-oss/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/dether-net/dethernety-oss/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/dether-net/dethernety-oss/compare/v0.11.1...v0.12.0
