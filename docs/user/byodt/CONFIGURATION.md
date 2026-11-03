@@ -167,7 +167,7 @@ Settings of the old `ollama` service — `OLLAMA_IMAGE` and any other `OLLAMA_*`
 
 **Memory.** The model is held in the platform's own memory for as long as it runs, which adds roughly 0.8–0.9 GiB to the platform container. This replaces the memory the old `ollama` service used, so the deployment's total is about the same as before.
 
-> **`EMBEDDING_THREADS`** sets the embedder's inference threads (default 4): a positive integer, at most 64. Set it in `.env` to the host's core count if that differs — on Docker Desktop or a Podman machine, the VM's core count. The bundle passes it to the platform; apply a change with `./byodt up`.
+> **`EMBEDDING_THREADS`** sets the embedder's inference threads (default 4): a positive integer, at most 64. Set it in `.env` to the host's core count if that differs — on a VM-backed runtime, such as Docker Desktop or a Podman machine, the virtual machine's core count. The bundle passes it to the platform; apply a change with `./byodt up`.
 
 ### Snapshots
 
@@ -369,7 +369,7 @@ Switching back works the same way, with the names swapped. With the data in name
 | Value | Store | Good for | Trade-off |
 |---|---|---|---|
 | `./data/memgraph` or `./data/neo4j` (default) | A host bind mount inside the bundle directory | Native Linux, under either container engine. Visible on disk, easy to inspect and copy. | On a VM-backed runtime, the file-sharing layer can corrupt a running database. |
-| `memgraph-data` or `neo4j-data` | The named volume declared in the engine's compose file, in the container engine's own storage | Podman machine, and Docker Desktop on macOS or Windows | You cannot browse it from the host. |
+| `memgraph-data` or `neo4j-data` | The named volume declared in the engine's compose file, in the container engine's own storage | A VM-backed runtime, one that runs containers in a virtual machine: Docker Desktop, or a Podman machine on macOS or Windows | You cannot browse it from the host. |
 
 Any value starting with `.` or `/` is treated as a host path; anything else is treated as a volume name.
 
