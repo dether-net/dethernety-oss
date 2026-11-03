@@ -67,6 +67,16 @@ export interface EmbeddingsResponse {
   embeddings: Array<{ classId: string; vector: number[] }>;
 }
 
+/** `GET …/policy-hashes` — the `policyHash` of each class at the pin, served beside the module
+ * document rather than inside it. Typed for the reader; the client hands the body back unvalidated,
+ * and the module checks every field against what it asked for before it keeps any of it. */
+export interface PolicyHashesResponse {
+  moduleKey: string;
+  version: string;
+  algorithm: string;
+  policyHashes: Record<string, string>;
+}
+
 /** `GET …/template` — `uischema` is already normalized (lower case). */
 export interface TemplateResponse {
   classId: string;
@@ -203,6 +213,27 @@ export class WireClient {
     );
   }
 
+  /**
+   * The pin's policy hashes as served, unvalidated, or `null` when the pin has none. A pin
+   * published before the service served them has no such object, and a catalog store answers a
+   * missing object with a 403 as readily as a 404 — so both mean "none" here, never a denial, and
+   * neither is mapped to the entitlement errors the other surfaces raise. Every other failure
+   * throws as usual.
+   */
+  async policyHashes(
+    moduleKey: string,
+    pin: string,
+    opts: { timeoutMs?: number } = {},
+  ): Promise<{ body: unknown } | null> {
+    const { response, payload } = await this.send(
+      `/v1/catalog/modules/${enc(moduleKey)}/versions/${enc(pin)}/policy-hashes`,
+      { method: 'GET', timeoutMs: opts.timeoutMs },
+    );
+    if (response.ok) return { body: payload };
+    if (response.status === 403 || response.status === 404) return null;
+    throw mapStatusToError(response.status, payload as ProblemBody | undefined, retryAfterMs(response));
+  }
+
   // --- Content surface (entitled — Bearer token) -----------------------------
 
   template(classId: string, pin: string, token: string): Promise<TemplateResponse> {
@@ -271,6 +302,18 @@ export class WireClient {
     path: string,
     opts: { method: string; token?: string; jsonBody?: unknown },
   ): Promise<T> {
+    const { response, payload } = await this.send(path, opts);
+    if (!response.ok) {
+      throw mapStatusToError(response.status, payload as ProblemBody | undefined, retryAfterMs(response));
+    }
+    return payload as T;
+  }
+
+  /** One call, with every cross-cutting rule applied; the status is left to the caller to map. */
+  private async send(
+    path: string,
+    opts: { method: string; token?: string; jsonBody?: unknown; timeoutMs?: number },
+  ): Promise<{ response: Response; payload: unknown }> {
     if (!this.baseUrl) {
       throw new RemoteModuleUnavailableError('No content service base URL configured');
     }
@@ -291,12 +334,12 @@ export class WireClient {
     if (opts.jsonBody !== undefined) headers['Content-Type'] = 'application/json';
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? this.timeoutMs);
 
     // The timer stays armed through the body read (json/safeProblemBody), so a
     // response that returns headers promptly but stalls its body still aborts and
-    // degrades to "unavailable" rather than hanging a resolver. mapStatusToError
-    // is called AFTER the timed block so a mapped typed error is not reclassified.
+    // degrades to "unavailable" rather than hanging a resolver. The status is mapped
+    // AFTER the timed block so a mapped typed error is not reclassified.
     let response: Response;
     let payload: unknown;
     try {
@@ -317,11 +360,7 @@ export class WireClient {
     } finally {
       clearTimeout(timer);
     }
-
-    if (!response.ok) {
-      throw mapStatusToError(response.status, payload as ProblemBody | undefined, retryAfterMs(response));
-    }
-    return payload as T;
+    return { response, payload };
   }
 }
 

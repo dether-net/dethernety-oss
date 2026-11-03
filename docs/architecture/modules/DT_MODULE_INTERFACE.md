@@ -42,6 +42,8 @@ The `DTModule` interface is the core contract that all Dethernety modules must i
 │  │                  Security Evaluation (Optional)                 │    │
 │  │  • getExposures(id, classId, token): Exposure[]                 │    │
 │  │  • getCountermeasures(id, classId, token): Countermeasure[]     │    │
+│  │  • getPolicyHash(classId): string | undefined                   │    │
+│  │  • evaluatesWithCallerTokenOnly(): boolean                      │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
 │                                                                         │
 │  ┌─────────────────────────────────────────────────────────────────┐    │
@@ -126,6 +128,9 @@ export interface DTModule {
 
   // Optional - The policyHash this instance evaluates classId with right now
   getPolicyHash?(classId: string): Promise<string | undefined>;
+
+  // Optional - Declares that evaluation needs the caller's token (default false)
+  evaluatesWithCallerTokenOnly?(): boolean;
 
   // Optional - Analysis methods (for modules providing analysis capabilities)
   runAnalysis?(
@@ -468,11 +473,11 @@ export interface IssueClassMetadata {
 
 The component, data flow, security boundary, data and control class metadata types declare an optional `policyHash`: a string naming the policy that evaluations of the class compile; it changes whenever the class's findings could. The install writes it on the class node, and every save of an element records on the element the hash it evaluated. After an install, the platform re-evaluates every element whose recorded hash differs from its class's, so its findings follow the current policy (see [Module Management Service → Class policy hash](../backend/LLD/MODULE_MANAGEMENT_SERVICE.md#class-policy-hash)).
 
-- **`DtFileOpaModule`** sets it for you: the sha256 of the class's registered policy source, the hash of the empty source for a class with no policy, and none for an issue class or a policy that failed to register.
-- **A module written in code** may set it to any string that changes whenever what the class's evaluation answers changes. A class without one is never re-evaluated: its elements' findings change only when they are saved.
-- **A remote module's** classes carry none, so its elements are not re-evaluated; its evaluation needs a caller's token anyway.
-- **`getPolicyHash(classId)`** (optional, [below](#getpolicyhashclassid)) lets the platform check that the instance evaluating a class holds the policy the class node names; a save records the hash only when the two agree. `DtFileOpaModule` implements it; a module written in code that sets `policyHash` should implement it too.
-- **Re-evaluation runs with no caller token.** The sweep after an install and the one at start call `getExposures` / `getCountermeasures` without a `token`. A module that reports a `policyHash` must therefore evaluate without a token, or throw. It must never answer an empty result because the token is missing: the re-evaluation would take that as the policy emitting nothing, and delete the class's SYSTEM findings on those elements along with their dispositions. A thrown error leaves the element's findings as they were.
+- **`DtFileOpaModule`** sets it for you: `policySourceHash` of the class's `policies.rego` (the sha256 of its trimmed, decoded source; see [Utility classes → Policy Hash](./UTILITY_CLASSES.md#policy-hash-policy-hash)), `NO_POLICY_HASH` for a class with no policy, and none for an issue class or a policy that failed to register.
+- **A module written in code** may set it to any string that changes whenever what the class's evaluation answers changes. A class without one is never re-evaluated: its elements' findings change only when they are saved. A module that holds `policies.rego` sources should report `policySourceHash` of each, so its hashes compare with those other producers compute.
+- **A remote module's** classes carry the hashes its catalog serves for its pinned version, and none when the catalog serves none (see [Remote content modules → Policy hashes](#policy-hashes)). Its elements record the hash at their next save; the background re-evaluation does not evaluate them, as its evaluation needs a caller's token.
+- **`getPolicyHash(classId)`** (optional, [below](#getpolicyhashclassid)) lets the platform check that the instance evaluating a class holds the policy the class node names; a save records the hash only when the two agree, and otherwise removes the element's earlier record for the class. `DtFileOpaModule` and `DtRemoteModule` implement it; a module written in code that sets `policyHash` should implement it too.
+- **Re-evaluation runs with no caller token.** The sweep after an install and the one at start call `getExposures` / `getCountermeasures` without a `token`. A module that reports a `policyHash` must therefore evaluate without a token, or throw, or declare [`evaluatesWithCallerTokenOnly()`](#evaluateswithcallertokenonly) so the sweep leaves its elements out. It must never answer an empty result because the token is missing: the re-evaluation would take that as the policy emitting nothing, and delete the class's SYSTEM findings on those elements along with their dispositions. A thrown error leaves the element's findings as they were.
 
 ---
 
@@ -878,9 +883,23 @@ async getPolicyHash(classId: string): Promise<string | undefined>
 
 **Returns:** The hash, or `undefined` when the module cannot say.
 
-After a save or a binding change, the platform records on the element the class's stored `policyHash`, read before the evaluation, only when this method returns the same hash. An instance still holding an older policy, on a rolling or multi-instance deployment, therefore never marks an element current, and a later re-evaluation picks the element up. A module without the method is taken at the stored hash; an `undefined` answer, another hash or a throw records nothing (see [SetInstantiationAttributes → The policy stamp](../backend/LLD/SET_INSTANTIATION_ATTRIBUTES.md#the-policy-stamp)). `DtFileOpaModule` implements it (see [Base classes → getPolicyHash()](./BASE_CLASSES.md#getpolicyhash)).
+After a save or a binding change, the platform records on the element the class's stored `policyHash`, read before the evaluation, only when this method returns the same hash. An instance still holding an older policy, on a rolling or multi-instance deployment, therefore never marks an element current, and a later re-evaluation picks the element up. A module without the method is taken at the stored hash. An `undefined` answer, another hash or a throw records no hash, and removes the hash the element recorded for the class at an earlier save, if it holds one, so that record does not go on vouching for findings evaluated under another policy; the element's findings and their dispositions are not touched (see [SetInstantiationAttributes → The policy stamp](../backend/LLD/SET_INSTANTIATION_ATTRIBUTES.md#the-policy-stamp)). `DtFileOpaModule` implements it (see [Base classes → getPolicyHash()](./BASE_CLASSES.md#getpolicyhash)), and so does `DtRemoteModule` (see [Remote content modules → Policy hashes](#policy-hashes)).
 
-A module that reports a hash is re-evaluated with no caller token: its evaluation must work without one, or throw, and never answer an empty result for a missing token (see [Policy hash](#policy-hash-policyhash)).
+A module that reports a hash is re-evaluated with no caller token: its evaluation must work without one, or throw, and never answer an empty result for a missing token (see [Policy hash](#policy-hash-policyhash)). A module whose evaluation always needs the caller's token declares [`evaluatesWithCallerTokenOnly()`](#evaluateswithcallertokenonly) instead.
+
+---
+
+### evaluatesWithCallerTokenOnly()
+
+Optional. Declares that this module evaluates only on behalf of a caller: `getExposures` and `getCountermeasures` need the caller's `token`, and refuse a call made without one.
+
+```typescript
+evaluatesWithCallerTokenOnly?(): boolean
+```
+
+**Returns:** `true` if evaluation needs the caller's token; **absent or `false` (the default)** means the module evaluates without one.
+
+The platform's background re-evaluation after a class's policy changes runs with no caller (see [Policy hash](#policy-hash-policyhash)). It leaves out every binding of a module that returns `true`, rather than fail each one, and counts them as `skipped` (see [SetInstantiationAttributes → Re-evaluation after a class policy change](../backend/LLD/SET_INSTANTIATION_ATTRIBUTES.md#re-evaluation-after-a-class-policy-change)). Those elements follow the new policy at their next save, which carries the caller's token. `DtRemoteModule` returns `true`.
 
 ---
 
@@ -1280,7 +1299,7 @@ export default class MyRemoteModule extends DtRemoteModule {
 
 ### Boot, caching, and the pin
 
-- **Boot is credential-free** and completes offline from cache. Registration (the first successful `getMetadata()`) fetches the module document + embeddings and returns the platform's metadata verbatim; `getEmbedding()` answers synchronously from vectors prefetched at registration.
+- **Boot is credential-free** and completes offline from cache. Registration (the first successful `getMetadata()`) fetches the module document, its embeddings and its policy hashes, and returns the document's metadata with each class's `policyHash` set from those hashes (see [Policy hashes](#policy-hashes)); `getEmbedding()` answers synchronously from vectors prefetched at registration.
 - The metadata cache is placed **co-durable with the graph database** so that a warm deployment boots offline and a registered module never has to fail its load. A remote module that failed to load would be swept along with its classes' bindings; the client's rule is therefore to **never throw once it has registered** — on an offline pin-miss it serves the newest cached document for the module, keeping ids stable. This is why the cache directory placement is a correctness concern, not just a latency one, and why an ephemeral/unset directory warns loudly.
 - **Once registered, `getMetadata()` never waits on the network.** It answers from the entry it registered, so a slow or unreachable content service cannot fail the platform's health probe. Pinning the portal origin and fetching the document at a pin that was not cached run in the background, at most once a minute. A module registered from another pin keeps serving that entry until the background fetch of its own pin succeeds; an install made before then installs that entry, and the next install after it (at the latest the next start) installs its own pin's classes. Concurrent calls share one registration, and a failed registration is answered again for a minute without the network.
 - The **pin** is an immutable content hash. All reads serve at that pin; an assessment can state exactly what content produced it. The operator advances a version by editing the stub's `pin` and restarting — registration re-registers the *same* class ids at the new content (ids are stable across versions), so an upgrade never orphans or rebinds.
@@ -1290,6 +1309,28 @@ export default class MyRemoteModule extends DtRemoteModule {
 - Template/guide calls forward the caller's bearer token. A caller who is **not entitled** (or a deployment with no cloud credential) receives valid, self-sanitized read-only fallback content — the platform renders it like any other module template. Server-authored denial text is escaped to inert plain text and length-bounded before it is embedded, and any action URL is honoured only on the service-declared portal origin.
 - A content service that does not answer within `REMOTE_MODULE_CALL_TIMEOUT_MS` (15 s), or cannot be reached, also yields the read-only fallback; a host that limits how long it waits for a template or guide must allow longer than that. Fallbacks served are logged as a warning naming the reason (`no-credential`, `denied` or `unavailable`), at most once a minute for each reason, with a count of those not logged.
 - Evaluation reads the element's attributes locally, sends only the class-schema-declared keys to the service (payload minimization), and returns the findings. A denied or unavailable evaluation **throws a typed error** — never an empty result, which would masquerade as evaluated-clean and overwrite prior findings. A recalled content version (`410`) surfaces the operator reason and stops serving that pin's cached content.
+- Evaluation needs the caller's token, so `evaluatesWithCallerTokenOnly()` returns `true` (see [evaluatesWithCallerTokenOnly()](#evaluateswithcallertokenonly)).
+
+### Policy hashes
+
+A remote module's classes report a [`policyHash`](#policy-hash-policyhash) from a per-version policy hash file the catalog serves beside the module document, not from the document itself.
+
+- **Where it comes from.** `GET /v1/catalog/modules/{key}/versions/{pin}/policy-hashes`, credential-free like the document. The body names the module key, the version, the algorithm, and each class's hash:
+
+  ```json
+  {
+    "moduleKey": "my-module",
+    "version": "sha256:…",
+    "algorithm": "policy-source-sha256/1",
+    "policyHashes": { "<classId>": "<64 lowercase hex characters>" }
+  }
+  ```
+
+  `policy-source-sha256/1` is the computation `policySourceHash` performs on a class's `policies.rego` (see [Utility classes → Policy Hash](./UTILITY_CLASSES.md#policy-hash-policy-hash)), so a remote class reports the hash a file-backed module would report for the same policy.
+- **When it is read.** Together with the document and the embeddings, when the module fetches its configured pin, and when it registers from a cached entry of its pin with no cached hashes. Either way it waits at most 3 s for the file. A file that checks out is cached beside the cached document, written once and not replaced by a later fetch. A cached file that does not check out (it cannot be parsed, or names another module, version or algorithm, or holds a malformed hash) is removed and the file is fetched again, under the same 3 s bound.
+- **What it reports.** `getMetadata()` answers a copy of the document's metadata in which each served class carries the hash the file names for it. `getPolicyHash(classId)` answers the same hash. Both report a hash only while the module is registered from its configured pin, the version it evaluates with: a module serving the newest cached document of another pin, offline, reports none until its own pin is fetched. A `policyHash` the module document carries itself, in any of its class arrays (analysis and issue classes included), is removed from the answer and never reported.
+- **Missing or bad means none.** A `403` or `404` (a version published without the file), an outage, a timeout, and a body that does not check out all leave the classes reporting no hash. A body checks out only when it names this module key, this pin and `policy-source-sha256/1`, and every hash is 64 lowercase hex characters; one bad value rejects the whole body. A hash for a class the document does not serve is dropped. None of these is cached, so a file published later is read at the next start. A wrong hash would mark elements as current under a policy they were not evaluated with; no hash only leaves them unstamped: a save then removes the element's earlier stamp for the class rather than keep it.
+- **What the platform does with it.** The install writes the hashes on the class nodes, and a save records the class's hash on the element when `getPolicyHash` agrees, and otherwise removes the element's earlier record for the class (see [getPolicyHash(classId)](#getpolicyhashclassid)). The background re-evaluation after an install leaves a remote module's elements out, so an element bound to one of its classes is stamped at its next save; an element saved before its module reported hashes is stamped only when it is saved again.
 
 `DtRemoteModule` implements the catalog, content, and evaluation surfaces of the wire protocol; other surfaces are separate modules.
 
@@ -1348,6 +1389,15 @@ Which implementation a deployment gets follows `MODULE_KG_BASE_URL` and `MODULE_
 - **Rules and their threats are fetched in one pass, not one request per rule.** Left as an ordinary field resolver, `addresses` would turn a single question about a class into one round trip per rule it has. Batching is what keeps the two modes comparable rather than merely correct: a locally-served schema resolves the same selection in a single traversal.
 - **`kgRules` requires `where.classId.eq`.** A call naming no class is refused rather than answered empty — no named query resolves rules by rule id alone, and an empty list would be a silent wrong answer rather than a small one.
 - **The GraphQL surface is deliberately narrower than a locally-generated one.** Fields the access contract does not carry are absent rather than declared-and-null, because a consumer selecting an absent field fails at query validation with the field named, while a declared field with nothing behind it returns a null that reads as missing information. `KG_REMOTE_SDL` is exported for exactly this reason — so a consumer can prove its document validates against the surface a remote-mode deployment serves before shipping it. `KG_CAPABILITY_SDL` is exported separately, and included by both modules, so a `kgCapability` selection validates in either mode.
+- **A rule carries the policy it was derived from, and each attribute it reads carries a side.** `KgRule.policyHash` is the [`policyHash`](#policy-hash-policyhash) of the class policy the rule was derived from, in the format a class's metadata reports it, so a consumer can tell whether the rule follows the class's current policy; it is `null` for a rule recorded without one. `KgAttribute.side` says which side of a deployment the attribute describes:
+
+  | `side` | The attribute describes |
+  |---|---|
+  | `null` (not marked) | Configuration: a setting offered to whoever deploys or uses the element |
+  | `'build'` | The element's own software: how it is made, what it is given, its dependencies, its patch level |
+  | `'runtime'` | The environment the element runs in, below its own software: isolation, the platform's own limits, logging and network |
+
+  Both keys are always present on every rule and every read, `null` when there is no value, in local and remote mode alike and in `KG_REMOTE_SDL`. A stored `side` other than `runtime` or `build` reads as `null`. A rule's `reads` names each attribute once, however many edges reach it.
 
 `DtRemoteKnowledgeGraphModule` implements the knowledge-graph surface of the wire protocol; the catalog, content, and evaluation surfaces are `DtRemoteModule`.
 

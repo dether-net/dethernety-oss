@@ -51,7 +51,7 @@ import {
 import { AuthorizationContext } from '../interfaces/authorization.interface';
 import { GqlConfig } from '../gql.config';
 import type { Countermeasure, DTModule } from '@dethernety/dt-module';
-import { STAMP_POLICY_CYPHER, stampPolicyParams } from './shared/policy-stamp';
+import { STAMP_POLICY_CYPHER, UNSTAMP_POLICY_CYPHER, stampPolicyParams, unstampPolicyParams } from './shared/policy-stamp';
 import { lockElementInTx } from './shared/element-db-lock';
 import { describeNonPrimitiveValue, propertyViolations } from '../utils/property-values';
 
@@ -1465,10 +1465,9 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
           context?.token
         ));
       }
-      const stampHash = metadata.componentType === 'Issue'
-        ? null
-        : await this.policyHashToStamp(moduleInstance, request.classId, txResult.policyHash);
-      if (stampHash) {
+      // An issue derives nothing, so it is neither stamped nor unstamped.
+      if (metadata.componentType !== 'Issue') {
+        const stampHash = await this.policyHashToStamp(moduleInstance, request.classId, txResult.policyHash);
         await this.stampPolicy(session, request.componentId, request.classId, stampHash, operationId);
       }
 
@@ -1573,18 +1572,33 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
   }
 
   /**
-   * The save's stamp, in its own transaction once the findings are written. A failure here does not fail the
-   * save: the findings are already right, and a binding left with an older stamp is only re-evaluated once more.
+   * Record on the element that its findings for `classId` follow no policy the platform can name: remove its stamp for
+   * the class, so an older one does not go on vouching for them. A no-op when it holds none. Inside the caller's
+   * transaction, as `stampPolicyInTx`.
+   */
+  public async unstampPolicyInTx(tx: DatabaseTransaction, elementId: string, classId: string): Promise<void> {
+    await tx.run(UNSTAMP_POLICY_CYPHER, unstampPolicyParams(elementId, classId));
+  }
+
+  /**
+   * The save's stamp, in its own transaction once the findings are written: `policyHash` when there is one to stamp,
+   * otherwise the class's stamp removed. A failure here does not fail the save: the findings are already right. A failed
+   * stamp leaves the binding to be re-evaluated once more; a failed removal leaves the earlier stamp until a later save
+   * replaces or removes it.
    */
   private async stampPolicy(
     session: DatabaseSession,
     elementId: string,
     classId: string,
-    policyHash: string,
+    policyHash: string | null,
     operationId: string,
   ): Promise<void> {
     try {
-      await session.executeWrite((tx: DatabaseTransaction) => this.stampPolicyInTx(tx, elementId, classId, policyHash));
+      await session.executeWrite((tx: DatabaseTransaction) =>
+        policyHash
+          ? this.stampPolicyInTx(tx, elementId, classId, policyHash)
+          : this.unstampPolicyInTx(tx, elementId, classId),
+      );
     } catch (error) {
       this.logger.warn('Could not record the policy the findings were evaluated under', {
         componentId: elementId,

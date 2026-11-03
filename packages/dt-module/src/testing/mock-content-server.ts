@@ -15,6 +15,17 @@ import { DenialInfo, RecallInfo } from '../remote/errors';
 
 export type FailureMode = 'none' | 'network' | '5xx' | 'rate_limited';
 
+/**
+ * What the policy hashes route answers. `served` is the fixture set, made out for the pin and
+ * module asked for; `body` replaces it verbatim; a status answers with that status alone; `hang`
+ * holds the call until the client gives up on it.
+ */
+export type PolicyHashesMode =
+  | { kind: 'served' }
+  | { kind: 'body'; body: unknown }
+  | { kind: 'status'; status: number }
+  | { kind: 'hang' };
+
 export interface CapturedRequest {
   method: string;
   url: string;
@@ -68,6 +79,7 @@ export class MockContentServer {
   /** When set, replaces each query answer's `results`; returning undefined leaves the field out. */
   private kgResultsOverride?: (results: Array<{ key: string; matches: unknown[] }>) => unknown;
   private moduleDocOverride?: ModuleDocument;
+  private policyHashesMode: PolicyHashesMode = { kind: 'served' };
   private failureMode: FailureMode = 'none';
   /** When set, the mock hangs until the caller's abort signal fires (timeout). */
   private delayMs = 0;
@@ -156,6 +168,15 @@ export class MockContentServer {
     this.moduleDocOverride = doc;
   }
 
+  /**
+   * Drive the policy hashes route alone, leaving every other route as it is — so a pin whose
+   * document serves can be given no hashes (a `404`, or the `403` a catalog store answers for a
+   * missing object), a failing or hanging call, or a body that does not check out.
+   */
+  setPolicyHashes(mode: PolicyHashesMode): void {
+    this.policyHashesMode = mode;
+  }
+
   reset(): void {
     this.failureMode = 'none';
     this.delayMs = 0;
@@ -171,6 +192,7 @@ export class MockContentServer {
     this.kgTruncated = false;
     this.kgResultsOverride = undefined;
     this.moduleDocOverride = undefined;
+    this.policyHashesMode = { kind: 'served' };
     this.requests.length = 0;
   }
 
@@ -203,6 +225,9 @@ export class MockContentServer {
     }
 
     const segments = path.split('/').filter(Boolean).map(decodeSafe);
+    if (isPolicyHashesPath(segments) && this.policyHashesMode.kind === 'hang') {
+      await this.hangUntilAborted(init.signal ?? undefined, 3_600_000);
+    }
     return this.route(method, segments, token, bodyText);
   }
 
@@ -225,6 +250,10 @@ export class MockContentServer {
       // /v1/catalog/modules/:key/versions/:pin/embeddings/:model
       if (segs.length === 8 && segs[6] === 'embeddings') {
         return ok(fixtures.embeddingsResponse);
+      }
+      // /v1/catalog/modules/:key/versions/:pin/policy-hashes
+      if (isPolicyHashesPath(segs)) {
+        return this.policyHashes(segs[3], pin);
       }
     }
     // Content surface — entitled.
@@ -391,6 +420,17 @@ export class MockContentServer {
     return null;
   }
 
+  /** A pin's policy hashes. Served for any pin, as the document is: the set is a function of the
+   * pin, so it names the module and pin it was asked for. */
+  private policyHashes(moduleKey: string, pin: string): Response {
+    const mode = this.policyHashesMode;
+    if (mode.kind === 'status') {
+      return problem(mode.status, { code: mode.status === 404 ? 'version_not_found' : 'internal', title: 'Policy hashes' });
+    }
+    if (mode.kind === 'body') return ok(mode.body);
+    return ok({ ...fixtures.policyHashesResponse, moduleKey, version: pin });
+  }
+
   private moduleDocument(pin: string): ModuleDocument {
     const base = this.moduleDocOverride ?? fixtures.moduleDocument;
     if (this.recalledPins.has(pin)) {
@@ -414,15 +454,20 @@ export class MockContentServer {
     return null;
   }
 
-  private hangUntilAborted(signal: AbortSignal | undefined): Promise<void> {
+  private hangUntilAborted(signal: AbortSignal | undefined, delayMs = this.delayMs): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(resolve, this.delayMs);
+      const timer = setTimeout(resolve, delayMs);
       signal?.addEventListener('abort', () => {
         clearTimeout(timer);
         reject(new DOMException('The operation was aborted', 'AbortError'));
       });
     });
   }
+}
+
+function isPolicyHashesPath(segs: string[]): boolean {
+  return segs.length === 7 && segs[0] === 'v1' && segs[1] === 'catalog' && segs[2] === 'modules' &&
+    segs[4] === 'versions' && segs[6] === 'policy-hashes';
 }
 
 function ok(body: unknown): Response {

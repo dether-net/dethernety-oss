@@ -318,6 +318,8 @@ Additionally, the following are enforced in production:
 
 ## Quick Start
 
+The backend (dt-ws) reads `.env` from its working directory, which is `apps/dt-ws` when started with `pnpm dev`, so put the minimal `.env` below at `apps/dt-ws/.env`. When `NODE_ENV=production`, it reads `.env.production` instead. The MITRE loader reads its database settings from a `.env` at the repository root.
+
 ### With authentication (standard)
 
 Minimal `.env` for local development with an OIDC provider:
@@ -336,7 +338,7 @@ NEO4J_TRUST_CERT=true
 
 # Modules
 CUSTOM_MODULES_PATH=custom_modules
-ALLOWED_MODULES=dethernety-general
+ALLOWED_MODULES=dethernety-*
 
 # OIDC (configure to match your identity provider)
 OIDC_ISSUER=http://localhost:8080

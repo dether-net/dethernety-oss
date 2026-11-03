@@ -24,56 +24,170 @@ Everything domain-specific -- component types, analysis logic, security controls
 
 ## Quick start
 
-### Run a deployment (recommended)
+There are four ways to run Dethernety. Ways 1–3 install the same signed BYODt
+deployment and differ only in how you fetch and set it up. Way 4 builds the
+platform from source, for development.
+
+| Way | Use it when | Needs |
+|-----|-------------|-------|
+| [1. With npx](#1-with-npx) (recommended) | Node.js is already installed (for example, because you run [Dethereal](docs/user/dethereal/GETTING_STARTED.md)), or you are happy to install it | A container engine, what `get-byodt.sh` needs, and Node.js 18+ to run the installer only — not needed by the deployment |
+| [2. With `get-byodt.sh`](#2-with-get-byodtsh) | You would rather not have Node.js | A container engine, `sh`, `tar`, `curl` or `wget` |
+| [3. With the release tarball](#3-with-the-release-tarball) | You want to download and verify every file yourself | A container engine, `curl`, `tar`; [cosign](https://github.com/sigstore/cosign) to verify |
+| [4. From source](#4-from-source) | You are developing Dethernety | Node.js 22.12+, pnpm 9.13+, Neo4j (with APOC Core) or Memgraph, Python 3 for the MITRE loader; see [the prerequisites](#4-from-source) |
+
+### The BYODt deployment (ways 1–3)
 
 The BYODt deployment runs the whole stack from published, signed images — a graph
 database, the platform (which embeds in process), an operator console, and a front-door
 proxy. No source checkout and no build toolchain: a container engine is all you need.
 
-Prerequisites: Docker with the Compose plugin, or Podman 4.1+ with a Compose provider.
+Prerequisites: Docker with the Compose plugin, or Podman 4.1+ with a Compose provider,
+and `sha256sum` or `shasum`. See
+[Requirements](docs/user/byodt/INSTALLATION.md#requirements) for disk, memory, and
+network access.
 
-Download `byodt-<version>.tar.gz` from the
-[latest release](https://github.com/dether-net/dethernety-oss/releases/latest),
-extract it, and start the stack:
+In the commands below, replace `X.Y.Z` with the version from the
+[latest release](https://github.com/dether-net/dethernety-oss/releases/latest).
 
-```bash
-tar xzf byodt-<version>.tar.gz
-cd byodt-<version>
-./byodt up
-```
-
-Open **<http://127.0.0.1:3000>**. The first run generates the database password,
-pulls the images, fetches and verifies the signed modules, and ingests the MITRE
-ATT&CK, ATLAS and D3FEND corpus, so it takes noticeably longer than later runs. The
-operator console lives at `/console/` on the same address.
+Once it is running, open **<http://127.0.0.1:3000>**. The first run generates the
+database password, pulls the images, fetches and verifies the signed modules, downloads
+the embedding model, and ingests the MITRE ATT&CK, ATLAS and D3FEND corpus, so it takes
+noticeably longer than later runs. The operator console lives at `/console/` on the
+same address.
 
 Full instructions, configuration reference, and day-to-day operations are in the
 [BYODt deployment guide](docs/user/byodt/README.md); the design is described in the
 [architecture set](docs/architecture/byodt/README.md).
 
-### From source
+### 1. With npx
 
-Prerequisites: Node.js 18+, pnpm 9.13+, Neo4j or Memgraph, an OIDC provider.
+The recommended way if Node.js 18 or later is installed, or you are happy to install
+it. Node.js runs the installer only: the deployment itself never needs it. It is the
+natural fit if you will run the Dethereal Claude Code plugin on the same machine: its MCP
+server is launched with npx and needs Node.js 20 or later, so a machine set up for
+Dethereal already meets the installer's need (see
+[Getting started with Dethereal](docs/user/dethereal/GETTING_STARTED.md#prerequisites)).
+Without Node.js, use [way 2](#2-with-get-byodtsh).
+
+The npm package `@dether.net/byodt` carries a release's own `get-byodt.sh` and runs it,
+so it takes the same options and asks the same questions as way 2. Each package version
+is the release of the same version:
+
+```bash
+npx @dether.net/byodt@X.Y.Z
+```
+
+Name the version: without `@X.Y.Z`, `npx` runs the latest release. A release reaches
+npm separately from GitHub; if yours is not there yet, use `get-byodt.sh`. See
+[Installation → With npx](docs/user/byodt/INSTALLATION.md#with-npx).
+
+### 2. With `get-byodt.sh`
+
+Each release publishes a signed installer, `get-byodt.sh`. It downloads that release's
+bundle, checks its SHA-256 and, when cosign is installed, its signature, unpacks it into
+`./byodt`, and asks a few setup questions. It runs on Linux or macOS (on Windows,
+inside WSL).
+
+```bash
+VERSION=X.Y.Z
+curl --proto '=https' --tlsv1.2 -fsSL "https://github.com/dether-net/dethernety-oss/releases/download/v${VERSION}/get-byodt.sh" | sh
+```
+
+To verify the installer itself before you run it, download it with its signature:
+
+```bash
+BASE="https://github.com/dether-net/dethernety-oss/releases/download/v${VERSION}"
+curl --proto '=https' --tlsv1.2 -fsSLO "${BASE}/get-byodt.sh"
+curl --proto '=https' --tlsv1.2 -fsSLO "${BASE}/get-byodt.sh.bundle"
+cosign verify-blob get-byodt.sh \
+  --bundle get-byodt.sh.bundle \
+  --certificate-identity "https://github.com/dether-net/dethernety-oss/.github/workflows/release.yml@refs/tags/v${VERSION}" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+sh get-byodt.sh
+```
+
+Setup asks `Start the stack now? [y/N]`. If you answer `n`, start it later with
+`./byodt up` in the folder it installed into (`./byodt` unless you gave `--dir`).
+Options such as `--dir` go after `sh -s --`; see
+[Installation → Install with the installer](docs/user/byodt/INSTALLATION.md#install-with-the-installer).
+
+### 3. With the release tarball
+
+Download `byodt-X.Y.Z.tar.gz` from the release, extract it somewhere durable — the
+directory becomes the deployment — and start the stack:
+
+```bash
+VERSION=X.Y.Z
+curl -fsSLO "https://github.com/dether-net/dethernety-oss/releases/download/v${VERSION}/byodt-${VERSION}.tar.gz"
+tar xzf "byodt-${VERSION}.tar.gz"
+cd "byodt-${VERSION}"
+./byodt up
+```
+
+To verify the bundle's signature with cosign before you extract it, see
+[Installation → Get the bundle](docs/user/byodt/INSTALLATION.md#get-the-bundle).
+
+### 4. From source
+
+Prerequisites:
+
+- Node.js 22.12+ and pnpm 9.13+
+- A running Neo4j or Memgraph instance; on Neo4j, APOC Core is required (see
+  [Database](docs/CONFIGURATION_GUIDE.md#database-boltcypher))
+- Python 3 with its `venv` module, for the MITRE loader
+- Network access for the MITRE loader: its setup installs the Python packages in
+  `modules/mitre-frameworks/requirements.txt` from PyPI (not version-pinned; they
+  include PyTorch, a large download), and the loader downloads the pinned ATT&CK,
+  ATLAS and D3FEND releases
+- An OIDC provider, or run single-user without authentication
+
+Configuration files (examples in the [Quick Start](docs/CONFIGURATION_GUIDE.md#quick-start)):
+
+- **Backend**: `apps/dt-ws/.env`, not the repository root. `env.production.template`
+  is for production; do not use it for development.
+- **Frontend dev server**: `apps/dt-ui/.env.local` (see
+  [Development](docs/CONFIGURATION_GUIDE.md#development)). Without authentication, set
+  `VITE_ENABLE_NOAUTH=true` and leave `VITE_OIDC_ISSUER` unset.
+
+Without authentication, anyone who can reach the backend has full access, and the dev
+servers listen on all network interfaces. Use it only on a single-user machine on a
+trusted network, or block ports 3003 and 3005 at the host firewall (see
+[Auth-disabled mode](docs/CONFIGURATION_GUIDE.md#auth-disabled-mode-single-user--development)).
 
 ```bash
 git clone https://github.com/dether-net/dethernety-oss.git
 cd dethernety-oss
-
 pnpm install
 
-cp env.production.template .env
-# Edit .env with your database and OIDC settings
+# Create apps/dt-ws/.env and apps/dt-ui/.env.local (see above)
+grep -E '^NEO4J_(URI|USERNAME|PASSWORD)=' apps/dt-ws/.env > .env   # Database settings for the MITRE loader
 
-pnpm m-ingest    # Load MITRE framework data
-pnpm dev         # Start development servers
+# Start Neo4j or Memgraph
+pnpm --filter mitre-frameworks run setup     # Once: the MITRE loader's Python environment
+pnpm m-ingest                                # Load MITRE framework data
+
+# Compile the backend, the frontend and the packages they use; package the modules
+pnpm build --filter dt-ws --filter dt-ui --filter dethernety-general \
+  --filter dethernety-coverage-tools --filter dethernety-threat-report
+
+# Install the modules: the classes (general) and the Threat Report analysis
+for m in dethernety-general dethernety-coverage-tools dethernety-threat-report; do
+  ./scripts/module-manager.sh install modules/$m/dist/$m-*.tar.gz \
+    --target apps/dt-ws/custom_modules \
+    --state-file apps/dt-ws/custom_modules/installed-modules.json
+done
+
+pnpm dev --filter dt-ws --filter dt-ui       # Start the backend and frontend
 ```
+
+Turbo caches `m-ingest`: to load into a new, empty database again, run
+`pnpm m-ingest --force`. The unfiltered `pnpm dev` also starts the BYODt operator
+console, which needs its own setup.
 
 Frontend: `http://localhost:3005` | GraphQL API: `http://localhost:3003/graphql`
 
-### Production
-
-Production deployment requires configuring authentication (OIDC), database,
-policy engine, and module installation. See the
+**Production.** Running a source build in production requires configuring
+authentication (OIDC), database, policy engine, and module installation. See the
 [Configuration Guide](docs/CONFIGURATION_GUIDE.md) for the full setup.
 
 ## Features

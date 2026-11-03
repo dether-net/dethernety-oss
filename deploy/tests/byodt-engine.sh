@@ -2,7 +2,9 @@
 # Pins how byodt picks and drives the graph database engine, by running the wrapper itself in scratch bundles with a
 # stand-in `docker` on PATH that records every call and answers only what the wrapper asks; no container engine runs.
 #
-#   - the compose files: compose.yaml plus compose.<engine>.yaml, then compose.override.yaml when there is one;
+#   - the compose files: compose.yaml plus compose.<engine>.yaml, then compose.override.yaml when there is one; in the
+#     layout of a release before 0.13.0 (compose.yaml declares db, no compose.memgraph.yaml), compose.yaml alone, and
+#     any other missing engine file (a dangling link too, or Neo4j's) still named;
 #   - DB_ENGINE: recorded in .env on the first run (with NEO4J_IMAGE on Neo4j), an export overrides it for one
 #     command, anything else is refused;
 #   - the switch guard: an empty store for the chosen engine while the other engine's store holds data is refused,
@@ -136,6 +138,31 @@ B="$(bundle n2 'export DB_ENGINE=neo4j  # chosen at install')"; boot
 run compose config || true
 [[ "$(compose_line)" == *"-f compose.neo4j.yaml"* ]] && ! grep -qx 'DB_ENGINE=memgraph' "$B/.env" \
   && ok "DB_ENGINE in .env is read as compose reads it (export prefix, trailing comment)" || bad "env parsing: $(compose_line) / $(cat "$B/.env")"
+
+# The layout of a release before 0.13.0, which an upgrade from one meets before the new files move in: compose.yaml
+# declares the db service, and there is no compose.memgraph.yaml. compose.yaml alone is named (then the override). Any
+# other missing engine file is still named, so compose stops and says which.
+layout_line() { boot; : > "$CALLS"; run compose config || true; compose_line; }
+B="$(bundle l1)"; rm -f "${B:?}/compose.memgraph.yaml"
+[ "$(layout_line)" = "compose --env-file .env -f compose.yaml -f compose.memgraph.yaml config" ] \
+  && ok "this bundle's compose.yaml with compose.memgraph.yaml missing still names it" || bad "missing engine file not named: $(compose_line)"
+B="$(bundle l2)"; rm -f "${B:?}/compose.memgraph.yaml"; ln -s nowhere "$B/compose.memgraph.yaml"
+[ "$(layout_line)" = "compose --env-file .env -f compose.yaml -f compose.memgraph.yaml config" ] \
+  && ok "a link to nothing at compose.memgraph.yaml is still named" || bad "dangling engine file not named: $(compose_line)"
+# compose_yaml_012 DIR: a compose.yaml shaped as a release before 0.13.0 shipped it, the db service in it.
+compose_yaml_012() {
+  printf '%s\n' 'name: dethernety' '' 'services:' '  # The graph database.' '  db:' '    image: ${DB_IMAGE}' '  platform:' \
+    '    depends_on:' '      db:' '        condition: service_healthy' > "$1/compose.yaml"
+}
+B="$(bundle l3)"; rm -f "${B:?}/compose.memgraph.yaml" "${B:?}/compose.neo4j.yaml"; compose_yaml_012 "$B"
+[ "$(layout_line)" = "compose --env-file .env -f compose.yaml config" ] \
+  && ok "the layout of a release before 0.13.0 names compose.yaml alone" || bad "pre-0.13 layout: $(compose_line)"
+: > "$B/compose.override.yaml"
+[ "$(layout_line)" = "compose --env-file .env -f compose.yaml -f compose.override.yaml config" ] \
+  && ok "... and compose.override.yaml after it" || bad "pre-0.13 layout with an override: $(compose_line)"
+B="$(bundle l4 DB_ENGINE=neo4j)"; rm -f "${B:?}/compose.memgraph.yaml" "${B:?}/compose.neo4j.yaml"; compose_yaml_012 "$B"
+[ "$(layout_line)" = "compose --env-file .env -f compose.yaml -f compose.neo4j.yaml config" ] \
+  && ok "on Neo4j, which no release before 0.13.0 ran, that layout still names compose.neo4j.yaml" || bad "pre-0.13 layout on Neo4j: $(compose_line)"
 
 # 3. The switch guard, before anything is recorded or created.
 B="$(bundle s1 DB_ENGINE=neo4j)"; mkdir -p "$B/data/memgraph"; : > "$B/data/memgraph/snapshot"; rc=0

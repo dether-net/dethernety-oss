@@ -33,6 +33,7 @@ const tokenAwareModule: DTModule = {
   getExposures: async (_id: string, _classId: string, _token?: string) => [],
   getCountermeasures: async (_id: string, _classId: string, _token?: string) => [],
   isContentCallerVariant: () => true,
+  evaluatesWithCallerTokenOnly: () => true,
 };
 
 describe('DTModule content-method contract', () => {
@@ -59,5 +60,10 @@ describe('DTModule content-method contract', () => {
 
   it('caller-variance defaults to absent (== false == cacheable) when not declared', () => {
     expect(noTokenModule.isContentCallerVariant).toBeUndefined();
+  });
+
+  it('evaluating only with a caller token is opt-in, and absent when not declared', () => {
+    expect(tokenAwareModule.evaluatesWithCallerTokenOnly!()).toBe(true);
+    expect(noTokenModule.evaluatesWithCallerTokenOnly).toBeUndefined();
   });
 });

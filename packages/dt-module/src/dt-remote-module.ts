@@ -32,6 +32,7 @@ import { ResponseCache, ContentKind, EvalResult, stableStringify } from './remot
 import { buildFallbackGuide, buildFallbackTemplate, sanitizeText } from './remote/fallback';
 import { JsonSchema, stripToSchema } from './remote/strip';
 import { deploymentTeamId } from './remote/team-id';
+import { parsePolicyHashes, policyHashesBody, servedClassIds } from './remote/policy-hashes';
 
 /** A burst of fallbacks logs one warn per reason in this window; the next warn carries how many went unlogged. */
 const FALLBACK_WARN_INTERVAL_MS = 60_000;
@@ -49,6 +50,21 @@ const REFRESH_INTERVAL_MS = 60_000;
 function withinRefreshInterval(at: number): boolean {
   const since = Date.now() - at;
   return since >= 0 && since < REFRESH_INTERVAL_MS;
+}
+
+/** How long a registration waits for the pin's policy hashes, from a live fetch or on a
+ * cache hit with none stored: the cache keeps a restart offline-fast, the platform probes
+ * registration, and the hashes are not worth more. */
+const POLICY_HASHES_TIMEOUT_MS = 3_000;
+
+/** Every class array a module document can hold. A document-carried `policyHash` is
+ * stripped from all of them; the pin's hashes go only on the served ones. */
+const ALL_CLASS_ARRAYS: Array<keyof DTMetadata> = [...SERVED_CLASS_ARRAYS, 'analysisClasses', 'issueClasses'];
+
+/** An entry to serve, with the policy hashes of its classes when it is this module's own pin. */
+interface Registration {
+  entry: CachedModule;
+  hashes?: ReadonlyMap<string, string>;
 }
 
 /** The per-module identity a mount stub supplies: which module, at which pinned
@@ -86,6 +102,11 @@ export class DtRemoteModule implements DTModule {
   /** The entry this module registered from: set by the first getMetadata that
    * succeeds, and replaced when a background refresh fetches the configured pin. */
   private registered?: CachedModule;
+  /** The policy hashes of the registered entry's classes. Set only when that entry is
+   * the configured pin, the one every evaluation runs at. */
+  private registeredHashes?: ReadonlyMap<string, string>;
+  /** The metadata getMetadata answers for the registered entry, built once per adoption. */
+  private served?: { entry: CachedModule; module: DTMetadata };
   /** The registration in flight, shared by concurrent callers. */
   private registering?: Promise<CachedModule>;
   /** The last failed registration, answered again without the network
@@ -124,6 +145,12 @@ export class DtRemoteModule implements DTModule {
     return true;
   }
 
+  /** Evaluation runs on the content service under the caller's credential, so a call
+   * without one is refused rather than evaluated. */
+  evaluatesWithCallerTokenOnly(): boolean {
+    return true;
+  }
+
   /**
    * Register the module's classes. Resolution order until the module has
    * registered (never throws once it has ever registered, so the platform's
@@ -143,11 +170,17 @@ export class DtRemoteModule implements DTModule {
    * fetch of its own pin succeeds; an install made before then installs that
    * entry, and the next install after it (at the latest the next start) installs
    * its own pin's classes.
+   *
+   * The answer is a copy of the entry's document that carries each class's
+   * `policyHash` from the pin's policy hashes — only while the registered entry is
+   * the configured pin, the one evaluation runs at — and the cached document is never
+   * changed. A pin with no policy hashes reports none, and so does an entry from
+   * another pin.
    */
   async getMetadata(): Promise<DTMetadata> {
     if (this.registered) {
       this.refreshInBackground(this.registered);
-      return this.registered.document.module;
+      return this.servedMetadata(this.registered);
     }
     if (this.lastFailure && withinRefreshInterval(this.lastFailure.at)) throw this.lastFailure.error;
     this.registering ??= this.register()
@@ -158,7 +191,17 @@ export class DtRemoteModule implements DTModule {
       .finally(() => {
         this.registering = undefined;
       });
-    return (await this.registering).document.module;
+    return this.servedMetadata(await this.registering);
+  }
+
+  /**
+   * The `policyHash` of the policy `classId` evaluates with now: the pin's served hash,
+   * and undefined when the module serves an entry from another pin than the one it
+   * evaluates at, when the pin has no policy hashes, or before it has registered.
+   */
+  async getPolicyHash(classId: string): Promise<string | undefined> {
+    if (this.registered?.pin !== this.pin) return undefined;
+    return this.registeredHashes?.get(classId);
   }
 
   /**
@@ -335,15 +378,13 @@ export class DtRemoteModule implements DTModule {
     await this.pinPortalOrigin();
 
     let liveError: unknown;
-    const entry =
-      this.cache.get(this.moduleKey, this.pin) ??
-      (await this.fetchAndCache().catch((err) => {
-        liveError = err;
-        return null;
-      })) ??
-      this.cache.newestFor(this.moduleKey);
+    const own = await this.registrationAtPin().catch((err) => {
+      liveError = err;
+      return null;
+    });
+    const registration: Registration | null = own ?? withoutHashes(this.cache.newestFor(this.moduleKey));
 
-    if (!entry) {
+    if (!registration) {
       // Nothing was ever cached: genuine first boot (no live class to orphan) or
       // total cache loss (which, co-durable, means the graph is gone too). Rethrow
       // the real live error so a bad pin surfaces as misconfigured, an outage as
@@ -352,14 +393,82 @@ export class DtRemoteModule implements DTModule {
       throw sanitizeError(liveError ?? new RemoteModuleUnavailableError(this.moduleKey));
     }
 
-    this.adopt(entry);
-    return entry;
+    this.adopt(registration);
+    return registration.entry;
   }
 
-  /** Serve this entry from now on: its vectors and its document. */
-  private adopt(entry: CachedModule): void {
+  /** The configured pin's entry: the cached one (immutable, offline-fast), else a live
+   * fetch. A wire error of the document fetch propagates. */
+  private async registrationAtPin(): Promise<Registration> {
+    const cached = this.cache.get(this.moduleKey, this.pin);
+    if (!cached) return this.fetchAndCache();
+    return { entry: cached, hashes: await this.cachedPinPolicyHashes(cached) };
+  }
+
+  /** Serve this entry from now on: its vectors, its document, and — for the configured
+   * pin only — its policy hashes. */
+  private adopt({ entry, hashes }: Registration): void {
     this.loadVectors(entry);
     this.registered = entry;
+    this.registeredHashes = entry.pin === this.pin ? hashes : undefined;
+    this.served = undefined;
+  }
+
+  /** The registered entry's document with its classes' policy hashes, built once per
+   * adoption: the platform health-probes getMetadata, so it is not rebuilt per call. */
+  private servedMetadata(entry: CachedModule): DTMetadata {
+    if (this.served?.entry !== entry) {
+      const hashes = entry === this.registered && entry.pin === this.pin ? this.registeredHashes : undefined;
+      this.served = { entry, module: withPolicyHashes(entry.document.module, hashes) };
+    }
+    return this.served.module;
+  }
+
+  /** The policy hashes of the configured pin's cached entry: the stored set, else one
+   * fetched under the short bound and stored. A stored set that does not check out is
+   * removed first, so the one fetched can take its place. None when neither is available. */
+  private async cachedPinPolicyHashes(entry: CachedModule): Promise<ReadonlyMap<string, string> | undefined> {
+    const stored = this.cache.getPolicyHashes(this.moduleKey, this.pin);
+    if (stored !== null) {
+      const classIds = servedClassIds(entry.document.module);
+      const hashes = parsePolicyHashes(stored, this.moduleKey, this.pin, classIds);
+      if (hashes) return hashes;
+      this.cache.dropPolicyHashes(this.moduleKey, this.pin);
+    }
+    return this.fetchPolicyHashes(entry.document.module);
+  }
+
+  /**
+   * Fetch, check and store the configured pin's policy hashes. Never throws: a pin with
+   * no policy hashes (the service answers 403 or 404 for it), an outage, a timeout and a
+   * malformed body all leave the classes reporting none, which costs a stamp and
+   * nothing else. None of them is stored, so a set published later is still fetched at
+   * the next start.
+   */
+  private async fetchPolicyHashes(module: DTMetadata): Promise<ReadonlyMap<string, string> | undefined> {
+    let served: { body: unknown } | null;
+    try {
+      served = await this.wire.policyHashes(this.moduleKey, this.pin, { timeoutMs: POLICY_HASHES_TIMEOUT_MS });
+    } catch (err) {
+      this.logger.warn('Could not fetch the policy hashes of the pin; its classes report none until the next start', {
+        moduleKey: this.moduleKey,
+        pin: this.pin,
+        error: err instanceof Error ? err.name : 'Error',
+      });
+      return undefined;
+    }
+    if (served === null) return undefined;
+    const hashes = parsePolicyHashes(served.body, this.moduleKey, this.pin, servedClassIds(module));
+    if (!hashes) {
+      // Wire-sourced: logged without any of its content.
+      this.logger.warn('Discarded malformed policy hashes for the pin; its classes report none until the next start', {
+        moduleKey: this.moduleKey,
+        pin: this.pin,
+      });
+      return undefined;
+    }
+    this.cache.putPolicyHashes(this.moduleKey, this.pin, policyHashesBody(this.moduleKey, this.pin, hashes));
+    return hashes;
   }
 
   /** Pin the portal origin, and take the configured pin if the module registered
@@ -374,7 +483,7 @@ export class DtRemoteModule implements DTModule {
     void (async () => {
       await this.pinPortalOrigin();
       if (!pinStale) return;
-      this.adopt(this.cache.get(this.moduleKey, this.pin) ?? (await this.fetchAndCache()));
+      this.adopt(await this.registrationAtPin());
     })().catch((err: unknown) => {
       this.logger.warn('Background fetch of the module document failed; the registered entry stays', {
         moduleKey: this.moduleKey,
@@ -398,10 +507,11 @@ export class DtRemoteModule implements DTModule {
     }
   }
 
-  /** Fetch the module document and every listed embedding model, persist, return.
-   * A wire error propagates to register's fallback chain or the background
-   * refresh's catch, and never past either. */
-  private async fetchAndCache(): Promise<CachedModule> {
+  /** Fetch the module document, then every listed embedding model and the pin's
+   * policy hashes together; persist, return. A wire error of the document or an
+   * embedding propagates to register's fallback chain or the background refresh's
+   * catch, and never past either; the policy hashes never fail it. */
+  private async fetchAndCache(): Promise<Registration> {
     const document = await this.wire.moduleDocument(this.moduleKey, this.pin);
     // A live document with zero classes is corruption (a partial/wrong response),
     // not a legitimate module — treat it as a failed fetch so registration falls
@@ -417,9 +527,10 @@ export class DtRemoteModule implements DTModule {
       throw new RemoteModuleUnavailableError(`Content service returned no module name for ${this.moduleKey}`);
     }
     const models = document.embeddings?.models ?? [];
-    const embeddings = await Promise.all(
-      models.map((model) => this.wire.embeddings(this.moduleKey, this.pin, model)),
-    );
+    const [embeddings, hashes] = await Promise.all([
+      Promise.all(models.map((model) => this.wire.embeddings(this.moduleKey, this.pin, model))),
+      this.fetchPolicyHashes(document.module),
+    ]);
     const entry: CachedModule = {
       moduleKey: this.moduleKey,
       pin: this.pin,
@@ -428,7 +539,7 @@ export class DtRemoteModule implements DTModule {
       embeddings,
     };
     this.cache.put(entry);
-    return entry;
+    return { entry, hashes };
   }
 
   /** Rebuild the synchronous vector map from a (live or cached) entry: join the
@@ -474,6 +585,29 @@ export class DtRemoteModule implements DTModule {
     }
     this.vectors = next;
   }
+}
+
+function withoutHashes(entry: CachedModule | null): Registration | null {
+  return entry ? { entry } : null;
+}
+
+/** A copy of `module` whose served class entries carry `policyHash` from `hashes`, and
+ * no class entry carries any other: a hash the document carried itself is not one this
+ * module evaluates by. */
+function withPolicyHashes(module: DTMetadata, hashes: ReadonlyMap<string, string> | undefined): DTMetadata {
+  const copy: DTMetadata = { ...module };
+  for (const key of ALL_CLASS_ARRAYS) {
+    const classes = module[key] as Array<{ id?: unknown; policyHash?: string } | null> | undefined;
+    if (!Array.isArray(classes)) continue;
+    const served = SERVED_CLASS_ARRAYS.includes(key);
+    (copy as unknown as Record<string, unknown>)[key] = classes.map((cls) => {
+      if (!cls || typeof cls !== 'object') return cls;
+      const { policyHash: _carried, ...rest } = cls;
+      const hash = served && typeof cls.id === 'string' ? hashes?.get(cls.id) : undefined;
+      return hash ? { ...rest, policyHash: hash } : rest;
+    });
+  }
+  return copy;
 }
 
 /** A stable hash of the stripped attribute map — the eval cache key. Deterministic

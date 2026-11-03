@@ -35,7 +35,9 @@ get-byodt.sh — install Dethernety's self-hosted deployment, release $BYODT_VER
   --tarball FILE        install from this bundle file instead of downloading it (it is checked all the same; its
                         signature only from FILE.bundle beside it)
   --require-signature   refuse unless cosign is installed and verifies the bundle
-  --allow-unsigned      let an unattended upgrade use a bundle cosign did not verify (its hash is still checked)
+  --allow-unsigned      upgrade without a signature check when cosign is not installed, or a --tarball has no
+                        .bundle beside it (skips the signature question; the SHA-256 is still checked; a signature
+                        cosign rejects still stops)
   -h, --help            this text
 
 Any other option goes to the bundle's own setup or upgrade ('./byodt setup --help' in an installed folder).

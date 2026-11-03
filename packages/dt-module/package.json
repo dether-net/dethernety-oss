@@ -34,6 +34,11 @@
       "require": "./dist/rego-mapping.js",
       "default": "./dist/rego-mapping.js"
     },
+    "./policy-hash": {
+      "types": "./dist/policy-hash.d.ts",
+      "require": "./dist/policy-hash.js",
+      "default": "./dist/policy-hash.js"
+    },
     "./test-database": {
       "types": "./dist/test-database.d.ts",
       "require": "./dist/test-database.js",
@@ -67,6 +72,9 @@
       ],
       "rego-mapping": [
         "dist/rego-mapping.d.ts"
+      ],
+      "policy-hash": [
+        "dist/policy-hash.d.ts"
       ],
       "test-database": [
         "dist/test-database.d.ts"

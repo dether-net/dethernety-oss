@@ -234,6 +234,23 @@ export function runKgContractSuite(harness: KgContractHarness): void {
         expect(body.results[0].matches[0].classId).toBe(KG_CLASS_ID);
       });
 
+      it('every rule carries its policyHash and every read its side, as keys, null when there is none', async () => {
+        // Present even when null: a client reads a missing key as an older service, not as "none".
+        const body = await (await q('rulesByClassId', { classIds: [KG_CLASS_ID, KG_OTHER_CLASS_ID] })).json();
+        const rules = body.results.flatMap((r: { matches: unknown[] }) => r.matches) as Array<Record<string, unknown>>;
+        expect(rules.length).toBeGreaterThan(0);
+        for (const rule of rules) {
+          expect(rule).toHaveProperty('policyHash');
+          expect(rule.policyHash === null || /^[0-9a-f]{64}$/.test(rule.policyHash as string)).toBe(true);
+          for (const read of rule.reads as Array<Record<string, unknown>>) {
+            expect(read).toHaveProperty('side');
+            expect([null, 'runtime', 'build']).toContain(read.side);
+          }
+        }
+        expect(rules.some((rule) => rule.policyHash === null)).toBe(true);
+        expect(rules.some((rule) => typeof rule.policyHash === 'string')).toBe(true);
+      });
+
       it('a rule id shared by two classes resolves to two distinct answers', async () => {
         // Rule ids are unique only within a class. A flat key would merge these two, and the
         // caller would attribute one class's threats to the other — silently.

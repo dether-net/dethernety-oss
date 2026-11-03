@@ -19,12 +19,22 @@
  */
 export type KgRuleKind = 'exposure' | 'countermeasure';
 
+/**
+ * Which side of an element an attribute describes: how it runs (`runtime`), or the element's own
+ * software (`build`) — how it is made, what it is given, its dependencies, its patch level. An
+ * unmarked attribute describes configuration. A closed set, so a stored value outside it narrows
+ * to null.
+ */
+export type KgAttributeSide = 'runtime' | 'build';
+
 /** An attribute a rule reads to decide whether it fires. */
 export interface KgAttribute {
   name: string;
   title: string | null;
   description: string | null;
   category: string | null;
+  /** Null when the attribute was not marked, which a consumer reads as describing configuration. */
+  side: KgAttributeSide | null;
 }
 
 /** A cited source a threat was derived from. */
@@ -82,6 +92,12 @@ export interface KgRule {
   conditionGroups: string | null;
   /** JSON text, passed through unparsed — as `conditionGroups`. */
   mitreRefs: string | null;
+  /**
+   * The `policyHash` of the class policy this rule was derived from, in the format a class's metadata
+   * reports it. Null for a rule recorded without one. Always present as a key, so its absence tells a
+   * caller it is talking to an older implementation.
+   */
+  policyHash: string | null;
   /** Ordered by name, in code-unit order. */
   reads: KgAttribute[];
 }

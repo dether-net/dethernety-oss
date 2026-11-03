@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { jwtDecode } from 'jwt-decode'
 import { AuthConfig, AuthStoreConfig, User, UserInfo, TokenResponse } from '@dethernety/dt-core'
 import { getConfig, type OidcEndpoints } from '@/config/environment'
+import { userDisplayName } from '@/utils/userDisplayName'
 
 // Extended AuthConfig with OIDC endpoints
 interface ExtendedAuthConfig extends AuthConfig {
@@ -514,7 +515,7 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
       setUser({
         id: userInfo.sub,
         email: userInfo.email,
-        name: userInfo.name || userInfo.preferred_username || 'Unknown',
+        name: userDisplayName(userInfo),
       })
 
       // Extract and set roles and permissions using configurable claim paths

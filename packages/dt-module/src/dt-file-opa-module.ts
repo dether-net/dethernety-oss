@@ -1,4 +1,3 @@
-import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Logger } from '@nestjs/common';
@@ -6,6 +5,7 @@ import { DTModule, DTMetadata, Countermeasure, Exposure, DbOps } from './index';
 import { EmbeddingFileCache } from './embedding-file-cache';
 import { RegoEngine } from './rego-engine';
 import { mapExposureFinding, mapCountermeasureFinding } from './rego-mapping';
+import { NO_POLICY_HASH, decodePolicySource, policySourceHash } from './policy-hash';
 
 /**
  * V2 classType folder mapping.
@@ -30,9 +30,6 @@ const FORCED_TYPES: Record<string, string> = {
   control: 'CONTROL',
   data: 'DATA',
 };
-
-/** `policyHash` of a class with no policy: the hash of the empty source. */
-const NO_POLICY_HASH = createHash('sha256').update('').digest('hex');
 
 /** Fallback template for classes without a schema.json file. */
 const FALLBACK_TEMPLATE = {
@@ -229,21 +226,6 @@ export class DtFileOpaModule implements DTModule {
   }
 
   // ---------------------------------------------------------------------------
-  // Rego helpers
-  // ---------------------------------------------------------------------------
-
-  private decodeRegoPolicies(value: string | null | undefined): string | null {
-    if (!value) return null;
-    const trimmed = value.trim();
-    if (trimmed.startsWith('package ')) return value;
-    try {
-      const decoded = Buffer.from(value, 'base64').toString('utf-8');
-      if (decoded.trim().startsWith('package ')) return decoded;
-    } catch { /* not base64 */ }
-    return value;
-  }
-
-  // ---------------------------------------------------------------------------
   // DTModule interface
   // ---------------------------------------------------------------------------
 
@@ -318,7 +300,8 @@ export class DtFileOpaModule implements DTModule {
           const policiesPath = path.join(classDir, 'policies.rego');
           this.validateModulePath(policiesPath);
           if (fs.existsSync(policiesPath)) {
-            const raw = this.decodeRegoPolicies(fs.readFileSync(policiesPath, 'utf8').trim());
+            const text = fs.readFileSync(policiesPath, 'utf8');
+            const raw = decodePolicySource(text.trim());
             if (raw) {
               // Eager, so a policy that cannot be parsed or is not self-contained is
               // reported here rather than at the first analysis that needs it.
@@ -326,7 +309,7 @@ export class DtFileOpaModule implements DTModule {
               try {
                 this.regoEngine.register(key, raw);
                 registeredKeys.add(key);
-                classMetadata.policyHash = this.regoEngine.sourceHash(key);
+                classMetadata.policyHash = policySourceHash(text);
               } catch (err: unknown) {
                 delete classMetadata.policyHash;
                 registerFailures.push({ key, error: err instanceof Error ? err.message : String(err) });
@@ -445,7 +428,8 @@ export class DtFileOpaModule implements DTModule {
       return null;
     }
 
-    const regoContent = this.decodeRegoPolicies(fs.readFileSync(policiesPath, 'utf-8'));
+    // Read as getMetadata reads it, so a policy registered here hashes to the value the metadata reports.
+    const regoContent = decodePolicySource(fs.readFileSync(policiesPath, 'utf-8').trim());
     if (!regoContent) return null;
 
     const key = RegoEngine.keyFor(classDataPath);
@@ -486,7 +470,7 @@ export class DtFileOpaModule implements DTModule {
       const policiesPath = path.join(this.moduleDataDir, classDataPath, 'policies.rego');
       this.validateModulePath(policiesPath);
       if (!fs.existsSync(policiesPath)) return NO_POLICY_HASH;
-      return this.decodeRegoPolicies(fs.readFileSync(policiesPath, 'utf8').trim()) ? undefined : NO_POLICY_HASH;
+      return decodePolicySource(fs.readFileSync(policiesPath, 'utf8').trim()) ? undefined : NO_POLICY_HASH;
     } catch {
       return undefined;
     }

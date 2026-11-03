@@ -8,7 +8,7 @@
 #   - every download is HTTPS only and capped in size;
 #   - the bundle is used only when its SHA-256 is the one written in, and, with cosign, when its signature verifies;
 #     without cosign a warning, and --require-signature refuses; a failed check leaves nothing behind;
-#   - an unattended upgrade refuses a bundle cosign did not verify unless --allow-unsigned, and
+#   - an unattended upgrade without cosign refuses the bundle unless --allow-unsigned, and
 #     UPGRADE_REQUIRE_SIGNATURE=true in the deployment's .env refuses --allow-unsigned; false or empty counts as unset,
 #     and any other value stops the upgrade;
 #   - entries outside byodt-<version>/, unsafe names and links are refused even with a matching hash;
@@ -259,7 +259,7 @@ for SH in $SHELLS; do
   fi
   place; mkdir -p "$P/byodt"; cp "$SRC/.env.example" "$P/byodt/"; : > "$P/byodt/byodt"; : > "$P/byodt/.env.secrets"
   inst "$SHP" "" -- --yes --upgrade
-  check "$SH: an unattended upgrade with a bundle cosign did not verify is refused before the hand-over, naming both ways on" \
+  check "$SH: an unattended upgrade without cosign is refused before the hand-over, naming both ways on" \
     '[ "$rc" != 0 ] && grep -q "Install cosign" "$work/out" && grep -q -- "--allow-unsigned" "$work/out" \
      && ! grep -q "Handing over" "$work/out" && ! ls -d "$P"/byodt/.byodt-upgrade.* >/dev/null 2>&1'
   printf 'UPGRADE_REQUIRE_SIGNATURE="True"\n' > "$P/byodt/.env"; : > "$CALLS.curl"; inst "$SHP" "" -- --yes --upgrade --allow-unsigned

@@ -10,7 +10,8 @@
  * The local schema declares several fields that the access contract does not carry:
  * `KgThreat.classId` and `KgThreat.tactic`; `KgAttribute.id`, `.type`, `.criticality`,
  * `.categoryHint` and `.enumValues`; `KgRule.irVersion`. They are absent here because nothing
- * would fill them.
+ * would fill them. `KgAttribute.side` and `KgRule.policyHash` are not among them: the contract
+ * carries both, so both are declared here.
  *
  * That is a deliberate asymmetry, and the direction matters. A consumer selecting an absent field
  * fails at query validation — immediately, with the field named. A consumer selecting a *declared*
@@ -74,6 +75,8 @@ type KgAttribute {
   title: String
   description: String
   category: String
+  """\`runtime\` or \`build\`; null when the attribute was not marked."""
+  side: String
 }
 
 """A cited source a threat was derived from — a standard, an advisory, a URL."""
@@ -112,6 +115,8 @@ type KgRule {
   attackVector: String
   conditionGroups: String
   mitreRefs: String
+  """The policyHash of the class policy the rule was derived from; null when it was recorded without one."""
+  policyHash: String
   reads: [KgAttribute!]!
   addresses: [KgThreat!]!
 }

@@ -63,12 +63,14 @@ describe('LocalKgClient — the declared field set survives', () => {
         attackVector: 'NETWORK',
         conditionGroups: '[[{"attribute":"flow_tls_encrypted","operator":"is_false"}]]',
         mitreRefs: '[{"label":"MitreAttackTechnique","property":"attack_id","value":"T1040"}]',
+        policyHash: 'f'.repeat(64),
         reads: [
           {
             name: 'flow_tls_encrypted',
             title: 'Flow TLS Encrypted',
             description: 'Whether the flow is carried over TLS.',
             category: 'RULE_INPUT',
+            side: 'runtime',
           },
         ],
       },
@@ -80,7 +82,7 @@ describe('LocalKgClient — the declared field set survives', () => {
     // that dropped a field instead of nulling it would otherwise pass the object comparison.
     const { client } = clientOver([ruleRowSparse]);
     const [rule] = (await client.rulesByClassId([CLASS_B])).get(CLASS_B)!;
-    for (const field of ['description', 'criticality', 'attackVector', 'conditionGroups', 'mitreRefs'] as const) {
+    for (const field of ['description', 'criticality', 'attackVector', 'conditionGroups', 'mitreRefs', 'policyHash'] as const) {
       expect(rule).toHaveProperty(field, null);
     }
     expect(rule.score).toBe(7.5);
@@ -126,6 +128,27 @@ describe('LocalKgClient — the declared field set survives', () => {
     const { client } = clientOver([{ ...ruleRowFull, kind: 'advisory' }]);
     const [rule] = (await client.rulesByClassId([CLASS_A])).get(CLASS_A)!;
     expect(rule.kind).toBeNull();
+  });
+
+  it("narrows a read's unrecognised or absent side to null", async () => {
+    const reads = [
+      { ...ruleRowFull.reads[0], name: 'a_unknown', side: 'sideways' },
+      { ...ruleRowFull.reads[0], name: 'b_null', side: null },
+      { ...ruleRowFull.reads[0], name: 'c_build', side: 'build' },
+    ];
+    const { client } = clientOver([{ ...ruleRowFull, reads }]);
+    const [rule] = (await client.rulesByClassId([CLASS_A])).get(CLASS_A)!;
+    expect(rule.reads.map((r) => [r.name, r.side])).toEqual([
+      ['a_unknown', null],
+      ['b_null', null],
+      ['c_build', 'build'],
+    ]);
+  });
+
+  it('resolves a policyHash that is not a string to null', async () => {
+    const { client } = clientOver([{ ...ruleRowFull, policyHash: fakeInt(7) }]);
+    const [rule] = (await client.rulesByClassId([CLASS_A])).get(CLASS_A)!;
+    expect(rule).toHaveProperty('policyHash', null);
   });
 });
 
@@ -321,6 +344,17 @@ describe('the Cypher keeps the disciplines it was moved with', () => {
     for (const q of KG_ALL_QUERIES) {
       expect(q).not.toContain('${');
     }
+  });
+
+  it("collects a rule's reads as scalar tuples behind a null guard, re-projected by index", () => {
+    // Memgraph stops deduplicating a map once any value in it is null, and a read's side usually is;
+    // a map built from the loop variable's properties repeats the first element. Both fail silently.
+    const q = KG_RULES_BY_CLASS_ID.replace(/\s+/g, ' ');
+    expect(q).toContain(
+      'collect(DISTINCT CASE WHEN a IS NULL THEN NULL ELSE [a.name, a.title, a.description, a.category, a.side] END)',
+    );
+    expect(q).toContain('[t IN readTuples | {name: t[0], title: t[1], description: t[2], category: t[3], side: t[4]}] AS reads');
+    expect(q).toContain('kr.policyHash AS policyHash');
   });
 
   it('keys every query — none of them can be asked for everything', () => {

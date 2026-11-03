@@ -130,7 +130,7 @@ class MyAnalysisModule extends DtLgModule {
 
 **Base Class:** `DtRemoteModule`
 
-Serves its content — metadata, class templates, guides, embeddings, and evaluation — from an HTTP content service over the module content wire protocol, instead of from a local data directory. It is a sibling of `DtFileOpaModule` implementing the same `DTModule` contract, so the platform cannot tell it apart from a file-backed module. It carries no policy engine (evaluation is remote).
+Serves its content — metadata, class templates, guides, embeddings, and evaluation — from an HTTP content service over the module content wire protocol, instead of from a local data directory. It is a sibling of `DtFileOpaModule` implementing the same `DTModule` contract, so the platform cannot tell it apart from a file-backed module. It carries no policy engine (evaluation is remote); its classes report the policy hashes the catalog serves for the pin (see [Policy hashes](./DT_MODULE_INTERFACE.md#policy-hashes)).
 
 ```typescript
 import { DtRemoteModule } from '@dethernety/dt-module';
@@ -199,6 +199,8 @@ This folder contains the following documentation:
 | `getClassGuide(id, token?)` | No | Usage guidance for class configuration |
 | `getExposures(id, classId, token?)` | No | Evaluate exposures for an element |
 | `getCountermeasures(id, classId, token?)` | No | Evaluate countermeasures for an element |
+| `getPolicyHash(classId)` | No | The `policyHash` this instance evaluates a class with now |
+| `evaluatesWithCallerTokenOnly()` | No | Opt-in: evaluation needs the caller's token → left out of background re-evaluation |
 | `isContentCallerVariant()` | No | Opt-in: content varies per caller → bypass the template cache |
 | `runAnalysis(...)` | No | Start an analysis workflow |
 | `startChat(...)` | No | Start interactive analysis chat |

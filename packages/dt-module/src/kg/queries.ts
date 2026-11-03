@@ -13,9 +13,13 @@
  *   - **Group on graph entities, never on maps.** Every `WITH` here groups on a scalar and a node
  *     (`cid, kr` / `classId, ruleId, t` / `tid, t`). A map or list used as a grouping key hashes
  *     non-deterministically on Memgraph.
- *   - **`collect(DISTINCT …)` only over scalar-only maps.** The `reads` and `derivedFrom` maps hold
- *     scalars exclusively. A `DISTINCT` over a map that itself nests a list is the hashing hazard
- *     the consumers' comments call out; there is no such collect here, and none may be added.
+ *   - **`collect(DISTINCT …)` only over scalar-only maps.** The `derivedFrom` maps hold scalars
+ *     exclusively. A `DISTINCT` over a map that itself nests a list is the hashing hazard the
+ *     consumers' comments call out; there is no such collect here, and none may be added.
+ *   - **A value that is usually null rides in a tuple, not a map.** Memgraph's `DISTINCT` stops
+ *     deduplicating a map once any of its values is null, silently. A read's `side` is null on most
+ *     attributes, so `reads` collects scalar tuples and re-projects them into maps by index — not
+ *     from the loop variable's properties, which Memgraph evaluates once for the whole list.
  *   - **Pattern comprehension, not nested `OPTIONAL MATCH` fan-out.** The
  *     `[x IN collect(…) WHERE x IS NOT NULL]` form is what turns a missing optional match into an
  *     empty list rather than a one-element list holding `null`.
@@ -34,8 +38,11 @@
  * Rules on the given classes, optionally narrowed to one kind.
  *
  * Widens the rule map an analysis module's per-element query builds today (which projects
- * `ruleId, name, description, conditionGroups, reads`) with the seven fields the contract also
+ * `ruleId, name, description, conditionGroups, reads`) with the fields the contract also
  * declares, and generalises the countermeasure variant's hard-coded `kind` into `$kind`.
+ *
+ * The `CASE WHEN a IS NULL` guard is load-bearing: `collect` skips a null, but a tuple of nulls is
+ * not null, so without it a rule that reads nothing would collect one all-null read.
  *
  * `MATCH`, not `OPTIONAL MATCH`: a class with no rules simply produces no row, and the client
  * seeds its result map from the requested keys, so "asked and matched nothing" is expressed once
@@ -52,12 +59,13 @@ WHERE $kind IS NULL OR kr.kind = $kind
 OPTIONAL MATCH (kr)-[:KG_READS]->(a:KgAttribute)
 WITH cid, kr,
      [x IN collect(DISTINCT CASE WHEN a IS NULL THEN NULL ELSE
-        {name: a.name, title: a.title, description: a.description, category: a.category} END)
-      WHERE x IS NOT NULL] AS reads
+        [a.name, a.title, a.description, a.category, a.side] END)
+      WHERE x IS NOT NULL] AS readTuples
 RETURN cid AS classId, kr.id AS id, kr.ruleId AS ruleId, kr.kind AS kind, kr.name AS name,
        kr.description AS description, kr.criticality AS criticality, kr.score AS score,
        kr.attackVector AS attackVector, kr.conditionGroups AS conditionGroups,
-       kr.mitreRefs AS mitreRefs, reads
+       kr.mitreRefs AS mitreRefs, kr.policyHash AS policyHash,
+       [t IN readTuples | {name: t[0], title: t[1], description: t[2], category: t[3], side: t[4]}] AS reads
 `;
 
 /**

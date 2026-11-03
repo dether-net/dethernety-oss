@@ -82,6 +82,13 @@ type ClassPolicy = { exposures?: any[]; countermeasures?: any[] };
 class FakeModuleRegistry {
   private byClass = new Map<string, ClassPolicy>();
   readonly modules = new Set<string>([MODULE_NAME]);
+  /** Modules that evaluate only with a caller's token, which the sweep leaves out. */
+  readonly callerTokenOnly = new Set<string>();
+  /**
+   * What the module answers to getPolicyHash, per class. Empty means the module has no getPolicyHash at all, and is
+   * taken at the stored hash; a class mapped to undefined is one the module cannot vouch for.
+   */
+  readonly reportedHashes = new Map<string, string | undefined>();
   calls: Array<{ elementId: string; classId: string }> = [];
 
   setPolicy(classId: string, policy: ClassPolicy): void {
@@ -90,6 +97,8 @@ class FakeModuleRegistry {
 
   reset(): void {
     this.byClass.clear();
+    this.callerTokenOnly.clear();
+    this.reportedHashes.clear();
     this.calls = [];
   }
 
@@ -97,9 +106,17 @@ class FakeModuleRegistry {
     return this.calls.filter(c => c.elementId === elementId).map(c => c.classId);
   }
 
+  getAllModules(): Map<string, any> {
+    return new Map([...this.modules].map(name => [name, this.getModuleByName(name)]));
+  }
+
   getModuleByName(name: string): any | undefined {
     if (!this.modules.has(name)) return undefined;
     return {
+      evaluatesWithCallerTokenOnly: () => this.callerTokenOnly.has(name),
+      ...(this.reportedHashes.size > 0
+        ? { getPolicyHash: async (classId: string) => this.reportedHashes.get(classId) }
+        : {}),
       getExposures: async (elementId: string, classId: string) => {
         this.calls.push({ elementId, classId });
         return this.byClass.get(classId)?.exposures ?? [];
@@ -223,6 +240,28 @@ function only(rows: FindingRow[], name: string, createdBy: string, classId: stri
 
 const summary = (rows: FindingRow[]) => rows.map(r => `${r.name}|${r.createdBy}|${r.classId}`);
 
+// Every disposition field of each of the element's findings, by finding name.
+async function readDispositions(driver: any, elementId: string): Promise<Record<string, Record<string, unknown>>> {
+  const r = await runWrite(
+    driver,
+    `MATCH (c {id: $elementId})-[:HAS_EXPOSURE|HAS_COUNTERMEASURE]->(f) RETURN f.name AS name, properties(f) AS props`,
+    { elementId },
+  );
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const rec of r.records) {
+    const props = rec.get('props') as Record<string, unknown>;
+    out[rec.get('name')] = Object.fromEntries(Object.entries(props).filter(([key]) => key.startsWith('disposition')));
+  }
+  return out;
+}
+
+// The element's own properties other than its stamps.
+async function readElementProperties(driver: any, elementId: string): Promise<Record<string, unknown>> {
+  const r = await runWrite(driver, `MATCH (c {id: $elementId}) RETURN properties(c) AS props`, { elementId });
+  const { classPolicyStamps: _stamps, ...rest } = r.records[0].get('props') as Record<string, unknown>;
+  return rest;
+}
+
 async function dispose(driver: any, elementId: string, name: string, kind: string): Promise<void> {
   await runWrite(
     driver,
@@ -266,6 +305,7 @@ describe('FindingReevaluationService — re-evaluation after a class policy chan
       makeStubConfigService(),
       { onModulesInstalled: jest.fn() } as any,
       svc,
+      registry as any,
     );
     jest.spyOn((reeval as any).logger, 'log').mockImplementation(() => {});
     // A sweep in which an element failed reports at warn.
@@ -511,6 +551,64 @@ describe('FindingReevaluationService — re-evaluation after a class policy chan
     expect(await readStamps(mg.driver, 'cmp-1')).toBeNull();
   });
 
+  it('leaves out the bindings of a module that evaluates only with a caller token', async () => {
+    registry.callerTokenOnly.add(MODULE_NAME);
+    await seedModule(mg.driver);
+    await seedClass(mg.driver, 'ComponentClass', 'cc-web', 'h1');
+    await seedElement(mg.driver, 'Component', 'cmp-1', ['cc-web']);
+    registry.setPolicy('cc-web', { exposures: [{ name: 'Other', exploitedBy: [technique('T1078')] }] });
+    const setAttributes = jest.spyOn(svc, 'setAttributes');
+
+    await reeval.request();
+
+    expect(setAttributes).not.toHaveBeenCalled();
+    expect(registry.calls).toEqual([]);
+    expect(await readStamps(mg.driver, 'cmp-1')).toBeNull();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("a save the module cannot vouch for removes the element's stamp for that class, and nothing else", async () => {
+    await seedModule(mg.driver);
+    await seedClass(mg.driver, 'ComponentClass', 'cc-web', 'h1');
+    await seedElement(mg.driver, 'Component', 'cmp-1', ['cc-web']);
+    registry.setPolicy('cc-web', { exposures: [{ name: 'Weak auth', exploitedBy: [technique('T1078')] }] });
+    await save('cmp-1', 'cc-web');
+    await dispose(mg.driver, 'cmp-1', 'Weak auth', 'AFFIRMED');
+    // A stamp for another class the element holds, which the unstamp must keep.
+    await runWrite(
+      mg.driver,
+      `MATCH (c {id: 'cmp-1'}) SET c.classPolicyStamps = c.classPolicyStamps + [$other]`,
+      { other: stamp('cc-other', 'h7') },
+    );
+    expect(await readStamps(mg.driver, 'cmp-1')).toEqual([stamp('cc-other', 'h7'), stamp('cc-web', 'h1')].sort());
+    const dispositionsBefore = await readDispositions(mg.driver, 'cmp-1');
+    const elementBefore = await readElementProperties(mg.driver, 'cmp-1');
+    // The module now evaluates under a policy it cannot name, as a remote module serving another pin's entry does.
+    registry.reportedHashes.set('cc-web', undefined);
+
+    await save('cmp-1', 'cc-web');
+
+    expect(registry.callsFor('cmp-1')).toEqual(['cc-web', 'cc-web']);
+    expect(await readStamps(mg.driver, 'cmp-1')).toEqual([stamp('cc-other', 'h7')]);
+    expect(dispositionsBefore['Weak auth']).toMatchObject({ dispositionKind: 'AFFIRMED', dispositionStale: false });
+    expect(await readDispositions(mg.driver, 'cmp-1')).toEqual(dispositionsBefore);
+    expect(await readElementProperties(mg.driver, 'cmp-1')).toEqual(elementBefore);
+  });
+
+  it('a save the module cannot vouch for writes no stamp property to an element that holds none', async () => {
+    await seedModule(mg.driver);
+    await seedClass(mg.driver, 'ComponentClass', 'cc-web', 'h1');
+    await seedElement(mg.driver, 'Component', 'cmp-1', ['cc-web']);
+    registry.setPolicy('cc-web', { exposures: [{ name: 'Weak auth', exploitedBy: [technique('T1078')] }] });
+    registry.reportedHashes.set('cc-web', undefined);
+
+    await save('cmp-1', 'cc-web');
+
+    // Absent, not an empty list: the unstamp matched no element and wrote nothing.
+    expect(await readStamps(mg.driver, 'cmp-1')).toBeNull();
+    expect(summary(await readFindings(mg.driver, 'cmp-1'))).toEqual(['Weak auth|SYSTEM|cc-web']);
+  });
+
   it('never selects an issue or analysis binding, even when its class carries a hash', async () => {
     await seedModule(mg.driver);
     await seedClass(mg.driver, 'IssueClass', 'ic-1', 'h1');
@@ -586,7 +684,7 @@ describe('FindingReevaluationService — re-evaluation after a class policy chan
       modules = new ModuleManagementService(mg.driver, makeStubConfigService(), embeddingStub, reconciler, log);
       jest.spyOn((modules as any).logger, 'log').mockImplementation(() => {});
       jest.spyOn((modules as any).logger, 'debug').mockImplementation(() => {});
-      reeval = new FindingReevaluationService(mg.driver, makeStubConfigService(), modules, svc);
+      reeval = new FindingReevaluationService(mg.driver, makeStubConfigService(), modules, svc, registry as any);
       jest.spyOn((reeval as any).logger, 'log').mockImplementation(() => {});
       warn = jest.spyOn((reeval as any).logger, 'warn').mockImplementation(() => {});
     });

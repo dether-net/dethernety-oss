@@ -7,7 +7,7 @@
  * This subpath MUST NOT be imported by the package's main entry.
  */
 export { MockContentServer } from './mock-content-server';
-export type { FailureMode, CapturedRequest } from './mock-content-server';
+export type { FailureMode, CapturedRequest, PolicyHashesMode } from './mock-content-server';
 export * from './fixtures';
 export { runContractSuite } from './contract/suite';
 export type { ContractHarness } from './contract/suite';

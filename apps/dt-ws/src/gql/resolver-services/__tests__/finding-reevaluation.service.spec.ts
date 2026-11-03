@@ -14,6 +14,7 @@ import { POLICY_STAMP_SEPARATOR, policyStamp } from '../shared/policy-stamp';
 interface Binding {
   elementId: string;
   classId: string;
+  moduleName: string;
   policyHash: string | null;
   stamps: string[];
   bound: boolean;
@@ -22,29 +23,38 @@ interface Binding {
 const binding = (elementId: string, over: Partial<Binding> = {}): Binding => ({
   elementId,
   classId: 'cls',
+  moduleName: 'file-module',
   policyHash: 'h2',
   stamps: [policyStamp('cls', 'h1')],
   bound: true,
   ...over,
 });
 
+/** The loaded module instances, by name: a file module, and one that evaluates only with a caller's token. */
+const defaultModules = (): Map<string, any> =>
+  new Map<string, any>([
+    ['file-module', {}],
+    ['remote-module', { evaluatesWithCallerTokenOnly: () => true }],
+  ]);
+
 const record = (row: Record<string, unknown>) => ({ get: (k: string) => row[k] });
 
-function makeHarness(bindings: Binding[]) {
+function makeHarness(bindings: Binding[], modules: Map<string, any> = defaultModules()) {
+  const excluded = (b: Binding, params: any) => (params.excludedModules as string[]).includes(b.moduleName);
   const stale = (b: Binding) => b.bound && b.policyHash !== null && !b.stamps.includes(policyStamp(b.classId, b.policyHash));
   const run = jest.fn(async (cypher: string, params: any) => {
     if (cypher === UNHASHED_BINDINGS_CYPHER) {
-      const unhashed = bindings.filter(b => b.bound && b.policyHash === null);
+      const unhashed = bindings.filter(b => b.bound && (b.policyHash === null || excluded(b, params)));
       return { records: [record({ bindings: unhashed.length, sample: unhashed.slice(0, 3).map(b => b.elementId) })] };
     }
     if (cypher === STALE_BINDINGS_CYPHER) {
       const after = (b: Binding) =>
         b.elementId > params.afterElementId || (b.elementId === params.afterElementId && b.classId > params.afterClassId);
       const page = bindings
-        .filter(b => stale(b) && after(b))
+        .filter(b => stale(b) && !excluded(b, params) && after(b))
         .sort((a, b) => (a.elementId + a.classId < b.elementId + b.classId ? -1 : 1))
         .slice(0, REEVALUATION_PAGE_SIZE);
-      return { records: page.map(b => record({ elementId: b.elementId, classId: b.classId })) };
+      return { records: page.map(b => record({ elementId: b.elementId, classId: b.classId, moduleName: b.moduleName })) };
     }
     if (cypher === BINDING_STATE_CYPHER) {
       const b = bindings.find(x => x.elementId === params.elementId && x.classId === params.classId && x.bound);
@@ -74,18 +84,20 @@ function makeHarness(bindings: Binding[]) {
   });
   const listeners: Array<(names: string[]) => void> = [];
   const moduleManagement = { onModulesInstalled: jest.fn((l: (names: string[]) => void) => listeners.push(l)) };
+  const moduleRegistry = { getAllModules: jest.fn(() => modules) };
   const service = new FindingReevaluationService(
     driver,
     { get: () => undefined } as any,
     moduleManagement as any,
     { setAttributes, runExclusive } as any,
+    moduleRegistry as any,
   );
   const logger = (service as any).logger;
   const log = jest.spyOn(logger, 'log').mockImplementation(() => {});
   const warn = jest.spyOn(logger, 'warn').mockImplementation(() => {});
   const error = jest.spyOn(logger, 'error').mockImplementation(() => {});
   jest.spyOn(logger, 'debug').mockImplementation(() => {});
-  return { service, run, setAttributes, runExclusive, saved, locked, listeners, moduleManagement, log, warn, error };
+  return { service, run, setAttributes, runExclusive, saved, locked, listeners, moduleManagement, moduleRegistry, log, warn, error };
 }
 
 describe('FindingReevaluationService — a sweep', () => {
@@ -104,6 +116,14 @@ describe('FindingReevaluationService — a sweep', () => {
 
   it('re-saves a binding never stamped', async () => {
     const h = makeHarness([binding('e1', { stamps: [] })]);
+
+    await h.service.request();
+
+    expect(h.saved).toEqual(['e1']);
+  });
+
+  it('re-saves a file-module binding whose stamp a save removed, while another class keeps its own', async () => {
+    const h = makeHarness([binding('e1', { stamps: [policyStamp('other-cls', 'h5')] })]);
 
     await h.service.request();
 
@@ -204,6 +224,55 @@ describe('FindingReevaluationService — a sweep', () => {
 
     expect(h.setAttributes).not.toHaveBeenCalled();
     expect(h.log.mock.calls[0][1]).toMatchObject({ skipped: 1, skippedSample: ['e1'] });
+  });
+
+  it('leaves out the bindings of a module that evaluates only with a caller token, and counts them as skipped', async () => {
+    const h = makeHarness([
+      binding('e1'),
+      binding('e2', { moduleName: 'remote-module', classId: 'rcls', stamps: [] }),
+      binding('e3', { moduleName: 'remote-module', classId: 'rcls', policyHash: null }),
+    ]);
+
+    await h.service.request();
+
+    expect(h.saved).toEqual(['e1']);
+    expect(h.warn).not.toHaveBeenCalled();
+    expect(h.log.mock.calls[0][1]).toMatchObject({ reevaluated: 1, failed: 0, skipped: 2, skippedSample: ['e2', 'e3'] });
+    for (const cypher of [UNHASHED_BINDINGS_CYPHER, STALE_BINDINGS_CYPHER]) {
+      const call = h.run.mock.calls.find(([c]) => c === cypher)!;
+      expect(call[1].excludedModules).toEqual(['remote-module']);
+    }
+  });
+
+  it('reads the loaded modules once per sweep', async () => {
+    const many = Array.from({ length: REEVALUATION_PAGE_SIZE + 5 }, (_, i) => binding(`e${String(i).padStart(4, '0')}`));
+    const h = makeHarness(many);
+
+    await h.service.request();
+
+    expect(h.saved).toHaveLength(many.length);
+    expect(h.moduleRegistry.getAllModules).toHaveBeenCalledTimes(1);
+  });
+
+  it('excludes nothing when no loaded module evaluates only with a caller token', async () => {
+    const h = makeHarness([binding('e1')], new Map<string, any>([['file-module', { evaluatesWithCallerTokenOnly: () => false }]]));
+
+    await h.service.request();
+
+    expect(h.saved).toEqual(['e1']);
+    const call = h.run.mock.calls.find(([c]) => c === STALE_BINDINGS_CYPHER)!;
+    expect(call[1].excludedModules).toEqual([]);
+  });
+
+  it('skips a binding whose module is not loaded, rather than failing it', async () => {
+    const h = makeHarness([binding('e1', { moduleName: 'not-loaded' }), binding('e2')]);
+
+    await h.service.request();
+
+    expect(h.saved).toEqual(['e2']);
+    expect(h.locked).toEqual(['e2']);
+    expect(h.warn).not.toHaveBeenCalled();
+    expect(h.log.mock.calls[0][1]).toMatchObject({ reevaluated: 1, failed: 0, skipped: 1, skippedSample: ['e1'] });
   });
 
   it('logs a failed read and resolves, so the next install or start tries again', async () => {
@@ -327,12 +396,21 @@ describe('FindingReevaluationService — the statements', () => {
     const cypher = STALE_BINDINGS_CYPHER.replace(/\s+/g, ' ');
     expect(cypher).toContain('MATCH (m:Module)-[:HAS_CLASS]->(t)');
     expect(cypher).toContain('t.policyHash IS NOT NULL');
+    expect(cypher).toContain('NOT (m.name IN $excludedModules)');
+    expect(cypher).toContain('m.name AS moduleName');
     expect(cypher).toContain('any(l IN labels(t) WHERE l IN $classLabels)');
     expect(cypher).toContain('MATCH (e)-[:IS_INSTANCE_OF]->(t)');
     expect(cypher).toContain('NOT (t.id + $separator + t.policyHash) IN coalesce(e.classPolicyStamps, [])');
     expect(cypher).toContain('(e.id > $afterElementId OR (e.id = $afterElementId AND t.id > $afterClassId))');
     expect(cypher).toContain('ORDER BY elementId, classId');
     expect(cypher).toContain(`LIMIT ${REEVALUATION_PAGE_SIZE}`);
+  });
+
+  it('counts as unevaluable the bindings of a class with no hash, or of an excluded module', () => {
+    const cypher = UNHASHED_BINDINGS_CYPHER.replace(/\s+/g, ' ');
+    expect(cypher).toContain('MATCH (m:Module)-[:HAS_CLASS]->(t)');
+    expect(cypher).toContain('(t.policyHash IS NULL OR m.name IN $excludedModules)');
+    expect(cypher).toContain('any(l IN labels(t) WHERE l IN $classLabels)');
   });
 
   it('re-reads a binding anchored at its element, over its own binding to an active class', () => {

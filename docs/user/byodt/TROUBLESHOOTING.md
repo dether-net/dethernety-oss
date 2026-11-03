@@ -470,9 +470,9 @@ On a first run, `./byodt setup` and `./byodt bootstrap` also warn: `Neither sha2
 **Fix.** Either:
 
 - **Install [cosign](https://github.com/sigstore/cosign)**, and run the upgrade again. It then verifies the signature.
-- **Or pass `--allow-unsigned`**, once you have decided that the SHA-256 check is enough. The bundle's integrity is still checked; its authenticity is not.
+- **Or pass `--allow-unsigned`**, once you have decided that the SHA-256 check alone is enough. The bundle's integrity is still checked; its authenticity is not. The SHA-256 comes from the same release, so it shows the download is intact, not who made it.
 
-At a terminal, without `--yes`, the upgrade asks instead.
+At a terminal, without `--yes`, the upgrade asks instead, unless you pass `--allow-unsigned`. A signature cosign rejects is a different error, [`cosign could not verify the bundle's signature`](#cosign-could-not-verify-the-bundles-signature), and no flag lets the upgrade go on.
 
 ### `A signature is required, but …`
 
@@ -556,11 +556,13 @@ The first two are the installer's; the third is `./byodt upgrade`'s.
 
 **Fix.** Start the deployment and run the upgrade again. Use `--skip-graph-backup` only when you have a backup of your own, or the graph does not matter: the rollback steps then have no graph to restore, and the database is not moved.
 
+**On an upgrade from 0.12.x with 0.14.0's installer**, this message appears although the database is running: 0.14.0's `byodt` cannot read a 0.12.x folder's compose files until its own files have moved in, so its database check fails. With a `compose.override.yaml`, a warning that it could not read that file comes with it. Nothing was changed. Do not add `--skip-graph-backup`: upgrade with the installer of a release later than 0.14.0, as in [Operations → Upgrading from 0.12.x](./OPERATIONS.md#upgrading-from-012x).
+
 ### `Failed to copy the snapshot out of the db container`
 
 > `error: Failed to copy the snapshot out of the db container.`
 
-**Cause.** On an upgrade from 0.13.0 of a Memgraph deployment, on Podman with `podman-compose`: the graph backup is taken by 0.13.0's `byodt`, which copies with `compose cp`, and `podman-compose` has none. The upgrade stops with nothing changed. This release's `./byodt backup` copies with the engine's own `cp`, so elsewhere this message means the copy itself failed.
+**Cause.** On an upgrade from 0.12.x or 0.13.0 of a Memgraph deployment, on Podman with `podman-compose`: the graph backup is taken by the old release's own `byodt`, which copies with `compose cp`, and `podman-compose` has none. The upgrade stops with nothing changed. This release's `./byodt backup` copies with the engine's own `cp`, so elsewhere this message means the copy itself failed.
 
 **Fix.** Take the snapshot by hand and upgrade with `--skip-graph-backup`, as in [Operations → Upgrading on Podman](./OPERATIONS.md#upgrading-on-podman).
 
@@ -662,7 +664,7 @@ A lock whose process has ended is normally taken over without this message.
 
 **Fix.** Look at `./byodt status` and `./byodt logs platform`. Then run `./byodt upgrade` to wait again, or roll back with the printed steps.
 
-### `./byodt upgrade X.Y.Z` on 0.13.0 prints `Updated.` and stays on 0.13.0
+### `./byodt upgrade X.Y.Z` on 0.12.x or 0.13.0 prints `Updated.` and stays on the old release
 
 ```
 ==> Pulling the pinned images…
@@ -670,9 +672,9 @@ A lock whose process has ended is normally taken over without this message.
 ==> Updated.
 ```
 
-**Cause.** Release 0.13.0's `byodt` has no upgrade: its `upgrade` is another name for `update`, and it ignores the version.
+**Cause.** The `byodt` of releases 0.12.x and 0.13.0 has no upgrade: its `upgrade` is another name for `update`, and it ignores the version.
 
-**Fix.** Upgrade with the new release's installer and `--upgrade`; see [Operations → Upgrading from 0.13.0](./OPERATIONS.md#upgrading-from-0130). If that upgrade stopped before the first file moved in, the deployment still has 0.13.0's `byodt`: run the installer again, which takes the upgrade over.
+**Fix.** Upgrade with the new release's installer and `--upgrade`; see [Operations → Upgrading from 0.13.0](./OPERATIONS.md#upgrading-from-0130) or [Operations → Upgrading from 0.12.x](./OPERATIONS.md#upgrading-from-012x). From 0.12.x, use the installer of a release later than 0.14.0, not 0.14.0's. If that upgrade stopped before the first file moved in, the deployment still has the old release's `byodt`: run the installer again, which takes the upgrade over.
 
 ---
 

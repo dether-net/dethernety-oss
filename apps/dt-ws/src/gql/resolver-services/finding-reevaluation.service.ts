@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } f
 import { ConfigService } from '@nestjs/config';
 import { safeErrorMessage } from '../../common/utils/safe-error-message';
 import { ModuleManagementService } from '../module-management-services/module-management.service';
+import { ModuleRegistryService } from '../module-management-services/module-registry.service';
 import { DatabaseSession, DatabaseTransaction } from '../interfaces/set-instantiation-attributes.interface';
 import { SetInstantiationAttributesService } from './set-instantiation-attributes.service';
 import { POLICY_STAMPS_PROPERTY, POLICY_STAMP_SEPARATOR, policyStamp } from './shared/policy-stamp';
@@ -23,26 +24,29 @@ const SAMPLE_SIZE = 3;
 
 /**
  * The next page of bindings evaluated under an older policy than their class's current one, or never stamped, in a
- * fixed order after the cursor. A class with no `policyHash` has nothing to compare against and is left out: a remote
- * module's (its metadata carries none, and it evaluates only with a caller's token), or one whose policy failed to
- * register.
+ * fixed order after the cursor, each with the module it belongs to. A class with no `policyHash` has nothing to compare
+ * against and is left out (one whose policy failed to register, or a module that reports none), and so is every class
+ * of the modules in `$excludedModules`: those that evaluate only with a caller's token, which a sweep does not have.
  */
 export const STALE_BINDINGS_CYPHER = `
   MATCH (m:Module)-[:HAS_CLASS]->(t)
-  WHERE t.policyHash IS NOT NULL AND any(l IN labels(t) WHERE l IN $classLabels)
+  WHERE t.policyHash IS NOT NULL AND NOT (m.name IN $excludedModules)
+    AND any(l IN labels(t) WHERE l IN $classLabels)
   MATCH (e)-[:IS_INSTANCE_OF]->(t)
-  WITH e, t
+  WITH e, t, m
   WHERE NOT (t.id + $separator + t.policyHash) IN coalesce(e.${POLICY_STAMPS_PROPERTY}, [])
     AND (e.id > $afterElementId OR (e.id = $afterElementId AND t.id > $afterClassId))
-  RETURN e.id AS elementId, t.id AS classId
+  RETURN e.id AS elementId, t.id AS classId, m.name AS moduleName
   ORDER BY elementId, classId
   LIMIT ${REEVALUATION_PAGE_SIZE}
 `;
 
-/** The bindings a sweep cannot evaluate, because their class has no `policyHash`. */
+/**
+ * The bindings a sweep cannot evaluate: their class has no `policyHash`, or its module is in `$excludedModules`.
+ */
 export const UNHASHED_BINDINGS_CYPHER = `
   MATCH (m:Module)-[:HAS_CLASS]->(t)
-  WHERE t.policyHash IS NULL AND any(l IN labels(t) WHERE l IN $classLabels)
+  WHERE (t.policyHash IS NULL OR m.name IN $excludedModules) AND any(l IN labels(t) WHERE l IN $classLabels)
   MATCH (e)-[:IS_INSTANCE_OF]->(t)
   RETURN count(e) AS bindings, collect(e.id)[0..${SAMPLE_SIZE}] AS sample
 `;
@@ -66,7 +70,11 @@ export interface ReevaluationSummary {
   unbound: number;
   failed: number;
   failedSample: string[];
-  /** Bindings to a class with no policy hash: a remote module's, or one whose policy failed to register. */
+  /**
+   * Bindings a sweep cannot evaluate: to a class with no policy hash (one whose policy failed to register, or a
+   * module that reports none), to a class of a module that evaluates only with a caller's token, or to a module that
+   * is not loaded.
+   */
   skipped: number;
   skippedSample: string[];
 }
@@ -86,6 +94,10 @@ const toNumber = (raw: any): number =>
  * One sweep runs at a time. A request while one runs is coalesced into a single further sweep after it, which picks up
  * whatever the newer install changed. An element that fails is retried once at the end of the sweep, then left with
  * its previous findings and stamp, so the next sweep tries it again; it never fails the install.
+ *
+ * A sweep re-evaluates with no caller, so it leaves out the modules that evaluate only with a caller's token: their
+ * elements follow a new policy at their next save. A binding whose module is not loaded is left too, and counted as
+ * skipped rather than failed: there is nothing to evaluate it with until the module loads.
  */
 @Injectable()
 export class FindingReevaluationService implements OnApplicationBootstrap, OnModuleDestroy {
@@ -99,6 +111,7 @@ export class FindingReevaluationService implements OnApplicationBootstrap, OnMod
     private readonly configService: ConfigService,
     private readonly moduleManagement: ModuleManagementService,
     private readonly setInstantiation: SetInstantiationAttributesService,
+    private readonly moduleRegistry: ModuleRegistryService,
   ) {}
 
   /**
@@ -153,8 +166,14 @@ export class FindingReevaluationService implements OnApplicationBootstrap, OnMod
     };
     const session = this.neo4jDriver.session({ database: this.configService.get('database.name') }) as DatabaseSession;
     try {
+      // The modules loaded when the sweep starts, read once: which to leave out, and which a binding can be
+      // evaluated with.
+      const loaded = this.moduleRegistry.getAllModules();
+      const excludedModules = [...loaded]
+        .filter(([, instance]) => instance.evaluatesWithCallerTokenOnly?.() === true)
+        .map(([name]) => name);
       const unhashed = await session.executeRead((tx: DatabaseTransaction) =>
-        tx.run(UNHASHED_BINDINGS_CYPHER, { classLabels: REEVALUATED_CLASS_LABELS }),
+        tx.run(UNHASHED_BINDINGS_CYPHER, { classLabels: REEVALUATED_CLASS_LABELS, excludedModules }),
       );
       summary.skipped += toNumber(unhashed.records[0]?.get('bindings'));
       summary.skippedSample.push(...((unhashed.records[0]?.get('sample') as string[] | undefined) ?? []));
@@ -166,6 +185,7 @@ export class FindingReevaluationService implements OnApplicationBootstrap, OnMod
         const page = await session.executeRead((tx: DatabaseTransaction) =>
           tx.run(STALE_BINDINGS_CYPHER, {
             classLabels: REEVALUATED_CLASS_LABELS,
+            excludedModules,
             separator: POLICY_STAMP_SEPARATOR,
             afterElementId,
             afterClassId,
@@ -178,6 +198,11 @@ export class FindingReevaluationService implements OnApplicationBootstrap, OnMod
           const classId = record.get('classId') as string;
           afterElementId = elementId;
           afterClassId = classId;
+          if (!loaded.has(record.get('moduleName') as string)) {
+            summary.skipped++;
+            if (summary.skippedSample.length < SAMPLE_SIZE) summary.skippedSample.push(elementId);
+            continue;
+          }
           const outcome = await this.reevaluate(elementId, classId);
           if (outcome === 'failed') retry.push({ elementId, classId });
           else summary[outcome]++;

@@ -14,6 +14,7 @@ import type { KgRule, KgThreat } from '../../interfaces/kg-client-interface';
 import { KG_KEY_SEPARATOR } from '../../interfaces/kg-client-interface';
 import type { DenialInfo, RecallInfo } from '../../remote/errors';
 import type { KgRegistryResponse } from '../../remote/wire-client';
+import { POLICY_HASH_GOLDEN_HEX } from './policy-hash';
 
 /**
  * The knowledge-graph version every kg request addresses. Deliberately NOT the module content
@@ -57,6 +58,19 @@ export const KG_COLLIDING_RULE_ID = 'weak-transport-encryption';
 export const KG_COUNTERMEASURE_RULE_ID = 'enforce-modern-tls';
 
 export const KG_TECHNIQUE_ID = 'T1040';
+
+/**
+ * The `policyHash` both rules on the first class carry: a class's rules are derived from one class
+ * policy, so they share its hash. The rule on the other class carries none.
+ */
+export const KG_POLICY_HASH = POLICY_HASH_GOLDEN_HEX;
+
+/**
+ * An attribute the countermeasure reads that was not marked with a side. A graph may hold the read
+ * twice (two edges between the same rule and attribute); the answer still names it once, and an
+ * unmarked attribute is exactly the one whose deduplication an engine can get wrong.
+ */
+export const KG_UNMARKED_READ = 'audit_logging_enabled';
 
 /** `classId` + `ruleId`, joined as the contract joins them. */
 export function kgRefKey(classId: string, ruleId: string): string {
@@ -177,6 +191,15 @@ const readsTlsEnabled = {
   title: 'Transport encryption enabled',
   description: 'Whether the flow is carried over TLS.',
   category: 'RULE_INPUT',
+  side: 'build' as const,
+};
+
+const readsAuditLogging = {
+  name: KG_UNMARKED_READ,
+  title: 'Audit logging enabled',
+  description: 'Whether management actions are written to an audit log.',
+  category: 'CONTEXTUAL',
+  side: null,
 };
 
 /** Every field populated. */
@@ -192,6 +215,7 @@ const ruleFull: KgRule = {
   attackVector: 'NETWORK',
   conditionGroups: '[[{"attribute":"transport_encryption_enabled","operator":"is_false"}]]',
   mitreRefs: '[{"label":"MitreAttackTechnique","property":"attack_id","value":"T1040"}]',
+  policyHash: KG_POLICY_HASH,
   reads: [readsTlsEnabled],
 };
 
@@ -216,7 +240,8 @@ const ruleCountermeasure: KgRule = {
   attackVector: null,
   conditionGroups: '[[{"attribute":"transport_encryption_enabled","operator":"is_true"}]]',
   mitreRefs: null,
-  reads: [readsTlsEnabled],
+  policyHash: KG_POLICY_HASH,
+  reads: [readsAuditLogging, readsTlsEnabled],
 };
 
 /**
@@ -236,6 +261,7 @@ const ruleSparse: KgRule = {
   attackVector: null,
   conditionGroups: null,
   mitreRefs: null,
+  policyHash: null,
   reads: [],
 };
 

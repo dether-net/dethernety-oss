@@ -23,6 +23,8 @@ import {
   KG_CLASS_ID,
   KG_COLLIDING_RULE_ID,
   KG_OTHER_CLASS_ID,
+  KG_POLICY_HASH,
+  KG_UNMARKED_READ,
   KG_VERSION,
   UNENTITLED_TOKEN,
 } from '../testing/fixtures';
@@ -81,8 +83,8 @@ const EVERYTHING = `
     matchKgThreats(query: "tls")
     kgRules(where: { classId: { eq: $classId } }) {
       id ruleId classId kind name description criticality score attackVector
-      conditionGroups mitreRefs
-      reads { name title description category }
+      conditionGroups mitreRefs policyHash
+      reads { name title description category side }
       addresses {
         id slug name description attackSurface techniqueIds techniqueProvenance
         derivedFrom { id kind title canonicalUrl synthesis accessed resolved }
@@ -122,6 +124,10 @@ describe('the declared surface answers', () => {
     expect(rule.ruleId).toBe(KG_COLLIDING_RULE_ID);
     expect(rule.score).toEqual(expect.any(Number));
     expect(rule.reads[0].name).toEqual(expect.any(String));
+    expect(rule.policyHash).toBe(KG_POLICY_HASH);
+    expect(rule.reads[0].side).toBe('build');
+    const unmarked = data.kgRules.flatMap((r: any) => r.reads).find((r: any) => r.name === KG_UNMARKED_READ);
+    expect(unmarked).toHaveProperty('side', null);
     expect(rule.addresses[0].slug).toEqual(expect.any(String));
     expect(rule.addresses[0].derivedFrom[0].synthesis).toEqual(expect.any(String));
   });

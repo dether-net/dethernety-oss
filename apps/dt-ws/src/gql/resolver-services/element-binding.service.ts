@@ -623,8 +623,10 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
                 classId,
               });
             }
-            // Read with the class status, before the module evaluated, as the save does.
+            // Read with the class status, before the module evaluated, as the save does. Without a hash to stamp,
+            // the class's older stamp is removed, as the save does.
             if (policyHash) await this.setInstantiation.stampPolicyInTx(tx, elementId, classId, policyHash);
+            else await this.setInstantiation.unstampPolicyInTx(tx, elementId, classId);
           }
 
           // 5f — preserved-custom counts. USER-authored findings linked to
