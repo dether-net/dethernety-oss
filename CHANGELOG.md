@@ -10,12 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Elements bound to a remote module's classes are stamped with the class policy at their next save,
 when the module's catalog serves a policy hash file for its version. Existing elements are stamped
 only when they are saved again: the background re-evaluation after a policy change does not
-evaluate a remote module's elements.
+evaluate a remote module's elements. Component and security-boundary classes gain operation fields:
+who operates a component's own software or the environment a boundary hosts, the product, and a
+component's version.
 
 **Module authors:** `@dethernety/dt-module` gains the `./policy-hash` export, the optional
-`DTModule` method `evaluatesWithCallerTokenOnly()`, and the knowledge-graph fields
-`KgAttribute.side` and `KgRule.policyHash` (see *Added*). An implementation of the knowledge-graph
-client must now return both fields.
+`DTModule` method `evaluatesWithCallerTokenOnly()`, the knowledge-graph fields `KgAttribute.side`
+and `KgRule.policyHash`, and the operation-field constants and helpers; `@dethernety/dt-core` gains
+the `./operation-determination` export (see *Added*). An implementation of the knowledge-graph
+client must now return both fields. A class must not define attributes under the reserved prefix
+`dethernety_`: the platform drops any it finds and serves its own. In
+`@dethernety/dt-module/testing`, the template and guide fixtures change shape,
+`guideResponse.guide` is typed `unknown`, and `runContractSuite` expects the operation fields on a
+served template and guide (see *Changed*).
 
 ### Added
 
@@ -52,8 +59,60 @@ client must now return both fields.
   `PolicyHashesMode` type drive the mock's policy hash route. `runKgContractSuite` and
   `runKgClientSuite` check `side` and `policyHash`, with the fixtures `KG_POLICY_HASH` and
   `KG_UNMARKED_READ`.
+- **Component and security-boundary classes gain operation fields.** The Attributes tab ends
+  with an **Operation & version** panel on a component and an **Operation** panel on a boundary.
+  **Operated by** (`CUSTOMER` or `VENDOR`, no default) says who builds or runs a component's own
+  software, or who runs the execution environment of what is drawn directly in a boundary.
+  **Product** (up to 200 characters) names the vendor and product. **Version** (up to 64
+  characters) is on components only and is hidden while the operator is `VENDOR`. The values are
+  stored like any class attribute and are removed with the class. Class policies do not read them,
+  and a remote module does not send them to its content service. The fields come with the module
+  implementations in `@dethernety/dt-module`, so no module needs a change or a rebuild. See the
+  component configuration guide, *Operation & version*.
+- **Operation-field exports from the root of `@dethernety/dt-module`.** `OPERATION_OPERATOR_KEY`
+  (`dethernety_operated_by`), `OPERATION_PRODUCT_KEY` (`dethernety_product`) and
+  `OPERATION_VERSION_KEY` (`dethernety_product_version`) are the field keys, and
+  `RESERVED_ATTRIBUTE_PREFIX` (`dethernety_`, exact case) is the prefix reserved for them.
+  `OPERATOR_VALUES` is `['CUSTOMER', 'VENDOR']`, `OPERATION_FIELD_KEYS` the keys served per class
+  type (`component`, `securityBoundary`, the type `OperatedClassType`), and
+  `OPERATION_CATEGORY_LABEL` the panel label per class type. The constants are frozen.
+  `withOperationFields(template, classType)` and `withOperationGuide(guide, classType)` return a
+  parsed template or guide without its own reserved entries and with the class type's fields
+  added, or the input unchanged. `withoutReservedAttributes(attributes)` returns the attributes
+  without any reserved key. `DtFileOpaModule` and `DtRemoteModule` use them.
+- **`@dethernety/dt-core/operation-determination`, also exported from the package root.** A module
+  with no I/O that holds the same constants and resolves who runs an element from the attribute
+  bags of its class edges. Its types are `OperatorValue`, `OperatorReading`, `OperatorSource`,
+  `OperatorResolution`, `HostingParent`, `HostingResolution`, `OperationAttributeBag`,
+  `OperationSide` and `OperationParty`.
+  - `readOperator(bags)` returns the operator the bags declare, `null` when none answers, or
+    `CUSTOMER` with source `invalid` for a value outside `OPERATOR_VALUES`, a list or object value,
+    or bags that disagree.
+  - `operatorOf({ bags, effectiveZone })` returns the element's own operator, else `VENDOR` when
+    its effective zone is `VENDOR`, else `CUSTOMER`.
+  - `hostingOf(parent)` returns the operator a classed direct parent boundary declares, with its
+    `boundaryId`, else `CUSTOMER` with source `undeclared`. The model's default boundary never
+    hosts.
+  - `resolveFlowOperator(ends)` returns `VENDOR` when a flow has ends and every end resolves
+    `VENDOR`, else `CUSTOMER`, with the weakest source among its ends.
+  - `sideHolder({ kind, operator, hosting, side })` returns `customer` or `vendor`: who holds the
+    `configuration`, `build` or `runtime` side of an element.
+- **Template and guide overrides in `MockContentServer`.** `setTemplate(template)` and
+  `setGuide(guide)` set the template or guide every class is served, for a module's own tests.
+  Called without an argument, or after `reset()`, the mock serves the fixtures again. The shared
+  contract suite does not call them.
 
 ### Changed
+
+- **The `@dethernety/dt-module/testing` fixtures and contract suite carry the operation fields.**
+  The `templateResponse` fixture's `uischema` root is a `Categorization` holding one `Category`,
+  where it was a `VerticalLayout`. `guideResponse.guide` is a list of
+  `{ option_name, option_description }` entries, where it was an object keyed by attribute. The
+  `guide` field of its type, `GuideResponse`, is `unknown` instead of `Record<string, unknown>`, so
+  TypeScript code that indexes `guideResponse.guide` needs a cast. `runContractSuite` now expects a
+  served template to be the fixture with a component's operation fields added (the fields after
+  its own properties, one category last), a served guide to be the fixture with one entry per field
+  appended, and the fallback for an unentitled caller not to contain `dethernety_`.
 
 - **The background re-evaluation after a class policy change skips more bindings.** It leaves out
   the bindings of a module whose `evaluatesWithCallerTokenOnly()` returns `true`, since it runs
@@ -116,7 +175,7 @@ newer release in place. `byodt` and the installer show a third-party notice befo
 download. byodt is 1.4.0.
 
 A control can be applied to a Data element: in the API, in dt-core, in the data dialog and in
-Dethereal 0.5.0. The threat report lists a Data element's own controls. A slow remote module now
+Dethereal 0.4.19. The threat report lists a Data element's own controls. A slow remote module now
 serves its read-only fallback and stays in service. The settings window no longer saves the wrong
 values, drops a class change or shows old attribute values when a save and a load overlap. Database
 logins on Memgraph are fast.
@@ -168,7 +227,7 @@ database (see *How Memgraph stores it* in the BYODt configuration guide).
 **Module authors:** `@dethernety/dt-module` is 0.14.0. A module whose manifest declares
 `compatibility.dtModule` must declare `^0.14.0` to be packaged against it (see *Changed*).
 `dethernety-threat-report` is 2.1.0. **API callers:** `Data.controls` and `Control.supportedData`
-are new (see *Added*). **Dethereal users:** Dethereal 0.5.0 needs this platform: it checks for
+are new (see *Added*). **Dethereal users:** Dethereal 0.4.19 needs this platform: it checks for
 `Data.controls` and stops on an older platform (see *Changed*). Upgrade the platform first.
 Dethereal is published separately from this release.
 
@@ -274,14 +333,14 @@ Dethereal is published separately from this release.
   data item exists, with the same picker as an element's Controls tab: a pick is saved at once, and
   unticking a control asks before it is removed. In control gaps, a control on a data item counts
   for that data item's own exposures only: not for the elements that handle it, nor theirs for it.
-- **Dethereal 0.5.0 reads and writes a data item's controls.** Each item in `data-items.json` may
+- **Dethereal 0.4.19 reads and writes a data item's controls.** Each item in `data-items.json` may
   carry `controls`, the same `{ id, name }` references boundaries, components and data flows carry.
   Pull writes them, push applies them, `get_model_schema` and `validate_model_json` know the field,
   and a reference the push could not attach is written back to the item. On push a present list
   (including `[]`) replaces the item's controls, and an absent key leaves them as they are; on a
   boundary, component or data flow an absent key clears them. To remove a control from a data
   item, write the list without it, or `[]`; never delete the key. `manage_controls assign` attaches
-  data items too. 0.4.18 was never published: its changes ship in 0.5.0.
+  data items too.
 - **The threat report lists a Data element's own controls.** In `dethernety-threat-report` 2.1.0,
   the off-grid Data disclosure in Coverage & Gaps names the controls applied to each Data element,
   as assigned and without a coverage grade. Data exposures stay off the coverage grid.
@@ -329,7 +388,7 @@ Dethereal is published separately from this release.
 - **`byodt` records the notice only in a folder no other account can change.** A group-writable
   folder counts as one other accounts can change, unless the group is the operator's own private
   group.
-- **Dethereal 0.5.0 needs a platform with controls on data elements, which this release adds.**
+- **Dethereal 0.4.19 needs a platform with controls on data elements, which this release adds.**
   Before `export_model`, `import_model`, `update_model`, `create_threat_model`,
   `update_attributes`, and the `list`, `assign` and `push-greenfield` actions of `manage_controls`,
   it checks that the platform has `Data.controls`, and remembers a platform that has it. On an

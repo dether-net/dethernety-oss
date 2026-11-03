@@ -80,6 +80,8 @@ export class MockContentServer {
   private kgResultsOverride?: (results: Array<{ key: string; matches: unknown[] }>) => unknown;
   private moduleDocOverride?: ModuleDocument;
   private policyHashesMode: PolicyHashesMode = { kind: 'served' };
+  private templateOverride?: unknown;
+  private guideOverride?: unknown;
   private failureMode: FailureMode = 'none';
   /** When set, the mock hangs until the caller's abort signal fires (timeout). */
   private delayMs = 0;
@@ -177,6 +179,18 @@ export class MockContentServer {
     this.policyHashesMode = mode;
   }
 
+  /** Override the template every class is served, for a module's own tests (the shared contract
+   * suite never calls this). */
+  setTemplate(template?: unknown): void {
+    this.templateOverride = template;
+  }
+
+  /** Override the guide every class is served, for a module's own tests (the shared contract suite
+   * never calls this). */
+  setGuide(guide?: unknown): void {
+    this.guideOverride = guide;
+  }
+
   reset(): void {
     this.failureMode = 'none';
     this.delayMs = 0;
@@ -193,6 +207,8 @@ export class MockContentServer {
     this.kgResultsOverride = undefined;
     this.moduleDocOverride = undefined;
     this.policyHashesMode = { kind: 'served' };
+    this.templateOverride = undefined;
+    this.guideOverride = undefined;
     this.requests.length = 0;
   }
 
@@ -263,7 +279,9 @@ export class MockContentServer {
       if (segs.length === 7 && segs[4] === 'versions' && (kind === 'template' || kind === 'guide')) {
         const denied = this.entitlementResponse(token, pin);
         if (denied) return denied;
-        return ok(kind === 'template' ? fixtures.templateResponse : fixtures.guideResponse);
+        return kind === 'template'
+          ? ok({ ...fixtures.templateResponse, template: this.templateOverride ?? fixtures.templateResponse.template })
+          : ok({ ...fixtures.guideResponse, guide: this.guideOverride ?? fixtures.guideResponse.guide });
       }
     }
     // Evaluation surface — entitled.

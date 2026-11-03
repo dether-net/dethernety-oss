@@ -11,6 +11,7 @@
 - [Asset-context fields exposed to modules](#asset-context-fields-exposed-to-modules)
 - [Method Details](#method-details)
 - [Lifecycle Hooks (Optional)](#lifecycle-hooks-optional)
+- [Platform-served operation fields](#platform-served-operation-fields)
 - [Module frontend](#module-frontend)
 
 ## Overview
@@ -818,6 +819,8 @@ async getClassTemplate(id: string, token?: string): Promise<string>
 
 **Returns:** JSON string with `schema` and `uischema` for class configuration
 
+For a component or security-boundary class, the base implementations append the [platform-served operation fields](#platform-served-operation-fields) to the class's own template.
+
 ---
 
 ### getClassGuide(id, token?)
@@ -833,6 +836,8 @@ async getClassGuide(id: string, token?: string): Promise<string>
 - `token?` - Same as `getClassTemplate` — the raw bearer token to forward upstream; opaque, never decoded for identity, never logged; `undefined` when absent.
 
 **Returns:** YAML or JSON string with configuration guidance
+
+For a component or security-boundary class, the base implementations append one entry per [platform-served operation field](#platform-served-operation-fields) to a JSON guide array.
 
 ---
 
@@ -1333,6 +1338,67 @@ A remote module's classes report a [`policyHash`](#policy-hash-policyhash) from 
 - **What the platform does with it.** The install writes the hashes on the class nodes, and a save records the class's hash on the element when `getPolicyHash` agrees, and otherwise removes the element's earlier record for the class (see [getPolicyHash(classId)](#getpolicyhashclassid)). The background re-evaluation after an install leaves a remote module's elements out, so an element bound to one of its classes is stamped at its next save; an element saved before its module reported hashes is stamped only when it is saved again.
 
 `DtRemoteModule` implements the catalog, content, and evaluation surfaces of the wire protocol; other surfaces are separate modules.
+
+---
+
+## Platform-served operation fields
+
+The two module base implementations, `DtFileOpaModule` and `DtRemoteModule`, add **operation fields** to every component and security-boundary class template they serve, and one class-guide entry per field. The fields record who runs an element and which software it is. They are added when the content is served: no class content file needs to declare them, and no module needs a change or a rebuild to carry them. The platform API and dt-ui do not add them; they render the fields from the template, and store their values like any other class attribute on the element's class binding, so removing the class removes them.
+
+**Source file:** `packages/dt-module/src/operation-fields.ts`
+
+### The fields
+
+| Key | Title | Value | On a component | On a security boundary |
+|-----|-------|-------|----------------|------------------------|
+| `dethernety_operated_by` | Operated by | `CUSTOMER` (*You (your organisation)*) or `VENDOR` (*A vendor*); no default | Who builds or runs the element's own software | Who runs the execution environment of what is drawn directly in the boundary |
+| `dethernety_product` | Product | Free text, at most 200 characters | The vendor and product name | The vendor and product name |
+| `dethernety_product_version` | Version | Free text, at most 64 characters | The version run; hidden in the form while **Operated by** is `VENDOR` | Not served |
+
+### How a template and a guide are extended
+
+The platform owns the reserved prefix (see below): it drops what a class's own content declares under it in `schema.properties`, `required`, uischema Controls and guide entries, and serves its own. Other schema keywords that mention a reserved key, such as combinators, `patternProperties` or `if`/`then`, are not rewritten, so module authors must not use the prefix anywhere in a class.
+
+- **Template.** `withOperationFields` first drops every property whose key starts with `dethernety_`, every such `required` entry, and every uischema `Control` whose scope has a segment (after `~1`/`~0` decoding) starting with the prefix, which includes forms such as `#/allOf/0/properties/dethernety_x` that JSONForms binds to the same key; a layout or category this leaves empty goes too. It then appends the platform's properties after the class's own, and one `Category` after the root `Categorization`'s own categories: **Operation & version** on a component, **Operation** on a boundary. `required` keeps its other entries; every platform field is optional. Applying it twice gives the same result as applying it once.
+- **Guide.** `withOperationGuide` drops the guide's own entries whose `option_name` starts with `dethernety_`, then appends one entry per platform field, in the same shape as a class's own entries (`option_name`, `option_description`, `security_impact`, `how_to_obtain`, `typical_values`, `value_type`). Each appended entry's `option_description` ends with the sentence *Leave this field empty unless you know the answer: never enter "unknown" or a guess.* A tool that fills every empty field would otherwise write "unknown" or a guess, and that reads as an answer.
+- **Left as served.** Content comes back unchanged for a class type without fields, a template without `schema.properties` or without a root `Categorization`, a guide that is not a list, and text that does not parse. For guides and for remote-served content, text the fields leave unchanged keeps its exact bytes; a file module re-serializes its templates, as before. Fallback content carries no fields: a file-backed class without `schema.json` or `guide.json`, and a remote module's read-only fallback.
+- **Class type.** `DtFileOpaModule` reads it from the class's `path` attribute (`<module>/<typeDir>/<class>`). `DtRemoteModule` builds a class-id-to-type map when it adopts a module document, keyed by the served class id, or by the id the platform stamps on an entry without one. Its response cache keeps the text as the content service served it, and the fields are added on each serve, from a fetch and from the cache alike. The served guide (`GuideResponse.guide`) is passed on as the published list of entries, typed `unknown`.
+
+The extended content is a deterministic function of the class's own content, so the platform's template cache is unaffected; see [TemplateResolverService](../backend/LLD/TEMPLATE_RESOLVER.md).
+
+### Reserved prefix and evaluation input
+
+Every attribute key that starts with **`dethernety_`** (exact case) is reserved for platform-served fields. A class must not define attributes under the prefix; the platform drops any it finds and serves its own.
+
+No class policy reads the reserved attributes. Before a class policy is evaluated, both implementations remove every `dethernety_` key from the element's attributes (`withoutReservedAttributes`, which also drops a key's flattened list forms). `DtRemoteModule` removes them before it applies the class-schema allowlist, so they are never sent to the content service, even if a served schema declared one.
+
+### Exports
+
+`@dethernety/dt-module` exports these from its package barrel. The constants are frozen.
+
+| Export | Meaning |
+|--------|---------|
+| `OPERATION_OPERATOR_KEY`, `OPERATION_PRODUCT_KEY`, `OPERATION_VERSION_KEY` | The three field keys |
+| `RESERVED_ATTRIBUTE_PREFIX` | `'dethernety_'`, matched in exact case |
+| `OPERATOR_VALUES` | `['CUSTOMER', 'VENDOR']` |
+| `OPERATION_FIELD_KEYS` | The keys served per class type (`component`, `securityBoundary`) |
+| `OPERATION_CATEGORY_LABEL` | The category label per class type |
+| `OperatedClassType` (type) | `'component' \| 'securityBoundary'` |
+| `withOperationFields(template, classType)` | The parsed template without its own reserved entries, with the class type's fields and category added, or the input unchanged |
+| `withOperationGuide(guide, classType)` | The parsed guide without its own reserved entries, with the class type's entries appended, or the input unchanged |
+| `withoutReservedAttributes(attributes)` | The attributes without any `dethernety_` key |
+
+`@dethernety/dt-core` holds the same frozen constants in a pure module with no I/O, on the subpath `@dethernety/dt-core/operation-determination` and in the package barrel. It adds the types `OperatorValue`, `OperationParty` and `OperationAttributeBag`, and helpers for a consumer that resolves who runs an element. An attribute bag is the attribute map of one of an element's class edges; an absent, `null` or empty-string value is unanswered.
+
+| Function | Meaning |
+|----------|---------|
+| `readOperator(bags): OperatorReading \| null` | `null` when no bag answers. A valid value read the same on every bag that answers is `declared`. A value outside `OPERATOR_VALUES`, a list or object value (stored as is, or flattened as `dethernety_operated_by[0]` or `dethernety_operated_by.x`), or bags that disagree yield `CUSTOMER` with source `invalid`. |
+| `operatorOf({ bags, effectiveZone }): OperatorResolution` | The element's own reading; else `VENDOR` (source `zone`) when its effective zone is `VENDOR`; else `CUSTOMER` (source `default`). A boundary's value never becomes the operator of what is drawn in it. |
+| `hostingOf(parent): HostingResolution` | The direct parent boundary's reading, with its `boundaryId`, when the parent is classed and answers. No parent, the model's default boundary, an unclassed parent or one without a value yield `CUSTOMER` with source `undeclared`. |
+| `resolveFlowOperator(ends): OperatorResolution` | `VENDOR` when the flow has ends and every end resolves `VENDOR`, else `CUSTOMER`; the source is the weakest of the ends' sources. No ends yield `CUSTOMER` (`default`). |
+| `sideHolder({ kind, operator, hosting?, side }): OperationParty` | Who holds one side (`configuration`, `build`, `runtime`) of an element; `kind` is an `AttributeElementType` (`'component' \| 'boundary' \| 'dataFlow' \| 'dataItem'`). Configuration, and every side of a `dataItem`, is `customer`. A `dataFlow`'s build and runtime, and a component's or boundary's build, follow its operator; a component's or boundary's runtime follows a `declared` hosting boundary, else its operator. |
+
+For effective zones, see [Zone Determination](../dt-core/ZONE_DETERMINATION.md).
 
 ---
 

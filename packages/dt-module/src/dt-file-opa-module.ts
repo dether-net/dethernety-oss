@@ -6,6 +6,7 @@ import { EmbeddingFileCache } from './embedding-file-cache';
 import { RegoEngine } from './rego-engine';
 import { mapExposureFinding, mapCountermeasureFinding } from './rego-mapping';
 import { NO_POLICY_HASH, decodePolicySource, policySourceHash } from './policy-hash';
+import { classTypeFromPath, withOperationContent, withOperationFields, withoutReservedAttributes } from './operation-fields';
 
 /**
  * V2 classType folder mapping.
@@ -381,7 +382,7 @@ export class DtFileOpaModule implements DTModule {
         parsed.uischema = parsed.uiSchema;
         delete parsed.uiSchema;
       }
-      return JSON.stringify(parsed);
+      return JSON.stringify(withOperationFields(parsed, classTypeFromPath(classDataPath)));
     } catch {
       return raw;
     }
@@ -395,7 +396,7 @@ export class DtFileOpaModule implements DTModule {
     if (!fs.existsSync(guidePath)) {
       return JSON.stringify(FALLBACK_GUIDE);
     }
-    return fs.readFileSync(guidePath, 'utf8');
+    return withOperationContent('guide', fs.readFileSync(guidePath, 'utf8'), classTypeFromPath(classDataPath));
   }
 
   /**
@@ -448,7 +449,8 @@ export class DtFileOpaModule implements DTModule {
     }
     let findings: any[];
     try {
-      findings = this.regoEngine.evaluate(key, rule, attributes);
+      // The platform-served fields are never policy input.
+      findings = this.regoEngine.evaluate(key, rule, withoutReservedAttributes(attributes));
     } catch (err: unknown) {
       this.stats.halts += 1;
       throw err;

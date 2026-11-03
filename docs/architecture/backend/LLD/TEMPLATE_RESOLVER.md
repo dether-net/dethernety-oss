@@ -74,6 +74,8 @@ if (cached) {
 }
 ```
 
+The resolver caches class templates and guides as the module returns them. For component and security-boundary classes, the module base implementations (`DtFileOpaModule`, `DtRemoteModule`) have already added the [platform-served operation fields](../../modules/DT_MODULE_INTERFACE.md#platform-served-operation-fields) at that point. The resolver does not add, remove or inspect them, and its cache is unchanged: the extended content is a deterministic function of the class's own content, so a cached entry stays the same for as long as the class content does.
+
 ### Error Handling
 ```typescript
 // Timeout protection for every template and guide call; the timer is cleared however the race ends

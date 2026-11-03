@@ -33,6 +33,11 @@ import { buildFallbackGuide, buildFallbackTemplate, sanitizeText } from './remot
 import { JsonSchema, stripToSchema } from './remote/strip';
 import { deploymentTeamId } from './remote/team-id';
 import { parsePolicyHashes, policyHashesBody, servedClassIds } from './remote/policy-hashes';
+import { deriveClassId } from './identity';
+import { OperatedClassType, withOperationContent, withoutReservedAttributes } from './operation-fields';
+
+/** The class arrays whose classes carry operation fields, and their class type. */
+const OPERATED_ARRAYS = { componentClasses: 'component', securityBoundaryClasses: 'securityBoundary' } as const;
 
 /** A burst of fallbacks logs one warn per reason in this window; the next warn carries how many went unlogged. */
 const FALLBACK_WARN_INTERVAL_MS = 60_000;
@@ -97,6 +102,8 @@ export class DtRemoteModule implements DTModule {
   protected portalOrigin?: string;
   /** slug → (className → vector), rebuilt from the registered document. */
   private vectors = new Map<string, Map<string, number[]>>();
+  /** class id → class type, for the classes that carry operation fields; rebuilt with the vectors. */
+  private classTypes = new Map<string, OperatedClassType>();
   /** Per fallback reason: when it was last logged, and how many fallbacks since went unlogged. */
   private readonly fallbackWarns = new Map<FallbackReason, { at: number; unlogged: number }>();
   /** The entry this module registered from: set by the first getMetadata that
@@ -273,7 +280,9 @@ export class DtRemoteModule implements DTModule {
         throw new RemoteModuleUnavailableError(`Element "${id}" was not found for evaluation`);
       }
       const schema = await this.schemaFor(classId, token); // hard precondition — throws if unobtainable
-      const attributes = stripToSchema(raw, schema); // the schema is the allowlist
+      // The schema is the allowlist; the platform-served operation fields never leave, even if a
+      // served schema declared them.
+      const attributes = stripToSchema(withoutReservedAttributes(raw), schema);
       const hash = attributesHash(attributes);
 
       const cached = this.responseCache.getEval(classId, this.pin, hash);
@@ -322,7 +331,7 @@ export class DtRemoteModule implements DTModule {
     // return on THIS caller's entitled memo is what stops A's content reaching B.
     if (this.responseCache.isEntitled(token, id, this.pin)) {
       const cached = this.responseCache.getContent(kind, id, this.pin);
-      if (cached) return cached;
+      if (cached) return withOperationContent(kind, cached, this.classTypes.get(id));
     }
 
     try {
@@ -332,7 +341,8 @@ export class DtRemoteModule implements DTModule {
           : JSON.stringify((await this.wire.guide(id, this.pin, token)).guide);
       this.responseCache.putContent(kind, id, this.pin, str);
       this.responseCache.rememberEntitled(token, id, this.pin);
-      return str;
+      // The cache keeps the served text, so a class the type map learns of later is extended then.
+      return withOperationContent(kind, str, this.classTypes.get(id));
     } catch (err) {
       if (err instanceof EvaluationNotEntitledError) return this.serveFallback(kind, id, 'denied', err.denial);
       if (err instanceof RemoteModuleUnavailableError) return this.serveFallback(kind, id, 'unavailable');
@@ -409,6 +419,7 @@ export class DtRemoteModule implements DTModule {
    * pin only — its policy hashes. */
   private adopt({ entry, hashes }: Registration): void {
     this.loadVectors(entry);
+    this.loadClassTypes(entry);
     this.registered = entry;
     this.registeredHashes = entry.pin === this.pin ? hashes : undefined;
     this.served = undefined;
@@ -540,6 +551,22 @@ export class DtRemoteModule implements DTModule {
     };
     this.cache.put(entry);
     return { entry, hashes };
+  }
+
+  /** Rebuild the class-type map for the classes that carry operation fields, keyed by the id the
+   * platform registers: the served id, or the one it stamps on an entry without one. */
+  private loadClassTypes(entry: CachedModule): void {
+    const classTypes = new Map<string, OperatedClassType>();
+    const arrays = Object.entries(OPERATED_ARRAYS) as Array<[keyof typeof OPERATED_ARRAYS, OperatedClassType]>;
+    for (const [key, classType] of arrays) {
+      const classes = entry.document.module[key] as Array<{ id?: string; name?: unknown }> | undefined;
+      if (!Array.isArray(classes)) continue;
+      for (const cls of classes) {
+        if (typeof cls?.name !== 'string') continue;
+        classTypes.set(cls.id || deriveClassId(entry.document.module.name, key, cls.name), classType);
+      }
+    }
+    this.classTypes = classTypes;
   }
 
   /** Rebuild the synchronous vector map from a (live or cached) entry: join the

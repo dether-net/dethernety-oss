@@ -103,13 +103,20 @@ export const templateResponse: TemplateResponse = {
         open_ports: { type: 'array', title: 'Open ports', items: { type: 'number' } },
       },
     },
-    // Normalized (lower-case) at publish — the client passes it through untouched.
+    // Normalized (lower-case) at publish. A root Categorization of categories, as every class template
+    // is; the client adds the operation fields of the class's type and passes the rest through.
     uischema: {
-      type: 'VerticalLayout',
+      type: 'Categorization',
       elements: [
-        { type: 'Control', scope: '#/properties/authentication_enabled' },
-        { type: 'Control', scope: '#/properties/tls_version' },
-        { type: 'Control', scope: '#/properties/open_ports' },
+        {
+          type: 'Category',
+          label: 'Access',
+          elements: [
+            { type: 'Control', scope: '#/properties/authentication_enabled' },
+            { type: 'Control', scope: '#/properties/tls_version' },
+            { type: 'Control', scope: '#/properties/open_ports' },
+          ],
+        },
       ],
     },
   },
@@ -118,11 +125,12 @@ export const templateResponse: TemplateResponse = {
 export const guideResponse: GuideResponse = {
   classId: CLASS_ID,
   version: PIN,
-  guide: {
-    authentication_enabled: 'Require authentication on every management interface.',
-    tls_version: 'Use TLS 1.2 or higher for all transport.',
-    open_ports: 'List every port reachable from outside the trust boundary.',
-  },
+  // A list of per-attribute entries, as a class's guide.json is published.
+  guide: [
+    { option_name: 'authentication_enabled', option_description: 'Require authentication on every management interface.' },
+    { option_name: 'tls_version', option_description: 'Use TLS 1.2 or higher for all transport.' },
+    { option_name: 'open_ports', option_description: 'List every port reachable from outside the trust boundary.' },
+  ],
 };
 
 export const evalResponse: EvalResponse = {
