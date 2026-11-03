@@ -21,20 +21,20 @@ This guide takes you from an empty machine to a running Dethernety deployment th
 
 ## At a glance
 
-If your machine already meets the [requirements](#requirements), there are three ways to install. Replace `X.Y.Z` with the version from the [latest release](https://github.com/dether-net/dethernety-oss/releases/latest).
+If your machine already meets the [requirements](#requirements), there are three ways to install. The commands below use the current release; newer releases are listed on the [releases page](https://github.com/dether-net/dethernety-oss/releases).
 
 From the first release that ships it, each release has an installer, `get-byodt.sh`. One command downloads the bundle, checks it, unpacks it into `./byodt`, and asks you a few questions. The first two ways run that installer; they differ only in how it reaches you.
 
 **With npx (recommended if you have Node.js).** The npm package carries the release's own `get-byodt.sh` and runs it. Use it if Node.js 18 or later is already installed, or you are happy to install it. Node.js runs the installer only: the deployment itself never needs it. If you will run the Dethereal Claude Code plugin on the same machine, you have Node.js already: its MCP server is launched with npx and needs Node.js 20 or later, which also meets the installer's 18 (see [Getting started with Dethereal](../dethereal/GETTING_STARTED.md#prerequisites)).
 
 ```sh
-npx @dether.net/byodt@X.Y.Z
+npx @dether.net/byodt@0.14.0
 ```
 
 **With `get-byodt.sh` from the release.** The same installer, with no Node.js at all:
 
 ```sh
-VERSION=X.Y.Z
+VERSION=0.14.0
 curl --proto '=https' --tlsv1.2 -fsSL "https://github.com/dether-net/dethernety-oss/releases/download/v${VERSION}/get-byodt.sh" | sh
 ```
 
@@ -43,7 +43,7 @@ A release reaches npm in a separate step after it is published on GitHub; for a 
 **By hand.** These commands are the whole installation:
 
 ```sh
-VERSION=X.Y.Z
+VERSION=0.14.0
 BASE="https://github.com/dether-net/dethernety-oss/releases/download/v${VERSION}"
 
 # 1. Download the bundle and its signature
@@ -244,10 +244,10 @@ If you run Docker Desktop rather than Docker Engine, the systemd drop-in and `da
 
 **If the proxy inspects TLS**, the engine must trust the proxy's CA as well. Add the CA to the host's trust store (on Debian or Ubuntu, copy it into `/usr/local/share/ca-certificates/` as a `.crt` file and run `sudo update-ca-certificates`), then restart the Docker daemon or the Podman API service. The deployment's own `proxy-ca/` (step 3) does not reach the engine.
 
-**Check it** with a plain pull of two images the deployment uses. Replace `X.Y.Z` with the release, and use `podman pull` on Podman:
+**Check it** with a plain pull of two images the deployment uses. The console's tag is the release's version, as in the commands above; use `podman pull` on Podman:
 
 ```sh
-docker pull ghcr.io/dether-net/byodt-console:X.Y.Z
+docker pull ghcr.io/dether-net/byodt-console:0.14.0
 docker pull docker.io/nginx:1.27-alpine
 ```
 
@@ -380,12 +380,12 @@ PKG=@dether.net/byodt
 ```
 
 ```sh
-npx "$PKG@X.Y.Z"
-npx "$PKG@X.Y.Z" --dir ~/dethernety --yes
+npx "$PKG@0.14.0"
+npx "$PKG@0.14.0" --dir ~/dethernety --yes
 ```
 
 - **Name the version.** Without `@X.Y.Z`, `npx` runs the latest release.
-- **Options go after the package name**, and reach the installer. An option before it is one of npx's own: npx asks `Ok to proceed?` before it downloads a package it has not cached, and `npx --yes "$PKG@X.Y.Z"` skips that question. Without a terminal, npx does not ask.
+- **Options go after the package name**, and reach the installer. An option before it is one of npx's own: npx asks `Ok to proceed?` before it downloads a package it has not cached, and `npx --yes "$PKG@0.14.0"` skips that question. Without a terminal, npx does not ask.
 - It runs the package's `get-byodt.sh` with `/bin/sh`, and nothing else. It takes the same options, and asks at the terminal the same way.
 - It needs Node.js 18 or later, to run the installer only: the deployment it installs does not use Node.js. On Windows it stops with `Dethernety's self-hosted deployment runs on Linux or macOS. On Windows, run this inside WSL.`
 - It takes npm's `node_modules/.bin` folders out of `PATH` before it starts the installer, so `curl`, `cosign`, `tar` and the container engine are always the system's.
@@ -396,7 +396,7 @@ npx "$PKG@X.Y.Z" --dir ~/dethernety --yes
 Without Node.js, download the installer straight from the release and run it:
 
 ```sh
-VERSION=X.Y.Z
+VERSION=0.14.0
 curl --proto '=https' --tlsv1.2 -fsSL "https://github.com/dether-net/dethernety-oss/releases/download/v${VERSION}/get-byodt.sh" | sh
 ```
 
@@ -499,7 +499,7 @@ From a script or a provisioning tool, nobody can answer the questions. Then:
   Through npx, the same options follow the package name:
 
   ```sh
-  npx "$PKG@X.Y.Z" --yes --dir ~/dethernety --db neo4j --start
+  npx "$PKG@0.14.0" --yes --dir ~/dethernety --db neo4j --start
   ```
 
   ```
@@ -725,14 +725,12 @@ On a deployment that has already run, with no terminal and no `--yes`, a due not
 
 To install by hand rather than with [the installer](#install-with-the-installer): the deployment ships as a signed release asset, a tarball holding the control script, the compose files, and a configuration template.
 
-1. **Find the version.** Open the releases page and note the version you want:
+1. **Pick the version.** The commands below use the current release. For another one, set `VERSION` to it in the next step; the releases are listed on the [releases page](https://github.com/dether-net/dethernety-oss/releases).
 
-   <https://github.com/dether-net/dethernety-oss/releases/latest>
-
-2. **Download the bundle.** Replace `X.Y.Z` with that version:
+2. **Download the bundle:**
 
    ```sh
-   VERSION=X.Y.Z
+   VERSION=0.14.0
    curl -fsSLO "https://github.com/dether-net/dethernety-oss/releases/download/v${VERSION}/byodt-${VERSION}.tar.gz"
    ```
 

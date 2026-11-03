@@ -229,6 +229,30 @@ jobs:
           fi
           node scripts/check-republish.mjs "${BASE}"
 
+  # The install docs show the release in their copy-paste commands, so a reader can paste them as
+  # they are. A release that bumps package.json must update them in the same change; this job fails
+  # the PR that forgets, and the release workflow asserts the same against the tag.
+  install-docs-version:
+    name: Install docs name the release version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # The check runs first: on a release PR that left the docs behind, its message names the file and
+      # line to update.
+      - name: Every version the install docs show is package.json's
+        run: bash deploy/tests/docs-release-version.sh
+
+      - name: The check's own tests
+        run: bash deploy/tests/docs-release-version.test.sh
+
   # Differentially evaluates every policy in `modules/` through both the vendored
   # in-process Regorus WASM engine and the reference `opa` binary, and fails on any
   # disagreement. Security findings are produced by evaluating Rego, so the two engines
@@ -290,6 +314,11 @@ jobs:
           REGO_PARITY_OPA_VERSION: ${{ env.OPA_VERSION }}
           REGO_PARITY_MIN_MODERN_POLICIES: 75
           REGO_PARITY_MIN_MODERN_CASES: 300
+
+      # dt-module's tests import a dt-core module at run time, through its package `exports`, which point
+      # at `dist`. `dist` is not checked in, so dt-core is built first.
+      - name: Build dt-core
+        run: pnpm --filter @dethernety/dt-core build
 
       # Includes the package-time Rego lint's whole-corpus assertions over `modules/`
       # (0 errors, 0 warnings) and the builtin-partition drift guard against the blob.

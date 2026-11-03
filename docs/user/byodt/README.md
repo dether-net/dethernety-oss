@@ -16,14 +16,16 @@ There is no source checkout and no build toolchain. A container engine is the on
 From the first release that ships it, each release publishes an installer, `get-byodt.sh`, that downloads the bundle, checks its SHA-256 and, with cosign, its signature, and asks a few questions. If Node.js 18 or later is installed, or you are happy to install it, the recommended way to run it is through `npx`:
 
 ```sh
-npx @dether.net/byodt@X.Y.Z
+npx @dether.net/byodt@0.14.0
 ```
 
 Node.js runs the installer only; the deployment never needs it. Without Node.js, run the same installer straight from the release:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsSL https://github.com/dether-net/dethernety-oss/releases/download/vX.Y.Z/get-byodt.sh | sh
+curl --proto '=https' --tlsv1.2 -fsSL https://github.com/dether-net/dethernety-oss/releases/download/v0.14.0/get-byodt.sh | sh
 ```
+
+These commands use the current release; newer releases are listed on the [releases page](https://github.com/dether-net/dethernety-oss/releases).
 
 A release reaches npm in a separate step after GitHub, so for a version not on npm yet, use `get-byodt.sh` (see [Installation → Install with the installer](./INSTALLATION.md#install-with-the-installer)). You can also download and verify the bundle by hand. In the deployment's folder, one command then starts it:
 

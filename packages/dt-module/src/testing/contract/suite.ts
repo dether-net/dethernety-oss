@@ -31,6 +31,7 @@ import {
   evalResponse,
   recall,
 } from '../fixtures';
+import { OPERATION_CATEGORY_LABEL, OPERATION_FIELD_KEYS, RESERVED_ATTRIBUTE_PREFIX } from '../../operation-fields';
 
 export interface ContractHarness {
   /** Build a fresh module bound to the mock, optionally at a different pin and
@@ -59,6 +60,28 @@ const ZERO_CLASS_DOC: ModuleDocument = {
   module: { name: MODULE_KEY, componentClasses: [] },
   embeddings: { models: [] },
 };
+
+/**
+ * The fixture class is a component, so a served template is the fixture with the operation fields of a
+ * component added: the fields after its own properties and one more category last, and nothing else
+ * changed. Checked against the fixture itself, independently of the code that adds them.
+ */
+function expectServedTemplate(served: string): void {
+  const template = JSON.parse(served);
+  for (const key of OPERATION_FIELD_KEYS.component) expect(template.schema.properties).toHaveProperty(key);
+  const added = template.uischema.elements.pop();
+  expect(added).toMatchObject({ type: 'Category', label: OPERATION_CATEGORY_LABEL.component });
+  for (const key of OPERATION_FIELD_KEYS.component) delete template.schema.properties[key];
+  expect(template).toEqual(templateResponse.template);
+}
+
+/** A served guide is the fixture guide with one entry per operation field of a component appended. */
+function expectServedGuide(served: string): void {
+  const guide = JSON.parse(served) as Array<{ option_name: string }>;
+  const baseline = guideResponse.guide as unknown[];
+  expect(guide.slice(0, baseline.length)).toEqual(baseline);
+  expect(guide.slice(baseline.length).map((e) => e.option_name)).toEqual([...OPERATION_FIELD_KEYS.component]);
+}
 
 /** Count eval POSTs the mock has seen. */
 function evalPosts(mock: MockContentServer): number {
@@ -117,12 +140,12 @@ export function runContractSuite(harness: ContractHarness): void {
       expect(meta.componentClasses?.length).toBeGreaterThan(0); // newest good, not the reduced live doc
     });
 
-    it('entitled template/guide are shape-identical to the baseline', async () => {
+    it('entitled template/guide are the baseline, the template with the operation fields added', async () => {
       const client = harness.makeClient();
       await client.getMetadata();
-      // Pass-through: the client does not re-normalize an entitled template.
-      expect(JSON.parse(await client.getClassTemplate(CLASS_ID, ENTITLED_TOKEN))).toEqual(templateResponse.template);
-      expect(JSON.parse(await client.getClassGuide(CLASS_ID, ENTITLED_TOKEN))).toEqual(guideResponse.guide);
+      // The client does not re-normalize an entitled template; it adds the operation fields.
+      expectServedTemplate(await client.getClassTemplate(CLASS_ID, ENTITLED_TOKEN));
+      expectServedGuide(await client.getClassGuide(CLASS_ID, ENTITLED_TOKEN));
     });
 
     it('unentitled → rendering-valid fallback carrying the sanitized server message', async () => {
@@ -134,6 +157,7 @@ export function runContractSuite(harness: ContractHarness): void {
       const text = JSON.stringify(fallback);
       expect(text).toContain('subscription'); // from the fixture denial title
       expect(text).toContain(`${PORTAL_ORIGIN}/subscribe/acme-cloud`); // portalOrigin-valid actionUrl kept
+      expect(text).not.toContain(RESERVED_ATTRIBUTE_PREFIX); // a fallback never carries the operation fields
     });
 
     it('the fallback neutralizes markup and drops a foreign action URL', async () => {
@@ -176,7 +200,7 @@ export function runContractSuite(harness: ContractHarness): void {
       const a2 = await client.getClassTemplate(CLASS_ID, ENTITLED_TOKEN); // warm memo → no new request
       expect(a2).toBe(a1);
       expect(harness.mock.requests.length).toBe(before + 1);
-      expect(JSON.parse(a1)).toEqual(templateResponse.template);
+      expectServedTemplate(a1); // extended once, from the fetch and from the cache alike
       // B has no entitled memo → forced live re-check → 403 → fallback (not A's content).
       const b = JSON.parse(await client.getClassTemplate(CLASS_ID, UNENTITLED_TOKEN));
       // The fallback has an empty schema; A's real template has populated properties —
@@ -321,7 +345,7 @@ export function runContractSuite(harness: ContractHarness): void {
       const meta = await client.getMetadata();
       expect(meta.componentClasses?.[0]?.id).toBe(CLASS_ID);
       expect(client.getEmbedding('Virtual Machine', MODEL_SLUG)).toEqual(embeddingsResponse.embeddings[0].vector);
-      expect(JSON.parse(await client.getClassTemplate(CLASS_ID, ENTITLED_TOKEN))).toEqual(templateResponse.template);
+      expectServedTemplate(await client.getClassTemplate(CLASS_ID, ENTITLED_TOKEN));
       expect(await client.getExposures('el-1', CLASS_ID, ENTITLED_TOKEN)).toEqual(evalResponse.exposures);
     });
   });

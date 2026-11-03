@@ -169,6 +169,46 @@ On an **Attributes** form — of a component, boundary, data flow, data item, co
 
 **Not answered is not the same as No.** Some policies treat a missing answer as a reason to raise a finding, so setting an attribute back to **Not answered** can change the analysis — just as an attribute you never answered always could.
 
+## Operation & version
+
+Once a component or a security boundary has a class, its **Attributes** tab ends with one more panel, whichever module the class comes from: **Operation & version** on a component, **Operation** on a boundary. It records who runs the element and which software it is. Click the panel's information icon for guidance on each field.
+
+The panel is missing where the tab shows no form split into panels, for example a read-only notice in place of the class's attributes.
+
+- Every field is optional. Clearing a field removes its value when you save, as with any attribute.
+- The values belong to the element's class binding: replacing or removing the class clears them, together with the class's other attributes.
+- The class's policies do not read these fields, so filling them in does not change the exposures the class raises.
+
+### Operated by
+
+Choose **You (your organisation)** or **A vendor**. Nothing is preselected.
+
+- **On a component**, it says who builds or runs the element's own software. Choose **A vendor** when a vendor builds and runs it and you hold only the settings it offers you, as with a hosted service you configure. Choose **You (your organisation)** when you build or run it, including when you build it on a vendor's platform.
+- **On a security boundary**, it says who runs the execution environment — the hosts, the hypervisors or the platform runtime — of what is drawn directly inside it.
+
+The two answers are separate: a boundary's answer is about the environment, a component's about its own software. Set each one on its own element.
+
+### Drawing elements in the boundary that runs them
+
+Draw each element **directly** inside the boundary that runs its execution environment, and set that boundary's **Operated by**. Only the boundary an element is drawn directly in speaks for its environment. The canvas itself, the **Default Boundary**, does not: an element drawn straight on the canvas has no boundary that says who runs its environment.
+
+| What you model | The element's **Operated by** | The boundary it is drawn in |
+|----------------|-------------------------------|-----------------------------|
+| Your own application, running in your account at a cloud provider | **You (your organisation)** | A boundary for the provider's account, **Operated by** set to **A vendor** |
+| A managed database service you configure | **A vendor** | The vendor's boundary, **Operated by** set to **A vendor** |
+| A function or app you build on a vendor's platform | **You (your organisation)** | The vendor's boundary, **Operated by** set to **A vendor** |
+| An application you run on your own servers | **You (your organisation)** | A boundary for your data centre, **Operated by** set to **You (your organisation)** |
+
+### Product
+
+The vendor and product name of the element's software or service, for example *PostgreSQL* or the name of the hosted service you use. Free text, up to 200 characters. Read it from the container image or package name, the deployment manifest, or the contract.
+
+### Version
+
+**Components only.** The version of the software you run, up to 64 characters. Read the exact version from the image tag, the lockfile or package manifest, the Helm chart's `appVersion`, or the Terraform lock file. A floating tag such as `latest`, or a version range, is not a version: record the version it resolves to.
+
+The version is not asked for an element a vendor operates: while **Operated by** is **A vendor**, the **Version** field is hidden.
+
 ## Issue Class Integration
 
 > **No integration module ships with Dethernety.** The platform provides the *seam* described below; a module has to implement it before an issue in Dethernety is connected to anything outside it. Out of the box, issues are created and tracked entirely within the platform — see the [Issue Management Guide](ISSUE_MANAGEMENT_GUIDE.md).

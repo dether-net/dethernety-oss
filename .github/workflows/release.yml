@@ -78,6 +78,12 @@ jobs:
             exit 1
           fi
 
+      # The install docs' copy-paste commands name the release, so they must name this one. With the
+      # step above, the tag, package.json and the install docs all agree. The script lists the files a
+      # release PR updates together with the bump.
+      - name: The install docs name this release
+        run: bash deploy/tests/docs-release-version.sh
+
       # The compose bundle's .env.example is its release manifest: its PLATFORM_VERSION
       # must equal the release version — asserted, not rewritten, so the shipped quickstart
       # and the repo agree and a forgotten bump fails the release instead of shipping a

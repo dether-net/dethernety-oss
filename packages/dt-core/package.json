@@ -16,6 +16,10 @@
     "./zone-determination": {
       "types": "./dist/dt-boundary/zone-determination.d.ts",
       "import": "./dist/dt-boundary/zone-determination.js"
+    },
+    "./operation-determination": {
+      "types": "./dist/dt-operation/operation-determination.d.ts",
+      "import": "./dist/dt-operation/operation-determination.js"
     }
   },
   "scripts": {

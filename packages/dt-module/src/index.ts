@@ -47,6 +47,19 @@ export * from './embedding-file-cache';
 export * from './embedding-text';
 export * from './dt-file-opa-module';
 export * from './dt-remote-module';
+export {
+  OPERATION_OPERATOR_KEY,
+  OPERATION_PRODUCT_KEY,
+  OPERATION_VERSION_KEY,
+  RESERVED_ATTRIBUTE_PREFIX,
+  OPERATOR_VALUES,
+  OPERATION_FIELD_KEYS,
+  OPERATION_CATEGORY_LABEL,
+  withOperationFields,
+  withOperationGuide,
+  withoutReservedAttributes,
+} from './operation-fields';
+export type { OperatedClassType } from './operation-fields';
 // The runtime half; the contract-test helper is on the `./frontend-manifest` subpath only.
 export {
   FRONTEND_MANIFEST_FILE,

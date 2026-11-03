@@ -88,7 +88,8 @@ export interface TemplateResponse {
 export interface GuideResponse {
   classId: string;
   version: string;
-  guide: Record<string, unknown>;
+  /** The class's guide as published: a list of per-attribute entries. */
+  guide: unknown;
 }
 
 /** `POST /v1/eval/classes/{classId}/versions/{pin}` response — carries both
