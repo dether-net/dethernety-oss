@@ -67,7 +67,7 @@ cd "byodt-${VERSION}"
 ./byodt console
 ```
 
-> **Important:** Two choices cannot easily be changed after the first start: the **database engine** (Memgraph or Neo4j) and, on Docker Desktop or a Podman machine, **where the database stores its data**. If either applies to you, read [Optional: choose your settings first](#optional-choose-your-settings-first) before step 4.
+> **Important:** Two choices cannot easily be changed after the first start: the **database engine** (Memgraph or Neo4j) and, on a VM-backed runtime, **where the database stores its data**. A VM-backed runtime is one that runs containers in a virtual machine, such as Docker Desktop, or a Podman machine on macOS or Windows; Docker Engine or Podman running directly on Linux is not. If either choice applies to you, read [Optional: choose your settings first](#optional-choose-your-settings-first) before step 4.
 
 > **Note:** If the machine reaches the internet only through an outbound proxy, these commands are not enough on their own. Follow [Behind an outbound proxy](#behind-an-outbound-proxy) instead.
 
@@ -91,7 +91,7 @@ The rest of this guide walks through each step, explains what the first start do
 | **For `byodt`** | `sha256sum` or `shasum` too. `byodt` needs one to record your confirmation of the third-party notice, and to upgrade; other commands do not. Without one, the notice counts as not yet confirmed, so a first start, and any `up`, `update`, `restart` or `models pull` run at a terminal or with `--yes`, asks for it and then stops. See [Troubleshooting](./TROUBLESHOOTING.md#neither-sha256sum-nor-shasum-is-installed). |
 | **Optional tools** | [cosign](https://github.com/sigstore/cosign) to verify the bundle's signature; the installer and `./byodt upgrade` use it when it is installed. `curl` for the health checks. |
 
-> **Warning:** On a VM-backed runtime — **Docker Desktop**, or a **Podman machine** on macOS or Windows — the memory that counts is the memory the *virtual machine* is allowed, not the host's. If the VM is capped at 4 GB or less, raise it in the runtime's settings before you start. The reference-data ingest is deliberately not retried when the database runs out of memory.
+> **Warning:** If you run a VM-backed runtime — one that runs containers in a virtual machine, such as Docker Desktop, or a Podman machine on macOS or Windows — the memory that counts is the memory the *virtual machine* is allowed, not the host's. If the VM is capped at 4 GB or less, raise it in the runtime's settings before you start. The reference-data ingest is deliberately not retried when the database runs out of memory. Docker Engine on Linux runs containers directly on the host, so the host's memory is what counts there.
 
 ### Check your container engine
 
@@ -121,7 +121,7 @@ Podman works fully, with Docker Compose v2 or with `podman-compose`: installing,
 
    Without it, every `byodt` command stops with an error saying that the engine's compose is not usable. See [Troubleshooting](./TROUBLESHOOTING.md#no-usable-container-engine).
 
-2. **Use the named volume for database storage on a VM-backed runtime.** This applies to a Podman machine and to Docker Desktop alike; see the warning in [Optional: choose your settings first](#optional-choose-your-settings-first).
+2. **Use the named volume for database storage on a VM-backed runtime.** On macOS or Windows, a Podman machine is one; see the warning in [Optional: choose your settings first](#optional-choose-your-settings-first).
 
 3. **Rootless is expected.** The containers write into the bundle's runtime directories under an unprivileged user id that does not match yours, so the control script creates those directories world-writable on every start. You do not need to do anything. Do not tighten them by hand: the next start widens them again.
 
@@ -220,7 +220,7 @@ docker info --format '{{.HTTPSProxy}}'    # the proxy, with any login masked
 
 > **Note:** systemd shows a unit's environment to every local account (`systemctl show docker`). If the proxy needs a login, put it in `daemon.json` with mode `0600` rather than in a drop-in.
 
-On Docker Desktop, set and check the proxy in Docker Desktop's own settings instead. `byodt`'s daemon check reads `docker info`, which may not reflect that setting.
+If you run Docker Desktop rather than Docker Engine, the systemd drop-in and `daemon.json` above do not apply: set and check the proxy in Docker Desktop's own settings instead. `byodt`'s daemon check reads `docker info`, which may not reflect that setting.
 
 **Podman.** Which process pulls depends on the Compose provider (see [Check your container engine](#check-your-container-engine)):
 
@@ -584,7 +584,7 @@ It asks only at a terminal, and only what no flag answered. `./byodt setup --hel
 |---|---|---|
 | `Graph database, memgraph or neo4j [memgraph]:` | `--db memgraph\|neo4j` | `memgraph` |
 | The third-party notice, then `Continue? [y/N]` | `--yes` | — |
-| `Keep the database in the engine's named volume? [Y/n]`, asked only on Docker Desktop or a Podman machine | `--db-data bind\|volume` | `volume` there; elsewhere `bind`, in `./data/<engine>` |
+| `Keep the database in the engine's named volume? [Y/n]`, asked only on a VM-backed runtime | `--db-data bind\|volume` | `volume` there; elsewhere `bind`, in `./data/<engine>` |
 | `Reach the console and the platform from other machines too (binds 0.0.0.0)? [y/N]` | `--bind 127.0.0.1\|0.0.0.0` | `127.0.0.1`, this machine only |
 | `Port [3000]:` | `--port N` | `3000` |
 | `Does this machine reach the internet only through an HTTPS proxy? [y/N]`, then `The proxy, as http://host:port:` | `--https-proxy URL`, with no login in it | none |
@@ -802,7 +802,7 @@ The first start records the engine in `.env` as `DB_ENGINE` (and on Neo4j, the i
 
 > **Warning:** Choose the database engine before the first start. Each engine keeps its own data and nothing converts one into the other: switching later starts an empty graph, and a backup taken on one engine cannot be restored on the other.
 
-> **Warning:** On a VM-backed runtime — **Docker Desktop**, or a **Podman machine** on macOS or Windows — store the database in the named volume, not a host bind mount. A bind mount that crosses the VM's file-sharing layer can corrupt a running database. Set this in `.env` before the first start:
+> **Warning:** On a VM-backed runtime (see [Requirements](#requirements)), store the database in the named volume, not a host bind mount. A bind mount that crosses the VM's file-sharing layer can corrupt a running database. Set this in `.env` before the first start:
 >
 > ```
 > DB_DATA=memgraph-data

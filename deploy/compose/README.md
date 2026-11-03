@@ -150,10 +150,11 @@ The container engine is auto-detected on the first run (Docker first, then Podma
 and recorded as `CONTAINER_ENGINE` in `.env`; set it there yourself to force one.
 
 The database stores its data in a host bind mount (`data/memgraph`, or `data/neo4j`
-on Neo4j) by default — visible and easy to back up. On VM-backed runtimes (Podman
-machine, Docker Desktop on macOS/Windows), a host bind mount can corrupt a database
-under the file-sharing layer; if you hit that, set `DB_DATA` to the `memgraph-data`
-named volume (on Neo4j: `NEO4J_DATA` to `neo4j-data`), which lives in the engine's own
+on Neo4j) by default — visible and easy to back up. On a VM-backed runtime, one
+that runs containers in a virtual machine (such as Docker Desktop, or a Podman
+machine on macOS or Windows), a host bind mount can corrupt a database under the
+file-sharing layer; if you hit that, set `DB_DATA` to the `memgraph-data` named
+volume (on Neo4j: `NEO4J_DATA` to `neo4j-data`), which lives in the engine's own
 storage. See `.env` for the trade-offs.
 
 Neo4j settings, all optional in `.env`: `NEO4J_HEAP_SIZE` (default `2G`) and

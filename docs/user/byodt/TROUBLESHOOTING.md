@@ -738,7 +738,7 @@ On Neo4j the middle reads `the database needs more memory (Neo4j's heap, NEO4J_H
 
 **Cause.** The database ran out of memory partway through the reference-data ingest. Memgraph is started with a 4096 MiB limit, which is the measured floor for this ingest; Neo4j parses the large ingest statements on its heap, `NEO4J_HEAP_SIZE` (default `2G`). Either can only use memory the container engine is actually able to give it.
 
-**Fix.** On Neo4j, raise `NEO4J_HEAP_SIZE` in `.env` (for example to `3G`). On either engine, make sure the container engine can give the database that memory. On a VM-backed runtime — Docker Desktop, or a Podman machine — the constraint is the **virtual machine's** memory allocation, not the host's. Raise it to comfortably more than 4 GB, then re-run the one-shot:
+**Fix.** On Neo4j, raise `NEO4J_HEAP_SIZE` in `.env` (for example to `3G`). On either engine, make sure the container engine can give the database that memory. On a VM-backed runtime, one that runs containers in a virtual machine (such as Docker Desktop, or a Podman machine on macOS or Windows), the constraint is the **virtual machine's** memory allocation, not the host's. Raise it to comfortably more than 4 GB, then re-run the one-shot:
 
 ```sh
 ./byodt restart
@@ -1655,7 +1655,7 @@ Do not tighten these directories by hand — the next start widens them again, a
 
 ### The database becomes corrupt on macOS or Windows
 
-**Cause.** The default storage setting is a host bind mount inside the bundle. On a VM-backed runtime — Podman machine, or Docker Desktop — the file-sharing layer between host and VM can corrupt a database that is actively writing.
+**Cause.** The default storage setting is a host bind mount inside the bundle. On a VM-backed runtime, one that runs containers in a virtual machine (such as Docker Desktop, or a Podman machine on macOS or Windows), the file-sharing layer between host and VM can corrupt a database that is actively writing. Docker Engine or Podman running directly on Linux is not VM-backed and is not affected.
 
 **Fix.** Move the database to the named volume, which lives in the engine's own storage. Back up first: this is a switch to a **fresh** database, not a migration.
 
