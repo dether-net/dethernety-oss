@@ -6,6 +6,7 @@
 - [DtLgAnalysisOps - LangGraph Analysis Operations](#dtlganalysisops---langgraph-analysis-operations)
 - [DtLgDocumentOps - LangGraph Document Operations](#dtlgdocumentops---langgraph-document-operations)
 - [Ad-hoc Rego Evaluation (rego-adhoc)](#ad-hoc-rego-evaluation-rego-adhoc)
+- [Policy Hash (policy-hash)](#policy-hash-policy-hash)
 - [Graph Engine and Schema Helpers](#graph-engine-and-schema-helpers)
 - [Utility Class Patterns](#utility-class-patterns)
 
@@ -470,6 +471,38 @@ Two properties keep the authoring verdict aligned with the runtime:
 - **`checkRegoSource` is a superset of the packaging gate.** It combines `lintPolicySource` (builtin partition, length limits, isolation — defects a parse cannot see, because the engine resolves function names lazily) with a real parse (syntax errors the static lint cannot see). A policy that passes here cannot later fail packaging for a reason its author never saw.
 
 **No resource bounds.** Rego's strong normalization guarantees termination, not bounded time or memory. The caller owns input-size caps, and should consider `worker_threads` isolation (with `resourceLimits`) before wiring these functions to untrusted policy or input.
+
+---
+
+## Policy Hash (policy-hash)
+
+The one computation of a class's `policyHash`: which policy source an evaluation of the class compiles (see [DTModule interface → Policy hash](./DT_MODULE_INTERFACE.md#policy-hash-policyhash)). Every producer of the value uses it: a file-backed module reporting its classes, a catalog serving the hashes of a remote module's classes, and a knowledge graph recording the policy its rules were derived from. Two copies would drift on a detail such as a trailing newline, and a hash that differs by a newline marks every element evaluated under the unchanged policy as stale.
+
+**Source File:** `packages/dt-module/src/policy-hash.ts`. Exported from the `@dethernety/dt-module/policy-hash` subpath and from the package root. It depends on `node:crypto` only, so a consumer that needs only the hash takes no other dependency with it.
+
+```typescript
+policySourceHash(fileText: string): string
+// sha256 hex of a policies.rego file's text: trimmed, then decoded, then hashed
+
+decodePolicySource(value: string | null | undefined): string | null
+// the Rego source a stored policy holds; null for an empty value
+
+NO_POLICY_HASH         // sha256 hex of '' — the policyHash of a class with no policy, or an empty one
+POLICY_HASH_ALGORITHM  // 'policy-source-sha256/1' — names the computation where its values are served
+```
+
+- **`policySourceHash(fileText)`** takes the file's text as read. It trims surrounding whitespace, decodes the result with `decodePolicySource`, and returns the sha256 hex of the decoded source. An empty or whitespace-only file hashes to `NO_POLICY_HASH`. `DtFileOpaModule` reports this value as each class's `policyHash`.
+- **`decodePolicySource(value)`** returns a value whose trimmed text starts with `package ` as given. Otherwise it base64-decodes the value and returns the decoded text when that starts with `package `. Anything else, such as a policy that opens with a comment, is returned as given. An empty value returns `null`.
+- **`POLICY_HASH_ALGORITHM`** travels with a served set of a module's hashes, so a reader can refuse a set it does not know how to compare. `DtRemoteModule` refuses a set that names any other value (see [Remote content modules → Policy hashes](./DT_MODULE_INTERFACE.md#policy-hashes)).
+
+```typescript
+import * as fs from 'fs';
+import { policySourceHash } from '@dethernety/dt-module/policy-hash';
+
+const hash = policySourceHash(fs.readFileSync(policiesPath, 'utf8'));
+```
+
+**The golden pair.** `@dethernety/dt-module/testing` exports `POLICY_HASH_GOLDEN_POLICY`, a `policies.rego` text ending in a newline as committed policy files do, and `POLICY_HASH_GOLDEN_HEX`, the hash it must produce. A producer of policy hashes asserts that its computation maps the one to the other, so a producer that drifts from this helper (by hashing the text untrimmed, say) fails in its own tests rather than as a silent mismatch in a deployment.
 
 ---
 

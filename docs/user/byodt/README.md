@@ -13,13 +13,19 @@ The **BYODt deployment** runs the whole Dethernety platform on a machine you con
 
 There is no source checkout and no build toolchain. A container engine is the only prerequisite.
 
-From the first release that ships it, each release publishes an installer that downloads the bundle, checks its SHA-256 and, with cosign, its signature, and asks a few questions:
+From the first release that ships it, each release publishes an installer, `get-byodt.sh`, that downloads the bundle, checks its SHA-256 and, with cosign, its signature, and asks a few questions. If Node.js 18 or later is installed, or you are happy to install it, the recommended way to run it is through `npx`:
+
+```sh
+npx @dether.net/byodt@X.Y.Z
+```
+
+Node.js runs the installer only; the deployment never needs it. Without Node.js, run the same installer straight from the release:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -fsSL https://github.com/dether-net/dethernety-oss/releases/download/vX.Y.Z/get-byodt.sh | sh
 ```
 
-Once a release is published to npm, the same installer also runs through `npx` (see [Installation → With npm](./INSTALLATION.md#with-npm)). You can also download and verify the bundle by hand. In the deployment's folder, one command then starts it:
+A release reaches npm in a separate step after GitHub, so for a version not on npm yet, use `get-byodt.sh` (see [Installation → Install with the installer](./INSTALLATION.md#install-with-the-installer)). You can also download and verify the bundle by hand. In the deployment's folder, one command then starts it:
 
 ```sh
 ./byodt up
@@ -135,9 +141,9 @@ Your data never moves either way: the graph stays in your database in both modes
 
 | Guide | What it covers |
 |---|---|
-| [Installation](./INSTALLATION.md) | Prerequisites, the network access the first start needs, the setup behind an outbound proxy, the installer (from the first release that ships it, or through npm once a release is published there), `./byodt setup`, the third-party notice, getting the bundle by hand, the first start, what happens during it, and how to confirm the deployment is healthy. **Start here.** |
+| [Installation](./INSTALLATION.md) | Prerequisites, the network access the first start needs, the setup behind an outbound proxy, the installer (from the first release that ships it; through npx, or straight from the release without Node.js), `./byodt setup`, the third-party notice, getting the bundle by hand, the first start, what happens during it, and how to confirm the deployment is healthy. **Start here.** |
 | [Configuration](./CONFIGURATION.md) | Every setting in `.env`, including the outbound proxy, the choice of database engine, the secret file and the proxy login it can hold, where the database keeps its data, and how to apply a change. |
-| [Operations](./OPERATIONS.md) | The `byodt` command reference and the day-to-day tasks: start, stop, inspect, back up, restore, TLS, upgrade (with `./byodt upgrade`, resuming, rolling back, from 0.13.0, on Podman), remove. |
+| [Operations](./OPERATIONS.md) | The `byodt` command reference and the day-to-day tasks: start, stop, inspect, back up, restore, TLS, upgrade (with `./byodt upgrade`, resuming, rolling back, from 0.13.0 or 0.12.x, on Podman), remove. |
 | [Cloud](./CLOUD.md) | Connecting the deployment to cloud sign-in and content packages from the console, and disconnecting again. |
 | [Troubleshooting](./TROUBLESHOOTING.md) | Symptom, cause, and fix for the failures this deployment actually produces. |
 

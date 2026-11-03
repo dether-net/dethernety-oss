@@ -1,9 +1,9 @@
 // A rule's reads leave normalisation ordered by name, and a threat's sources by id, whatever order the engine or the
 // wire handed them over in.
 import { describe, it, expect } from 'vitest';
-import { fromObject, toRule, toThreat } from '../kg/normalize';
+import { fromObject, sideOf, toAttribute, toRule, toThreat } from '../kg/normalize';
 
-const read = (name: string) => ({ name, title: `${name} title`, description: null, category: null });
+const read = (name: string) => ({ name, title: `${name} title`, description: null, category: null, side: null });
 const rule = (reads: unknown[]) =>
   toRule(fromObject({ id: 'kr1', ruleId: 'r1', classId: 'c1', kind: 'exposure', reads }));
 
@@ -23,6 +23,31 @@ describe("toRule — the order of a rule's reads", () => {
 
   it('keeps every field of each read', () => {
     expect(rule([read('b'), read('a')]).reads).toEqual([read('a'), read('b')]);
+  });
+});
+
+describe('the side of a read', () => {
+  it('keeps runtime and build, and narrows anything else to null', () => {
+    expect(sideOf('runtime')).toBe('runtime');
+    expect(sideOf('build')).toBe('build');
+    for (const other of ['Runtime', 'sideways', '', null, undefined, 1, true]) {
+      expect(sideOf(other)).toBeNull();
+    }
+  });
+
+  it('is a key on every read, null when the source carries none', () => {
+    expect(toAttribute({ name: 'a' })).toHaveProperty('side', null);
+    expect(toAttribute({ name: 'a', side: 'sideways' })).toHaveProperty('side', null);
+    expect(toAttribute({ name: 'a', side: 'runtime' }).side).toBe('runtime');
+  });
+});
+
+describe('the policyHash of a rule', () => {
+  it('is carried as given, and is a null key when the source carries none', () => {
+    const hash = 'a'.repeat(64);
+    expect(toRule(fromObject({ id: 'kr1', ruleId: 'r1', classId: 'c1', policyHash: hash })).policyHash).toBe(hash);
+    expect(toRule(fromObject({ id: 'kr1', ruleId: 'r1', classId: 'c1' }))).toHaveProperty('policyHash', null);
+    expect(toRule(fromObject({ id: 'kr1', ruleId: 'r1', classId: 'c1', policyHash: 7 }))).toHaveProperty('policyHash', null);
   });
 });
 

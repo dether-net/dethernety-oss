@@ -21,16 +21,24 @@ This guide takes you from an empty machine to a running Dethernety deployment th
 
 ## At a glance
 
-If your machine already meets the [requirements](#requirements), there are two ways to install. Replace `X.Y.Z` with the version from the [latest release](https://github.com/dether-net/dethernety-oss/releases/latest).
+If your machine already meets the [requirements](#requirements), there are three ways to install. Replace `X.Y.Z` with the version from the [latest release](https://github.com/dether-net/dethernety-oss/releases/latest).
 
-**With the installer.** From the first release that ships it, each release has an installer, `get-byodt.sh`, among its files. One command downloads the bundle, checks it, unpacks it into `./byodt`, and asks you a few questions:
+From the first release that ships it, each release has an installer, `get-byodt.sh`. One command downloads the bundle, checks it, unpacks it into `./byodt`, and asks you a few questions. The first two ways run that installer; they differ only in how it reaches you.
+
+**With npx (recommended if you have Node.js).** The npm package carries the release's own `get-byodt.sh` and runs it. Use it if Node.js 18 or later is already installed, or you are happy to install it. Node.js runs the installer only: the deployment itself never needs it. If you will run the Dethereal Claude Code plugin on the same machine, you have Node.js already: its MCP server is launched with npx and needs Node.js 20 or later, which also meets the installer's 18 (see [Getting started with Dethereal](../dethereal/GETTING_STARTED.md#prerequisites)).
+
+```sh
+npx @dether.net/byodt@X.Y.Z
+```
+
+**With `get-byodt.sh` from the release.** The same installer, with no Node.js at all:
 
 ```sh
 VERSION=X.Y.Z
 curl --proto '=https' --tlsv1.2 -fsSL "https://github.com/dether-net/dethernety-oss/releases/download/v${VERSION}/get-byodt.sh" | sh
 ```
 
-See [Install with the installer](#install-with-the-installer) for what it checks, its options, and how to run it without a terminal. A release without `get-byodt.sh` installs by hand.
+A release reaches npm in a separate step after it is published on GitHub; for a version that is not on npm yet, use `get-byodt.sh`. See [Install with the installer](#install-with-the-installer) for what it checks, its options, and how to run it without a terminal. A release without `get-byodt.sh` installs by hand.
 
 **By hand.** These commands are the whole installation:
 
@@ -78,7 +86,8 @@ The rest of this guide walks through each step, explains what the first start do
 | **Memory** | Enough for the database plus the platform. Memgraph runs with a **4096 MiB** memory limit — the measured floor for the reference-data ingest. Neo4j runs with a **2 GB** heap and a **1 GB** page cache, plus what the JVM needs beyond those. The platform holds the embedding model in memory, which adds roughly 0.8–0.9 GiB. |
 | **CPU** | No fixed minimum. The timings in this guide are for a 4-vCPU host, which matches the embedder's default of 4 inference threads (`EMBEDDING_THREADS`; see [Configuration → Embedding](./CONFIGURATION.md#embedding)). |
 | **Network (first start and upgrades)** | Access to the container registries, GitHub release assets, and Hugging Face, directly or through an outbound proxy. See [Network access for the first start](#network-access-for-the-first-start). |
-| **For the installer** | Linux or macOS (on Windows, inside WSL), with `sh`, `tar`, `curl` (or `wget`), and `sha256sum` or `shasum`. |
+| **For the installer** | Linux or macOS (on Windows, inside WSL), with `sh`, `tar`, `curl` (or `wget`), and `sha256sum` or `shasum`. Through npx, Node.js 18 or later too, to run the installer only. |
+| **Node.js** | Not needed by the deployment: its services run in containers, and `byodt` is a shell script. Only the npx way of running the installer needs Node.js on the host. |
 | **For `byodt`** | `sha256sum` or `shasum` too. `byodt` needs one to record your confirmation of the third-party notice, and to upgrade; other commands do not. Without one, the notice counts as not yet confirmed, so a first start, and any `up`, `update`, `restart` or `models pull` run at a terminal or with `--yes`, asks for it and then stops. See [Troubleshooting](./TROUBLESHOOTING.md#neither-sha256sum-nor-shasum-is-installed). |
 | **Optional tools** | [cosign](https://github.com/sigstore/cosign) to verify the bundle's signature; the installer and `./byodt upgrade` use it when it is installed. `curl` for the health checks. |
 
@@ -102,7 +111,7 @@ On the first start, the script detects the engine (Docker first, then Podman) an
 
 ### Podman specifics
 
-Podman works fully, with Docker Compose v2 or with `podman-compose`: installing, backing up, restoring and upgrading included. (An upgrade from 0.13.0 on Memgraph and `podman-compose` needs one step by hand; see [Operations → Upgrading on Podman](./OPERATIONS.md#upgrading-on-podman).) Four things to know:
+Podman works fully, with Docker Compose v2 or with `podman-compose`: installing, backing up, restoring and upgrading included. (An upgrade from 0.12.x or 0.13.0 on Memgraph and `podman-compose` needs one step by hand; see [Operations → Upgrading on Podman](./OPERATIONS.md#upgrading-on-podman).) Four things to know:
 
 1. **On macOS, start the machine first.** Podman runs containers inside a virtual machine that is not started for you:
 
@@ -133,6 +142,7 @@ The first start needs to reach these destinations, directly or through an outbou
 | **GitHub's container registry** | `ghcr.io`, `pkg-containers.githubusercontent.com` | The platform and console images. |
 | **The publishers' registries** (Docker Hub by default) | `registry-1.docker.io`, `auth.docker.io` | The database and front-door images. |
 | **`github.com`** and its release-asset host | `github.com`, `release-assets.githubusercontent.com` | The bundle and its signature, and the signed module payloads for the release you are installing. |
+| **The npm registry**, only when you install with npx | `registry.npmjs.org` | The installer's npm package. |
 | **`huggingface.co`** and the host it redirects downloads to | `huggingface.co`, and its download host, for example `us.aws.cdn.hf.co` | The embedding model's weights. The platform verifies each file's sha256 before it uses it. |
 | **In cloud mode:** the content service and identity provider your cloud connection names | Their hosts | Sign-in, content packages, and the knowledge graph. Needed in use, not only on the first start. |
 
@@ -352,7 +362,38 @@ The warning does not stop the start: a registry mirror on your own network pulls
 
 From the first release that ships it, each release publishes an installer, `get-byodt.sh`, beside its bundle; a release without one installs by hand (see [Get the bundle](#get-the-bundle)). It downloads that release's bundle, checks it, unpacks it into a new folder, and hands over to the bundle's own [`./byodt setup`](#set-up-with-byodt-setup). It also upgrades an existing deployment to its release; see [Operations → Upgrading to a new release](./OPERATIONS.md#upgrading-to-a-new-release).
 
-### Run it
+There are two ways to run it, and both run the same script, with the same options and the same questions:
+
+| Way | Use it when | Needs, beyond the [installer's tools](#requirements) |
+|---|---|---|
+| [With npx](#with-npx) (recommended) | Node.js is already installed, for example for [Dethereal](../dethereal/GETTING_STARTED.md#prerequisites) (20 or later), or you are happy to install it | Node.js 18 or later, to run the installer only. The deployment does not need it. |
+| [With `get-byodt.sh` from the release](#with-get-byodtsh-from-the-release) | You would rather not have Node.js | Nothing more |
+
+Everything after these two sections applies to both.
+
+### With npx
+
+The npm package runs the release's own installer. Each package version is the release of the same version, and carries that release's `get-byodt.sh` with the same pins written in. The package's name:
+
+```sh
+PKG=@dether.net/byodt
+```
+
+```sh
+npx "$PKG@X.Y.Z"
+npx "$PKG@X.Y.Z" --dir ~/dethernety --yes
+```
+
+- **Name the version.** Without `@X.Y.Z`, `npx` runs the latest release.
+- **Options go after the package name**, and reach the installer. An option before it is one of npx's own: npx asks `Ok to proceed?` before it downloads a package it has not cached, and `npx --yes "$PKG@X.Y.Z"` skips that question. Without a terminal, npx does not ask.
+- It runs the package's `get-byodt.sh` with `/bin/sh`, and nothing else. It takes the same options, and asks at the terminal the same way.
+- It needs Node.js 18 or later, to run the installer only: the deployment it installs does not use Node.js. On Windows it stops with `Dethernety's self-hosted deployment runs on Linux or macOS. On Windows, run this inside WSL.`
+- It takes npm's `node_modules/.bin` folders out of `PATH` before it starts the installer, so `curl`, `cosign`, `tar` and the container engine are always the system's.
+- **A release reaches npm separately.** Publishing to npm is a separate step after the release is published on GitHub. For a version that is not on npm yet, use [`get-byodt.sh` from the release](#with-get-byodtsh-from-the-release).
+
+### With `get-byodt.sh` from the release
+
+Without Node.js, download the installer straight from the release and run it:
 
 ```sh
 VERSION=X.Y.Z
@@ -433,7 +474,7 @@ Then it runs `./byodt setup` in the new folder, at your terminal, with the optio
 | `--https-proxy URL` | The proxy for this download, as `http://host:port`, with no login in it. Default: your shell's `HTTPS_PROXY`. See [Through an outbound proxy](#through-an-outbound-proxy). |
 | `--tarball FILE` | Install from this bundle file instead of downloading it. It is checked all the same; its signature only from `FILE.bundle` beside it. |
 | `--require-signature` | Refuse unless cosign is installed and verifies the bundle. |
-| `--allow-unsigned` | Let an unattended upgrade use a bundle cosign did not verify. Its SHA-256 is still checked. |
+| `--allow-unsigned` | Go ahead without a signature check when cosign is not installed, or a `--tarball` has no `.bundle` beside it, without asking about the signature. The SHA-256 is still checked, but it comes from the same release, so it shows the download is intact, not who made it. A signature cosign rejects always stops the upgrade. Refused when `.env` sets `UPGRADE_REQUIRE_SIGNATURE=true`. A new install ignores it. |
 | `-h`, `--help` | Print the options. |
 
 **Any other option goes to the bundle's own `./byodt setup`** (on a new install) or `./byodt upgrade` (on an upgrade). For example, `--db neo4j --start` reaches setup. The installer passes on only values made of letters, digits and `. _ : / @ % + , = ~ ! & ' ( ) * ; -`.
@@ -455,11 +496,17 @@ From a script or a provisioning tool, nobody can answer the questions. Then:
     | sh -s -- --yes --dir ~/dethernety --db neo4j --start
   ```
 
+  Through npx, the same options follow the package name:
+
+  ```sh
+  npx "$PKG@X.Y.Z" --yes --dir ~/dethernety --db neo4j --start
+  ```
+
   ```
   ==> --yes: counted as the confirmation of the notice above.
   ```
 
-`--yes` means unattended at a terminal too: nothing is asked. With `--yes`, or without a terminal, an existing deployment is upgraded only with `--upgrade` (at a terminal without `--yes`, the installer asks), and an upgrade uses a bundle cosign did not verify only with `--allow-unsigned`. `--yes` never implies either.
+`--yes` means unattended at a terminal too: nothing is asked. With `--yes`, or without a terminal, an existing deployment is upgraded only with `--upgrade` (at a terminal without `--yes`, the installer asks), and an upgrade goes ahead without a signature check (cosign not installed, or a `--tarball` with no `.bundle` beside it) only with `--allow-unsigned`. `--yes` never implies either.
 
 ### Through an outbound proxy
 
@@ -478,6 +525,8 @@ The installer's own downloads (the bundle and its signature, and cosign's calls)
   ==> Downloading byodt-X.Y.Z.tar.gz from the dether-net/dethernety-oss release (through http://***@proxy.example.internal:3128)…
   ```
 
+- **Through npx**, npm downloads the package through the same `HTTPS_PROXY` from your shell, and the installer inherits it. The proxy must then allow npm's registry, `registry.npmjs.org`, too. `--https-proxy` reaches the installer only, not npm.
+
 **`curl`, else `wget`.** The installer uses `curl` when it is installed, held to HTTPS and TLS 1.2 or later. `wget` is the fallback, and it cannot refuse a redirect to plain HTTP, so a `wget` download counts as transport that is not guaranteed HTTPS. That changes nothing about what is used: the SHA-256 written into the installer decides, and with cosign the signature is checked the same way.
 
 **The 50 MiB cap** holds on both. `curl` refuses a larger file up front, and the installer stops with `error: Could not download the bundle.`; `wget` stops at the cap:
@@ -489,24 +538,6 @@ error: https://… is larger than a release's file is.
 Nothing is left behind either way.
 
 **The deployment's own proxy.** The installer hands the proxy to `./byodt setup` as its `--https-proxy`, so setup writes it into `.env` as `HTTPS_PROXY`, and, at a terminal, asks for the hosts to reach directly and a TLS-inspecting proxy's CA. A login from your shell is saved into `.env.secrets` only after you answer `y` to `Save the proxy login for user '…' that the installer was given? [y/N]`, or with `--proxy-login-from-env` on the installer's command line; with `--yes` and without that flag, setup says it did not save it. The containers must be able to use that proxy: setup refuses one they cannot, such as `127.0.0.1` (see [Configuration → Outbound proxy](./CONFIGURATION.md#outbound-proxy)). At a terminal it asks again; with `--yes` it stops with `The proxy settings were refused (see above). Nothing was changed.`, and the unpacked folder stays. Run `./byodt setup` in it yourself, with the deployment's own proxy settings.
-
-### With npm
-
-`get-byodt.sh` from the release, as above, is the primary way to install. Once a release is published to npm, the same installer also runs through `npx`. Each package version is the release of the same version, and carries that release's `get-byodt.sh` with the same pins written in. The package's name:
-
-```sh
-PKG=@dether.net/byodt
-```
-
-```sh
-npx "$PKG@X.Y.Z"
-npx "$PKG@X.Y.Z" --dir ~/dethernety --yes
-```
-
-- It runs the package's `get-byodt.sh` with `/bin/sh`, and nothing else. It takes the same options, and asks at the terminal the same way.
-- It needs Node.js 18 or later. On Windows it stops with `Dethernety's self-hosted deployment runs on Linux or macOS. On Windows, run this inside WSL.`
-- It takes npm's `node_modules/.bin` folders out of `PATH` before it starts the installer, so `curl`, `cosign`, `tar` and the container engine are always the system's.
-- Without `@X.Y.Z`, `npx` runs the latest release. Name the version, as with the URL.
 
 ### When a deployment is already there
 

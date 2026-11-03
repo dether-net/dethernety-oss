@@ -12,7 +12,7 @@ Before your first pull request can be merged, you must sign our [Contributor Lic
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 22.22.2+ or 24.15+
 - pnpm 9.13+
 - A Bolt/Cypher-compatible database (Neo4j or Memgraph)
 

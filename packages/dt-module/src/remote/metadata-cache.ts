@@ -10,6 +10,10 @@
  *
  * Entries are immutable at a pin (the pin is a content hash), written atomically
  * (temp file + rename) so an entry is always complete or absent, never partial.
+ *
+ * A pin's policy hashes are served separately from its document, and may be published
+ * after it, so they are kept in a file of their own beside the entry rather than by
+ * rewriting it. That file is written once and never replaced.
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -36,6 +40,10 @@ export interface MetadataCacheOptions {
   explicitDir?: boolean;
   logger?: Logger;
 }
+
+/** Ends the name of a pin's policy hashes file, beside the pin's entry. A pin's own
+ * file name never contains it: `safeName` maps every `.` away. */
+const POLICY_HASHES_SUFFIX = '.policy-hashes.json';
 
 /** The five class arrays the catalog serves (analysis/issue are never served).
  * Shared by the corruption guard and the module's vector-map build so the "which
@@ -111,7 +119,7 @@ export class MetadataCache {
     const moduleDir = path.join(this.dir, safeName(moduleKey));
     let files: string[];
     try {
-      files = fs.readdirSync(moduleDir).filter((f) => f.endsWith('.json'));
+      files = fs.readdirSync(moduleDir).filter((f) => f.endsWith('.json') && !f.endsWith(POLICY_HASHES_SUFFIX));
     } catch {
       return null;
     }
@@ -126,8 +134,75 @@ export class MetadataCache {
     return newest;
   }
 
+  /** The stored policy hashes body for a pin, unvalidated (the caller checks it against
+   * the pin and its document), or `null` when none is stored or it cannot be parsed. */
+  getPolicyHashes(moduleKey: string, pin: string): unknown {
+    let raw: string;
+    try {
+      raw = fs.readFileSync(this.policyHashesFileFor(moduleKey, pin), 'utf8');
+    } catch {
+      return null; // absent
+    }
+    try {
+      return JSON.parse(raw) as unknown;
+    } catch {
+      this.logger.warn('Discarding a corrupt remote module policy hashes cache file', { moduleKey, pin });
+      this.dropPolicyHashes(moduleKey, pin);
+      return null;
+    }
+  }
+
+  /** Remove a pin's stored policy hashes — only one that cannot be parsed or does not
+   * check out, so that a good set can be stored in its place. Absent is fine. */
+  dropPolicyHashes(moduleKey: string, pin: string): void {
+    try {
+      fs.unlinkSync(this.policyHashesFileFor(moduleKey, pin));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+        this.logger.warn('Failed to remove remote module policy hashes', {
+          moduleKey,
+          pin,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+
+  /** Store a pin's policy hashes once. The body is staged in a temp file and linked into
+   * place, which fails rather than replaces when the file exists, so a stored set is never
+   * rewritten and never seen partial. A failure is logged, never thrown. */
+  putPolicyHashes(moduleKey: string, pin: string, body: unknown): void {
+    const target = this.policyHashesFileFor(moduleKey, pin);
+    const tmp = `${target}.${crypto.randomUUID()}.tmp`;
+    try {
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(tmp, JSON.stringify(body), 'utf8');
+      fs.linkSync(tmp, target);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === 'EEXIST') {
+        this.logger.debug('Remote module policy hashes already stored; kept as they are', { moduleKey, pin });
+      } else {
+        this.logger.warn('Failed to persist remote module policy hashes', {
+          moduleKey,
+          pin,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    } finally {
+      try {
+        fs.unlinkSync(tmp);
+      } catch {
+        // Never written, or already gone.
+      }
+    }
+  }
+
   private fileFor(moduleKey: string, pin: string): string {
     return path.join(this.dir, safeName(moduleKey), `${safeName(pin)}.json`);
+  }
+
+  private policyHashesFileFor(moduleKey: string, pin: string): string {
+    return path.join(this.dir, safeName(moduleKey), `${safeName(pin)}${POLICY_HASHES_SUFFIX}`);
   }
 
   private readFile(file: string): CachedModule | null {

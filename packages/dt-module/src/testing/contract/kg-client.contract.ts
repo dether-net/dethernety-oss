@@ -21,7 +21,9 @@ import {
   KG_COLLIDING_RULE_ID,
   KG_COUNTERMEASURE_RULE_ID,
   KG_OTHER_CLASS_ID,
+  KG_POLICY_HASH,
   KG_TECHNIQUE_ID,
+  KG_UNMARKED_READ,
   KG_UNMATCHED_CLASS_ID,
   kgRefKey,
 } from '../fixtures';
@@ -86,12 +88,14 @@ export function runKgClientSuite(harness: KgClientHarness): void {
         attackVector: expect.any(String),
         conditionGroups: expect.any(String),
         mitreRefs: expect.any(String),
+        policyHash: KG_POLICY_HASH,
         reads: [
           {
             name: expect.any(String),
             title: expect.any(String),
             description: expect.any(String),
             category: expect.any(String),
+            side: 'build',
           },
         ],
       });
@@ -102,10 +106,24 @@ export function runKgClientSuite(harness: KgClientHarness): void {
       // field by field or an implementation that simply omitted them would pass.
       const map = await client.rulesByClassId([KG_OTHER_CLASS_ID], undefined, token);
       const rule = ruleNamed(map.get(KG_OTHER_CLASS_ID)!, KG_COLLIDING_RULE_ID);
-      for (const field of ['name', 'kind', 'description', 'criticality', 'score', 'attackVector', 'conditionGroups', 'mitreRefs'] as const) {
+      for (const field of ['name', 'kind', 'description', 'criticality', 'score', 'attackVector', 'conditionGroups', 'mitreRefs', 'policyHash'] as const) {
         expect(rule).toHaveProperty(field, null);
       }
       expect(rule.reads).toEqual([]);
+    });
+
+    it('names each read once, an unmarked one with a null side, however many edges reach it', async () => {
+      // A graph may hold one read twice — two edges between the same rule and attribute — and an
+      // engine that deduplicates a map with a null value in it returns that read twice. Asserted by
+      // identity, not by count: a count passes against the right number of the wrong reads.
+      const map = await client.rulesByClassId([KG_CLASS_ID], { kind: 'countermeasure' }, token);
+      const rule = ruleNamed(map.get(KG_CLASS_ID)!, KG_COUNTERMEASURE_RULE_ID);
+      expect(rule.reads.map((r) => [r.name, r.side])).toEqual([
+        [KG_UNMARKED_READ, null],
+        ['transport_encryption_enabled', 'build'],
+      ]);
+      expect(rule.reads[0]).toHaveProperty('side', null);
+      expect(rule.policyHash).toBe(KG_POLICY_HASH);
     });
 
     it('gives a key that matched nothing an empty array, in the position it was asked in', async () => {

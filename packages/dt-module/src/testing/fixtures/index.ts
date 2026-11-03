@@ -6,13 +6,25 @@
  * full set of outcome payloads (entitled content + eval, a denial, a recall) the
  * mock replays per scenario.
  */
-import { ModuleDocument, EmbeddingsResponse, TemplateResponse, GuideResponse, EvalResponse, MetaResponse } from '../../remote/wire-client';
+import {
+  ModuleDocument,
+  EmbeddingsResponse,
+  TemplateResponse,
+  GuideResponse,
+  EvalResponse,
+  MetaResponse,
+  PolicyHashesResponse,
+} from '../../remote/wire-client';
+import { POLICY_HASH_ALGORITHM } from '../../policy-hash';
+import { POLICY_HASH_GOLDEN_HEX } from './policy-hash';
 import { DenialInfo, RecallInfo } from '../../remote/errors';
 
 // Knowledge-graph fixtures. Kept in their own file — they are a whole surface's worth, and they
 // grow again when the client implementations land. Every export there is `kg*`/`KG_*` prefixed,
 // because a name collision under `export *` resolves to nothing rather than to an error.
 export * from './kg';
+// The policy hash golden, shared by every producer of a class's `policyHash`.
+export * from './policy-hash';
 
 export const PORTAL_ORIGIN = 'https://portal.acme.example';
 export const MODULE_KEY = 'acme-compute';
@@ -69,6 +81,14 @@ export const embeddingsResponse: EmbeddingsResponse = {
   version: PIN,
   model: MODEL_SLUG,
   embeddings: [{ classId: CLASS_ID, vector: [0.0123, -0.0456, 0.0789, -0.0011] }],
+};
+
+/** The pin's policy hashes: the fixture class's policy is the policy hash golden. */
+export const policyHashesResponse: PolicyHashesResponse = {
+  moduleKey: MODULE_KEY,
+  version: PIN,
+  algorithm: POLICY_HASH_ALGORITHM,
+  policyHashes: { [CLASS_ID]: POLICY_HASH_GOLDEN_HEX },
 };
 
 export const templateResponse: TemplateResponse = {

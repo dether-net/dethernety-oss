@@ -83,6 +83,17 @@ export interface DTModule {
   isContentCallerVariant?(): boolean;
 
   /**
+   * Optional. Return true if this module evaluates only on behalf of a caller: getExposures and
+   * getCountermeasures need the caller's `token`, and refuse a call made without one. Default
+   * (absent) = false.
+   *
+   * The platform's own re-evaluations — after a class's policy changes — run with no caller, so
+   * they leave such a module's elements out rather than fail every one of them; those elements
+   * follow the new policy at their next save.
+   */
+  evaluatesWithCallerTokenOnly?(): boolean;
+
+  /**
    * @param token The caller's raw bearer, forwarded by the platform. Optional and last, so a
    *   module that never needed one is unaffected. It exists because an analysis runs outside a
    *   resolver, and a module whose analysis reaches an entitled service has no other channel to a

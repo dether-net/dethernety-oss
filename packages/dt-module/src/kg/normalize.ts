@@ -14,7 +14,7 @@
  * way, and an optional one resolves null.
  */
 import { coerceNeoInt } from '../db-ops';
-import { KgAttribute, KgCorpusEntry, KgRule, KgRuleKind, KgThreat } from '../interfaces/kg-client-interface';
+import { KgAttribute, KgAttributeSide, KgCorpusEntry, KgRule, KgRuleKind, KgThreat } from '../interfaces/kg-client-interface';
 
 /** Reads one field of a source row. */
 export type FieldGetter = (key: string) => unknown;
@@ -83,6 +83,11 @@ export function ruleKind(v: unknown): KgRuleKind | null {
   return v === 'exposure' || v === 'countermeasure' ? v : null;
 }
 
+/** Narrow a stored attribute side to the declared union, for the same reason as {@link ruleKind}. */
+export function sideOf(v: unknown): KgAttributeSide | null {
+  return v === 'runtime' || v === 'build' ? v : null;
+}
+
 export function toAttribute(value: unknown): KgAttribute {
   const get = fromObject(value);
   return {
@@ -90,6 +95,7 @@ export function toAttribute(value: unknown): KgAttribute {
     title: str(get('title')),
     description: str(get('description')),
     category: str(get('category')),
+    side: sideOf(get('side')),
   };
 }
 
@@ -124,6 +130,7 @@ export function toRule(get: FieldGetter): KgRule {
     attackVector: str(get('attackVector')),
     conditionGroups: str(get('conditionGroups')),
     mitreRefs: str(get('mitreRefs')),
+    policyHash: str(get('policyHash')),
     // Each engine returns a rule's reads in an order of its own (Memgraph in the edges' insertion order), and the
     // local and cloud clients must answer alike.
     reads: list(get('reads')).map(toAttribute).sort(byName),

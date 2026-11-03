@@ -323,7 +323,7 @@ Browsers only expose the cryptography the cloud sign-in flow needs on a secure c
 
 A release moves as one unit: the platform image, the console image, and the module payloads all follow `PLATFORM_VERSION`. The graph database image is the exception: an upgrade leaves `DB_IMAGE`, or `NEO4J_IMAGE` on Neo4j, where it is, unless you choose to move the database.
 
-`./byodt upgrade` does the whole upgrade: it downloads and checks the new release, backs up, moves the new files in, brings `.env` into line, applies the release, and waits until it is healthy. The new release's [installer](./INSTALLATION.md#install-with-the-installer) does the same with `--upgrade`. A deployment on 0.13.0 has no `./byodt upgrade` yet; see [Upgrading from 0.13.0](#upgrading-from-0130). To do it all yourself instead, see [Upgrading by hand](#upgrading-by-hand).
+`./byodt upgrade` does the whole upgrade: it downloads and checks the new release, backs up, moves the new files in, brings `.env` into line, applies the release, and waits until it is healthy. The new release's [installer](./INSTALLATION.md#install-with-the-installer) does the same with `--upgrade`. A deployment on 0.12.x or 0.13.0 has no `./byodt upgrade` yet; see [Upgrading from 0.13.0](#upgrading-from-0130) and [Upgrading from 0.12.x](#upgrading-from-012x). To do it all yourself instead, see [Upgrading by hand](#upgrading-by-hand).
 
 ### Upgrade with `./byodt upgrade`
 
@@ -357,8 +357,8 @@ In this order. Nothing in the deployment changes before step 5.
 
 1. **Finds the release.** It reads the version and the bundle's SHA-256 from that release's `get-byodt.sh`, as data, never run. With no version, it takes the latest release, which is never a pre-release.
 2. **Downloads and checks the bundle** into a private staging folder inside the deployment, `.byodt-upgrade.XXXXXX`: over HTTPS only, at most 50 MiB, with the SHA-256 the release published, and with cosign, its signature (see [Signatures](#signatures)). Then it hands over to the new release's own `byodt`.
-3. **Checks everything first**, with the new release's code: the files the old release shipped, against the record of them (a file you edited stops the upgrade unless you add `--replace-edited`, if the new release ships it too); the `.env` changes; a `CONSOLE_IMAGE` pin; that no other folder runs this deployment; the free disk; and that the database answers.
-4. **Asks every question at once.** It shows what it will do, then asks `Upgrade from A to B? [y/N]`, then about each change below, and shows the [third-party notice](./INSTALLATION.md#the-third-party-notice) if the new release changes what you confirmed, or if there is no record of a confirmation yet, as on every deployment coming from 0.13.0. Nothing is asked after this.
+3. **Checks everything first**, with the new release's code: the files the old release shipped, against the record of them (a file you edited stops the upgrade unless you add `--replace-edited`, if the new release ships it too; 0.12.x keeps no record, see [Upgrading from 0.12.x](#upgrading-from-012x), but every upgrade writes one, so the upgrades after it find your edits); the `.env` changes; a `CONSOLE_IMAGE` pin; that no other folder runs this deployment; the free disk; and that the database answers.
+4. **Asks every question at once.** It shows what it will do, then asks `Upgrade from A to B? [y/N]`, then about each change below, and shows the [third-party notice](./INSTALLATION.md#the-third-party-notice) if the new release changes what you confirmed, or if there is no record of a confirmation yet, as on every deployment coming from 0.12.x or 0.13.0. Nothing is asked after this.
 5. **Backs up** into `backups/upgrade-A-to-B-<time>/`, a folder only you can read:
    - the graph, taken by the current release's own `./byodt backup`;
    - `.env`, as `env.before-B`, and the release record `.byodt-release`, as `byodt-release.before-B`;
@@ -406,7 +406,7 @@ Upgrade from A to B? [y/N] y
 
 ### Options
 
-`./byodt upgrade --help` lists them. On the installer's command line they are passed on to the upgrade, except `--allow-unsigned` and `--require-signature`, which the installer applies itself.
+`./byodt upgrade --help` lists them. On the installer's command line they are passed on to the upgrade, except `--allow-unsigned` and `--require-signature`, which the installer applies itself, to its own check of the bundle (see [Installation → Options](./INSTALLATION.md#options)).
 
 | Option | What it does |
 |---|---|
@@ -415,7 +415,7 @@ Upgrade from A to B? [y/N] y
 | `--replace-edited` | Go ahead although files the release shipped were edited here. They are replaced, and kept in the backup. |
 | `--skip-graph-backup` | For when the database is not running: go on without backing up the graph. The rest of the backup is still taken, and the database is not moved. |
 | `--require-signature` | Refuse unless cosign verifies the new release. `UPGRADE_REQUIRE_SIGNATURE=true` in `.env` does the same for every upgrade. |
-| `--allow-unsigned` | Let an unattended upgrade use a release cosign did not verify. Its SHA-256 is still checked. |
+| `--allow-unsigned` | Go ahead without a signature check when cosign is not installed, without asking about the signature. The SHA-256 is still checked, but it comes from the same release, so it shows the download is intact, not who made it. A signature cosign rejects always stops the upgrade. Refused when `.env` sets `UPGRADE_REQUIRE_SIGNATURE=true`, and contradicts `--require-signature`. |
 | `--health-timeout SECS` | How long to wait for the new release to be healthy. Default 1200. |
 | `--abandon` | Drop an interrupted upgrade: undo a half-done move, or print the rollback steps. See [If an upgrade stops](#if-an-upgrade-stops). |
 
@@ -435,7 +435,7 @@ The SHA-256 is always checked. What happens next depends on cosign:
 |---|---|
 | cosign installed, and it verifies the bundle against the release's exact identity | Goes on: `Signature verified: the release workflow of dether-net/dethernety-oss at vB signed it.` |
 | cosign installed, and it does not verify | Stops, with cosign's output: `cosign could not verify the new bundle's signature against release B's identity (above). Nothing was changed.` |
-| No cosign, at a terminal | Warns that the bundle's authenticity was not checked, and asks `Use it anyway? [y/N]`. The installer asks `The bundle's signature was not verified. Upgrade with it anyway? [y/N]`. |
+| No cosign, at a terminal | Warns that the bundle's authenticity was not checked, and asks `Use it anyway? [y/N]`, unless you pass `--allow-unsigned`. The installer asks `The bundle's signature was not verified. Upgrade with it anyway? [y/N]`. |
 | No cosign, unattended (`--yes`, or no terminal) | Refuses, unless you pass `--allow-unsigned`. The installer says `cosign did not verify the bundle, and an unattended upgrade does not run code it cannot verify.`, then the same two ways forward. |
 | No cosign, and a signature is required | Refuses, whatever else you pass. |
 
@@ -445,9 +445,9 @@ The unattended refusal names both ways forward:
 error: cosign is not installed, so the bundle's signature was not checked, and an unattended upgrade does not run code it cannot verify. Install cosign (https://github.com/sigstore/cosign), or pass --allow-unsigned knowingly. Nothing was changed.
 ```
 
-Install cosign, or pass `--allow-unsigned` once you have decided that the SHA-256 is enough. `--yes` never implies `--allow-unsigned`: an unattended upgrade runs code it cannot verify only when you said so.
+Install cosign, or pass `--allow-unsigned` once you have decided that the SHA-256 alone is enough. It comes from the same release as the bundle, so it shows the download is intact, not who made it. At a terminal, `--allow-unsigned` also skips the question. `--yes` never implies `--allow-unsigned`: an unattended upgrade runs code it cannot verify only when you said so. No flag makes an upgrade use a bundle whose signature cosign rejects.
 
-**Requiring a signature.** `--require-signature`, or `UPGRADE_REQUIRE_SIGNATURE=true` in the deployment's `.env` (see [Configuration → Upgrades](./CONFIGURATION.md#upgrades)), refuses any bundle cosign did not verify. With the `.env` setting, `--allow-unsigned` is refused before anything is downloaded. A value other than `true` or `false` stops the upgrade before anything is downloaded too: `.env sets UPGRADE_REQUIRE_SIGNATURE=yes, which is neither true nor false. Nothing was changed.` Because `.env` may hold it, an upgrade run by an account that cannot read `.env` stops: `byodt cannot read .env, which may require a signature (UPGRADE_REQUIRE_SIGNATURE). Run the upgrade as the account that owns it. Nothing was changed.`
+**Requiring a signature.** `--require-signature`, or `UPGRADE_REQUIRE_SIGNATURE=true` in the deployment's `.env` (see [Configuration → Upgrades](./CONFIGURATION.md#upgrades)), refuses any bundle cosign did not verify, including when cosign is not installed. With the `.env` setting, `--allow-unsigned` is refused before anything is downloaded. `./byodt upgrade` refuses `--require-signature` and `--allow-unsigned` together. A value other than `true` or `false` stops the upgrade before anything is downloaded too: `.env sets UPGRADE_REQUIRE_SIGNATURE=yes, which is neither true nor false. Nothing was changed.` Because `.env` may hold it, an upgrade run by an account that cannot read `.env` stops: `byodt cannot read .env, which may require a signature (UPGRADE_REQUIRE_SIGNATURE). Run the upgrade as the account that owns it. Nothing was changed.`
 
 **`curl`, else `wget`.** The upgrade downloads with `curl` when it is installed. `wget` cannot hold a download to HTTPS, so a download through it counts as transport that is not guaranteed HTTPS; without cosign, the refusal says so. The SHA-256 and the signature rule apply the same way.
 
@@ -564,11 +564,45 @@ The new release's `byodt` then does everything [described above](#what-an-upgrad
 
 **If it stops** before the first file moved in, the deployment still has 0.13.0's `byodt`, whose `upgrade` cannot resume it. Run the installer again: it takes the upgrade over, and says `An earlier upgrade stopped before it changed anything; starting this one in its place.` If it stopped later, the new `byodt` is already in place: run `./byodt upgrade` to go on.
 
+### Upgrading from 0.12.x
+
+A 0.12.x deployment upgrades the same way as one on 0.13.0: once, with a release's installer and `--upgrade`, naming the deployment's folder. Release 0.12.x's `./byodt upgrade` is another name for `update` too. You do not need to step through 0.13.0 or 0.14.0 first.
+
+```sh
+VERSION=X.Y.Z
+curl --proto '=https' --tlsv1.2 -fsSL "https://github.com/dether-net/dethernety-oss/releases/download/v${VERSION}/get-byodt.sh" \
+  | sh -s -- --upgrade --dir /path/to/your/deployment
+```
+
+**Use the installer of a release later than 0.14.0, not 0.14.0's.** A 0.12.x folder keeps the `db` service in `compose.yaml` and has no `compose.memgraph.yaml`. 0.14.0's installer cannot read that layout before its files move in, so it stops at the database check, although the database is running:
+
+```
+error: The database is not running, so the graph cannot be backed up first. Start it ('/path/to/your/deployment/byodt up'), or add --skip-graph-backup. Nothing was changed.
+```
+
+With a `compose.override.yaml` it also warns, wrongly, that it could not read that file. Nothing is changed. Do not add `--skip-graph-backup` to get past it: run the installer of a release later than 0.14.0 instead.
+
+**One thing differs: edit detection.** 0.12.x keeps no record of the files it shipped, so the new `byodt` cannot tell whether you edited them. It says so, naming your release, and goes on. On 0.12.1:
+
+```
+warning: byodt cannot tell whether release 0.12.1's files were edited here (no record of them); any edits are kept in the backup.
+```
+
+It then replaces an edited shipped file, such as `compose.yaml`, without asking and without `--replace-edited`. The old file is kept in the upgrade's backup folder, in `bundle-files-<release>.tar.gz` (`bundle-files-0.12.1.tar.gz` on 0.12.1). Before you upgrade, move local changes into `compose.override.yaml`, which no release ships. The upgrade writes the record of the new release's files, so the next upgrade finds your edits again.
+
+Everything else is as [from 0.13.0](#upgrading-from-0130):
+
+- **The graph backup** is taken by 0.12.x's own `byodt`, and the rollback steps bring back 0.12.x's, whose `restore` also asks you to type `restore`.
+- **If it stops**, run the installer again, or `./byodt upgrade` once the new `byodt` is in place, as from 0.13.0.
+- **The changes 0.13.0 made are done for you.** The new `byodt` records `DB_ENGINE=memgraph` in `.env` on its first run, and the `db` service moves into `compose.memgraph.yaml`, so run the stack through `byodt` only. It warns about an override file with another name, such as `compose.override.yml`; rename it to `compose.override.yaml`.
+- **Read the *Upgrading* notes of 0.13.0 and of every later release in the [CHANGELOG](../../../CHANGELOG.md).** An upgrade from 0.12.x skips past them all, and nothing checks the steps they ask of you. 0.13.0's, for example: update each installed module that has a frontend to a version that ships `frontend/frontend-manifest.json`; reload any browser tab left open across the upgrade; a CDN or reverse proxy in front of dt-ws must honour `Cache-Control: private` on `/module-bundles/`, and must not cache it by path.
+- **On Memgraph with `podman-compose`**, 0.12.x's graph backup fails as 0.13.0's does. Take the snapshot by hand and add `--skip-graph-backup`; see [Upgrading on Podman](#upgrading-on-podman).
+
 ### Upgrading on Podman
 
 On Memgraph with `podman-compose`, this release backs up and restores the graph through `podman cp`, so `./byodt upgrade` works as it does on Docker. On a host that also has Docker, set the Compose provider first; see [Installation → Podman specifics](./INSTALLATION.md#podman-specifics).
 
-**From 0.13.0, on Memgraph and `podman-compose`**, the upgrade's graph backup is taken by 0.13.0's `byodt`, which copies with `compose cp`, a command `podman-compose` does not have. The upgrade stops there with `Failed to copy the snapshot out of the db container.`, and nothing is changed. Take the snapshot by hand, then upgrade without the graph backup.
+**From 0.12.x or 0.13.0, on Memgraph and `podman-compose`**, the upgrade's graph backup is taken by the old release's `byodt`, which copies with `compose cp`, a command `podman-compose` does not have. The upgrade stops there with `Failed to copy the snapshot out of the db container.`, and nothing is changed. Take the snapshot by hand, then upgrade without the graph backup.
 
 1. From the deployment's folder, with the deployment running, take a Memgraph snapshot and copy it out. In `bash`:
 
@@ -587,12 +621,12 @@ On Memgraph with `podman-compose`, this release backs up and restores the graph 
    ```sh
    VERSION=X.Y.Z
    curl --proto '=https' --tlsv1.2 -fsSL "https://github.com/dether-net/dethernety-oss/releases/download/v${VERSION}/get-byodt.sh" \
-     | sh -s -- --upgrade --dir /path/to/byodt-0.13.0 --skip-graph-backup
+     | sh -s -- --upgrade --dir /path/to/your/deployment --skip-graph-backup
    ```
 
    The summary says `the graph is NOT backed up (--skip-graph-backup)`, and the rest of the backup is taken as usual.
 
-The rollback steps of such an upgrade read `(no graph backup was taken)`: the graph to go back to is `backups/before-upgrade.snapshot`. On the new release, `./byodt restore backups/before-upgrade.snapshot` restores it. 0.13.0's own Memgraph `restore` copies with `compose cp` too, so after a rollback to 0.13.0 it cannot load the snapshot on `podman-compose`.
+The rollback steps of such an upgrade read `(no graph backup was taken)`: the graph to go back to is `backups/before-upgrade.snapshot`. On the new release, `./byodt restore backups/before-upgrade.snapshot` restores it. The old release's own Memgraph `restore` copies with `compose cp` too, so after a rollback to 0.12.x or 0.13.0 it cannot load the snapshot on `podman-compose`.
 
 ### Upgrading by hand
 

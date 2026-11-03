@@ -1,9 +1,11 @@
 # Dethernety BYODt installer for npm
 
 Installs Dethernety's self-hosted deployment, or upgrades an existing one, by running the release's own installer
-(`get-byodt.sh`), which this package carries. Each package version is the platform release of the same version. The
-primary way to install is `get-byodt.sh` from the release itself; this package is the same installer, delivered
-through npm once a release is published there.
+(`get-byodt.sh`), which this package carries. Each package version is the platform release of the same version. It
+is the recommended way to install when Node.js is already there, or you are happy to install it. Node.js runs this
+installer only: the deployment never needs it, since its services run in containers. Without Node.js, run the same
+`get-byodt.sh` straight from the release. A release reaches npm in a separate step after it is published on GitHub;
+for a version that is not here yet, use `get-byodt.sh` from the release.
 
 ```sh
 PKG=@dether.net/byodt                            # this package's name

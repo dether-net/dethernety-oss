@@ -311,6 +311,22 @@ describe('getPolicyHash', () => {
     mod.dispose();
   });
 
+  it('answers what getMetadata reports after a registration on first use, for a file ending in a newline', async () => {
+    // Committed policy files end in "}\n". The registration on first use reads the file as getMetadata does, so the
+    // hash it leaves in the engine is the one the metadata reports.
+    expect(EXPOSURE_REGO.endsWith('}\n')).toBe(true);
+    const { dataDir, paths } = makeModule([COMPONENT]);
+    const mod = buildModule(dataDir, { classPath: paths.web, attributes: { public: true } });
+
+    expect(await mod.getExposures('inst', 'class')).toHaveLength(1); // registers on first use
+    const afterFirstUse = await mod.getPolicyHash('class');
+    const metadata = await mod.getMetadata();
+
+    expect(afterFirstUse).toBe((metadata.componentClasses as any[])[0].policyHash);
+    expect(afterFirstUse).toBe(sha256(EXPOSURE_REGO.trim()));
+    mod.dispose();
+  });
+
   it('follows a reload to the new policy', async () => {
     const { dataDir, paths } = makeModule([COMPONENT]);
     const mod = buildModule(dataDir, { classPath: paths.web, attributes: {} });

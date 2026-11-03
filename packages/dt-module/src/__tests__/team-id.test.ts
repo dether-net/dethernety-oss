@@ -116,11 +116,12 @@ describe('WireClient — the team header rides with the credential', () => {
 
     await client.meta();
     await client.moduleDocument(MODULE_KEY, PIN);
+    await client.policyHashes(MODULE_KEY, PIN);
     await client.kgQueries();
     await client.template(CLASS_ID, PIN, ENTITLED_TOKEN);
     await client.guide(CLASS_ID, PIN, ENTITLED_TOKEN);
 
-    expect(mock.requests.length).toBeGreaterThanOrEqual(5);
+    expect(mock.requests.length).toBeGreaterThanOrEqual(6);
     for (const req of mock.requests) {
       const sentCredential = req.headers.get('authorization') !== null;
       const sentTeam = req.headers.get(DEPLOYMENT_TEAM_HEADER) !== null;

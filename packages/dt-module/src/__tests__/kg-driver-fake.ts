@@ -112,12 +112,14 @@ export const ruleRowFull = {
   attackVector: 'NETWORK',
   conditionGroups: '[[{"attribute":"flow_tls_encrypted","operator":"is_false"}]]',
   mitreRefs: '[{"label":"MitreAttackTechnique","property":"attack_id","value":"T1040"}]',
+  policyHash: 'f'.repeat(64),
   reads: [
     {
       name: 'flow_tls_encrypted',
       title: 'Flow TLS Encrypted',
       description: 'Whether the flow is carried over TLS.',
       category: 'RULE_INPUT',
+      side: 'runtime',
     },
   ],
 };
@@ -135,6 +137,7 @@ export const ruleRowSparse = {
   attackVector: null,
   conditionGroups: null,
   mitreRefs: null,
+  policyHash: null,
   reads: [],
 };
 

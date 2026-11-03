@@ -221,15 +221,20 @@ with the options it was given), or `./byodt upgrade --abandon` to drop it.
 `--skip-graph-backup`, `--replace-edited`, `--health-timeout`, `--allow-unsigned`,
 `--require-signature`).
 
-The SHA-256 is always checked; with cosign the signature is too. An unattended
-upgrade (`--yes`, or no terminal) refuses a release cosign did not verify unless
-you pass `--allow-unsigned`; `--yes` never implies it. `UPGRADE_REQUIRE_SIGNATURE=true`
-in `.env` requires a signature for every upgrade, and `--allow-unsigned` is then
-refused; a value other than `true` or `false` stops the upgrade. Local changes belong in `compose.override.yaml`, which no release ships.
+The SHA-256 is always checked; with cosign the signature is too, and a signature
+cosign rejects always stops the upgrade. Without cosign, an upgrade asks at a
+terminal, and an unattended one (`--yes`, or no terminal) refuses unless you pass
+`--allow-unsigned`, which also skips the question; `--yes` never implies it. The
+SHA-256 comes from the same release, so it shows the download is intact, not who
+made it. `UPGRADE_REQUIRE_SIGNATURE=true` in `.env` requires a signature for every
+upgrade, and `--allow-unsigned` is then refused; a value other than `true` or `false` stops the upgrade. Local changes belong in `compose.override.yaml`, which no release ships.
 
-Release 0.13.0's `byodt` has no upgrade (its `upgrade` only runs `update`): upgrade
-a 0.13.0 deployment with the new release's installer and `--upgrade --dir <folder>`.
-The full procedure, rolling back, and the Podman notes are in the
+The `byodt` of releases 0.12.x and 0.13.0 has no upgrade (its `upgrade` only runs
+`update`): upgrade such a deployment with the new release's installer and
+`--upgrade --dir <folder>`. From 0.12.x, use the installer of a release later
+than 0.14.0: 0.14.0's stops at its database check, although the database is running.
+On 0.12.x, the upgrade cannot tell which shipped files you edited: it replaces them
+and keeps them in its backup. The full procedure, rolling back, and the Podman notes are in the
 [Operations guide](https://github.com/dether-net/dethernety-oss/blob/main/docs/user/byodt/OPERATIONS.md#upgrading-to-a-new-release).
 
 ## Upgrading from a bundle with the `ollama` service

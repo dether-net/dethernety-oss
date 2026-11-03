@@ -224,6 +224,43 @@ describe('a malformed answer is a fault, not an empty graph', () => {
   });
 });
 
+describe('fields a service may not send yet', () => {
+  it("narrows a read's unrecognised side to null, as the local client does", async () => {
+    mock.setKgResults((results) =>
+      results.map(({ key, matches }) => ({
+        key,
+        matches: (matches as Array<{ reads: Array<Record<string, unknown>> }>).map((rule) => ({
+          ...rule,
+          reads: rule.reads.map((read) => ({ ...read, side: 'sideways' })),
+        })),
+      })),
+    );
+    const map = await client().rulesByClassId([KG_CLASS_ID], undefined, ENTITLED_TOKEN);
+    const reads = map.get(KG_CLASS_ID)!.flatMap((rule) => rule.reads);
+    expect(reads.length).toBeGreaterThan(0);
+    for (const read of reads) expect(read).toHaveProperty('side', null);
+  });
+
+  it('answers with null side and policyHash keys when an older service omits both', async () => {
+    mock.setKgResults((results) =>
+      results.map(({ key, matches }) => ({
+        key,
+        matches: (matches as Array<Record<string, unknown> & { reads: Array<Record<string, unknown>> }>).map(
+          ({ policyHash: _policyHash, ...rule }) => ({
+            ...rule,
+            reads: rule.reads.map(({ side: _side, ...read }) => read),
+          }),
+        ),
+      })),
+    );
+    const map = await client().rulesByClassId([KG_CLASS_ID], undefined, ENTITLED_TOKEN);
+    for (const rule of map.get(KG_CLASS_ID)!) {
+      expect(rule).toHaveProperty('policyHash', null);
+      for (const read of rule.reads) expect(read).toHaveProperty('side', null);
+    }
+  });
+});
+
 describe('the failure taxonomy', () => {
   it('turns a refusal into a denial carrying a knowledge-graph subject', async () => {
     const err = await client()

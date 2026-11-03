@@ -40,3 +40,24 @@ export function stampPolicyParams(elementId: string, classId: string, policyHash
     stamp: policyStamp(classId, policyHash),
   };
 }
+
+/**
+ * Remove the element's stamp for one class. For a write that derived the class's findings under a policy the platform
+ * cannot name (the module evaluated with another policy than the class's stored one, or could not say which): an older
+ * stamp must not go on vouching for findings it no longer describes. Anchored at the element alone, and it writes
+ * nothing when the element holds no stamp for the class.
+ */
+export const UNSTAMP_POLICY_CYPHER = `
+  MATCH (c {id: $elementId})
+  WHERE any(s IN coalesce(c.${POLICY_STAMPS_PROPERTY}, []) WHERE s STARTS WITH $classPrefix)
+  SET c.${POLICY_STAMPS_PROPERTY} = [s IN c.${POLICY_STAMPS_PROPERTY} WHERE NOT s STARTS WITH $classPrefix]
+  RETURN count(c) AS unstamped
+`;
+
+/** Parameters of UNSTAMP_POLICY_CYPHER. */
+export function unstampPolicyParams(elementId: string, classId: string) {
+  return {
+    elementId,
+    classPrefix: `${classId}${POLICY_STAMP_SEPARATOR}`,
+  };
+}

@@ -9,9 +9,14 @@
 #   - the new release's own byodt runs the check, the backup and the move (a marker in the 9.9.9 fixture shows it), and
 #     the moved-in byodt finishes;
 #   - checks come first: edited shipped files (refused before any backup; --replace-edited goes on; a file the new
-#     release no longer ships is left alone, and the first run's record leaves out .DS_Store), a database that is not
-#     running (--skip-graph-backup goes on);
+#     release no longer ships is left alone, and the first run's record leaves out .DS_Store; with no record of the old
+#     release's files, a warning, and edits are replaced but kept in the backup), a database that is not running
+#     (--skip-graph-backup goes on), a compose file missing here (named, with no hint to skip the backup);
 #   - the backup: the graph through the old byodt, .env, the shipped files as they were, in a private directory;
+#   - from real releases, through the new release's installer: 0.13.0, checked against its manifest; 0.12.1, whose
+#     compose.yaml holds the database (no engine file): the database check reads compose.yaml alone, as does the notice
+#     with a compose.override.yaml, 0.12.1's own byodt backs up, the move brings compose.memgraph.yaml, DB_ENGINE is
+#     recorded, and the rollback steps bring 0.12.1's layout back;
 #   - .env: PLATFORM_VERSION, a new setting added as its template, a new default taken where the old one was kept, a
 #     setting no longer used commented out; CONSOLE_IMAGE retagged; the database image moved only with --move-db;
 #   - interruptions: a failed pull is resumed by running upgrade again, and up is refused meanwhile; a health timeout
@@ -24,6 +29,9 @@
 #   - the commands it prints name byodt as it was run, never the staged copy, and the rollback steps start with a cd.
 #
 #   bash deploy/tests/byodt-upgrade.sh
+#
+# The cases built from a release tag skip when this checkout lacks the tag; with BYODT_TEST_REQUIRE_TAGS=1 (CI, which
+# fetches them) a missing tag fails instead.
 set -euo pipefail
 
 # No test may reach the network: stand-ins for curl, wget and cosign that fail loudly come before the system's.
@@ -48,6 +56,11 @@ check() { if eval "$2"; then ok "$1"; else bad "$1"; sed 's/^/     | /' "$work/o
 sha_of() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
 inode_of() { stat -c %i "$1" 2>/dev/null || stat -f %i "$1"; }
 mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
+# no_tag VERSION: the case built from VERSION's release tag cannot run here.
+no_tag() {
+  if [ "${BYODT_TEST_REQUIRE_TAGS:-}" = 1 ]; then bad "this checkout has no v$1 tag, and BYODT_TEST_REQUIRE_TAGS=1 requires it"
+  else echo "skip $1 to 9.9.9: this checkout has no v$1 tag"; fi
+}
 
 # --- two fixture releases ------------------------------------------------------------------------------------------------
 REL="$work/releases"
@@ -112,9 +125,20 @@ cat > "$work/bin/docker" <<'SHIM'
 [ "$1 $2" = "image inspect" ] && exit 1
 [ "$1 $2" = "volume inspect" ] && exit 1
 if [ "$1" = info ]; then echo Ubuntu; exit 0; fi
-# The engine's own cp (this tree's byodt); `compose cp` below is 0.13.0's.
+# The engine's own cp (this tree's byodt); `compose cp` below is 0.13.0's and 0.12.1's.
 if [ "$1" = cp ]; then printf '%s\n' "$*" >> "$CALLS"; case "$2" in db-1:*) : > "$3" ;; esac; exit 0; fi
 if [ "$1" = compose ]; then
+  # Compose stops on a file named with -f that is not there, before it does anything else. Only compose's own options
+  # (--env-file, -f), which come before the command, are read: `logs -f` or `exec … rm -f` name no file.
+  i=2
+  while [ "$i" -le "$#" ]; do
+    j=$((i + 1))
+    case "${!i}" in
+      --env-file) i=$((i + 2)) ;;
+      -f) if [ ! -f "${!j:-}" ]; then echo "docker stand-in: compose -f ${!j:-}: no such file or directory" >&2; exit 1; fi; i=$((i + 2)) ;;
+      *) break ;;
+    esac
+  done
   case " $* " in
     *" config --services "*) printf '%s\n' db console-init platform proxy console; exit 0 ;;
     *" config "*) exit 0 ;;
@@ -122,7 +146,7 @@ if [ "$1" = compose ]; then
       [ -z "${STUB_DB_DOWN:-}" ] || exit 1
       q="$(cat)"; case "$q" in *"CREATE SNAPSHOT"*) echo '"/var/lib/memgraph/snapshots/snap-1"' ;; esac; exit 0 ;;
     *" exec "*) exit 0 ;;
-    *" cp db:"*) out="${!#}"; : > "$out"; exit 0 ;;
+    *" cp db:"*) printf '%s\n' "$*" >> "$CALLS"; out="${!#}"; : > "$out"; exit 0 ;;
     *" pull"*) printf '%s\n' "$*" >> "$CALLS"; [ -z "${STUB_PULL_FAIL:-}" ] || exit 1; exit 0 ;;
   esac
   printf '%s\n' "$*" >> "$CALLS"; exit 0
@@ -269,6 +293,17 @@ check "a database that is not running is refused before anything changes" '[ "$r
 STUB_DB_DOWN=1 run "$D" upgrade 9.9.9 --yes --skip-graph-backup
 check "--skip-graph-backup goes on, and says no graph backup was taken" \
   '[ "$rc" = 0 ] && grep -q "NOT backed up" "$work/out" && grep -q "no graph backup was taken" "$work/out"'
+# A compose file missing here (not the layout of a release before 0.13.0) is named where compose's own message is
+# hidden: by the database check, which does not point to --skip-graph-backup, and by the notice's reading of
+# compose.override.yaml, which does not blame the override.
+deployment; mv "$D/compose.memgraph.yaml" "$work/compose.memgraph.aside"
+printf 'services:\n  db:\n    mem_limit: 8g\n' > "$D/compose.override.yaml"
+run "$D" upgrade 9.9.9 --yes
+check "a missing compose.memgraph.yaml stops the upgrade before anything changes, named, with no hint to skip the backup" \
+  '[ "$rc" != 0 ] && grep -qx "error: compose.memgraph.yaml is missing here, so the upgrade cannot check the database. Nothing was changed." "$work/out" \
+     && ! grep -q -- "--skip-graph-backup" "$work/out" && ! grep -q "database is not running" "$work/out" \
+     && ! grep -q "could not read compose.override.yaml" "$work/out" && grep -q "^warning: compose.memgraph.yaml is missing here, so the notice" "$work/out" \
+     && [ ! -d "$D/backups" ] && still_998 "$D" && no_upgrade_left "$D"'
 
 deployment; printf 'mine\n' > "$D/NEWFILE.md"; run "$D" upgrade 9.9.9 --yes
 check "an operator's own file where the new release ships one counts as edited: refused, named" \
@@ -515,8 +550,101 @@ elif [ -n "${TAGTREE:-}" ]; then
   check "through the installer, the commands it prints name the deployment's byodt, never the staged copy it ran from" \
     'grep -qxF "  cd '"'"'$(cd "$D" && pwd -P)'"'"'" "$work/out" && ! grep -q "\.byodt-upgrade\.[A-Za-z0-9]*/byodt-" "$work/out"'
 else
-  echo "skip 0.13.0 to 9.9.9: this checkout has no v0.13.0 tag"
+  no_tag 0.13.0
 fi
+
+# --- from a real 0.12.1, through the release's installer ----------------------------------------------------------------
+# 0.12.1's compose.yaml holds the database service itself: compose.memgraph.yaml arrives with the move. Its byodt has no
+# upgrade of its own (its `upgrade` is `update`) and wrote no record of its files, and byodt carries no manifest for it.
+# The new release's byodt says it cannot tell whether the files were edited, checks the database through compose.yaml
+# alone (the stand-in docker refuses a missing -f file, as compose does), backs up with 0.12.1's own `byodt backup`,
+# which copies the snapshot out with `compose cp`, and moves the files in. Built from the v0.12.1 tag when this checkout
+# has it. Nothing from the tag is unpacked or run unless its folder is the tree pinned here: the tree's hash covers every
+# file's content and mode.
+readonly TREE_0121=789cb28f00d99312bda68f9dec879824a71c00db
+tree0121=""
+if git -C "$SRC" rev-parse -q --verify 'v0.12.1^{commit}' >/dev/null 2>&1; then
+  top="$(git -C "$SRC" rev-parse --show-toplevel)"; pre=""
+  git -C "$top" cat-file -e "v0.12.1:oss/deploy/compose/byodt" 2>/dev/null && pre="oss/"
+  tree0121="$(git -C "$top" rev-parse -q --verify "v0.12.1:${pre}deploy/compose" 2>/dev/null || echo none)"
+fi
+# deployment_0121: a 0.12.1 deployment in $D, as its first run left it (CONTAINER_ENGINE recorded, no DB_ENGINE, no
+# record of its files), its engine running from it.
+deployment_0121() {
+  n=$((n + 1)); D="$work/d$n/byodt-0.12.1"
+  mkdir -p "$D" && chmod 0755 "$work/d$n" "$D"
+  tar -xf "$work/v0.12.1.tar" -C "$D"
+  cp "$D/.env.example" "$D/.env"; printf 'CONTAINER_ENGINE=docker\n' >> "$D/.env"
+  printf 'NEO4J_PASSWORD=%s\n' "$PASSWORD" > "$D/.env.secrets"; chmod 0600 "$D/.env.secrets"
+  mkdir -p "$D/mode" && printf 'ENABLE_NOAUTH=true\n' > "$D/mode/mode.env"
+  export STUB_RUNNING=1 STUB_WD="$D" UPGRADE_MARK="$work/marks$n"; : > "$UPGRADE_MARK"
+}
+# backup_0121 prints the upgrade's backup directory in $D; nothing when there is none.
+backup_0121() { { ls -d "$D"/backups/upgrade-0.12.1-to-9.9.9-* 2>/dev/null || true; } | sed -n 1p; }
+# install_upgrade: runs the 9.9.9 installer's unattended upgrade of $D; output in $work/out.
+install_upgrade() {
+  : > "$CALLS"; : > "$CALLS.curl"; rc=0
+  ( cd "$work/d$n" && perl -e 'alarm(120); exec(@ARGV)' sh "$REL/v9.9.9/get-byodt.sh" --upgrade --yes --allow-unsigned --dir "$D" ) \
+    </dev/null > "$work/out" 2>&1 || rc=$?
+}
+if [ -z "$tree0121" ]; then
+  no_tag 0.12.1
+elif [ "$tree0121" != "$TREE_0121" ]; then
+  bad "the v0.12.1 tag's files are not release 0.12.1's as shipped (tree $tree0121, not $TREE_0121): nothing from it was run"
+else
+  git -C "$top" archive --format=tar "$tree0121" > "$work/v0.12.1.tar"
+  deployment_0121
+  [ ! -e "$D/compose.memgraph.yaml" ] && [ ! -e "$D/.byodt-release" ] || bad "the 0.12.1 deployment is not laid out as 0.12.1 shipped it"
+  install_upgrade
+  check "0.12.1 to 9.9.9 through the installer: upgraded, the new release's byodt staged, the files moved in" \
+    '[ "$rc" = 0 ] && grep -q "Upgraded from 0.12.1 to 9.9.9" "$work/out" && env_has "$D" PLATFORM_VERSION=9.9.9 \
+     && grep -q "^byodt-9.9.9 upgrade --staged" "$UPGRADE_MARK" && cmp -s "$D/byodt" "$REL/src/byodt-9.9.9/byodt" && no_upgrade_left "$D"'
+  check "... with no record of 0.12.1's files, it says it cannot tell whether they were edited" \
+    'grep -qxF "warning: byodt cannot tell whether release 0.12.1'"'"'s files were edited here (no record of them); any edits are kept in the backup." "$work/out"'
+  # 0.12.1's backup names no file and copies with `compose cp`; this tree's names them and copies with the engine's cp.
+  B="$(backup_0121)"
+  listing="$(tar -tzf "$B/bundle-files-0.12.1.tar.gz" 2>/dev/null || true)"
+  check "... the graph backed up by 0.12.1's own byodt into the backup, with the old files beside it" \
+    '[ -n "$B" ] && ls "$B"/byodt-snapshot-0.12.1-*.snapshot >/dev/null 2>&1 \
+     && grep -Eq "^compose --env-file \.env cp db:/var/lib/memgraph/snapshots/snap-1 ${B#"$D"/}/byodt-snapshot-0\.12\.1-[0-9-]+\.snapshot$" "$CALLS" \
+     && ! grep -q "^cp db-1:" "$CALLS" && grep -qx "byodt-0.12.1/compose.yaml" <<< "$listing"'
+  check "... compose.memgraph.yaml in place, DB_ENGINE recorded, and the start names the engine file" \
+    'cmp -s "$D/compose.memgraph.yaml" "$REL/src/byodt-9.9.9/compose.memgraph.yaml" && cmp -s "$D/compose.yaml" "$REL/src/byodt-9.9.9/compose.yaml" \
+     && env_has "$D" DB_ENGINE=memgraph && grep -q -- "-f compose.yaml -f compose.memgraph.yaml pull" "$CALLS"'
+  # The printed rollback steps (all but the update and the restart) bring back 0.12.1's layout, and 0.12.1's byodt runs
+  # there: compose finds compose.yaml itself, and the graph restore (confirmed on its input) loads the backup.
+  { grep -E '^  (\./byodt upgrade --abandon|\./byodt down|rm -f|tar -xzf|cp -p|\./byodt restore)' "$work/out" || true; } | sed 's/^  //' > "$work/rollback.sh"
+  ( cd "$D" && printf 'restore\n' | PATH="$work/bin:$work/nonet:$work/tools" sh "$work/rollback.sh" ) > "$work/rb.out" 2>&1 || true
+  restored=""; grep -q "Restore complete" "$work/rb.out" && restored=1
+  run "$D" status
+  check "the printed rollback steps bring back 0.12.1's files, its layout and .env, and 0.12.1's byodt restores the graph" \
+    'git -C "$top" show "$tree0121:byodt" | cmp -s - "$D/byodt" && git -C "$top" show "$tree0121:compose.yaml" | cmp -s - "$D/compose.yaml" \
+     && [ ! -e "$D/compose.memgraph.yaml" ] && [ ! -e "$D/.byodt-release" ] && env_has "$D" PLATFORM_VERSION=0.12.1 \
+     && ! grep -q "^DB_ENGINE=" "$D/.env" && [ -n "$restored" ] && [ "$rc" = 0 ] && grep -qx "compose --env-file .env ps" "$CALLS"'
+
+  # With a compose.override.yaml as 0.12.1 read it (compose found it beside compose.yaml), byodt reads it through
+  # compose.yaml alone, so the notice has no false warning; after the move it is named last.
+  deployment_0121
+  printf '# Local changes, kept across upgrades.\nservices:\n  db:\n    mem_limit: 8g\n' > "$D/compose.override.yaml"
+  cp "$D/compose.override.yaml" "$work/override.0121"
+  install_upgrade
+  check "0.12.1 with a compose.override.yaml: upgraded, the override read without a warning and kept, and named last" \
+    '[ "$rc" = 0 ] && grep -q "Upgraded from 0.12.1 to 9.9.9" "$work/out" && ! grep -q "could not read compose.override.yaml" "$work/out" \
+     && cmp -s "$D/compose.override.yaml" "$work/override.0121" && ls "$(backup_0121)"/byodt-snapshot-0.12.1-*.snapshot >/dev/null 2>&1 \
+     && grep -q -- "-f compose.yaml -f compose.memgraph.yaml -f compose.override.yaml pull" "$CALLS" && no_upgrade_left "$D"'
+fi
+
+# --- from a release with no record of its files -----------------------------------------------------------------------
+# A release older than 0.13.0 (0.12.x) wrote no record on its first run, and byodt carries no manifest for it. A 9.9.8
+# deployment without its record stands in: byodt says it cannot tell, replaces what it ships, and keeps every edit in
+# the backup.
+deployment; rm -f "$D/.byodt-release"; printf '# a local edit\n' >> "$D/compose.yaml"; run "$D" upgrade 9.9.9 --yes
+check "with no record of the old release's files, byodt says it cannot tell whether they were edited" \
+  'grep -qxF "warning: byodt cannot tell whether release 9.9.8'"'"'s files were edited here (no record of them); any edits are kept in the backup." "$work/out"'
+check "... replaces an edited shipped file without --replace-edited, keeps the edit in the backup, and upgrades" \
+  '[ "$rc" = 0 ] && cmp -s "$D/compose.yaml" "$REL/src/byodt-9.9.9/compose.yaml" \
+     && grep -q "a local edit" <<< "$(tar -xOzf "$(backup_of "$D")/bundle-files-9.9.8.tar.gz" byodt-9.9.8/compose.yaml)" \
+     && grep -q "Upgraded from 9.9.8 to 9.9.9" "$work/out" && env_has "$D" PLATFORM_VERSION=9.9.9 && no_upgrade_left "$D"'
 
 # --- the signature, with cosign installed ----------------------------------------------------------------------------------
 deployment; SIGNED_ONLY=1 PATH="$work/cosign-ok:$PATH" run "$D" upgrade 9.9.9 --yes

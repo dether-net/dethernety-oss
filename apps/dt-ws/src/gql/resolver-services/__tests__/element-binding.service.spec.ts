@@ -145,6 +145,7 @@ function makeFixture(opts: FixtureOptions) {
     upsertCountermeasuresInTx: jest.fn(async () => ({ instantiated: [], unresolved: [] })),
     deleteObsoleteFindingsInTx: jest.fn(async () => 0),
     stampPolicyInTx: jest.fn(async () => undefined),
+    unstampPolicyInTx: jest.fn(async () => undefined),
     // The stored hash, as for a module that evaluates with it (the agreement check is policy-stamp.spec's).
     policyHashToStamp: jest.fn(async (_module: unknown, _classId: string, storedHash: string | null) => storedHash),
     // The per-element lock the binding call now takes. Passed straight through here: exclusion is not
@@ -650,6 +651,31 @@ describe('ElementBindingService — the binding stamps the policy it evaluated',
     expect(result.success).toBe(true);
     expect(setInstantiation.policyHashToStamp).toHaveBeenCalledWith(moduleInstance, 'cls-new', 'hn');
     expect(setInstantiation.stampPolicyInTx).not.toHaveBeenCalled();
+    // Its older stamp, if the element holds one, is removed in the same transaction instead.
+    expect(setInstantiation.unstampPolicyInTx.mock.calls.map(([, ...rest]: any[]) => rest)).toEqual([['comp-1', 'cls-new']]);
+  });
+
+  it('stamps one class and unstamps the other, each after its own findings, in the one transaction', async () => {
+    const { service, setInstantiation } = makeFixture({
+      elementLabels: ['Control'],
+      currentClassIds: ['cls-a'],
+      classStatus: {
+        'cls-a': { exists: true, moduleName: 'mod-1', labels: ['ControlClass'], policyHash: 'ha' },
+        'cls-b': { exists: true, moduleName: 'mod-1', labels: ['ControlClass'] },
+      },
+      controlsAddBound: 1,
+    });
+
+    const result = await service.changeElementBinding({ elementId: 'ctrl-1', target: { kind: 'CLASS', classIds: ['cls-a', 'cls-b'] } }, CTX);
+
+    expect(result.success).toBe(true);
+    expect(setInstantiation.stampPolicyInTx.mock.calls.map(([, ...rest]: any[]) => rest)).toEqual([['ctrl-1', 'cls-a', 'ha']]);
+    expect(setInstantiation.unstampPolicyInTx.mock.calls.map(([, ...rest]: any[]) => rest)).toEqual([['ctrl-1', 'cls-b']]);
+    const [stampTx] = setInstantiation.stampPolicyInTx.mock.calls[0] as any[];
+    const [unstampTx] = setInstantiation.unstampPolicyInTx.mock.calls[0] as any[];
+    expect(unstampTx).toBe(stampTx);
+    const cleanupOrder = setInstantiation.deleteObsoleteFindingsInTx.mock.invocationCallOrder;
+    expect(setInstantiation.unstampPolicyInTx.mock.invocationCallOrder[0]).toBeGreaterThan(cleanupOrder[1]);
   });
 
   it('does not stamp a class with no policy hash', async () => {
@@ -664,6 +690,21 @@ describe('ElementBindingService — the binding stamps the policy it evaluated',
 
     expect(result.success).toBe(true);
     expect(setInstantiation.stampPolicyInTx).not.toHaveBeenCalled();
+    expect(setInstantiation.unstampPolicyInTx.mock.calls.map(([, ...rest]: any[]) => rest)).toEqual([['comp-1', 'cls-new']]);
+  });
+
+  it('a failed unstamp fails the binding change, with the rest of its transaction', async () => {
+    const { service, setInstantiation } = makeFixture({
+      elementLabels: ['Component'],
+      currentClassIds: ['cls-old'],
+      classStatus: { 'cls-new': { exists: true, moduleName: 'mod-1', labels: ['ComponentClass'] } },
+      singleRewireBound: 1,
+    });
+    setInstantiation.unstampPolicyInTx.mockRejectedValue(new Error('boom'));
+
+    const result = await service.changeElementBinding({ elementId: 'comp-1', target: { kind: 'CLASS', classIds: ['cls-new'] } }, CTX);
+
+    expect(result.success).toBe(false);
   });
 
   it('a failed stamp fails the binding change, with the rest of its transaction', async () => {

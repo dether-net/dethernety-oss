@@ -87,13 +87,13 @@ die()  { printf '%serror:%s %s\n' "$RED" "$RST" "$*" >&2; exit 1; }
 # The files are named, never discovered: compose.yaml, then the database service of the engine
 # DB_ENGINE names (compose.memgraph.yaml or compose.neo4j.yaml), then compose.override.yaml when the
 # operator keeps local changes there. Naming any file stops compose from loading compose.override.yaml
-# by itself, so it is passed explicitly, last, which is the order compose would have used.
+# by itself, so it is passed explicitly, last, which is the order compose would have used (compose_files).
 compose() {
   resolve_engine
   local pw img dbu
   local -a files
-  files=(-f compose.yaml -f "compose.${DBE}.yaml")
-  [ -f compose.override.yaml ] && files+=(-f compose.override.yaml)
+  compose_files "" yes
+  files=("${COMPOSE_FILES[@]}")
   pw="$(secret_value NEO4J_PASSWORD "")"
   img="$(console_image)"
   # The verb is passed to db_user because it decides whether the probe may PULL, not whether it runs.
@@ -106,6 +106,44 @@ compose() {
     BYODT_HTTPS_PROXY="$PROXY_URL" BYODT_NO_PROXY="$PROXY_NO" BYODT_NODE_EXTRA_CA_CERTS="$PROXY_CA" BYODT_SSL_CERT_DIR="$PROXY_CA_DIR" \
     BYODT_NODE_USE_ENV_PROXY="${PROXY_URL:+1}" \
     "$ENGINE" compose --env-file "$ENV_FILE" "${files[@]}" "$@"
+}
+
+# compose_files PREFIX WITH-OVERRIDE settles COMPOSE_FILES, the -f arguments for the bundle's files at PREFIX ("" for
+# this folder, or a directory with a trailing /): compose.yaml, then the database service of the engine DB_ENGINE names,
+# then compose.override.yaml when WITH-OVERRIDE is yes and there is one.
+#
+# A deployment of a release before 0.13.0 has no engine file: its compose.yaml defines the database itself, and that
+# was always Memgraph. An upgrade from one runs this byodt there before the new files are moved in (the database check
+# before the graph backup, the notice's reading of compose.override.yaml), and so does a resume before the move has
+# brought compose.memgraph.yaml. That layout (pre_engine_layout) gets compose.yaml alone. Any other missing file is
+# still named, so compose stops and says which.
+COMPOSE_FILES=()
+compose_files() {
+  COMPOSE_FILES=(-f "${1}compose.yaml")
+  pre_engine_layout "$1" || COMPOSE_FILES+=(-f "${1}compose.${DBE}.yaml")
+  if [ "$2" = yes ] && [ -f "${1}compose.override.yaml" ]; then COMPOSE_FILES+=(-f "${1}compose.override.yaml"); fi
+}
+
+# pre_engine_layout PREFIX: the files at PREFIX are in the layout of a release before 0.13.0. The engine is Memgraph,
+# there is nothing at compose.memgraph.yaml, and compose.yaml declares the db service itself: a `db:` key, indented two
+# spaces, under the top-level `services:`. Those releases' compose.yaml all do; this bundle's declares no db service,
+# so it never matches.
+pre_engine_layout() {
+  [ "$DBE" = memgraph ] && [ ! -e "${1}compose.memgraph.yaml" ] && [ ! -L "${1}compose.memgraph.yaml" ] \
+    && [ -f "${1}compose.yaml" ] || return 1
+  awk '/^[^ \t\r#]/ { top = $0 }
+       top ~ /^services:[ \t\r]*(#.*)?$/ && /^  db:[ \t\r]*(#.*)?$/ { found = 1; exit }
+       END { exit !found }' "${1}compose.yaml"
+}
+
+# compose_file_missing prints the first file compose() names here that is not there (a link to nothing counts), and
+# nothing when every one is. The callers that hide compose's own message name it instead.
+compose_file_missing() {
+  local f
+  compose_files "" yes
+  for f in "${COMPOSE_FILES[@]}"; do
+    [ "$f" = -f ] || [ -f "$f" ] || { printf '%s' "$f"; return 0; }
+  done
 }
 
 # The graph database the stack runs ("memgraph" or "neo4j"), settled once by resolve_db_engine.
@@ -942,16 +980,20 @@ image_identity() {
 # compose's env_file, it runs on a scratch copy with an empty one. WITH-OVERRIDE is yes or no. Fails when compose
 # cannot read the files.
 config_image() {
-  local envf="$ENV_FILE" tmp="" out rc=0 base="."
+  local envf="$ENV_FILE" tmp="" out rc=0 f
+  local -a files
   [ -f "$envf" ] || envf=.env.example
+  compose_files "" "$2"
+  files=("${COMPOSE_FILES[@]}")
   if [ ! -f mode/mode.env ]; then
     tmp="$(mktemp -d)" || return 1
     mkdir -p "$tmp/mode" && : > "$tmp/mode/mode.env"
-    cp compose.yaml "compose.${DBE}.yaml" "$tmp/" && { [ "$2" != yes ] || cp compose.override.yaml "$tmp/"; } || { rm -rf "${tmp:?}"; return 1; }
-    base="$tmp"
+    for f in "${files[@]}"; do
+      [ "$f" = -f ] || cp "$f" "$tmp/" || { rm -rf "${tmp:?}"; return 1; }
+    done
+    compose_files "$tmp/" "$2"
+    files=("${COMPOSE_FILES[@]}")
   fi
-  local -a files=(-f "$base/compose.yaml" -f "$base/compose.${DBE}.yaml")
-  [ "$2" != yes ] || files+=(-f "$base/compose.override.yaml")
   # The project directory is the first file's (podman-compose has no --project-directory).
   out="$(CONSOLE_IMAGE="$(console_image)" NEO4J_IMAGE="$(neo4j_image)" "$ENGINE" compose --env-file "$envf" \
          "${files[@]}" config 2>/dev/null </dev/null)" || rc=$?
@@ -991,13 +1033,21 @@ ack_tested() {
 # the calling shell) for a deployment that is already set up, whose commands it does not stop.
 ACK_WARNED=""
 ack_image() {
-  local key="$1" svc=db val src=compose.override.yaml
+  local key="$1" svc=db val src=compose.override.yaml missing why
   [ "$key" = PROXY_IMAGE ] && svc=proxy
   if ! val="$(override_image "$svc")"; then
-    [ -f "$ENV_FILE" ] || die "'$ENGINE compose config' could not read compose.override.yaml, so byodt cannot show which image it sets for $svc. Fix the file, and run the command again."
+    # A missing compose file stops compose too: named as itself, not as a fault of the override.
+    missing="$(compose_file_missing)"
+    if [ -n "$missing" ]; then
+      [ -f "$ENV_FILE" ] || die "$missing is missing here, so byodt cannot show which image compose.override.yaml sets for $svc. Put the file back, and run the command again."
+      why="$missing is missing here, so the notice shows .env's image for $svc, not what compose.override.yaml sets; compose stops without it too."
+    else
+      [ -f "$ENV_FILE" ] || die "'$ENGINE compose config' could not read compose.override.yaml, so byodt cannot show which image it sets for $svc. Fix the file, and run the command again."
+      why="'$ENGINE compose config' could not read compose.override.yaml, so the notice shows .env's image for $svc; check what the override sets."
+    fi
     case " $ACK_WARNED " in
       *" $svc "*) ;;
-      *) warn "'$ENGINE compose config' could not read compose.override.yaml, so the notice shows .env's image for $svc; check what the override sets."
+      *) warn "$why"
          ACK_WARNED="$ACK_WARNED $svc" ;;
     esac
     val=""
@@ -1991,7 +2041,8 @@ An interrupted upgrade is resumed by running '$SELF upgrade' again.
   --replace-edited       go ahead although shipped files were edited here (they are kept in the backup)
   --skip-graph-backup    for when the database is not running: go on without backing up the graph first
   --require-signature    refuse unless cosign verifies the new release (or UPGRADE_REQUIRE_SIGNATURE=true in .env)
-  --allow-unsigned       let an unattended upgrade use a release cosign did not verify (its hash is still checked)
+  --allow-unsigned       upgrade without a signature check when cosign is not installed (skips the signature
+                         question; the SHA-256 is still checked; a signature cosign rejects still stops)
   --health-timeout SECS  how long to wait for the new release to be healthy (default 1200)
   --abandon              drop an interrupted upgrade: undo a half-done move, or print the rollback steps
 EOT
@@ -2275,7 +2326,7 @@ upgrade_plan_images() {
 
 # upgrade_preflight: the project, the disk, and the database the graph backup needs.
 upgrade_preflight() {
-  local free
+  local free missing
   check_project
   free="$(df -Pk . | awk 'NR == 2 { print $4 }')"
   case "$free" in ''|*[!0-9]*) ;; *) [ "$free" -ge "$UPGRADE_MIN_FREE_KB" ] || die "Only $((free / 1024)) MiB is free here; an upgrade needs at least $((UPGRADE_MIN_FREE_KB / 1024)) MiB for the new images and the backups. Nothing was changed." ;; esac
@@ -2283,8 +2334,12 @@ upgrade_preflight() {
     [ -z "$UP_MOVE_DB" ] || die "--move-db with --skip-graph-backup: moving the database is one-way, and needs a graph backup to come back from. Nothing was changed."
     # Without a backup, moving the database is not offered.
     P_DB_NEW=""
-  elif ! db_query 'RETURN 1;' >/dev/null 2>&1; then
-    die "The database is not running, so the graph cannot be backed up first. Start it ('$SELF up'), or add --skip-graph-backup. Nothing was changed."
+  else
+    # db_query hides compose's own output: a compose file that is not here is named, not taken for a stopped database.
+    missing="$(compose_file_missing)"
+    [ -z "$missing" ] || die "$missing is missing here, so the upgrade cannot check the database. Nothing was changed."
+    db_query 'RETURN 1;' >/dev/null 2>&1 \
+      || die "The database is not running, so the graph cannot be backed up first. Start it ('$SELF up'), or add --skip-graph-backup. Nothing was changed."
   fi
 }
 
@@ -2741,12 +2796,18 @@ proxy_host_ok() {
 
 # compose_services prints the service names compose sees that PROXY_INTERNAL does not hold, comma-separated, so a
 # service added in compose.override.yaml is reached directly too. Empty when compose cannot answer. The images are
-# passed as compose() passes them: Docker Compose refuses a service with an empty image.
+# passed as compose() passes them: Docker Compose refuses a service with an empty image. A compose file that is not
+# here is named (the bundle's own services are in PROXY_INTERNAL already, so only an override's can be left out).
 compose_services() {
   local -a files
-  local s out=""
-  files=(-f compose.yaml -f "compose.${DBE}.yaml")
-  [ -f compose.override.yaml ] && files+=(-f compose.override.yaml)
+  local s out="" missing
+  missing="$(compose_file_missing)"
+  if [ -n "$missing" ]; then
+    [ ! -f compose.override.yaml ] || warn "$missing is missing here, so the services compose.override.yaml adds are not reached directly (NO_PROXY); compose stops without it too."
+    return 0
+  fi
+  compose_files "" yes
+  files=("${COMPOSE_FILES[@]}")
   for s in $(CONSOLE_IMAGE="$(console_image)" NEO4J_IMAGE="$(neo4j_image)" \
       "$ENGINE" compose --env-file "$ENV_FILE" "${files[@]}" config --services 2>/dev/null </dev/null \
       | grep -E '^[A-Za-z0-9][A-Za-z0-9_.-]*$' || true); do

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { WireClient, FetchLike, redactUserinfo } from '../remote/wire-client';
 import {
   CloudSessionExpiredError,
@@ -14,6 +14,7 @@ import {
   MODEL_SLUG,
   CLASS_ID,
   ENTITLED_TOKEN,
+  policyHashesResponse,
 } from '../testing/fixtures';
 
 const BASE = 'https://svc.local';
@@ -198,7 +199,8 @@ describe('WireClient — authorization scoping (against the mock)', () => {
     const client = new WireClient({ baseUrl: BASE, fetchImpl: mock.fetch, teamId: TEAM_ID });
     await client.moduleDocument(MODULE_KEY, PIN);
     await client.embeddings(MODULE_KEY, PIN, MODEL_SLUG);
-    expect(mock.requests).toHaveLength(2);
+    await client.policyHashes(MODULE_KEY, PIN);
+    expect(mock.requests).toHaveLength(3);
     for (const req of mock.requests) {
       expect(req.headers.get('authorization')).toBeNull();
       expect(req.token).toBeUndefined();
@@ -212,6 +214,46 @@ describe('WireClient — authorization scoping (against the mock)', () => {
     await client.evaluate(CLASS_ID, PIN, ENTITLED_TOKEN, { requestId: 'r', attributes: { tls_version: '1.2' } });
     expect(mock.requests.map((r) => r.token)).toEqual([ENTITLED_TOKEN, ENTITLED_TOKEN]);
     expect(mock.requests[1].method).toBe('POST');
+  });
+});
+
+describe('WireClient — policy hashes', () => {
+  let mock: MockContentServer;
+  beforeEach(() => {
+    mock = new MockContentServer();
+  });
+
+  it('hands back the served body, unvalidated', async () => {
+    const client = new WireClient({ baseUrl: BASE, fetchImpl: mock.fetch });
+    expect(await client.policyHashes(MODULE_KEY, PIN)).toEqual({ body: policyHashesResponse });
+    mock.setPolicyHashes({ kind: 'body', body: null });
+    expect(await client.policyHashes(MODULE_KEY, PIN)).toEqual({ body: null });
+  });
+
+  it.each([403, 404])('reads a %i as "the pin has none", never as a denial or a bad pin', async (status) => {
+    mock.setPolicyHashes({ kind: 'status', status });
+    const client = new WireClient({ baseUrl: BASE, fetchImpl: mock.fetch });
+    expect(await client.policyHashes(MODULE_KEY, PIN)).toBeNull();
+  });
+
+  it('throws on any other failure, as every call does', async () => {
+    mock.setPolicyHashes({ kind: 'status', status: 503 });
+    const client = new WireClient({ baseUrl: BASE, fetchImpl: mock.fetch });
+    await expect(client.policyHashes(MODULE_KEY, PIN)).rejects.toBeInstanceOf(RemoteModuleUnavailableError);
+  });
+
+  it('gives up after the bound it is called with', async () => {
+    mock.setPolicyHashes({ kind: 'hang' });
+    vi.useFakeTimers();
+    try {
+      const client = new WireClient({ baseUrl: BASE, fetchImpl: mock.fetch });
+      const call = client.policyHashes(MODULE_KEY, PIN, { timeoutMs: 50 });
+      const outcome = expect(call).rejects.toBeInstanceOf(RemoteModuleUnavailableError);
+      await vi.advanceTimersByTimeAsync(50);
+      await outcome;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

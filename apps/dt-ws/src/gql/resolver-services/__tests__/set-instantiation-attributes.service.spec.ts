@@ -1,5 +1,6 @@
 import { SetInstantiationAttributesService } from '../set-instantiation-attributes.service';
 import { LOCK_ELEMENT_CYPHER } from '../shared/element-db-lock';
+import { UNSTAMP_POLICY_CYPHER } from '../shared/policy-stamp';
 import { ConfigService } from '@nestjs/config';
 import { ModuleRegistryService } from '../../module-management-services/module-registry.service';
 import { AuthorizationService } from '../../services/authorization.service';
@@ -648,8 +649,11 @@ describe('SetInstantiationAttributesService — empty attributes evaluate the el
     const result = await service.setAttributes({ componentId: 'comp-1', classId: 'cls-1', attributes: {} });
 
     expect(result.success).toBe(true);
-    expect(run).toHaveBeenCalledTimes(1);
-    expect(run.mock.calls[0][1]).toMatchObject({ componentId: 'comp-1', classId: 'cls-1', attributes: {} });
+    // The save's one write; the other statement is the stamp's, here an unstamp (the class carries no hash).
+    const writes = run.mock.calls.filter(([query]: [string]) => query !== UNSTAMP_POLICY_CYPHER);
+    expect(writes).toHaveLength(1);
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(writes[0][1]).toMatchObject({ componentId: 'comp-1', classId: 'cls-1', attributes: {} });
     expect(evaluate).toHaveBeenCalledWith(expect.anything(), 'comp-1', 'cls-1', expect.anything(), expect.any(String), undefined);
   });
 

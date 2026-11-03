@@ -5,6 +5,107 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Elements bound to a remote module's classes are stamped with the class policy at their next save,
+when the module's catalog serves a policy hash file for its version. Existing elements are stamped
+only when they are saved again: the background re-evaluation after a policy change does not
+evaluate a remote module's elements.
+
+**Module authors:** `@dethernety/dt-module` gains the `./policy-hash` export, the optional
+`DTModule` method `evaluatesWithCallerTokenOnly()`, and the knowledge-graph fields
+`KgAttribute.side` and `KgRule.policyHash` (see *Added*). An implementation of the knowledge-graph
+client must now return both fields.
+
+### Added
+
+- **`@dethernety/dt-module/policy-hash`, also exported from the package root.**
+  `policySourceHash(fileText)` computes the `policyHash` a file-backed module reports for a class:
+  the sha256 hex of its `policies.rego` text with surrounding whitespace trimmed, decoded first when
+  it is base64-encoded. `decodePolicySource(value)` is that decoding step. `NO_POLICY_HASH` is the
+  hash of the empty source, which a class with no policy reports. `POLICY_HASH_ALGORITHM`
+  (`policy-source-sha256/1`) names the computation wherever its values are served. The module
+  depends on `node:crypto` only. `DtFileOpaModule` uses it.
+- **A remote module reports its classes' `policyHash`.** `DtRemoteModule` reads the policy hash
+  file of its pinned version from the catalog
+  (`GET /v1/catalog/modules/{key}/versions/{pin}/policy-hashes`) together with the module document,
+  and keeps it in its cache beside the document. `getMetadata` and `getPolicyHash` report a class's
+  hash only while the module is registered from its configured pin, the version it evaluates with;
+  a module serving another pin's cached document reports none. A missing file (`403` or `404`), an
+  outage, a timeout, or a file that names another module, version or algorithm or holds a malformed
+  hash all count as no hashes: the classes report none, and their elements are left without a stamp
+  at their next save. None of these is cached, so a file published later is read at the next start.
+  A cached file that fails these checks is removed and the file is fetched again. The module waits
+  at most 3 s for the file, on a live fetch as on registration from a cached document. A
+  `policyHash` the module document carries itself, in any class array, is not reported.
+- **`evaluatesWithCallerTokenOnly?(): boolean` on `DTModule`.** Optional, `false` when absent. A
+  module returns `true` when `getExposures` and `getCountermeasures` need the caller's token and
+  refuse a call made without one. `DtRemoteModule` returns `true`.
+- **`KgAttribute.side` and `KgRule.policyHash` in the knowledge-graph client**, in local and remote
+  mode and in `KG_REMOTE_SDL`. `side` is `'runtime'` (the environment the element runs in),
+  `'build'` (the element's own software) or `null` (not marked, read as configuration); any other
+  stored value reads as `null`. `policyHash` is the `policyHash` of the class policy the rule was
+  derived from, or `null` when the rule was recorded without one. Both keys are always present.
+- **Policy hash fixtures in `@dethernety/dt-module/testing`.** `POLICY_HASH_GOLDEN_POLICY` and
+  `POLICY_HASH_GOLDEN_HEX` are a `policies.rego` text and the hash every producer of a `policyHash`
+  must compute for it. `policyHashesResponse`, `MockContentServer.setPolicyHashes(mode)` and the
+  `PolicyHashesMode` type drive the mock's policy hash route. `runKgContractSuite` and
+  `runKgClientSuite` check `side` and `policyHash`, with the fixtures `KG_POLICY_HASH` and
+  `KG_UNMARKED_READ`.
+
+### Changed
+
+- **The background re-evaluation after a class policy change skips more bindings.** It leaves out
+  the bindings of a module whose `evaluatesWithCallerTokenOnly()` returns `true`, since it runs
+  with no caller, and the bindings of a module that is not loaded. Both count as `skipped` in the
+  sweep's summary line; a binding whose module is not loaded was counted as `failed` before. The
+  elements of a module that evaluates only with a caller's token are stamped at their next save.
+- **A save or binding change whose evaluation the module cannot tie to the class's current policy
+  now removes the element's earlier policy stamp for that class**, instead of keeping it, so an
+  earlier stamp does not go on vouching for findings evaluated under another policy. This covers a
+  class with no `policyHash`, and a module whose `getPolicyHash` answers another hash, none, or
+  throws. Only the stamp is removed: findings and their dispositions are not touched, an element
+  with no stamp for the class is not written, and Issues are neither stamped nor unstamped. The
+  background re-evaluation picks up such a binding when its class has a `policyHash`; a binding of
+  a module that evaluates only with a caller's token is stamped at its next save the module
+  vouches for.
+- **A remote module whose version serves a policy hash file is installed once more at the first
+  start after the upgrade.** Its class nodes do not yet hold the hashes it now reports, so the
+  class policy hash check installs it in full.
+
+### Fixed
+
+- **`DtFileOpaModule` reports one hash for a policy registered on first use.** When a class's
+  policy was not registered at load, evaluation registers it from the file; it now trims the file
+  as `getMetadata` does, so `getPolicyHash` agrees with the metadata's `policyHash`. Before, a
+  policy file ending in a newline registered this way reported another hash, and the element was
+  not stamped at its save.
+- **An upgrade from 0.12.x no longer stops at its database check.** A 0.12.x deployment keeps the
+  `db` service in `compose.yaml` and has no `compose.memgraph.yaml`, and the new release's `byodt`
+  could not read that layout before its own files moved in. The installer's upgrade then stopped
+  with `The database is not running, so the graph cannot be backed up first`, although the
+  database was running, and pointed to `--skip-graph-backup`. With a `compose.override.yaml`, it
+  also warned that it could not read that file. `byodt` now reads a 0.12.x folder as 0.12.x laid
+  it out until the move: 0.12.x's own `byodt` backs up the graph, the files move in,
+  `DB_ENGINE=memgraph` is recorded in `.env`, and the printed rollback steps bring 0.12.x back. A
+  compose file missing for any other reason still stops the command, and the file is named: the
+  upgrade's check says, for example, `compose.memgraph.yaml is missing here, so the upgrade cannot
+  check the database`, and no longer points to `--skip-graph-backup`. 0.14.0's installer still
+  stops at the database check on 0.12.x: upgrade a 0.12.x deployment with this release's installer
+  or a later one's.
+
+### Documentation
+
+- **A 0.12.x deployment upgrades the same way as one on 0.13.0**: once, with the installer of this
+  release or a later one and `--upgrade`, with no need to step through 0.13.0 or 0.14.0 (0.14.0's
+  installer stops at the database check; see *Fixed*). 0.12.x keeps no record of the files it
+  shipped, so `byodt` cannot tell whether they were edited: it warns, replaces an edited shipped
+  file without asking, and keeps it in the backup. On Memgraph with `podman-compose`, take the
+  snapshot by hand and add `--skip-graph-backup`, as from 0.13.0. Read the *Upgrading* notes of
+  0.13.0 and of every later release too: an upgrade from 0.12.x skips them, and nothing checks the
+  steps they ask for. See Operations, *Upgrading from 0.12.x*.
+
+
 ## [0.14.0] - 2026-11-02
 
 The compose bundle can reach the internet through an outbound HTTPS proxy. Each release now
