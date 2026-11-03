@@ -11,6 +11,7 @@ check="$here/docs-release-version.sh"
 files=(
   package.json
   README.md
+  docs/user/QUICK_START.md
   docs/user/byodt/INSTALLATION.md
   docs/user/byodt/README.md
   deploy/installer/npm/README.md
@@ -20,7 +21,7 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/docs-release-version.XXXXXX")
 trap 'rm -rf "${work:?}"' EXIT
 passed=0
 
-# A scratch copy of the five files, at $work/<name>.
+# A scratch copy of the six files, at $work/<name>.
 fresh() {
   local t="$work/$1" f
   for f in "${files[@]}"; do
@@ -102,6 +103,8 @@ contexts=(
   '  --certificate-identity "https://github.com/dether-net/dethernety-oss/.github/workflows/release.yml@refs/tags/v0.0.7" \'
   'docker pull ghcr.io/dether-net/byodt-console:0.0.7'
   '  "version": "0.0.7",'
+  '   ==> Unpacked release 0.0.7 into ./byodt.'
+  '==> Signature verified: the release workflow of dether-net/dethernety-oss at v0.0.7 signed it.'
 )
 printf '%s\n' "${contexts[@]}" >>"$doc"
 wants=()
