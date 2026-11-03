@@ -17,6 +17,7 @@ For platform overview, installation, and architecture, see the [main README](../
 
 | Guide | Description |
 |-------|-------------|
+| [Quick Start](QUICK_START.md) | Install the platform, draw a four-element model and read its first threat finding |
 | [Building Your First Model](BUILDING_YOUR_FIRST_MODEL.md) | Step-by-step tutorial for creating a threat model |
 | [Boundary Trust Zones](BOUNDARY_TRUST_ZONES.md) | Record each boundary's trust zone, domains, role, and approved channels — the declared design intent for segmentation |
 | [Component Configuration Guide](COMPONENT_CONFIGURATION_GUIDE.md) | Component setup, class assignment, and attribute configuration |
