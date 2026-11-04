@@ -1,6 +1,7 @@
 // useDnD.ts
 import { useVueFlow } from '@vue-flow/core'
 import { Ref, ref, watch } from 'vue'
+import { unflattenFlatKeys } from '@dethernety/dt-core'
 
 interface State {
   draggedType: Ref<string | null>;
@@ -175,62 +176,11 @@ export function flattenProperties (
   return result
 }
 
-// Function to unflatten properties and reconstruct nested objects
+// Rebuilds flat attribute keys into nested objects, with the limits of dt-core's flat-keys.ts: a key over them (list
+// index, total list entries, parts, a reserved name, keys that disagree) is left out, so opening an element can never
+// build a huge list. Lists keep holes where no key fills them.
 export function unflattenProperties (obj: any): any {
-  const result: any = {}
-
-  // Iterate over each flat key in the object.
-  for (const flatKey in obj) {
-    if (!obj.hasOwnProperty(flatKey)) continue
-    const value = obj[flatKey]
-
-    // Use a regex to extract both property names and array indices.
-    // This regex matches either a sequence of characters that are not a dot or square bracket,
-    // or matches a number inside square brackets.
-    // eslint-disable-next-line no-useless-escape
-    const regex = /([^\.\[\]]+)|\[(\d+)\]/g
-    const keys: (string | number)[] = []
-    let match
-    while ((match = regex.exec(flatKey)) !== null) {
-      if (match[1] !== undefined) {
-        if (match[1] === '__proto__' || match[1] === 'constructor' || match[1] === 'prototype') {
-          continue
-        }
-        keys.push(match[1])
-      } else if (match[2] !== undefined) {
-        keys.push(Number(match[2])) // Convert array index to a number.
-      }
-    }
-
-    // Now rebuild the nested structure from the keys.
-    let current = result
-    for (let i = 0; i < keys.length; i++) {
-      const k = keys[i]
-
-      // If we're at the last key, assign the value.
-      if (i === keys.length - 1) {
-        current[k] = value
-      } else {
-        // Decide whether the next key is a number (an array index) or a property.
-        const nextKey = keys[i + 1]
-
-        if (typeof nextKey === 'number') {
-          // The next key is a number, so we need an array at the current position.
-          if (!Array.isArray(current[k])) {
-            current[k] = []
-          }
-        } else {
-          // Otherwise, we need an object.
-          if (typeof current[k] !== 'object' || current[k] === null) {
-            current[k] = {}
-          }
-        }
-        // Move deeper into the nested structure.
-        current = current[k]
-      }
-    }
-  }
-  return result
+  return unflattenFlatKeys(obj ?? {}).value
 }
 
 export function getNewName ({ baseName, existingNames }: { baseName: string, existingNames: (string | undefined | null)[] }): string {
@@ -285,7 +235,11 @@ export function withClearedAttributes (
 ): Record<string, unknown> {
   const out: Record<string, unknown> = { ...next }
   for (const [key, value] of Object.entries(prior ?? {})) {
-    if (value !== undefined && value !== null && (out[key] === undefined)) out[key] = null
+    // Own keys only, so a key named like a built-in (toString, constructor) is cleared too; defineProperty keeps a
+    // `__proto__` key an own key rather than setting the prototype.
+    if (value !== undefined && value !== null && !Object.hasOwn(out, key)) {
+      Object.defineProperty(out, key, { value: null, enumerable: true, writable: true, configurable: true })
+    }
   }
   return out
 }

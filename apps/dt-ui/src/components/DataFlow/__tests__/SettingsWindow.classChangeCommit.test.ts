@@ -317,6 +317,24 @@ describe('cancelling a class or model change', () => {
 })
 
 describe('saving General with Attributes in one action', () => {
+  it('clears stored keys the form cannot show: a whole list beside its entries, a key over the limits', async () => {
+    mockFlowStore.getAttributesFromClassRelationship.mockResolvedValue({ port: 22, legacy: [1, 2], 'x[4294967294]': 'z' })
+    const w = await mountPanel()
+    editName(w)
+    const vm = w.vm as any
+    expect(vm.lastLoadedAttributes).toEqual({ port: 22, legacy: [1, 2] })
+    vm.onAttributesChanged({ port: 443 })
+
+    await vm.onSubmit()
+    await flushPromises()
+
+    expect(mockFlowStore.setInstantiationAttributesWithStaleCount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attributes: { port: 443, legacy: null, 'legacy[0]': null, 'legacy[1]': null, 'x[4294967294]': null },
+      }),
+    )
+  })
+
   it('keeps an attribute edit whose save failed, for a retry', async () => {
     const w = await mountPanel()
     editName(w)

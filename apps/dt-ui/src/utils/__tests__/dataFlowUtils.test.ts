@@ -73,10 +73,17 @@ describe('unflattenProperties', () => {
       'constructor.polluted': 'yes',
       'prototype.polluted': 'yes',
     })
-    // Prototype pollution keys should be skipped
+    // Keys with a reserved part are left out whole, not moved elsewhere
     expect(({} as any).polluted).toBeUndefined()
-    // The result itself should be an empty-ish object (keys were skipped)
-    expect(result).toBeDefined()
+    expect(result).toEqual({})
+  })
+
+  it('leaves out a key whose list index is far above the limit, and keeps lists sparse', () => {
+    const result = unflattenProperties({ 'allowed_origins[4294967294]': 'x', 'allowed_origins[0]': 'a', 'ports[2]': 443 })
+    expect(result.allowed_origins).toEqual(['a'])
+    expect(result.ports).toHaveLength(3)
+    expect(0 in result.ports).toBe(false)
+    expect(JSON.stringify(result).length).toBeLessThan(100)
   })
 })
 
@@ -121,6 +128,14 @@ describe('getPageDisplayName', () => {
 })
 
 describe('withClearedAttributes', () => {
+  it('clears keys named like built-ins, keeping a __proto__ key an own key', () => {
+    const prior = JSON.parse('{"__proto__": "p", "toString": "x", "constructor": "y", "ok": 1}')
+    const out = withClearedAttributes(prior, {})
+    expect(Object.keys(out).sort()).toEqual(['__proto__', 'constructor', 'ok', 'toString'])
+    expect(Object.values(out)).toEqual([null, null, null, null])
+    expect(Object.getPrototypeOf(out)).toBe(Object.prototype)
+  })
+
   it('sends a key the prior attributes held and the new ones lack as null, and keeps the rest', () => {
     expect(withClearedAttributes({ a: true, b: 'x', c: false }, { b: 'y', d: 1 })).toEqual({ b: 'y', d: 1, a: null, c: null })
   })

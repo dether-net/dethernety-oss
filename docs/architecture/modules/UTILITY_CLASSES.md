@@ -16,6 +16,7 @@ The `dt-module` package provides utility classes that encapsulate common operati
 
 **Source Files:**
 - `packages/dt-module/src/db-ops.ts`
+- `packages/dt-module/src/flat-keys.ts`
 - `packages/dt-module/src/dt-lg-analysis-ops.ts`
 - `packages/dt-module/src/dt-lg-document-ops.ts`
 
@@ -130,7 +131,7 @@ async getInstantiationAttributes(id: string, classId: string): Promise<any>
 - `id` - Element node ID
 - `classId` - Class node ID
 
-**Returns:** Unflattened attributes object, or `null` when the element node does not exist (a node that exists without an `IS_INSTANCE_OF` edge returns `{}` via the `COALESCE`). neo4j `Integer` values are coerced to plain JS numbers (out-of-range → decimal string) at the leaf, including inside native lists, so numeric policy comparisons evaluate correctly and identically on Neo4j and Memgraph.
+**Returns:** Unflattened attributes object, or `null` when the element node does not exist (a node that exists without an `IS_INSTANCE_OF` edge returns `{}` via the `COALESCE`). neo4j `Integer` values are coerced to plain JS numbers (out-of-range → decimal string) at the leaf, including inside native lists, so numeric policy comparisons evaluate correctly and identically on Neo4j and Memgraph. Keys that break a [flat-key limit](#flat-key-limits) are left out, and a warning names how many were dropped and why.
 
 **Example:**
 ```typescript
@@ -152,16 +153,16 @@ RETURN COALESCE(r, {}) AS attributes
 
 #### unflattenProperties()
 
-Converts flat dot-notation properties to nested objects. Handles both object properties and array indices, and coerces any neo4j `Integer` leaf value to a plain JS number (out-of-range → decimal string).
+Rebuilds an element's flattened attribute keys (`name`, `name.part`, `name[3]`, as stored on its `IS_INSTANCE_OF` edge) into the nested value its policies read, and coerces any neo4j `Integer` leaf value to a plain JS number (out-of-range → decimal string). It delegates to `unflattenFlatKeys` (see [Flat-key limits](#flat-key-limits)) and returns only the rebuilt value.
 
 ```typescript
 unflattenProperties(obj: any): any
 ```
 
 **Parameters:**
-- `obj` - Flat object with dot-notation keys
+- `obj` - Flat object with dot-notation and index keys
 
-**Returns:** Nested object structure with neo4j Integers coerced to plain values
+**Returns:** Nested object structure with neo4j Integers coerced to plain values. A key that breaks a flat-key limit is left out whole, so it reads as unanswered.
 
 **Example:**
 ```typescript
@@ -183,6 +184,57 @@ const nested = dbOps.unflattenProperties(flat);
 //   ]
 // }
 ```
+
+---
+
+#### Flat-key limits
+
+**Source File:** `packages/dt-module/src/flat-keys.ts`
+
+Flattened keys are author input, so the rebuild has fixed limits and touches nothing it did not create. Well-formed answers never reach a limit: class schemas only produce `name[i]` keys for short lists of scalars.
+
+| Constant | Value | Limit |
+|----------|-------|-------|
+| `FLAT_KEY_MAX_INDEX` | 10000 | Largest list index a key may use |
+| `FLAT_KEY_MAX_LIST_SLOTS` | 100000 | Most list entries one rebuild creates, over all keys together |
+| `FLAT_KEY_MAX_SEGMENTS` | 32 | Most parts (names and indexes) one key may have |
+
+Keys are taken in **sorted order**, so the result does not depend on the order the properties arrive in. A key is **left out whole** (and reads as unanswered) when:
+
+- an index is above `FLAT_KEY_MAX_INDEX`, or the key would take the list total over `FLAT_KEY_MAX_LIST_SLOTS`
+- it has more than `FLAT_KEY_MAX_SEGMENTS` parts, or none
+- a part is `__proto__`, `constructor` or `prototype`
+- a part disagrees with what an earlier key built there: a name on a list, an index on an object or at the top level, an object or list where a value is, or a value where something already is. The first key in sorted order keeps the place.
+- it would write into a value that came from the input: a list or object answer is kept as given and never extended or changed
+
+The rebuild only writes into lists and objects it created itself, so the input is never modified. A name that is also a built-in member (`toString`, `hasOwnProperty`) is an ordinary own key.
+
+**Exports** (from `@dethernety/dt-module`):
+
+| Export | Purpose |
+|--------|---------|
+| `unflattenFlatKeys(flat, { padLists = false, leaf } = {})` | Rebuilds `flat` within the limits and returns `{ value, dropped }`; `dropped` lists each left-out key with its reason. `padLists` fills lists with `null` up to each index instead of leaving holes; `leaf` maps each value as it is written. |
+| `FLAT_KEY_MAX_INDEX`, `FLAT_KEY_MAX_LIST_SLOTS`, `FLAT_KEY_MAX_SEGMENTS` | The limits above |
+| `FlatKeyProblem`, `DroppedFlatKey`, `UnflattenOptions` | Types: the reason a key was left out, a `{ key, problem }` entry of `dropped`, and the options object |
+
+```typescript
+const { value, dropped } = unflattenFlatKeys({
+  "ports": [80, 443],
+  "ports[2]": 8080,        // would extend a list answer
+  "retries[20000]": 1,     // index above FLAT_KEY_MAX_INDEX
+  "tls.version": "1.3",
+  "tls[0]": "x",           // index on an object that "tls.version" built
+  "toString": "yes"        // an ordinary own key
+});
+// value:   { ports: [80, 443], tls: { version: "1.3" }, toString: "yes" }
+// dropped: [{ key: "ports[2]", problem: "conflict" },
+//           { key: "retries[20000]", problem: "index" },
+//           { key: "tls[0]", problem: "conflict" }]
+```
+
+dt-core exports an identical `unflattenFlatKeys` (dt-module is CommonJS and cannot load the ESM-only dt-core at run time, so each package holds its own copy; a test runs both on one table). The callers differ only in options: `DbOps` passes `leaf` to coerce neo4j `Integer` values, the model export passes `padLists: true`, and the UI properties panel uses the default, so its lists keep holes.
+
+**On save**, `setInstantiationAttributes` refuses any key in the request that the rebuild would leave out: the save fails with `VALIDATION_ERROR` and nothing is written. The message gives one reason per key, states the list-total reason once, and stops after 20 reasons with "and N more". A key sent as `null` clears its property and is always let through, so a key written before the limits can still be removed. The request is then written into what the edge already holds: the request's shape wins at every depth (a whole list replaces stored `name[i]` entries and the reverse, `p[0].x` replaces a stored `p[0]`, cleared in the same write), and a merge that would still leave out a key the request writes, or one the stored answers alone kept, is refused the same way and nothing is written. A request that only clears is never refused. The attributes panel also clears, on each save, every stored key it no longer sends. See [setInstantiationAttributes](../backend/LLD/SET_INSTANTIATION_ATTRIBUTES.md).
 
 ---
 

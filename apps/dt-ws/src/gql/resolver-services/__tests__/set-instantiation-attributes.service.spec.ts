@@ -1,4 +1,4 @@
-import { SetInstantiationAttributesService } from '../set-instantiation-attributes.service';
+import { STORED_ATTRIBUTES_CYPHER, SetInstantiationAttributesService } from '../set-instantiation-attributes.service';
 import { LOCK_ELEMENT_CYPHER } from '../shared/element-db-lock';
 import { UNSTAMP_POLICY_CYPHER } from '../shared/policy-stamp';
 import { ConfigService } from '@nestjs/config';
@@ -649,7 +649,8 @@ describe('SetInstantiationAttributesService — empty attributes evaluate the el
     const result = await service.setAttributes({ componentId: 'comp-1', classId: 'cls-1', attributes: {} });
 
     expect(result.success).toBe(true);
-    // The save's one write; the other statement is the stamp's, here an unstamp (the class carries no hash).
+    // The save's one write; the other statement is the stamp's, here an unstamp (the class carries no hash). A request
+    // that writes nothing takes no lock and reads nothing first.
     const writes = run.mock.calls.filter(([query]: [string]) => query !== UNSTAMP_POLICY_CYPHER);
     expect(writes).toHaveLength(1);
     expect(run).toHaveBeenCalledTimes(2);
@@ -686,5 +687,240 @@ describe('SetInstantiationAttributesService — empty attributes evaluate the el
     expect(result.error).not.toContain('attributes.ok');
     expect(result.error).not.toContain('attributes.none');
     expect(run).not.toHaveBeenCalled();
+  });
+});
+
+describe('SetInstantiationAttributesService — flattened keys over the limits are refused', () => {
+  function withWrite(service: any) {
+    const run = jest.fn().mockResolvedValue({ records: [toRecord({ moduleName: 'mod-1', type: 'Component', valueChanged: false, changedKeys: [] })] });
+    service.neo4jDriver.session = jest.fn(() => ({
+      executeWrite: jest.fn(async (work: any) => work({ run })),
+      close: jest.fn(async () => {}),
+    }));
+    service.moduleRegistry.getModuleByName = jest.fn(() => ({}));
+    return run;
+  }
+
+  it('refuses an index far above the limit, naming the key, and writes nothing', async () => {
+    const { service } = makeService();
+    const run = withWrite(service);
+    const result = await service.setAttributes({
+      componentId: 'comp-1',
+      classId: 'cls-1',
+      attributes: { 'allowed_origins[4294967294]': 'x', 'allowed_origins[0]': 'a.example' },
+    });
+    expect(result).toMatchObject({ success: false, errorCode: 'VALIDATION_ERROR' });
+    expect(result.error).toContain('attributes.allowed_origins[4294967294]: a list index is above the maximum of 10000');
+    expect(result.error).not.toContain('allowed_origins[0]');
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('accepts the largest allowed index and refuses the next one', async () => {
+    const { service } = makeService();
+    withWrite(service);
+    jest.spyOn(service as any, 'processComponentExposures').mockResolvedValue({ unresolved: [], staleFlipped: 0 });
+    const ok = await service.setAttributes({ componentId: 'comp-1', classId: 'cls-1', attributes: { 'l[10000]': 'x' } });
+    expect(ok.success).toBe(true);
+    const refused = await service.setAttributes({ componentId: 'comp-1', classId: 'cls-1', attributes: { 'l[10001]': 'x' } });
+    expect(refused).toMatchObject({ success: false, errorCode: 'VALIDATION_ERROR' });
+  });
+
+  it('refuses a request whose lists add up past the total, too many parts, a reserved part, and keys that disagree', async () => {
+    const { service } = makeService();
+    const run = withWrite(service);
+    const attributes: Record<string, string> = {};
+    for (let i = 0; i < 12; i++) attributes[`a${i}[10000]`] = 'x';
+    attributes[Array.from({ length: 33 }, (_, i) => `p${i}`).join('.')] = 'x';
+    attributes['x.__proto__'] = 'x';
+    attributes['g.b'] = 'x';
+    attributes['g[0]'] = 'x';
+    const result = await service.setAttributes({ componentId: 'comp-1', classId: 'cls-1', attributes });
+    expect(result).toMatchObject({ success: false, errorCode: 'VALIDATION_ERROR' });
+    expect(result.error).toContain('would hold more than 100000 entries in all');
+    expect(result.error).toContain('the key has more than 32 parts');
+    expect(result.error).toContain('attributes.x.__proto__: the key uses a reserved name');
+    expect(result.error).toContain('attributes.g[0]: conflicts with another key: one uses this place as a list, the other as an object or a value');
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('accepts names that are also built-in members, and they reach nothing shared', async () => {
+    const { service } = makeService();
+    const run = withWrite(service);
+    jest.spyOn(service as any, 'processComponentExposures').mockResolvedValue({ unresolved: [], staleFlipped: 0 });
+    const callBefore = Function.prototype.call;
+    const result = await service.setAttributes({
+      componentId: 'comp-1',
+      classId: 'cls-1',
+      attributes: { 'hasOwnProperty.call': 'x', 'toString.call': 'y', 'valueOf[0]': 'z' },
+    });
+    expect(result.success).toBe(true);
+    expect(run).toHaveBeenCalled();
+    expect(Object.prototype.hasOwnProperty.call).toBe(callBefore);
+    expect(Object.prototype.toString.call).toBe(callBefore);
+    expect((Object.prototype.valueOf as any)[0]).toBeUndefined();
+  });
+
+  it('refuses an index into a list answer in the same request, and leaves the request untouched', async () => {
+    const { service } = makeService();
+    const run = withWrite(service);
+    const attributes = { a: ['x'], 'a[3]': 'y' };
+    const result = await service.setAttributes({ componentId: 'comp-1', classId: 'cls-1', attributes });
+    expect(result).toMatchObject({ success: false, errorCode: 'VALIDATION_ERROR' });
+    expect(result.error).toContain('attributes.a[3]: conflicts with another key');
+    expect(attributes.a).toEqual(['x']);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('keeps the error short for a large request: at most 20 reasons, then a count', async () => {
+    const { service } = makeService();
+    withWrite(service);
+    const attributes: Record<string, string> = {};
+    for (let i = 0; i < 500; i++) attributes[`k${i}[99999]`] = 'x';
+    const result = await service.setAttributes({ componentId: 'comp-1', classId: 'cls-1', attributes });
+    expect(result).toMatchObject({ success: false, errorCode: 'VALIDATION_ERROR' });
+    expect(result.error).toContain('and 480 more');
+    expect(result.error!.length).toBeLessThan(3000);
+  });
+
+  it('keeps the error short when many values are bad too', async () => {
+    const { service } = makeService();
+    withWrite(service);
+    const attributes: Record<string, unknown> = {};
+    for (let i = 0; i < 300; i++) attributes[`k${i}`] = { nested: true };
+    const result = await service.setAttributes({ componentId: 'comp-1', classId: 'cls-1', attributes: attributes as any });
+    expect(result).toMatchObject({ success: false, errorCode: 'VALIDATION_ERROR' });
+    expect(result.error).toContain('and 280 more');
+  });
+
+  it('lets a key through when it is sent as null, so an old key over the limits can be cleared', async () => {
+    const { service } = makeService();
+    withWrite(service);
+    jest.spyOn(service as any, 'processComponentExposures').mockResolvedValue({ unresolved: [], staleFlipped: 0 });
+    const result = await service.setAttributes({ componentId: 'comp-1', classId: 'cls-1', attributes: { 'l[4294967294]': null } as any });
+    expect(result.success).toBe(true);
+  });
+
+  it('prints a long or control-character key short and clean', async () => {
+    const { service } = makeService();
+    withWrite(service);
+    const key = `l\n${'k'.repeat(300)}[99999]`;
+    const result = await service.setAttributes({ componentId: 'comp-1', classId: 'cls-1', attributes: { [key]: 'x' } });
+    expect(result).toMatchObject({ success: false, errorCode: 'VALIDATION_ERROR' });
+    expect(result.error).toContain(`attributes.l?${'k'.repeat(78)}…: a list index is above the maximum of 10000`);
+    expect(result.error).not.toContain('\n');
+    expect(result.error!.length).toBeLessThan(400);
+  });
+});
+
+describe('SetInstantiationAttributesService — a request is written into the stored answers', () => {
+  const row = { moduleName: 'mod-1', type: 'Component', valueChanged: true, changedKeys: [] };
+  function withStored(service: any, storedAttrs: Record<string, unknown>) {
+    const run = jest.fn(async (query: string) => {
+      if (query === LOCK_ELEMENT_CYPHER) return { records: [] };
+      if (query === STORED_ATTRIBUTES_CYPHER) return { records: [toRecord({ storedAttrs })] };
+      return { records: [toRecord(row)] };
+    });
+    service.neo4jDriver.session = jest.fn(() => ({
+      executeWrite: jest.fn(async (work: any) => work({ run })),
+      close: jest.fn(async () => {}),
+    }));
+    service.moduleRegistry.getModuleByName = jest.fn(() => ({}));
+    jest.spyOn(service as any, 'processComponentExposures').mockResolvedValue({ unresolved: [], staleFlipped: 0 });
+    return run;
+  }
+  const save = (service: any, attributes: Record<string, unknown>) =>
+    service.setAttributes({ componentId: 'comp-1', classId: 'cls-1', attributes });
+  // What statement 1 was asked to write: its attributes parameter.
+  const written = (run: jest.Mock) => {
+    const call = run.mock.calls.find(([query]: [string]) => query.includes('SET r += newAttrs'));
+    return call?.[1]?.attributes;
+  };
+
+  it('locks the element before it reads the stored answers', async () => {
+    const { service } = makeService();
+    const run = withStored(service, {});
+    await save(service, { a: 1 });
+    expect(run.mock.calls[0]).toEqual([LOCK_ELEMENT_CYPHER, { elementId: 'comp-1' }]);
+    expect(run.mock.calls[1][0]).toBe(STORED_ATTRIBUTES_CYPHER);
+  });
+
+  it('import, then an update with list entries: the entries replace the stored whole list', async () => {
+    const { service } = makeService();
+    const run = withStored(service, { tags: ['a', 'b'], other: 1 });
+    const result = await save(service, { 'tags[0]': 'c', 'tags[1]': 'd' });
+    expect(result.success).toBe(true);
+    // The whole list is cleared in the same write, so statement 1 counts it among the changed keys.
+    expect(written(run)).toEqual({ 'tags[0]': 'c', 'tags[1]': 'd', tags: null });
+  });
+
+  it('an update with list entries, then an import of the whole list: the whole list replaces the entries', async () => {
+    const { service } = makeService();
+    const run = withStored(service, { 'tags[0]': 'a', 'tags[1]': 'b', other: 1 });
+    const result = await save(service, { tags: ['c'] });
+    expect(result.success).toBe(true);
+    expect(written(run)).toEqual({ tags: ['c'], 'tags[0]': null, 'tags[1]': null });
+  });
+
+  it('a request that only clears is never refused, and reads nothing first', async () => {
+    const { service } = makeService();
+    const run = withStored(service, { 'a[00].x': 1, 'a[00][0]': 2, 'a[0].z': 3 });
+    expect((await save(service, { 'a[00].x': null })).success).toBe(true);
+    expect(written(run)).toEqual({ 'a[00].x': null });
+    const queries = run.mock.calls.map(([q]: [string]) => q);
+    expect(queries).not.toContain(STORED_ATTRIBUTES_CYPHER);
+    expect(queries).not.toContain(LOCK_ELEMENT_CYPHER);
+  });
+
+  it('the shape a request writes wins below the top too: objects in a list replace the strings stored there', async () => {
+    const { service } = makeService();
+    const run = withStored(service, { 'p[0]': 'a', 'p[1]': 'b' });
+    expect((await save(service, { 'p[0].x': 1 })).success).toBe(true);
+    expect(written(run)).toEqual({ 'p[0].x': 1, 'p[0]': null });
+  });
+
+  it('moving an answer to the other shape with the same values flips nothing stale', async () => {
+    const { service } = makeService();
+    const run = withStored(service, { tags: ['a', 'b'] });
+    expect((await save(service, { 'tags[0]': 'a', 'tags[1]': 'b' })).success).toBe(true);
+    expect(written(run)).toEqual({ 'tags[0]': 'a', 'tags[1]': 'b', tags: null });
+    expect(run.mock.calls.some(([q]: [string]) => q.includes('SET e.dispositionStale = true'))).toBe(false);
+  });
+
+  it('a changed answer in the other shape does flip dispositions stale', async () => {
+    const { service } = makeService();
+    const run = withStored(service, { tags: ['a', 'b'] });
+    expect((await save(service, { 'tags[0]': 'a', 'tags[1]': 'z' })).success).toBe(true);
+    expect(run.mock.calls.some(([q]: [string]) => q.includes('SET e.dispositionStale = true'))).toBe(true);
+  });
+
+  it('refuses re-writing a key the stored answers leave out', async () => {
+    const stored: Record<string, string> = { 'c[10000]': 'z' };
+    for (let i = 0; i < 9; i++) stored[`b${i}[10000]`] = 'x';
+    const { service } = makeService();
+    const run = withStored(service, stored);
+    const result = await save(service, { 'c[10000]': 'y' });
+    expect(result).toMatchObject({ success: false, errorCode: 'VALIDATION_ERROR' });
+    expect(result.error).toContain('would hold more than 100000 entries in all');
+    expect(written(run)).toBeUndefined();
+  });
+
+  it('refuses a request that pushes the stored lists over the list total, on its own key or on a stored one', async () => {
+    const stored: Record<string, string> = {};
+    for (let i = 0; i < 9; i++) stored[`b${i}[10000]`] = 'x';
+    for (const attributes of [{ 'c[10000]': 'y' }, { 'a[10000]': 'y' }]) {
+      const { service } = makeService();
+      const run = withStored(service, stored);
+      const result = await save(service, attributes);
+      expect(result).toMatchObject({ success: false, errorCode: 'VALIDATION_ERROR' });
+      expect(result.error).toContain('would hold more than 100000 entries in all');
+      expect(written(run)).toBeUndefined();
+    }
+  });
+
+  it('does not hold keys left out before against a request that leaves them alone', async () => {
+    const { service } = makeService();
+    const run = withStored(service, { 'x[4294967294]': 'z', 'h[0]': 1, 'h[0].y': 2, a: 1 });
+    expect((await save(service, { b: 2 })).success).toBe(true);
+    expect(written(run)).toEqual({ b: 2 });
   });
 });

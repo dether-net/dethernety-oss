@@ -88,10 +88,12 @@ const elementWith = (...held: string[]): ElementState => ({
 });
 
 describe('setAttributes stamps the policy it evaluated', () => {
-  it('reads the class hash in its first statement, before the module evaluates', async () => {
+  it('reads the class hash in the attribute write, before the module evaluates', async () => {
     const { service, statements } = makeService(CONTROL);
     await service.setAttributes(request);
-    expect(statements[0].query).toContain('t.policyHash AS policyHash');
+    const write = statements.findIndex((s) => s.query.includes('SET r += newAttrs'));
+    expect(statements[write].query).toContain('t.policyHash AS policyHash');
+    expect(statements.slice(0, write).some((s) => s.query.includes('policyHash'))).toBe(false);
   });
 
   it('stamps the binding with that hash once the findings are written', async () => {

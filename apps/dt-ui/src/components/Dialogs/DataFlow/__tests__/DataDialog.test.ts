@@ -65,6 +65,7 @@ interface Exposed {
   pendingClassId: string | null
   initialState: { name: string; description: string; dataClass: string | null; sensitivity: string | null; regulatoryFlags: string[]; origin: string | null; isCredential: boolean | null }
   lastLoadedAttributes: object
+  storedAttributeKeys: Record<string, unknown>
   pendingAttributes: object
   saveAttributes: () => Promise<void>
   onAttributesChanged: (data: object) => void
@@ -271,6 +272,21 @@ describe('DataDialog — saving attributes', () => {
       expect.objectContaining({ attributes: { owner: 'ops', encrypted: null } }),
     )
     expect(vm(w).lastLoadedAttributes).toEqual({ owner: 'ops' })
+  })
+
+  it('clears a stored key the form cannot show — a whole list beside its entries, a key over the limits — and then forgets it', async () => {
+    const w = await prepare({ success: true, staleFlippedCount: 0 })
+    vm(w).storedAttributeKeys = { open_ports: [22, 443], 'x[4294967294]': 'z' }
+    vm(w).lastLoadedAttributes = { open_ports: [22, 443] }
+    vm(w).pendingAttributes = { open_ports: [22, 8443] }
+    await vm(w).saveAttributes()
+    await flushPromises() // the exposure refetch the save starts settles before the test ends
+    expect(mocks.flow.setInstantiationAttributesWithStaleCount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attributes: { 'open_ports[0]': 22, 'open_ports[1]': 8443, open_ports: null, 'x[4294967294]': null },
+      }),
+    )
+    expect(vm(w).storedAttributeKeys).toEqual({ 'open_ports[0]': 22, 'open_ports[1]': 8443 })
   })
 
   it('keeps the baseline when the server refuses the save, so a retry sends the cleared answer again', async () => {

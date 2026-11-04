@@ -55,6 +55,9 @@
 
   // Attributes data management — lastLoadedAttributes is the backend snapshot; pendingAttributes (declared below) is the UI buffer.
   const lastLoadedAttributes = ref<object>({})
+  // The stored keys as loaded, flat. A save clears every one it no longer sends, so an answer the form cannot show (a
+  // whole list stored by another writer beside its `name[i]` keys, or a key the rebuild leaves out) does not outlive it.
+  const storedAttributeKeys = ref<Record<string, unknown>>({})
   const attributesSchema = shallowRef<object | null>(null)
   const attributesUiSchema = shallowRef<UISchemaElement | null>(null)
   const attributesLoading = ref(false)
@@ -265,6 +268,7 @@
     attributesSchema.value = null
     attributesUiSchema.value = null
     lastLoadedAttributes.value = {}
+    storedAttributeKeys.value = {}
     pendingAttributes.value = {}
     clearDirty('attributes')
     attributesTemplateWarning.value = false
@@ -300,6 +304,7 @@
       if (request !== attributesRequest || !stillShown()) return
 
       const loaded = unflattenProperties(rawProperties)
+      storedAttributeKeys.value = (rawProperties ?? {}) as Record<string, unknown>
       lastLoadedAttributes.value = loaded
       pendingAttributes.value = loaded
       clearDirty('attributes')
@@ -319,7 +324,8 @@
       // What this save sends. An edit made while it is in flight replaces pendingAttributes, so it stays unsaved.
       const sent = pendingAttributes.value
       // An answer taken back (Not answered) is sent as null, so the server clears it.
-      const flatAttributes = withClearedAttributes(flattenProperties(lastLoadedAttributes.value), flattenProperties(sent))
+      const sentFlat = flattenProperties(sent)
+      const flatAttributes = withClearedAttributes({ ...storedAttributeKeys.value, ...flattenProperties(lastLoadedAttributes.value) }, sentFlat)
 
       // setInstantiationAttributesWithStaleCount returns the
       // number of dispositioned exposures whose `dispositionStale` flipped to
@@ -337,6 +343,7 @@
       }
 
       lastLoadedAttributes.value = sent
+      storedAttributeKeys.value = sentFlat
       // Refetch exposures so row-level stale flags propagate; the count is
       // the headline, the refetch tells the table which rows to highlight.
       await loadExposures()
@@ -1054,7 +1061,7 @@
 
   // Test seam — the attribute save and its baseline, asserted by SettingsWindow.namedEdits.test.ts and
   // SettingsWindow.classLoading.test.ts and SettingsWindow.classChangeCommit.test.ts.
-  defineExpose({ saveAttributes, onAttributesChanged, isDirty, lastLoadedAttributes, pendingAttributes, itemClass })
+  defineExpose({ saveAttributes, onAttributesChanged, isDirty, lastLoadedAttributes, storedAttributeKeys, pendingAttributes, itemClass })
 </script>
 
 <template>

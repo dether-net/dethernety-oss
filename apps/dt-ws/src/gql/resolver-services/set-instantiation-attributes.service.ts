@@ -51,9 +51,29 @@ import {
 import { AuthorizationContext } from '../interfaces/authorization.interface';
 import { GqlConfig } from '../gql.config';
 import type { Countermeasure, DTModule } from '@dethernety/dt-module';
+import { unflattenFlatKeys } from '@dethernety/dt-module';
 import { STAMP_POLICY_CYPHER, UNSTAMP_POLICY_CYPHER, stampPolicyParams, unstampPolicyParams } from './shared/policy-stamp';
 import { lockElementInTx } from './shared/element-db-lock';
-import { describeNonPrimitiveValue, propertyViolations } from '../utils/property-values';
+import {
+  capErrorLines,
+  describeNonPrimitiveValue,
+  describeRefusedFlatKeys,
+  changesAnswers,
+  flatKeysRefusedByMerge,
+  printableFlatKey,
+  propertyViolations,
+  requestWrites,
+  withRequestShapes,
+} from '../utils/property-values';
+
+/** Statement 0 of setAttributes: the answers stored on the element's binding to the class, before the write. */
+export const STORED_ATTRIBUTES_CYPHER = `
+  MATCH (c {id: $componentId})
+  WITH c
+  MATCH (c)-[r:IS_INSTANCE_OF]->(t)
+  WHERE t.id = $classId
+  RETURN properties(r) AS storedAttrs
+`;
 
 /**
  * Narrow an unknown thrown value to a structured SetInstantiationError. Errors
@@ -1240,7 +1260,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         classId: request.classId,
       });
 
-      // Two-statement Cypher:
+      // Statement 0 (a lock and a read, see below), then a two-statement Cypher:
       //  Statement 1: write attributes AND detect whether any value actually changed
       //               (compares priorAttrs vs newAttrs element-wise; direct `<>` is
       //               correct on Memgraph 3.8.1 for both scalars AND lists —
@@ -1260,6 +1280,35 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       // Use label-free matching on the seed node to support all element types
       // (Component, SecurityBoundary, DataFlow, Data, Control).
       const txResult = await session.executeWrite(async (tx: DatabaseTransaction) => {
+        // ----- Statement 0 (only for a request that writes a value) -----
+        // The request was checked on its own; the write merges it into the answers already stored. Lock the
+        // element first (the read below decides the write, across processes too), read the stored answers, and
+        // let the request's shape win: a stored key whose place disagrees with one the request writes (a whole
+        // list `tags` against `tags[0]`, or the reverse — what an import and a later update leave — at any depth)
+        // is cleared in this same write. Then refuse a merge that would still leave out a key the request writes,
+        // or one the stored answers alone kept; thrown here, nothing is written. A request that writes nothing (the
+        // re-evaluation sweep's {}, or one that only clears) cannot do either, and skips both statements.
+        let attributes = request.attributes;
+        let answersChange = true;
+        if (requestWrites(request.attributes)) {
+          await lockElementInTx(tx, request.componentId);
+          const r0 = await tx.run(STORED_ATTRIBUTES_CYPHER, { componentId: request.componentId, classId: request.classId });
+          // Duplicate bindings to one class (an old fault) are written together by statement 1, so are read together.
+          const rows: Record<string, unknown>[] = r0.records.map((rec: any) => rec.get('storedAttrs') ?? {});
+          const stored: Record<string, unknown> = Object.assign({}, ...rows);
+          attributes = withRequestShapes(stored, request.attributes);
+          const refused = flatKeysRefusedByMerge(stored, attributes);
+          if (refused.length > 0) {
+            throw this.createSetInstantiationError(
+              'VALIDATION_ERROR',
+              `Invalid request: ${capErrorLines(refused).join(', ')}`,
+              request.componentId,
+              request.classId,
+            );
+          }
+          answersChange = rows.length === 0 || rows.some((row) => changesAnswers(row, attributes));
+        }
+
         // ----- Statement 1 -----
         // Orphan-aware: :HAS_CLASS implicitly excludes orphans — setting
         // attributes on an instantiation requires the class to be active
@@ -1299,7 +1348,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
           {
             componentId: request.componentId,
             classId: request.classId,
-            attributes: request.attributes,
+            attributes,
           },
         );
 
@@ -1319,7 +1368,8 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
           );
         }
 
-        const valueChanged = r1.records[0].get('valueChanged') as boolean;
+        // A key changed, and the answers did: moving an answer to the other shape alone flips nothing stale.
+        const valueChanged = (r1.records[0].get('valueChanged') as boolean) && answersChange;
         const changedKeys = r1.records[0].get('changedKeys') as string[];
 
         // ----- Statement 2 -----
@@ -1740,14 +1790,24 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       for (const [key, value] of Object.entries(request.attributes)) {
         const violation = describeNonPrimitiveValue(value);
         if (violation) {
-          errors.push(`attributes.${key}: ${violation}`);
+          errors.push(`attributes.${printableFlatKey(key)}: ${violation}`);
         }
       }
+      // The keys are flattened paths (`name[3]`, `name.part`), rebuilt into the policy input on every evaluation.
+      // Refuse here any key the rebuild would leave out — an index or list total over its limit, too many parts, a
+      // reserved name, or keys in this request that disagree about one place — so the author gets a reason instead
+      // of an answer that silently reads as unanswered. A key sent as null clears its property and is always let
+      // through, so a key written before these limits can still be removed.
+      const written = Object.fromEntries(
+        Object.entries(request.attributes).filter(([, value]) => value !== null && value !== undefined),
+      );
+      errors.push(...describeRefusedFlatKeys(unflattenFlatKeys(written).dropped));
     }
 
     return {
       isValid: errors.length === 0,
-      errors,
+      // A large request gets a short answer.
+      errors: capErrorLines(errors),
     };
   }
 

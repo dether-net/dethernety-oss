@@ -1,6 +1,7 @@
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
 import { CancelledError, DtRequestError } from './errors.js'
+import { unflattenFlatKeys } from './flat-keys.js'
 
 export { CancelledError, DtRequestError } from './errors.js'
 
@@ -370,7 +371,8 @@ export class DtUtils {
 
   /**
    * Unflatten properties and reconstruct nested objects from dot-notation keys.
-   * Converts flat dictionary with dot-notation keys back into nested structure.
+   * Converts flat dictionary with dot-notation keys back into nested structure. A key over the limits in
+   * flat-keys.ts (list index, total list entries, parts, reserved names, keys that disagree) is left out.
    *
    * @param obj - The flattened object to unflatten
    * @returns Unflattened object with nested structure
@@ -381,86 +383,7 @@ export class DtUtils {
    * unflattenProperties({"user.name": "John", "user.tags[0]": "admin"}) => {"user": {"name": "John", "tags": ["admin"]}}
    */
   static unflattenProperties(obj: Record<string, any>): Record<string, any> {
-    const result: Record<string, any> = {}
-
-    // Regex to match property names and array indices
-    const regex = /([^\.\[\]]+)|\[(\d+)\]/g
-
-    for (const flatKey of Object.keys(obj)) {
-      const value = obj[flatKey]
-      const keys: (string | number)[] = []
-
-      let match
-      while ((match = regex.exec(flatKey)) !== null) {
-        if (match[1] !== undefined) {
-          if (match[1] === '__proto__' || match[1] === 'constructor' || match[1] === 'prototype') {
-            continue
-          }
-          keys.push(match[1])
-        } else if (match[2] !== undefined) {
-          keys.push(parseInt(match[2], 10))
-        }
-      }
-      // Reset regex lastIndex for next iteration
-      regex.lastIndex = 0
-
-      // Rebuild the nested structure from the keys
-      let current: any = result
-      for (let i = 0; i < keys.length; i++) {
-        const k = keys[i]
-
-        // If we're at the last key, assign the value
-        if (i === keys.length - 1) {
-          if (Array.isArray(current)) {
-            // Ensure the list is large enough
-            while (current.length <= (k as number)) {
-              current.push(null)
-            }
-            current[k as number] = value
-          } else {
-            current[k] = value
-          }
-        } else {
-          // Decide whether the next key is a number (array index) or a property
-          const nextKey = keys[i + 1]
-
-          if (typeof nextKey === 'number') {
-            // The next key is a number, so we need an array
-            if (Array.isArray(current)) {
-              while (current.length <= (k as number)) {
-                current.push(null)
-              }
-              if (!Array.isArray(current[k as number])) {
-                current[k as number] = []
-              }
-            } else {
-              if (!(k in current) || !Array.isArray(current[k])) {
-                current[k] = []
-              }
-            }
-          } else {
-            // We need an object
-            if (Array.isArray(current)) {
-              while (current.length <= (k as number)) {
-                current.push(null)
-              }
-              if (typeof current[k as number] !== 'object' || current[k as number] === null) {
-                current[k as number] = {}
-              }
-            } else {
-              if (!(k in current) || typeof current[k] !== 'object' || current[k] === null) {
-                current[k] = {}
-              }
-            }
-          }
-
-          // Move deeper into the nested structure
-          current = current[k]
-        }
-      }
-    }
-
-    return result
+    return unflattenFlatKeys(obj ?? {}, { padLists: true }).value
   }
 
   /**
