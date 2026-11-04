@@ -171,6 +171,17 @@ export function detectOidcProvider(issuer: string): OidcProvider {
 let runtimeConfig: FrontendConfig | null = null;
 
 /**
+ * The backend's runtime configuration could not be read. A production build has no other source for it, and never
+ * falls back to the values baked in at build time: those could switch authentication off.
+ */
+export class ConfigUnavailableError extends Error {
+  constructor(cause: unknown) {
+    super('The runtime configuration (GET /config) could not be loaded', { cause });
+    this.name = 'ConfigUnavailableError';
+  }
+}
+
+/**
  * Auto-detect WebSocket URL based on current page location
  * Only used when subscriptionTransport is 'ws'
  */
@@ -183,88 +194,99 @@ function autoDetectWebSocketUrl(): string {
   return '';
 }
 
+const CONFIG_RETRY_DELAY_MS = 1000;
+
 /**
- * Fetch configuration from backend at runtime
+ * Fetch configuration from backend at runtime. A failed read is tried once more after a short wait, since a platform
+ * that is restarting answers for a moment with an error; a second failure means the configuration is unavailable.
  */
 async function fetchRuntimeConfig(): Promise<FrontendConfig> {
   try {
-    const response = await fetch('/config');
-    if (!response.ok) {
-      throw new Error(`Failed to fetch config: ${response.status}`);
-    }
-    
-    const config = await response.json();
-    
-    // Transform backend config to frontend config format
-    const subscriptionTransport: SubscriptionTransport =
-      config.subscriptionTransport === 'ws' ? 'ws' : 'sse';
-
-    return {
-      // Application Configuration
-      nodeEnv: config.nodeEnv || 'production',
-      appUrl: config.appUrl || (typeof window !== 'undefined' ? window.location.origin : ''),
-      appBaseUrl: config.appBaseUrl || '/',
-
-      // API Configuration
-      apiBaseUrl: config.apiBaseUrl || '',
-      graphqlUrl: config.graphqlUrl || '/graphql',
-      subscriptionTransport,
-      graphqlWsUrl: subscriptionTransport === 'ws'
-        ? config.graphqlWsUrl || autoDetectWebSocketUrl()
-        : undefined,
-
-      // Authentication is the default — only disabled when backend explicitly says so
-      authDisabled: config.authDisabled === true,
-
-      // OIDC Authentication
-      oidcIssuer: config.oidcIssuer || '',
-      oidcClientId: config.oidcClientId || '',
-      oidcRedirectUri: config.oidcRedirectUri || '',
-      oidcProvider: (config.oidcProvider as OidcProvider) || detectOidcProvider(config.oidcIssuer || ''),
-      oidcEndpoints: getOidcEndpoints(
-        (config.oidcProvider as OidcProvider) || detectOidcProvider(config.oidcIssuer || ''),
-        config.oidcEndpoints // Allow custom endpoint overrides from backend
-      ),
-      oidcScope: config.oidcScope || 'openid profile email',
-      // Cognito hosted UI domain (for OAuth2 flows when different from issuer)
-      oidcDomain: config.oidcDomain || undefined,
-
-      // Feature Flags
-      debugAuth: config.debugAuth || false,
-      enableDevTools: config.enableDevTools || false,
-
-      userProfileUrl: (() => {
-        const url = config.userProfileUrl || '';
-        if (!url) return '';
-        // Validate URL scheme to prevent javascript: XSS
-        try {
-          const parsed = new URL(url);
-          return ['https:', 'http:'].includes(parsed.protocol) ? url : '';
-        } catch {
-          return url.startsWith('/') ? url : '';
-        }
-      })(),
-
-      settingsUrl: (() => {
-        const url = config.settingsUrl || '';
-        if (!url) return '';
-        // Validate URL scheme to prevent javascript: XSS (same guard as userProfileUrl)
-        try {
-          const parsed = new URL(url);
-          return ['https:', 'http:'].includes(parsed.protocol) ? url : '';
-        } catch {
-          return url.startsWith('/') ? url : '';
-        }
-      })(),
-    };
+    return await readRuntimeConfig();
+  } catch {
+    await new Promise((resolve) => setTimeout(resolve, CONFIG_RETRY_DELAY_MS));
+  }
+  try {
+    return await readRuntimeConfig();
   } catch (error) {
-    console.warn('Failed to fetch runtime config, falling back to development config:', error);
-    return getDevelopmentConfig();
+    throw new ConfigUnavailableError(error);
   }
 }
 
+async function readRuntimeConfig(): Promise<FrontendConfig> {
+  const response = await fetch('/config');
+  if (!response.ok) {
+    throw new Error(`Failed to fetch config: ${response.status}`);
+  }
+  
+  const config = await response.json();
+  
+  // Transform backend config to frontend config format
+  const subscriptionTransport: SubscriptionTransport =
+    config.subscriptionTransport === 'ws' ? 'ws' : 'sse';
+
+  return {
+    // Application Configuration
+    nodeEnv: config.nodeEnv || 'production',
+    appUrl: config.appUrl || (typeof window !== 'undefined' ? window.location.origin : ''),
+    appBaseUrl: config.appBaseUrl || '/',
+
+    // API Configuration
+    apiBaseUrl: config.apiBaseUrl || '',
+    graphqlUrl: config.graphqlUrl || '/graphql',
+    subscriptionTransport,
+    graphqlWsUrl: subscriptionTransport === 'ws'
+      ? config.graphqlWsUrl || autoDetectWebSocketUrl()
+      : undefined,
+
+    // Authentication is the default — only disabled when backend explicitly says so
+    authDisabled: config.authDisabled === true,
+
+    // OIDC Authentication
+    oidcIssuer: config.oidcIssuer || '',
+    oidcClientId: config.oidcClientId || '',
+    oidcRedirectUri: config.oidcRedirectUri || '',
+    oidcProvider: (config.oidcProvider as OidcProvider) || detectOidcProvider(config.oidcIssuer || ''),
+    oidcEndpoints: getOidcEndpoints(
+      (config.oidcProvider as OidcProvider) || detectOidcProvider(config.oidcIssuer || ''),
+      config.oidcEndpoints // Allow custom endpoint overrides from backend
+    ),
+    oidcScope: config.oidcScope || 'openid profile email',
+    // Cognito hosted UI domain (for OAuth2 flows when different from issuer)
+    oidcDomain: config.oidcDomain || undefined,
+
+    // Feature Flags
+    debugAuth: config.debugAuth || false,
+    enableDevTools: config.enableDevTools || false,
+
+    userProfileUrl: (() => {
+      const url = config.userProfileUrl || '';
+      if (!url) return '';
+      // Validate URL scheme to prevent javascript: XSS
+      try {
+        const parsed = new URL(url);
+        return ['https:', 'http:'].includes(parsed.protocol) ? url : '';
+      } catch {
+        return url.startsWith('/') ? url : '';
+      }
+    })(),
+
+    settingsUrl: (() => {
+      const url = config.settingsUrl || '';
+      if (!url) return '';
+      // Validate URL scheme to prevent javascript: XSS (same guard as userProfileUrl)
+      try {
+        const parsed = new URL(url);
+        return ['https:', 'http:'].includes(parsed.protocol) ? url : '';
+      } catch {
+        return url.startsWith('/') ? url : '';
+      }
+    })(),
+  };
+}
+
 /**
- * Get development configuration (fallback)
+ * Get development configuration, from the VITE_ variables (development builds only)
  */
 function getDevelopmentConfig(): FrontendConfig {
   const isDev = import.meta.env.DEV;
@@ -297,8 +319,8 @@ function getDevelopmentConfig(): FrontendConfig {
       ? getEnvValue('GRAPHQL_WS_URL', isDev ? 'ws://localhost:3003/graphql' : autoDetectWebSocketUrl())
       : undefined,
 
-    // Auth — only disabled when explicitly opted in and no OIDC configured
-    authDisabled: getEnvValue('ENABLE_NOAUTH', 'false') === 'true' && !getEnvValue('OIDC_ISSUER'),
+    // Auth — only disabled in a development build, when explicitly opted in and no OIDC configured
+    authDisabled: isDev && getEnvValue('ENABLE_NOAUTH', 'false') === 'true' && !getEnvValue('OIDC_ISSUER'),
 
     // OIDC Authentication
     oidcIssuer: getEnvValue('OIDC_ISSUER', ''),

@@ -1,9 +1,10 @@
 /**
  * The client for a deployment that has no knowledge graph to reach.
  *
- * Two configurations land here: one with no service configured and no knowledge-graph nodes in its
- * own database (a plain deployment, which is the common case), and one pointed at a service but
- * without a usable version pin (a half-finished configuration).
+ * One configuration lands here: a deployment pointed at a service but without a usable version pin
+ * (a half-finished configuration). A deployment with no service configured gets the local client
+ * instead, and where its own database holds no knowledge-graph nodes that client's capability says
+ * so, with the same honest "unavailable".
  *
  * It exists because the alternative is worse. A local client running against labels that are not
  * there returns *empty*, and empty is indistinguishable from "there is nothing matching your
@@ -28,6 +29,9 @@ export class KgUnavailableError extends Error {
 }
 
 export class UnavailableKgClient implements KgClient {
+  /** Nothing to be pinned to; a malformed pin that led here is configuration, not a version. */
+  readonly version = null;
+
   async capability(): Promise<KgCapability> {
     // `entitled` is false because there is nothing to be entitled to. A consumer folding these two
     // flags reads `available: false` first, so this field never decides the outcome on its own.

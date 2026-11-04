@@ -30,6 +30,15 @@ corpus with its `NOTICE` and `manifest.json`, and builds the SPA. A data module 
 `embeddingProfile` fails the build. A build that skips it fails to compile at the `//go:embed` lines — a loud
 guard rather than an image that serves a blank page.
 
+The SPA under `apps/byodt-console/ui` is a self-contained package with its own lockfile, outside the pnpm
+workspace, so the root `pnpm install` does not install it and the root `pnpm dev` does not start it. To run its
+dev server, install it once and then start it:
+
+```bash
+pnpm --dir apps/byodt-console/ui install --ignore-workspace
+pnpm --filter @dethernety/byodt-console dev:ui
+```
+
 ---
 
 ## `init` — the pre-start one-shot

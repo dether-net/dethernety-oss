@@ -29,6 +29,7 @@ declare module 'vue' {
     ClassPickerResults: typeof import('./components/DataFlow/ClassPicker/ClassPickerResults.vue')['default']
     ClassPickerSheet: typeof import('./components/DataFlow/ClassPicker/ClassPickerSheet.vue')['default']
     ClassPreview: typeof import('./components/DataFlow/ClassPicker/ClassPreview.vue')['default']
+    ConfigUnavailable: typeof import('./components/ConfigUnavailable.vue')['default']
     ConfirmClassCreationDialog: typeof import('./components/Dialogs/General/ConfirmClassCreationDialog.vue')['default']
     ConfirmClassOrModelChangeDialog: typeof import('./components/Dialogs/DataFlow/ConfirmClassOrModelChangeDialog.vue')['default']
     ConfirmDeleteDialog: typeof import('./components/Dialogs/General/ConfirmDeleteDialog.vue')['default']
@@ -86,7 +87,9 @@ declare module 'vue' {
     TechniquePickerResults: typeof import('./components/Mitre/TechniquePicker/TechniquePickerResults.vue')['default']
     TechniquePickerSheet: typeof import('./components/Mitre/TechniquePicker/TechniquePickerSheet.vue')['default']
     TechniquePreview: typeof import('./components/Mitre/TechniquePicker/TechniquePreview.vue')['default']
+    TriStateBooleanRenderer: typeof import('./components/DataFlow/TriStateBooleanRenderer.vue')['default']
     UnclassifiedPill: typeof import('./components/DataFlow/ClassPicker/UnclassifiedPill.vue')['default']
+    UnresolvedReferencesBadge: typeof import('./components/Disposition/UnresolvedReferencesBadge.vue')['default']
     UserQuestionDialog: typeof import('./components/Dialogs/Analysis/UserQuestionDialog.vue')['default']
   }
 }

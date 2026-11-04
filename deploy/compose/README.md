@@ -232,8 +232,8 @@ upgrade, and `--allow-unsigned` is then refused; a value other than `true` or `f
 
 The `byodt` of releases 0.12.x and 0.13.0 has no upgrade (its `upgrade` only runs
 `update`): upgrade such a deployment with the new release's installer and
-`--upgrade --dir <folder>`. From 0.12.x, use the installer of a release later
-than 0.14.0: 0.14.0's stops at its database check, although the database is running.
+`--upgrade --dir <folder>`. From 0.12.x, use 0.15.0's installer or a later one:
+0.14.0's stops at its database check, although the database is running.
 On 0.12.x, the upgrade cannot tell which shipped files you edited: it replaces them
 and keeps them in its backup. The full procedure, rolling back, and the Podman notes are in the
 [Operations guide](https://github.com/dether-net/dethernety-oss/blob/main/docs/user/byodt/OPERATIONS.md#upgrading-to-a-new-release).

@@ -84,7 +84,7 @@ Each step is individually invocable (`/dethereal:discover`, `/dethereal:enrich`,
 
 ## Architecture Documentation
 
-> **Recommended reading order:** [CONTROL_LIBRARY.md](CONTROL_LIBRARY.md) §1 → SKILL.md (`/dethereal:sync`, `/dethereal:enrich`, `/dethereal:status`) → engine source under [`oss/packages/dt-core/src/dt-control-library/`](../../packages/dt-core/src/dt-control-library/). The hardening rationale (rejected design alternatives + risk-register Plan-B fallbacks) lives at CL Appendix A.12.
+> **Recommended reading order:** [CONTROL_LIBRARY.md](CONTROL_LIBRARY.md) §1 → SKILL.md (`/dethereal:sync`, `/dethereal:enrich`, `/dethereal:status`) → engine source under [`packages/dt-core/src/dt-control-library/`](../../../packages/dt-core/src/dt-control-library/). The hardening rationale (rejected design alternatives + risk-register Plan-B fallbacks) lives at CL Appendix A.12.
 
 | Document | Description |
 |----------|-------------|

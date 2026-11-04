@@ -4,7 +4,7 @@
   "displayName": "Dethernety Threat Report",
   "description": "Query-based threat reporting with interactive dashboards.",
   "tags": ["reporting", "dashboard"],
-  "compatibility": { "dtModule": "^0.14.0" },
+  "compatibility": { "dtModule": "^0.15.0" },
   "dependencies": ["dethernety-coverage-tools"],
   "restarts": ["dethernety.service"]
 }

@@ -60,14 +60,22 @@ On startup, `authStore` calls `initializeAuthMode()` which checks the `authDisab
 ```typescript
 // authStore.ts — simplified
 const initializeAuthMode = async () => {
-  const config = await fetchRuntimeConfig()
+  const config = await getConfig()
   if (config.authDisabled) {
     authDisabled.value = true
-    user.value = { name: 'dev-user', email: 'dev@localhost' }
+    user.value = { id: 'dev-user', email: 'dev@example.com', name: 'Local User' }
+    roles.value = ['admin']
     // isAuthenticated computed returns true when authDisabled is true
   }
 }
 ```
+
+Where `authDisabled` comes from depends on the build:
+
+| Build | Source of `authDisabled` |
+|-------|--------------------------|
+| **Production build** | The backend's `/config` response only. If `/config` cannot be read (network error, non-OK status, non-JSON body), even when read again a second later, the UI fails closed: it does not start and shows a "The platform's configuration is unavailable" screen with a **Try again** button. It never falls back to the build-time `VITE_*` values, so a `VITE_ENABLE_NOAUTH=true` baked into a production build cannot switch sign-in off. |
+| **Development build** (dev server) | `VITE_ENABLE_NOAUTH=true` with no `VITE_OIDC_ISSUER` set. |
 
 When `authDisabled` is true:
 
@@ -82,7 +90,7 @@ The backend's `jwt-auth.guard.ts` handles unauthenticated requests by creating a
 
 ### Safety
 
-Auth-disabled mode requires three conditions on the backend: `NODE_ENV !== 'production'`, no OIDC configured, and `ENABLE_NOAUTH=true`. The frontend cannot enable this mode on its own — it only reads the flag from the backend.
+Auth-disabled mode requires three conditions on the backend: `NODE_ENV !== 'production'`, no OIDC configured, and `ENABLE_NOAUTH=true`. A production build of the frontend cannot enable this mode on its own — it only reads the flag from the backend.
 
 ---
 
@@ -712,10 +720,13 @@ const DEFAULT_CONFIG: AuthConfig = {
 
 ### Environment Variables
 
+A development build (dev server) reads the OIDC settings from these `VITE_*` keys. A production build reads the same settings only from the backend's `/config` response, which the backend fills from the same names without the `VITE_` prefix in its own environment (see the [Configuration Guide](../../../CONFIGURATION_GUIDE.md#frontend-configuration-dt-ui)).
+
 | Variable | Purpose |
 |----------|---------|
-| `VITE_OIDC_PROVIDER` | Provider type: `cognito`, `zitadel`, `auth0`, `keycloak` |
+| `VITE_OIDC_PROVIDER` | Provider type: `cognito`, `zitadel`, `auth0`, `keycloak`, `generic` |
 | `VITE_OIDC_ISSUER` | OIDC issuer URL |
 | `VITE_OIDC_CLIENT_ID` | OAuth2 client ID |
 | `VITE_OIDC_REDIRECT_URI` | Post-login redirect URI |
 | `VITE_OIDC_DOMAIN` | Cognito hosted UI domain (optional) |
+| `VITE_OIDC_SCOPE` | Scope requested at sign-in (optional, default `openid profile email`) |

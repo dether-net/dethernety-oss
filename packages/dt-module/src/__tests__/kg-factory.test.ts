@@ -32,6 +32,8 @@ describe('createKgClient — a configured service', () => {
     const fake = makeKgDriver(() => [probeRow]);
     const client = createKgClient({ driver: fake.driver }, { baseUrl: BASE_URL, version: PIN });
     expect(client).toBeInstanceOf(CloudKgClient);
+    // It names the version it is pinned to, so a consumer can say which version answered.
+    expect(client.version).toBe(PIN);
     // Remote mode never consults the deployment's own graph, not even to decide.
     expect(fake.sessions()).toBe(0);
   });
@@ -50,6 +52,8 @@ describe('createKgClient — a configured service', () => {
     const log = logger();
     const client = createKgClient({ driver: fake.driver, logger: log }, { baseUrl: BASE_URL, version });
     expect(client).toBeInstanceOf(UnavailableKgClient);
+    // A rejected pin is not a version, and its value is never echoed back.
+    expect(client.version).toBeNull();
     expect(log.warn).toHaveBeenCalledTimes(1);
     expect(fake.sessions()).toBe(0);
   });
@@ -71,6 +75,8 @@ describe('createKgClient — no configured service', () => {
     const fake = makeKgDriver(() => [probeRow]);
     const client = createKgClient({ driver: fake.driver });
     expect(client).toBeInstanceOf(LocalKgClient);
+    // A local graph is the deployment's own: nothing is pinned.
+    expect(client.version).toBeNull();
     expect(await client.capability()).toEqual({ available: true, entitled: true, sliceCount: 0 });
   });
 

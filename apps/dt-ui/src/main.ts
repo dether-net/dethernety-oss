@@ -8,6 +8,7 @@ import * as VueRuntime from 'vue'
 import { ModuleLoader } from './services/ModuleLoader'
 import { useAuthStore } from '@/stores/authStore'
 import { timingMark, timingMeasure } from '@/utils/userTiming'
+import { isConfigUnavailable, mountConfigUnavailable } from '@/plugins/configUnavailable'
 
 // CSS imports
 import '@vue-flow/core/dist/style.css'
@@ -22,6 +23,10 @@ const app = createApp({
   },
   render: () => h(App),
 })
+
+// The page the person opened, before the router's first navigation can move the address: a retry after a failed start
+// returns here.
+const bootHref = window.location.href
 
 registerPlugins(app)
 
@@ -71,7 +76,12 @@ const initializeApp = async () => {
     if (import.meta.env.DEV) {
       console.error('Failed to initialize app:', error)
     }
-    app.mount('#app')
+    // Without the platform's configuration the app does not start: it says so and offers a retry.
+    if (isConfigUnavailable(error)) {
+      mountConfigUnavailable('#app', bootHref)
+    } else {
+      app.mount('#app')
+    }
     markMounted(false)
   }
 }

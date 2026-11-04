@@ -4,9 +4,10 @@ This application supports both development (HTTP) and production (HTTPS) environ
 
 ## Environment Variables
 
-Create a `.env.local` file in the `apps/dt-ui` directory with the following variables:
-
 ### Development Environment (HTTP)
+
+Create a `.env.local` file in the `apps/dt-ui` directory with the following variables. Only a development build reads them:
+
 ```bash
 VITE_OIDC_ISSUER=http://localhost:8080
 VITE_OIDC_CLIENT_ID=your-development-client-id
@@ -14,10 +15,13 @@ VITE_OIDC_REDIRECT_URI=http://localhost:3005/auth/callback
 ```
 
 ### Production Environment (HTTPS)
+
+A production build reads its configuration only from the backend's `GET /config` at run time. Set these in the backend's environment, and the backend serves them from that endpoint (see [Frontend Configuration (dt-ui)](../../docs/CONFIGURATION_GUIDE.md#frontend-configuration-dt-ui)):
+
 ```bash
-VITE_OIDC_ISSUER=https://your-zitadel-domain.com
-VITE_OIDC_CLIENT_ID=your-production-client-id
-VITE_OIDC_REDIRECT_URI=https://your-domain.com/auth/callback
+OIDC_ISSUER=https://your-zitadel-domain.com
+OIDC_CLIENT_ID=your-production-client-id
+OIDC_REDIRECT_URI=https://your-domain.com/auth/callback
 ```
 
 ## Development vs Production

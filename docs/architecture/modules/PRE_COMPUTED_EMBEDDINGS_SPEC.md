@@ -427,13 +427,13 @@ exports `composeClassText`, `classEmbeddingText`, `hashEmbeddingText`,
 the producer and the CI check all use this one file, so the stamped and
 recomputed hashes are byte-identical.
 
-**Layering:** `oss/scripts/` cannot depend on `dt-ws`; it depends on
+**Layering:** `scripts/` cannot depend on `dt-ws`; it depends on
 `@dethernety/dt-module` and `@dethernety/embedder`. The producer and the CI
 check read the default profile id from its one definition in dt-ws's source.
 
 ## Packaging
 
-`oss/scripts/package-module.js` copies the module's `data/` tree via
+`scripts/package-module.js` copies the module's `data/` tree via
 `copyDirRecursive`; `embeddings/` subdirectories are picked up
 automatically. The packager is unchanged by this feature.
 

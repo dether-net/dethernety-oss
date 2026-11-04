@@ -230,6 +230,10 @@ export function runKgClientSuite(harness: KgClientHarness): void {
       expect(typeof rule.score).toBe('number');
     });
 
+    it('names its version as a published digest, or null when nothing is pinned', () => {
+      expect(client.version === null || /^sha256:[0-9a-f]{64}$/.test(client.version), String(client.version)).toBe(true);
+    });
+
     it('reports itself available and entitled', async () => {
       const capability = await client.capability(token);
       expect(capability.available).toBe(true);

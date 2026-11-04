@@ -1061,8 +1061,6 @@ No new environment variables are required. The module resolver system uses exist
 | `apps/dt-ws/src/gql/services/schema.service.ts` | Add `mergeModuleResolvers()`, `wrapModuleResolver()` |
 | `apps/dt-ws/src/gql/gql.module.ts` | 3 new lines in `useFactory` |
 
-All changes are in `oss/`. This lands as a single PR on both repos.
-
 ---
 
 ## Cross-References

@@ -556,7 +556,7 @@ The first two are the installer's; the third is `./byodt upgrade`'s.
 
 **Fix.** Start the deployment and run the upgrade again. Use `--skip-graph-backup` only when you have a backup of your own, or the graph does not matter: the rollback steps then have no graph to restore, and the database is not moved.
 
-**On an upgrade from 0.12.x with 0.14.0's installer**, this message appears although the database is running: 0.14.0's `byodt` cannot read a 0.12.x folder's compose files until its own files have moved in, so its database check fails. With a `compose.override.yaml`, a warning that it could not read that file comes with it. Nothing was changed. Do not add `--skip-graph-backup`: upgrade with the installer of a release later than 0.14.0, as in [Operations → Upgrading from 0.12.x](./OPERATIONS.md#upgrading-from-012x).
+**On an upgrade from 0.12.x with 0.14.0's installer**, this message appears although the database is running: 0.14.0's `byodt` cannot read a 0.12.x folder's compose files until its own files have moved in, so its database check fails. With a `compose.override.yaml`, a warning that it could not read that file comes with it. Nothing was changed. Do not add `--skip-graph-backup`: upgrade with 0.15.0's installer or a later one, as in [Operations → Upgrading from 0.12.x](./OPERATIONS.md#upgrading-from-012x).
 
 ### `Failed to copy the snapshot out of the db container`
 
@@ -674,7 +674,7 @@ A lock whose process has ended is normally taken over without this message.
 
 **Cause.** The `byodt` of releases 0.12.x and 0.13.0 has no upgrade: its `upgrade` is another name for `update`, and it ignores the version.
 
-**Fix.** Upgrade with the new release's installer and `--upgrade`; see [Operations → Upgrading from 0.13.0](./OPERATIONS.md#upgrading-from-0130) or [Operations → Upgrading from 0.12.x](./OPERATIONS.md#upgrading-from-012x). From 0.12.x, use the installer of a release later than 0.14.0, not 0.14.0's. If that upgrade stopped before the first file moved in, the deployment still has the old release's `byodt`: run the installer again, which takes the upgrade over.
+**Fix.** Upgrade with the new release's installer and `--upgrade`; see [Operations → Upgrading from 0.13.0](./OPERATIONS.md#upgrading-from-0130) or [Operations → Upgrading from 0.12.x](./OPERATIONS.md#upgrading-from-012x). From 0.12.x, use 0.15.0's installer or a later one, not 0.14.0's. If that upgrade stopped before the first file moved in, the deployment still has the old release's `byodt`: run the installer again, which takes the upgrade over.
 
 ---
 

@@ -56,12 +56,12 @@ Usage:
   module-manager export  <module-path> [--output <path>] [--include-embeddings]
 
 Options:
-  --target <path>        Module installation directory
+  --target <path>        Module installation directory (default: ./custom_modules)
   --import-dir <path>    Memgraph CSV import directory
   --db-uri <uri>         Bolt URI (default: bolt://localhost:7687)
-  --db-user <user>       DB user  (default: neo4j)
+  --db-user <user>       DB user  (default: dethernety)
   --db-pass <pass>       DB password (or set NEO4J_PASSWORD)
-  --state-file <path>    installed-modules.json path
+  --state-file <path>    installed-modules.json path (default: ./installed-modules.json)
   --profile <id>         Embedding profile (embed only, default: the platform's default)
   --models-dir <dir>     The profile's weights (embed only; or set EMBEDDING_MODEL_DIR)
   --download             Fetch missing weights at the profile's pinned revision (embed only)

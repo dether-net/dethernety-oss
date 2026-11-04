@@ -257,7 +257,7 @@ export abstract class ClientDependentTool extends BaseTool { requiresClient = tr
 ### Source Directory Layout
 
 ```
-oss/apps/dethereal/src/
+apps/dethereal/src/
 ├── index.ts                        # Server entry point, MCP handlers
 ├── config.ts                       # Configuration validation, debug mode
 ├── client/

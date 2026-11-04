@@ -5,7 +5,9 @@
  * graph, or from a service that answers queries over content the deployment never holds.
  * `KgClient` is the single surface a consumer touches, so which of the two is in use is
  * deployment configuration rather than something every caller re-implements. The
- * implementations live behind a factory; nothing above this interface knows which it has.
+ * implementations live behind a factory; nothing above this interface knows which it has. The one
+ * thing a client names about itself is `version`, which identifies the content that answers, not
+ * how it is reached.
  *
  * The query set is not designed — it is read off the callers. Every query is keyed by
  * identifiers the caller already holds, and there is no enumeration: no "list all rules", no
@@ -152,6 +154,15 @@ export const KG_KEY_SEPARATOR = '\u001F';
  * absence of matches.
  */
 export interface KgClient {
+  /**
+   * The knowledge-graph version this client is pinned to: the published content digest a remote
+   * service is asked for, so a consumer can say which version answered. `null` where nothing is
+   * pinned: the graph is local, or no knowledge graph is configured. A service configured with an
+   * absent or malformed pin reaches no knowledge graph, and reads `null` too; a rejected value is
+   * never echoed.
+   */
+  readonly version: string | null;
+
   capability(token?: string): Promise<KgCapability>;
 
   rulesByClassId(

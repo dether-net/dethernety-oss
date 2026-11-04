@@ -564,6 +564,8 @@ The new release's `byodt` then does everything [described above](#what-an-upgrad
 
 **If it stops** before the first file moved in, the deployment still has 0.13.0's `byodt`, whose `upgrade` cannot resume it. Run the installer again: it takes the upgrade over, and says `An earlier upgrade stopped before it changed anything; starting this one in its place.` If it stopped later, the new `byodt` is already in place: run `./byodt upgrade` to go on.
 
+**Read the notes at the head of every release you skip, in the [CHANGELOG](../../../CHANGELOG.md)** (*Upgrading*, *Operators* and the others). An upgrade skips past them, and nothing checks most of the steps they ask of you: going from 0.13.0 to 0.15.0, read 0.14.0's too.
+
 ### Upgrading from 0.12.x
 
 A 0.12.x deployment upgrades the same way as one on 0.13.0: once, with a release's installer and `--upgrade`, naming the deployment's folder. Release 0.12.x's `./byodt upgrade` is another name for `update` too. You do not need to step through 0.13.0 or 0.14.0 first.
@@ -574,13 +576,13 @@ curl --proto '=https' --tlsv1.2 -fsSL "https://github.com/dether-net/dethernety-
   | sh -s -- --upgrade --dir /path/to/your/deployment
 ```
 
-**Use the installer of a release later than 0.14.0, not 0.14.0's.** A 0.12.x folder keeps the `db` service in `compose.yaml` and has no `compose.memgraph.yaml`. 0.14.0's installer cannot read that layout before its files move in, so it stops at the database check, although the database is running:
+**Use 0.15.0's installer or a later one, not 0.14.0's.** A 0.12.x folder keeps the `db` service in `compose.yaml` and has no `compose.memgraph.yaml`. 0.14.0's installer cannot read that layout before its files move in, so it stops at the database check, although the database is running:
 
 ```
 error: The database is not running, so the graph cannot be backed up first. Start it ('/path/to/your/deployment/byodt up'), or add --skip-graph-backup. Nothing was changed.
 ```
 
-With a `compose.override.yaml` it also warns, wrongly, that it could not read that file. Nothing is changed. Do not add `--skip-graph-backup` to get past it: run the installer of a release later than 0.14.0 instead.
+With a `compose.override.yaml` it also warns, wrongly, that it could not read that file. Nothing is changed. Do not add `--skip-graph-backup` to get past it: run 0.15.0's installer or a later one instead.
 
 **One thing differs: edit detection.** 0.12.x keeps no record of the files it shipped, so the new `byodt` cannot tell whether you edited them. It says so, naming your release, and goes on. On 0.12.1:
 
@@ -595,7 +597,7 @@ Everything else is as [from 0.13.0](#upgrading-from-0130):
 - **The graph backup** is taken by 0.12.x's own `byodt`, and the rollback steps bring back 0.12.x's, whose `restore` also asks you to type `restore`.
 - **If it stops**, run the installer again, or `./byodt upgrade` once the new `byodt` is in place, as from 0.13.0.
 - **The changes 0.13.0 made are done for you.** The new `byodt` records `DB_ENGINE=memgraph` in `.env` on its first run, and the `db` service moves into `compose.memgraph.yaml`, so run the stack through `byodt` only. It warns about an override file with another name, such as `compose.override.yml`; rename it to `compose.override.yaml`.
-- **Read the *Upgrading* notes of 0.13.0 and of every later release in the [CHANGELOG](../../../CHANGELOG.md).** An upgrade from 0.12.x skips past them all, and nothing checks the steps they ask of you. 0.13.0's, for example: update each installed module that has a frontend to a version that ships `frontend/frontend-manifest.json`; reload any browser tab left open across the upgrade; a CDN or reverse proxy in front of dt-ws must honour `Cache-Control: private` on `/module-bundles/`, and must not cache it by path.
+- **Read the notes at the head of 0.13.0 and of every later release, in the [CHANGELOG](../../../CHANGELOG.md)** (*Upgrading*, *Operators* and the others). An upgrade from 0.12.x skips past them all, and nothing checks most of the steps they ask of you. 0.13.0's, for example: update each installed module that has a frontend to a version that ships `frontend/frontend-manifest.json`; reload any browser tab left open across the upgrade; a CDN or reverse proxy in front of dt-ws must honour `Cache-Control: private` on `/module-bundles/`, and must not cache it by path.
 - **On Memgraph with `podman-compose`**, 0.12.x's graph backup fails as 0.13.0's does. Take the snapshot by hand and add `--skip-graph-backup`; see [Upgrading on Podman](#upgrading-on-podman).
 
 ### Upgrading on Podman

@@ -576,21 +576,25 @@ const httpLink = createHttpLink({
 
 ### URL Configuration
 
+A development build (dev server) reads these `VITE_*` keys. A production build reads the same settings only from the backend's `/config` response (see [Runtime Configuration](#runtime-configuration) and the [Configuration Guide](../../../CONFIGURATION_GUIDE.md#frontend-configuration-dt-ui)).
+
 | Variable | Purpose | Example |
 |----------|---------|---------|
-| `VITE_GRAPHQL_URL` | GraphQL HTTP endpoint | `https://api.example.com/graphql` |
-| `VITE_WS_URL` | WebSocket endpoint | `wss://api.example.com/graphql` |
-| `VITE_SSE_URL` | SSE endpoint | `https://api.example.com/graphql/stream` |
+| `VITE_GRAPHQL_URL` | GraphQL HTTP endpoint | `http://localhost:3003/graphql` |
+| `VITE_GRAPHQL_WS_URL` | WebSocket endpoint (used when the transport is `ws`) | `ws://localhost:3003/graphql` |
 | `VITE_SUBSCRIPTION_TRANSPORT` | Transport type | `sse` or `ws` |
 
+The SSE URL has no key of its own: the client builds it as `graphqlUrl` + `/stream`. The WebSocket URL is `graphqlWsUrl`: with `VITE_GRAPHQL_WS_URL` unset, a development build uses `ws://localhost:3003/graphql`; a production build, whose `/config` leaves it empty, detects it from the page.
+
 ### Runtime Configuration
+
+The backend's `/config` response fixes `graphqlUrl` at `/graphql` and leaves `graphqlWsUrl` empty. `SUBSCRIPTION_TRANSPORT` in the backend's environment sets `subscriptionTransport`.
 
 ```typescript
 // Fetched from /config endpoint in production
 interface FrontendConfig {
   graphqlUrl: string
-  wsUrl?: string
-  sseUrl?: string
+  graphqlWsUrl?: string
   subscriptionTransport: 'sse' | 'ws'
   // ... other config
 }

@@ -1057,11 +1057,11 @@ alongside a specific fix, which is why the coverage is deep on one axis and abse
 
 | Service | Test file | Subject | Planned cases still open |
 |---------|-----------|---------|--------------------------|
-| `match_classes` | `oss/apps/dt-ws/src/gql/resolver-services/__tests__/match-classes-resolver.service.spec.ts` | The componentType filter across all matching tiers (6 cases) | Module filtering, empty elements array, max batch exceeded |
-| `get_control_gaps` | `oss/apps/dt-ws/src/gql/resolver-services/__tests__/control-gaps-resolver.service.spec.ts` (unit, 4 cases) + `oss/apps/dt-ws/test/integration/control-gaps.e2e-spec.ts` (live Memgraph, 6 cases) | Graph-Integer LIMIT binding, bucket accounting summing to `totalExposures`, `configuredCoverage` feeding the Phase-3 pool, empty-scope short-circuit; live: the Phase-3 LIMIT regression, nested boundary/flow exposures, a boundary-less model, the mitigated path, a control on a Data element mitigating that element's exposure while one on the component that HANDLES it does not, ATLAS links skipped | Unaddressable (no ControlClass) |
-| `findControls` | `oss/packages/dt-core/src/dt-control/__tests__/find-controls-intersect.test.ts` | The `controlId` + `elementIds` intersection — notably that a disjoint pair yields an empty id set rather than everything | Filter by class, by module, combined filters |
-| `assignControlToElements` | `oss/packages/dt-core/src/dt-control/__tests__/assign-control-idempotent.test.ts` | Idempotency across sequential calls (10 cases): the connect delta, the four typed paths, a data item already supported, dedup of both the incoming list and the read, no-mutation-when-attached, read-failure propagation | — |
-| `EmbeddingService` | `oss/apps/dt-ws/src/gql/services/__tests__/embedding.service.spec.ts` | Against a stubbed in-process embedder: the profile and the ignored HTTP-embedder settings, the start-up wait and the ready signal, the start (verification, warm-up failure, a worker that fails after it was ready, a failed acquisition), a shutdown during a download, the pending state, `embedEach`'s per-text fallback, the disabled paths. The worker thread, the download and the verification are tested in the `@dethernety/embedder` package's own suite | An embed against the real model inside dt-ws |
+| `match_classes` | `apps/dt-ws/src/gql/resolver-services/__tests__/match-classes-resolver.service.spec.ts` | The componentType filter across all matching tiers (6 cases) | Module filtering, empty elements array, max batch exceeded |
+| `get_control_gaps` | `apps/dt-ws/src/gql/resolver-services/__tests__/control-gaps-resolver.service.spec.ts` (unit, 4 cases) + `apps/dt-ws/test/integration/control-gaps.e2e-spec.ts` (live Memgraph, 6 cases) | Graph-Integer LIMIT binding, bucket accounting summing to `totalExposures`, `configuredCoverage` feeding the Phase-3 pool, empty-scope short-circuit; live: the Phase-3 LIMIT regression, nested boundary/flow exposures, a boundary-less model, the mitigated path, a control on a Data element mitigating that element's exposure while one on the component that HANDLES it does not, ATLAS links skipped | Unaddressable (no ControlClass) |
+| `findControls` | `packages/dt-core/src/dt-control/__tests__/find-controls-intersect.test.ts` | The `controlId` + `elementIds` intersection — notably that a disjoint pair yields an empty id set rather than everything | Filter by class, by module, combined filters |
+| `assignControlToElements` | `packages/dt-core/src/dt-control/__tests__/assign-control-idempotent.test.ts` | Idempotency across sequential calls (10 cases): the connect delta, the four typed paths, a data item already supported, dedup of both the incoming list and the read, no-mutation-when-attached, read-failure propagation | — |
+| `EmbeddingService` | `apps/dt-ws/src/gql/services/__tests__/embedding.service.spec.ts` | Against a stubbed in-process embedder: the profile and the ignored HTTP-embedder settings, the start-up wait and the ready signal, the start (verification, warm-up failure, a worker that fails after it was ready, a failed acquisition), a shutdown during a download, the pending state, `embedEach`'s per-text fallback, the disabled paths. The worker thread, the download and the verification are tested in the `@dethernety/embedder` package's own suite | An embed against the real model inside dt-ws |
 
 Of the five planned integration flows, only **gap analysis end-to-end** landed. No integration spec
 exercises `matchClasses`, and the embedding flows have little coverage —
@@ -1069,7 +1069,7 @@ exercises `matchClasses`, and the embedding flows have little coverage —
 active embedder on.
 
 **Two cautions.** The dt-core suites assert what the writer *emits* against a mocked Apollo client,
-not what a graph ends up holding. And `oss/apps/dt-ws/test/integration/relationship-edge-uniqueness.e2e-spec.ts`
+not what a graph ends up holding. And `apps/dt-ws/test/integration/relationship-edge-uniqueness.e2e-spec.ts`
 is **not** `assignControlToElements`' graph-level proof, despite the overlapping subject: it exercises
 the element-side association write path (`Component.controls` with per-entry `id: { eq: }` connects)
 and never the `id: { in: }` broadcast this method uses. Do not cite it as such.
@@ -1087,7 +1087,7 @@ and never the `id: { in: }` broadcast this method uses. Do not cite it as such.
 
 ## Related Documents
 
-- [BACKEND_DELEGATION.md](BACKEND_DELEGATION.md) — Architecture rationale and decision framework
-- [CONTROL_INTEGRATION.md](CONTROL_INTEGRATION.md) — Control workflow design (consumer of these services)
-- [PLUGIN_ARCHITECTURE.md](PLUGIN_ARCHITECTURE.md) — MCP server architecture (MCP tool layer above dt-core)
-- [MCP_ARCHITECTURE.md](MCP_ARCHITECTURE.md) — How MCP tools wrap dt-core methods
+- [BACKEND_DELEGATION.md](../../dethereal/BACKEND_DELEGATION.md) — Architecture rationale and decision framework
+- [CONTROL_INTEGRATION.md](../../dethereal/CONTROL_INTEGRATION.md) — Control workflow design (consumer of these services)
+- [PLUGIN_ARCHITECTURE.md](../../dethereal/PLUGIN_ARCHITECTURE.md) — MCP server architecture (MCP tool layer above dt-core)
+- [MCP_ARCHITECTURE.md](../../dethereal/MCP_ARCHITECTURE.md) — How MCP tools wrap dt-core methods

@@ -767,8 +767,12 @@ pnpm embed --models-dir ~/models --download
 # 2. Package, so the embeddings/ directories end up in the tarball
 pnpm build
 
-# 3. Install
-../../scripts/module-manager.sh install dist/my-module-1.0.0.tar.gz
+# 3. Install into the platform's module directory; --target and --state-file
+#    default to custom_modules/ and installed-modules.json in the current
+#    directory (here, the module's folder)
+../../scripts/module-manager.sh install dist/my-module-1.0.0.tar.gz \
+  --target ../../apps/dt-ws/custom_modules \
+  --state-file ../../apps/dt-ws/custom_modules/installed-modules.json
 ```
 
 To do every module under one or more roots in one embedder session:
@@ -826,7 +830,7 @@ node scripts/check-module-embeddings.mjs modules
 
 ### Packager support
 
-`oss/scripts/package-module.js` copies the entire `data/` tree
+`scripts/package-module.js` copies the entire `data/` tree
 recursively, so `embeddings/` directories are included automatically in
 the resulting tarball. Legacy cypher/csv modules are **not** supported
 (see [Packaging](./PRE_COMPUTED_EMBEDDINGS_SPEC.md#packaging)).
