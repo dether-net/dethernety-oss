@@ -1,5 +1,6 @@
 export * from './interfaces/core-types-interface.js'
 export * from './dt-utils/dt-utils.js'
+export * from './dt-utils/flat-keys.js'
 export * from './dt-utils/link-delta.js'
 export * from './dt-utils/connect-id.js'
 export * from './dt-model/dt-model.js'

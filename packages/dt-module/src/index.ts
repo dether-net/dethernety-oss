@@ -14,6 +14,7 @@ export * from './interfaces/module-resolver-interface';
 export * from './interfaces/kg-client-interface';
 
 export * from './db-ops';
+export * from './flat-keys';
 export { EngineProbeError, probeEngine, resolveEngine } from './engine';
 export type { Dialect, EngineInfo } from './engine';
 export * from './ddl';

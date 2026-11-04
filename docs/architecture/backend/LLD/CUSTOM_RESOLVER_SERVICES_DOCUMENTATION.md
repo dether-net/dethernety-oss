@@ -1137,7 +1137,7 @@ A disposition's `dispositionStale` flag tracks whether the finding has drifted s
    SET e.dispositionStale = true
    ```
 
-   and the `HAS_COUNTERMEASURE` / `Countermeasure` analogue. Each no-ops for the wrong element type (a component carries exposures, a Control carries countermeasures — never both on one node), so these are two independent single-edge flips, not a label-disjunction or two-hop traversal. The flip is gated at the TypeScript level on a `valueChanged` boolean: Memgraph 3.8's planner does not constant-fold a Bolt boolean ahead of the seed lookup, so an unconditional run would waste the `MATCH`. The returned `staleFlippedCount` sums both statements.
+   and the `HAS_COUNTERMEASURE` / `Countermeasure` analogue. Each no-ops for the wrong element type (a component carries exposures, a Control carries countermeasures — never both on one node), so these are two independent single-edge flips, not a label-disjunction or two-hop traversal. The flip is gated at the TypeScript level on a `valueChanged` boolean, true when a stored key changed and the answers did, as the policies read them (moving an answer from a whole list to the same `name[i]` entries rewrites keys but flips nothing): Memgraph 3.8's planner does not constant-fold a Bolt boolean ahead of the seed lookup, so an unconditional run would waste the `MATCH`. The returned `staleFlippedCount` sums both statements.
 
 2. **USER-copy-delete companion.** When a USER copy of a finding is deleted, a fire-and-forget `updateExposures` / `updateCountermeasures` flips `dispositionStale = true` on any `SUPERSEDED` finding whose `dispositionReason CONTAINS "'<name>'"` (single-quote-wrapped). The single-quote wrapping in the default `SUPERSEDED` reason is load-bearing for this match.
 

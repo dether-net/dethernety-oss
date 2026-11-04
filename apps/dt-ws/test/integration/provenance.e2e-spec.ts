@@ -48,6 +48,14 @@ const directiveTypeDefs = `
       @populatedBy(callback: "populateAuthoredByOnCreate", operations: [CREATE])
       @settable(onUpdate: false)
   }
+
+  # An element holding findings, like the production element types' \`exposures\` relationship (no nestedOperations
+  # restriction), so a finding can be created nested inside the element's create or update.
+  type ProbeElement @node {
+    id: ID!
+    name: String!
+    findings: [ProbeFinding!]! @relationship(type: "HAS_EXPOSURE", direction: OUT)
+  }
 `;
 
 // Production context shape (per oss/apps/dt-ws/src/gql/gql.module.ts:130-162):
@@ -156,6 +164,35 @@ describe('Provenance — Exposure/Countermeasure invariants', () => {
       expect(result.errors).toBeUndefined();
       const node = (result.data as any)?.createProbeFindings?.probeFindings?.[0];
       expect(node).toEqual({ id: 'f2', authoredBy: null, createdBy: 'USER' });
+    });
+
+    // A finding created nested inside an element's create or update is a CREATE too: @neo4j/graphql 7.2.0 builds
+    // it with the same create translation and callback bucket as a top-level create, so it must be stamped the same.
+    it('stamps a finding created nested inside an element create', async () => {
+      const result = await graphql({
+        schema: directiveSchema,
+        source: `mutation { createProbeElements(input: [{ id: "el1", name: "e", findings: { create: [{ node: { id: "nf1", name: "n" } }] } }]) { probeElements { id findings { id authoredBy createdBy } } } }`,
+        contextValue: ctx('user-42'),
+      });
+      expect(result.errors).toBeUndefined();
+      const element = (result.data as any)?.createProbeElements?.probeElements?.[0];
+      expect(element?.findings).toEqual([{ id: 'nf1', authoredBy: 'user-42', createdBy: 'USER' }]);
+    });
+
+    it('stamps a finding created nested inside an element update', async () => {
+      await graphql({
+        schema: directiveSchema,
+        source: `mutation { createProbeElements(input: [{ id: "el2", name: "e" }]) { probeElements { id } } }`,
+        contextValue: ctx('user-1'),
+      });
+      const result = await graphql({
+        schema: directiveSchema,
+        source: `mutation { updateProbeElements(where: { id_EQ: "el2" }, update: { findings: [{ create: [{ node: { id: "nf2", name: "n" } }] }] }) { probeElements { id findings { id authoredBy createdBy } } } }`,
+        contextValue: ctx('user-42'),
+      });
+      expect(result.errors).toBeUndefined();
+      const element = (result.data as any)?.updateProbeElements?.probeElements?.[0];
+      expect(element?.findings).toEqual([{ id: 'nf2', authoredBy: 'user-42', createdBy: 'USER' }]);
     });
 
     it('does NOT fire the callback on update (operations: [CREATE] honored)', async () => {

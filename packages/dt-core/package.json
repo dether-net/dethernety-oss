@@ -13,6 +13,10 @@
       "types": "./dist/schemas/index.d.ts",
       "import": "./dist/schemas/index.js"
     },
+    "./flat-keys": {
+      "types": "./dist/dt-utils/flat-keys.d.ts",
+      "import": "./dist/dt-utils/flat-keys.js"
+    },
     "./zone-determination": {
       "types": "./dist/dt-boundary/zone-determination.d.ts",
       "import": "./dist/dt-boundary/zone-determination.js"

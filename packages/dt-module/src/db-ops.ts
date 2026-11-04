@@ -1,3 +1,5 @@
+import { unflattenFlatKeys } from './flat-keys';
+
 /**
  * Coerce a neo4j `Integer` to a plain JS value at the graph→policy-engine seam.
  *
@@ -46,66 +48,18 @@ export class DbOps {
   }
 
   /**
-   * Unflattens a nested object.
-   * @param obj The object to unflatten
-   * @returns 
+   * Rebuilds an element's flat attribute properties (`name`, `name.part`, `name[3]`) into the nested value its
+   * policies read, coercing graph integers at each leaf. A key over the limits in flat-keys.ts is left out, so it
+   * reads as unanswered.
+   * @param obj The flat properties
+   * @returns The nested value
    */
   unflattenProperties(obj: any): any {
-    const result: any = {};
-  
-    // Iterate over each flat key in the object.
-    for (const flatKey in obj) {
-      if (!obj.hasOwnProperty(flatKey)) continue;
-      const value = obj[flatKey];
-  
-      // Use a regex to extract both property names and array indices.
-      // This regex matches either a sequence of characters that are not a dot or square bracket,
-      // or matches a number inside square brackets.
-      const regex = /([^\.\[\]]+)|\[(\d+)\]/g;
-      const keys: (string | number)[] = [];
-      let match;
-      while ((match = regex.exec(flatKey)) !== null) {
-        if (match[1] !== undefined) {
-          if (match[1] === '__proto__' || match[1] === 'constructor' || match[1] === 'prototype') {
-            continue;
-          }
-          keys.push(match[1]);
-        } else if (match[2] !== undefined) {
-          keys.push(Number(match[2])); // Convert array index to a number.
-        }
-      }
-  
-      // Now rebuild the nested structure from the keys.
-      let current = result;
-      for (let i = 0; i < keys.length; i++) {
-        const k = keys[i];
-  
-        // If we're at the last key, assign the value (coercing neo4j Integers to plain
-        // JS values at this single leaf point — every scalar, nested key and array element
-        // passes through here).
-        if (i === keys.length - 1) {
-          current[k] = coerceNeoInt(value);
-        } else {
-          // Decide whether the next key is a number (an array index) or a property.
-          const nextKey = keys[i + 1];
-  
-          if (typeof nextKey === 'number') {
-            // The next key is a number, so we need an array at the current position.
-            if (!Array.isArray(current[k])) {
-              current[k] = [];
-            }
-          } else {
-            // Otherwise, we need an object.
-            if (typeof current[k] !== 'object' || current[k] === null) {
-              current[k] = {};
-            }
-          }
-          // Move deeper into the nested structure.
-          current = current[k];
-        }
-      }
-    }
-    return result;
+    return this.rebuild(obj).value;
+  }
+
+  private rebuild(flat: any) {
+    return unflattenFlatKeys(flat ?? {}, { leaf: coerceNeoInt });
   }
 
   /**
@@ -211,7 +165,14 @@ export class DbOps {
           if (result.records.length === 0) {
             return null;
           }
-          return this.unflattenProperties(result.records[0].get('attributes').properties);
+          const { value, dropped } = this.rebuild(result.records[0].get('attributes').properties);
+          if (dropped.length > 0) {
+            console.warn(
+              `Left out ${dropped.length} attribute key(s) of ${id} for class ${classId} that break the flat-key limits ` +
+                `(${[...new Set(dropped.map((d) => d.problem))].join(', ')})`,
+            );
+          }
+          return value;
         });
     } catch (error) {
       console.error(`Error getting attributes for class relation ${

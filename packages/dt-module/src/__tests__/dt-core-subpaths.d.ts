@@ -11,3 +11,12 @@ declare module '@dethernety/dt-core/operation-determination' {
     OPERATION_CATEGORY_LABEL,
   } from '@dethernety/dt-core';
 }
+
+declare module '@dethernety/dt-core/flat-keys' {
+  export {
+    FLAT_KEY_MAX_INDEX,
+    FLAT_KEY_MAX_LIST_SLOTS,
+    FLAT_KEY_MAX_SEGMENTS,
+    unflattenFlatKeys,
+  } from '@dethernety/dt-core';
+}

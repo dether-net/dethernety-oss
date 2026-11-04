@@ -76,6 +76,9 @@
   // AttributesForm / AttributesDialog bind to; commits flow back into lastLoadedAttributes
   // via saveAttributes. attributesDirty signals the Attributes-tab portion of isDirty.
   const lastLoadedAttributes = ref<object>({})
+  // The stored keys as loaded, flat. A save clears every one it no longer sends, so an answer the form cannot show (a
+  // whole list stored by another writer beside its `name[i]` keys, or a key the rebuild leaves out) does not outlive it.
+  const storedAttributeKeys = ref<Record<string, unknown>>({})
   const pendingAttributes = ref<object>({})
   const attributesDirty = ref(false)
   const attributesSchema = shallowRef<object | null>(null)
@@ -172,6 +175,7 @@
     attributesSchema.value = null
     attributesUiSchema.value = null
     lastLoadedAttributes.value = {}
+    storedAttributeKeys.value = {}
     pendingAttributes.value = {}
     attributesDirty.value = false
     attributesTemplateWarning.value = false
@@ -208,6 +212,7 @@
       })
 
       const loaded = unflattenProperties(rawProperties)
+      storedAttributeKeys.value = (rawProperties ?? {}) as Record<string, unknown>
       lastLoadedAttributes.value = loaded
       pendingAttributes.value = loaded
       attributesDirty.value = false
@@ -227,7 +232,8 @@
       // What this save sends. An edit made while it is in flight replaces pendingAttributes, so it stays unsaved.
       const sent = pendingAttributes.value
       // An answer taken back (Not answered) is sent as null, so the server clears it.
-      const flatAttributes = withClearedAttributes(flattenProperties(lastLoadedAttributes.value), flattenProperties(sent))
+      const sentFlat = flattenProperties(sent)
+      const flatAttributes = withClearedAttributes({ ...storedAttributeKeys.value, ...flattenProperties(lastLoadedAttributes.value) }, sentFlat)
 
       // setInstantiationAttributesWithStaleCount returns the
       // number of dispositioned exposures whose `dispositionStale` flipped to
@@ -245,6 +251,7 @@
       }
 
       lastLoadedAttributes.value = sent
+      storedAttributeKeys.value = sentFlat
       if (pendingAttributes.value === sent) attributesDirty.value = false
       // Refetch exposures so the row-level stale flags propagate to the
       // exposures table. The staleFlippedCount is the *count*, not the *which*
@@ -674,7 +681,7 @@
   defineExpose({
     onClassChangeDiscard, onSubmit, name, description, dataClass,
     sensitivity, regulatoryFlags, origin, isCredential, attributesDirty, pendingClassId, initialState,
-    lastLoadedAttributes, pendingAttributes, saveAttributes, onAttributesChanged,
+    lastLoadedAttributes, storedAttributeKeys, pendingAttributes, saveAttributes, onAttributesChanged,
     tab, selectedControlIds, showRemoveControlDialog, onAddControls, onSelectedControlIds,
     onRemoveControlConfirmed, onRemoveControlCanceled,
   })
