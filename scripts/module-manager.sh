@@ -11,12 +11,12 @@
 #   ./scripts/module-manager.sh list    [options]
 #
 # Options:
-#   --target <path>       Module installation target (default: custom_modules next to this script)
+#   --target <path>       Module installation target (default: custom_modules in the current directory)
 #   --import-dir <path>   Memgraph CSV import directory (for LOAD CSV)
 #   --db-uri <uri>        Bolt connection URI       (default: bolt://localhost:7687)
 #   --db-user <user>      Database user              (default: dethernety)
 #   --db-pass <pass>      Database password           (default: from env NEO4J_PASSWORD)
-#   --state-file <path>   Path to installed-modules.json
+#   --state-file <path>   Path to installed-modules.json (default: in the current directory)
 #   --help                Show this message
 
 set -euo pipefail
@@ -149,12 +149,12 @@ Usage:
   $(basename "$0") export  <module-path> [opts]         Package module for Studio import
 
 Options:
-  --target <path>        Module installation target directory
+  --target <path>        Module installation target directory (default: ./custom_modules)
   --import-dir <path>    Memgraph CSV import directory (for LOAD CSV)
   --db-uri <uri>         Bolt URI       (default: bolt://localhost:7687)
   --db-user <user>       Database user  (default: dethernety)
   --db-pass <pass>       Database password
-  --state-file <path>    Path to installed-modules.json
+  --state-file <path>    Path to installed-modules.json (default: ./installed-modules.json)
   --models-dir <dir>     The profile's weights (embed; or set EMBEDDING_MODEL_DIR)
   --profile <id>         Embedding profile (embed; default: the platform's default)
   --download             Fetch missing weights at the profile's pinned revision (embed)

@@ -22,7 +22,7 @@ The application is built with:
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 22.12+; a current Node.js LTS (22, 24 or 26) is recommended
 - Neo4j Database
 - LangGraph server (for AI analysis features)
 

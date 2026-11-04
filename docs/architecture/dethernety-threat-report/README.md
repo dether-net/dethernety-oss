@@ -34,7 +34,7 @@ The **Coverage & Gaps** surface is enriched by graded MITRE coverage facts from 
 
 ## Module source
 
-The implementation lives at [`oss/modules/dethernety-threat-report/`](../../../modules/dethernety-threat-report/) — the backend class under `src/`, the Vue application and its pure compute libraries under `frontend/`.
+The implementation lives at [`modules/dethernety-threat-report/`](../../../modules/dethernety-threat-report/) — the backend class under `src/`, the Vue application and its pure compute libraries under `frontend/`.
 
 ## Related documentation
 

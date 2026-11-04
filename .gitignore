@@ -47,6 +47,8 @@ apps/dt-ws/.env copy
 
 **/custom_modules/
 **/custom_modules/*
+# module-manager's install state, written to the current directory unless --state-file says otherwise
+**/installed-modules.json
 
 venv
 

@@ -61,7 +61,7 @@ The plugin assists users to perform the full data flow model creation lifecycle:
 ### Directory Layout
 
 ```
-oss/apps/dethereal/
+apps/dethereal/
 ├── .claude-plugin/
 │   └── plugin.json                    # Plugin manifest
 ├── agents/

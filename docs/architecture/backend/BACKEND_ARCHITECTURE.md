@@ -681,7 +681,7 @@ await session.executeWrite(async (tx) => {
 ### Deployment Requirements
 
 **Infrastructure:**
-- Node.js 18+ runtime environment
+- Node.js 22.12+ runtime environment; a current Node.js LTS (22, 24 or 26) is recommended
 - Bolt-compatible graph database (Neo4j 7.x or Memgraph)
 - HTTPS/WSS load balancer
 - Container orchestration (Docker/Kubernetes)

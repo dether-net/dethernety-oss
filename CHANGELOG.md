@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.15.0] - 2026-11-04
 
 Elements bound to a remote module's classes are stamped with the class policy at their next save,
 when the module's catalog serves a policy hash file for its version. Existing elements are stamped
@@ -14,15 +14,59 @@ evaluate a remote module's elements. Component and security-boundary classes gai
 who operates a component's own software or the environment a boundary hosts, the product, and a
 component's version.
 
-**Module authors:** `@dethernety/dt-module` gains the `./policy-hash` export, the optional
-`DTModule` method `evaluatesWithCallerTokenOnly()`, the knowledge-graph fields `KgAttribute.side`
-and `KgRule.policyHash`, and the operation-field constants and helpers; `@dethernety/dt-core` gains
-the `./operation-determination` export (see *Added*). An implementation of the knowledge-graph
-client must now return both fields. A class must not define attributes under the reserved prefix
-`dethernety_`: the platform drops any it finds and serves its own. In
-`@dethernety/dt-module/testing`, the template and guide fixtures change shape,
-`guideResponse.guide` is typed `unknown`, and `runContractSuite` expects the operation fields on a
-served template and guide (see *Changed*).
+A 0.12.x deployment can upgrade straight to this release. An element's stored attribute answers are
+rebuilt within fixed limits, and a save now replaces an answer stored in another shape, where before
+that answer could make the save be ignored. A dt-ui production build reads its configuration only
+from `GET /config`, and does not start when that cannot be read. On a fresh clone, the root `pnpm
+dev` no longer fails on the operator console's UI, and `pnpm m-ingest` and `pnpm m-cleanup` always
+run.
+
+**Upgrading:** from 0.14.0, `./byodt upgrade` does it (see the operator guide's Operations, *Upgrade
+with `./byodt upgrade`*). A 0.13.0 or 0.12.x deployment cannot upgrade itself: there, `./byodt
+upgrade` is another name for `update`, and stays on the old release. Upgrade it once with this
+release's installer, naming the deployment's folder (see Operations, *Upgrading from 0.13.0* and
+*Upgrading from 0.12.x*):
+
+```sh
+curl --proto '=https' --tlsv1.2 -fsSL https://github.com/dether-net/dethernety-oss/releases/download/v0.15.0/get-byodt.sh \
+  | sh -s -- --upgrade --dir /path/to/your/deployment
+```
+
+From then on, `./byodt upgrade` does the next upgrade. **From 0.12.x**, `byodt` cannot tell which
+shipped files you edited: it replaces an edited one without asking and keeps it in the upgrade's
+backup, so move local changes into `compose.override.yaml` first. A deployment that skips releases
+reads the notes at the head of each skipped release in this changelog (*Upgrading*, *Operators* and
+the others), so 0.13.0 to 0.15.0 also reads 0.14.0's, and 0.12.x to 0.15.0 those of 0.13.0 and
+0.14.0. **On Memgraph with `podman-compose`**, the graph backup of an upgrade from 0.13.0 or 0.12.x
+is taken by the old release's `byodt`, and it fails there: take the snapshot by hand and add
+`--skip-graph-backup` to the installer command above (see Operations, *Upgrading on Podman*).
+
+**Module authors:** `@dethernety/dt-module` is 0.15.0. A module whose manifest declares
+`compatibility.dtModule` must move it to `^0.15.0` to be packaged against it: a caret on a 0.x
+version pins the minor, so `scripts/package-module.js` refuses `^0.14.0`. `@dethernety/dt-module`
+gains the `./policy-hash` export, the optional `DTModule` method `evaluatesWithCallerTokenOnly()`,
+the knowledge-graph fields `KgAttribute.side`, `KgRule.policyHash` and `KgClient.version`, the
+operation-field constants and helpers, and the flat-key functions at its root;
+`@dethernety/dt-core` gains the `./operation-determination` and `./flat-keys` exports (see *Added*).
+`DbOps` now rebuilds an element's attributes within the flat-key limits (see *Fixed*). An
+implementation of the knowledge-graph client must now return both new payload fields and declare
+`version`. A class must not define attributes under the reserved prefix `dethernety_`: the platform
+drops any it finds and serves its own. In `@dethernety/dt-module/testing`, the template and guide
+fixtures change shape, `guideResponse.guide` is typed `unknown`, and `runContractSuite` expects the
+operation fields on a served template and guide (see *Changed*).
+
+**API callers:** `setInstantiationAttributes` now refuses, with `VALIDATION_ERROR`, a key the
+rebuild would leave out, on its own or merged into the stored answers, or one not in its plain form
+(see *Fixed*).
+
+**Dethereal users:** `@dether.net/dethereal` 0.4.20 has no changes of its own. It bundles dt-core,
+so its model export rebuilds attributes within the new limits (see *Fixed*). Dethereal is published
+separately from this release.
+
+**Building from source:** use Node.js 22.12 or later; `pnpm install` now stops on an older one (see
+*Changed*). If you copied dt-ui's `env.template` to `.env.local` before, copy it again, or add the
+`VITE_` prefix to your keys: the old template's keys had no `VITE_` prefix, so the dev server read
+none of them (see *Fixed*).
 
 ### Added
 
@@ -53,6 +97,14 @@ served template and guide (see *Changed*).
   `'build'` (the element's own software) or `null` (not marked, read as configuration); any other
   stored value reads as `null`. `policyHash` is the `policyHash` of the class policy the rule was
   derived from, or `null` when the rule was recorded without one. Both keys are always present.
+- **`KgClient.version` in the knowledge-graph client.** `readonly version: string | null` names
+  the knowledge-graph version the client is pinned to, so a consumer can say which version
+  answered. In remote mode it is the `sha256:` content digest from `MODULE_KG_VERSION`. In local
+  mode it is `null`: the graph is the deployment's own, so nothing is pinned. When a service is
+  configured with an absent or malformed pin, no knowledge graph is reached and the client reports
+  `null`; a rejected value is never echoed. An implementation of the knowledge-graph client must
+  now declare the field. A consumer that may run against an older `@dethernety/dt-module` reads it
+  defensively and treats a missing `version` as `null`.
 - **Policy hash fixtures in `@dethernety/dt-module/testing`.** `POLICY_HASH_GOLDEN_POLICY` and
   `POLICY_HASH_GOLDEN_HEX` are a `policies.rego` text and the hash every producer of a `policyHash`
   must compute for it. `policyHashesResponse`, `MockContentServer.setPolicyHashes(mode)` and the
@@ -101,6 +153,16 @@ served template and guide (see *Changed*).
   `setGuide(guide)` set the template or guide every class is served, for a module's own tests.
   Called without an argument, or after `reset()`, the mock serves the fixtures again. The shared
   contract suite does not call them.
+- **`@dethernety/dt-core/flat-keys`, also exported from the package root, and the same exports from
+  the root of `@dethernety/dt-module`.** `unflattenFlatKeys(flat, { padLists, leaf })` rebuilds flat
+  attribute keys (`name`, `name.part`, `name[3]`) into a nested value within fixed limits (see
+  *Fixed*) and returns `{ value, dropped }`; `dropped` lists each key left out, with the reason.
+  `flatKeySegments(key)` returns a key's parts as the rebuild reads them, or why the rebuild leaves
+  the key out on its own. `FLAT_KEY_MAX_INDEX`, `FLAT_KEY_MAX_LIST_SLOTS` and
+  `FLAT_KEY_MAX_SEGMENTS` are the limits. The types are `FlatKeyProblem`, `DroppedFlatKey`,
+  `UnflattenOptions` and `FlatKeySegment`. `@dethernety/dt-module` has no `./flat-keys` subpath. It
+  is CommonJS and holds its own copy of the code, since it cannot load the ESM-only dt-core at run
+  time.
 
 ### Changed
 
@@ -131,6 +193,15 @@ served template and guide (see *Changed*).
 - **A remote module whose version serves a policy hash file is installed once more at the first
   start after the upgrade.** Its class nodes do not yet hold the hashes it now reports, so the
   class policy hash check installs it in full.
+- **The Node.js floor is 22.12.** The root `package.json` declares `engines.node` as `>=22.12.0`,
+  where it declared `>=18`: vite 8 and its Vue plugin need `^20.19 || >=22.12`. pnpm enforces the
+  root project's engines on install, so a setup on an older Node.js now stops at `pnpm install`.
+  Some dependencies declare a higher floor (`@babel/types` 8, which `vue-router` 5 pulls in,
+  `^22.18 || >=24.11`; `eslint` `^22.13`; `testcontainers` `>=22.22`). The root floor does not
+  follow them: on install they only print an engine warning, and a higher root floor would refuse
+  a setup that builds and runs. A current release of Node.js 22, 24 or 26 LTS is recommended, and
+  running the test suite needs 22.22.2+ or 24.15+. The README, CONTRIBUTING, the dt-ws README and
+  the backend architecture page state the same floor.
 
 ### Fixed
 
@@ -152,6 +223,86 @@ served template and guide (see *Changed*).
   check the database`, and no longer points to `--skip-graph-backup`. 0.14.0's installer still
   stops at the database check on 0.12.x: upgrade a 0.12.x deployment with this release's installer
   or a later one's.
+- **A fresh clone's root `pnpm dev` no longer fails on the operator console's UI.** The UI under
+  `apps/byodt-console/ui` is a self-contained package with its own lockfile, outside the workspace,
+  so the root `pnpm install` does not install it, and the console's `dev` script failed the whole
+  `pnpm dev`. The script is now `dev:ui`, which the root `pnpm dev` does not run. The console
+  architecture page gives the two commands that install the UI and start its dev server on its own.
+- **`pnpm m-ingest` and `pnpm m-cleanup` are no longer cached by turbo.** Both act on a database
+  turbo cannot see and declared no outputs, so a second run replayed a cached success: MITRE data
+  was silently not loaded into a new, empty database. They now run every time, and the README's
+  from-source section drops its `pnpm m-ingest --force` workaround.
+- **A dt-ui production build no longer falls back to build-time values when `GET /config` fails.**
+  It fell back to its build-time `VITE_` values, so a build with `VITE_ENABLE_NOAUTH=true` and no
+  `VITE_OIDC_ISSUER` baked in switched the UI's sign-in off whenever `GET /config` could not be
+  read. It now reads its configuration only from `GET /config`. When that cannot be read (request
+  failure, non-OK status, non-JSON body), the UI reads it once more about a second later. If that
+  also fails, the UI does not start and shows a "The platform's configuration is unavailable"
+  screen. **Try again** reloads the page that was opened. See the configuration guide, *Frontend
+  Configuration (dt-ui)*.
+- **dt-ui's `env.template` names the `VITE_`-prefixed keys the dev server reads.** Its header says
+  to copy it to `.env.local`, but its keys had no prefix, and the dev server reads only `VITE_`
+  keys, so a copy did nothing. The keys are now the ones the development configuration reads.
+  `VITE_ENABLE_NOAUTH` is among them, commented out, with the note to comment out `VITE_OIDC_ISSUER`
+  when you enable it. The header now says that a production build reads its configuration only from
+  the backend's `GET /config` at run time, and that the UI stops on the configuration-unavailable
+  screen when that cannot be read. Keys the application reads but does not use yet are marked, and
+  `VITE_BASE_PATH`, for a subdirectory base path, is set in the build's shell environment, not in
+  the file.
+- **`module-manager.sh install`'s help names its defaults correctly, and the module development
+  guide installs into the platform.** `--target` and `--state-file` default to `custom_modules/` and
+  `installed-modules.json` in the current directory. The help said "next to this script" and named
+  no state-file default, and the TypeScript CLI's help named `neo4j` as the default database user,
+  where it is `dethernety`. The guide ran the install from the module's folder without `--target`,
+  so it installed the module into its own folder; its install step now gives `--target` and
+  `--state-file` for `apps/dt-ws/custom_modules`, as the README's from-source setup does.
+  `installed-modules.json` is now ignored by git wherever it is written.
+- **Flat attribute keys are rebuilt within fixed limits.** An element's answers are stored as flat
+  keys (`name`, `name.part`, `name[3]`) and rebuilt into the policy input on every evaluation, into
+  the model export, and in the attribute editors. Before, a list index had no limit. The rebuild now
+  allows a list index of at most 10000, at most 100000 list entries per rebuild, and at most 32
+  parts per key. It takes keys in sorted order, writes only into containers it created, and reads
+  own properties only. A key that breaks a limit, has `__proto__`, `constructor` or `prototype` as a
+  part, or disagrees with an earlier key is left out whole, so it reads as unanswered. When
+  `DbOps.getInstantiationAttributes` leaves keys out, it logs how many, and why.
+- **`setInstantiationAttributes` refuses a key the rebuild would leave out.** The request fails with
+  `VALIDATION_ERROR` and nothing is written. The message gives one short reason per key and the
+  list-total reason once, and stops after 20 reasons with "and N more". A key not in its plain form
+  is refused too, naming that form (`a[x]` is read as `a.x`, `l[01]` as `l[1]`), and so is a key
+  that starts with a list index. A key sent as `null` is still accepted, so it can be cleared.
+- **A save's own shape wins over the keys already stored.** A list can be stored in two shapes: an
+  import writes a whole list (`tags`), model and attribute updates write entries (`tags[0]`), and
+  neither cleared the other. With both stored, the rebuild keeps the first in sorted order, so an
+  update after an import would be ignored. A request that writes a value now locks the element,
+  reads the stored answers, and clears in the same write every stored key whose place disagrees with
+  a place the request writes, at any depth (a whole list against entries, `p[0]` against `p[0].x`, a
+  list against a group). An element holding both shapes heals on its next write. The merge is then
+  checked with the rebuild's limits: one that would still leave out a key the request writes, or a
+  stored key that was kept before this request (a list total pushed over), fails with
+  `VALIDATION_ERROR` and nothing is written. Moving an answer to the other shape with the same
+  values flips no disposition stale. A request that writes nothing (an empty one, or one that only
+  clears) skips all of this and is never refused.
+- **The attribute editors clear the stored keys they no longer send, and a late save leaves the next
+  element alone.** The attributes panel, the data dialog and the control dialog keep the stored keys
+  as loaded, and each save sends `null` for every stored key it does not send. So an answer the form
+  cannot show (a list stored in the other shape by another writer, or a key the rebuild leaves out)
+  does not outlive the save. A key named like a built-in (`toString`, `constructor`) is cleared too.
+  A save's result becomes the form's baseline only if the same element and class are still shown; in
+  the control dialog, only if no class load has started since.
+- **A control's attribute saves go one at a time, and a reopen reads what was saved.** The form
+  stays dirty until a save returns, so a second save of a class could start while the first was in
+  flight, and both worked out what to clear from the answers before either. A class's saves are now
+  sent one at a time, each to the control it was made for, and each clears from the answers the
+  previous one left: what it saved, or, if it failed, what it was made from. A class reopened during
+  a save reads its answers only once every save of that class has settled, and reads them from the
+  server, so it does not bring back the answers a save replaced. A class load that returns after a
+  later one changes nothing. **Save & Close** closes the form it saved, not one opened since. A save
+  that never returns holds back the later saves and a reopen of its class.
+- **The navigation drawer shows the email when the identity provider sends no name.** With neither
+  `name` nor `preferred_username` in the user info, it showed "Unknown" for a signed-in user. The
+  display name now falls back from `name` to `preferred_username` to the email address, and only
+  then to "Unknown". A claim that is missing, empty, whitespace-only or not a string counts as
+  absent, and the value used is trimmed.
 
 ### Documentation
 
@@ -160,9 +311,30 @@ served template and guide (see *Changed*).
   installer stops at the database check; see *Fixed*). 0.12.x keeps no record of the files it
   shipped, so `byodt` cannot tell whether they were edited: it warns, replaces an edited shipped
   file without asking, and keeps it in the backup. On Memgraph with `podman-compose`, take the
-  snapshot by hand and add `--skip-graph-backup`, as from 0.13.0. Read the *Upgrading* notes of
-  0.13.0 and of every later release too: an upgrade from 0.12.x skips them, and nothing checks the
-  steps they ask for. See Operations, *Upgrading from 0.12.x*.
+  snapshot by hand and add `--skip-graph-backup`, as from 0.13.0. Read the notes at the head of
+  0.13.0 and of every later release too (*Upgrading*, *Operators* and the others): an upgrade from
+  0.12.x skips them, and nothing checks most of the steps they ask for. See Operations, *Upgrading
+  from 0.12.x*.
+- **CONTRIBUTING's setup and running steps follow the from-source setup.** Getting Started names
+  what a working local setup needs beyond `pnpm install` (the backend and frontend environment
+  files, a database, the MITRE data load, and the modules built and installed) and links to the
+  README's *From source* section. Running Locally starts the backend and the frontend with
+  `pnpm dev --filter dt-ws --filter dt-ui`, and says that the unfiltered `pnpm dev` also starts the
+  packages' watch builds.
+- **File paths in the public docs are relative to the repository root.** Several pages gave file
+  paths that do not exist in the repository: the configuration guide, the module development guide,
+  the pre-computed embeddings specification, the class and control resolver specification, the
+  module custom resolvers design, the Dethereal architecture pages, and the coverage-tools and
+  threat-report pages. Relative links on those pages that pointed one level short, or at a sibling
+  folder's files, now resolve.
+- **A Quick Start guide, and install docs that say what each way needs.** The Quick Start guide goes
+  from install to a first threat finding. The README, the installation guide, the BYODt guide's
+  overview and the npm package's README present npx first, recommended where Node.js is already
+  installed, with `get-byodt.sh` as the way without it. Their install commands, and the Quick Start
+  guide's, name the current release, and `deploy/tests/docs-release-version.sh` keeps them on it in
+  CI and in the release workflow. The README's *From source* section gives the steps a fresh clone
+  needs. The container requirement is Docker with the Compose plugin, or Podman 4.1+; Docker Desktop
+  is one VM-backed runtime.
 
 
 ## [0.14.0] - 2026-11-02
@@ -3221,6 +3393,7 @@ greenfield ID rebinding, and append-only audit log (#104).
 - GraphQL API with real-time subscriptions
 - OIDC/JWT authentication support
 
+[0.15.0]: https://github.com/dether-net/dethernety-oss/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/dether-net/dethernety-oss/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/dether-net/dethernety-oss/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/dether-net/dethernety-oss/compare/v0.12.0...v0.12.1

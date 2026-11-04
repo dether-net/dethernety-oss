@@ -1449,6 +1449,15 @@ Which implementation a deployment gets follows `MODULE_KG_BASE_URL` and `MODULE_
 ### The interface, entitlement, and the answer shape
 
 - **A consumer sits above `KgClient` and is never told which implementation it holds.** The same queries return the same keyed maps, carrying the same payload objects, in either mode — that property is what the whole design exists to provide, and it is why mode selection is configuration rather than something every caller re-implements. `packages/dt-module/src/interfaces/kg-client-interface.ts` is the contract; the implementations sit behind `createKgClient`.
+- **A client names the knowledge-graph version it is pinned to.** `KgClient.version` (`string | null`) lets a consumer say which version answered, the attribution the [pin](#mode-selection-and-the-pin) exists to make possible:
+
+  | Mode | `version` |
+  |---|---|
+  | Remote | The pinned `sha256:` content digest from `MODULE_KG_VERSION` |
+  | Local (`LocalKgClient`) | `null`: the graph is the deployment's own, so nothing is pinned |
+  | Unavailable | `null`: a service is configured but its pin is absent or malformed, so no knowledge graph is reached. A rejected value is configuration, not a version, and is never echoed. |
+
+  The field reports the pin, not the mode: `null` does not tell a local graph from an unavailable one, and `capability()` remains the way to ask whether a knowledge graph is reachable. A consumer that may run against an older `@dethernety/dt-module` without the field reads it defensively and treats a missing `version` as `null`, for example `client.version ?? null`.
 - **Every requested key is present in the returned map.** A key that matched nothing carries an empty array rather than being absent, so a caller may treat a missing key as a bug instead of as an answer, and "no matches" never has to be inferred from omission.
 - **Being unentitled is never an empty result.** A caller the service refuses gets a typed denial (`EvaluationNotEntitledError`), and a call with no bearer at all gets the session error that same request would have produced — never an empty map, which at the call site is indistinguishable from a knowledge graph that genuinely holds no matches. A deployment with no knowledge graph to reach is likewise explicit: `capability()` reports `available: false` and never throws, and the queries raise `KgUnavailableError` rather than returning empty.
 - **A key inside a slice the caller does not hold comes back present, with no matches.** That is deliberate, and it pulls the opposite way from the bullet above: the caller-level refusal is loud, while the key-level absence is silent and indistinguishable from a key that matches nothing anywhere. The seeded key is a structural guarantee about the map, not a statement about the corpus — `capability()` is the sanctioned way to ask what this caller may reach, and it answers with `entitled` and `sliceCount` before any query is issued.

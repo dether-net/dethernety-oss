@@ -37,7 +37,7 @@ through the platform id-mapping on import/update alongside every other id.
 ## 2. Determination — `validate_model_json(action: 'zoning')`
 
 The tool computes, over the local files, a per-boundary trust proposal and a set of advisory findings
-(`oss/packages/dt-core/src/dt-boundary/zone-determination.ts`). The plugin **computes; it never asks the LLM to
+(`packages/dt-core/src/dt-boundary/zone-determination.ts`). The plugin **computes; it never asks the LLM to
 walk the tree**.
 
 ### 2.1 The cascade (first match wins — the order is the dependency order)

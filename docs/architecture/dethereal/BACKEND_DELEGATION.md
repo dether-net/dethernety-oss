@@ -195,7 +195,7 @@ manage_controls(action: 'list', class_ids: ["class-encryption-at-rest", "class-a
            "SOC Monitoring" (implements Audit Logging)
 ```
 
-The existing `manage_controls` tool already accepts `class_ids` as a filter parameter ([manage-controls.tool.ts:48-53](oss/apps/dethereal/src/tools/manage-controls.tool.ts#L48-L53)). The only missing piece was finding the *right* ControlClass IDs — which is exactly what `match_classes` with `class_type: CONTROL` provides.
+The existing `manage_controls` tool already accepts `class_ids` as a filter parameter ([manage-controls.tool.ts:102](../../../apps/dethereal/src/tools/manage-controls.tool.ts#L102)). The only missing piece was finding the *right* ControlClass IDs — which is exactly what `match_classes` with `class_type: CONTROL` provides.
 
 This eliminates a separate backend service and reuses existing infrastructure. The agent's turn cost is 2 tool calls (match + list), not 1, but both return small, pre-filtered payloads.
 

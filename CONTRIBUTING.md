@@ -12,7 +12,7 @@ Before your first pull request can be merged, you must sign our [Contributor Lic
 
 ### Prerequisites
 
-- Node.js 22.22.2+ or 24.15+
+- Node.js 22.22.2+ or 24.15+ to run the test suite; building and running need 22.12+
 - pnpm 9.13+
 - A Bolt/Cypher-compatible database (Neo4j or Memgraph)
 
@@ -24,16 +24,22 @@ cd dethernety-oss
 pnpm install
 ```
 
+A working local setup also needs the backend and frontend environment files, a database, the MITRE
+data load, and the modules built and installed. Follow [4. From source](README.md#4-from-source) in the
+README for the full first-run setup.
+
 ### Running Locally
 
 ```bash
-# Start all development servers
-pnpm dev
+# Start the backend and frontend
+pnpm dev --filter dt-ws --filter dt-ui
 
 # Or start individually
 cd apps/dt-ws && pnpm dev    # Backend
 cd apps/dt-ui && pnpm dev    # Frontend
 ```
+
+The unfiltered `pnpm dev` also starts the packages' watch builds.
 
 ### Running Tests
 

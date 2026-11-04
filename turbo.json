@@ -4,9 +4,11 @@
   "concurrency": "12",
   "tasks": {
     "m-cleanup": {
+      "cache": false,
       "outputs": []
     },
     "m-ingest": {
+      "cache": false,
       "outputs": []
     },
     "parsetest": {

@@ -78,7 +78,7 @@ Keeping coverage as a primitive means each consumer applies its own interpretati
 ## Build and test
 
 ```bash
-cd oss/modules/dethernety-coverage-tools
+cd modules/dethernety-coverage-tools
 
 pnpm build        # tsc compile + package into dist/{name}-{version}.tar.gz
 pnpm test         # vitest — exercises the pure aggregator against fixtures
@@ -102,7 +102,7 @@ The test suite targets the pure aggregator (`aggregateCoverage`), which assemble
 
 ## Source
 
-The module source lives at [`oss/modules/dethernety-coverage-tools/`](../../../modules/dethernety-coverage-tools/):
+The module source lives at [`modules/dethernety-coverage-tools/`](../../../modules/dethernety-coverage-tools/):
 
 | File | Role |
 |------|------|

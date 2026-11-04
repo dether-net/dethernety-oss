@@ -17,7 +17,7 @@ honest gap to a flattering aggregate (no single risk score, no coverage
 percentage, dispositioned findings never silently dropped).
 
 For the full architecture, see
-[`oss/docs/architecture/dethernety-threat-report/`](../../docs/architecture/dethernety-threat-report/README.md).
+[`docs/architecture/dethernety-threat-report/`](../../docs/architecture/dethernety-threat-report/README.md).
 
 ## How it mounts
 
@@ -82,5 +82,5 @@ pnpm --filter dethernety-threat-report build
 ```
 
 Runs `build:ts` → `build:frontend` (vite + copy `dist/bundle.js` → `bundle.js`) →
-`build:package` (the shared `oss/scripts/package-module.js`, which co-locates
+`build:package` (the shared `scripts/package-module.js`, which co-locates
 `frontend/` with the compiled backend under `dist/dethernety/dethernety-threat-report/`).

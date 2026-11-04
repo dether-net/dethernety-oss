@@ -54,6 +54,8 @@ export interface LocalKgClientOptions {
 }
 
 export class LocalKgClient implements KgClient {
+  /** A local graph is whatever the deployment's own database holds: nothing is pinned. */
+  readonly version = null;
   private readonly driver: any;
   private readonly databaseName?: string;
   /** The in-flight or settled probe. Memoised as a *promise* so concurrent callers share one
