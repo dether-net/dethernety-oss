@@ -1,0 +1,25 @@
+{
+  "answers": {
+    "enabled": true,
+    "tls": { "version": "1.3", "ciphers": ["a", "b"] },
+    "rules": [{ "port": 443, "sources": ["10.0.0.0/8"] }, { "port": 22, "meta": { "owner": "ops" } }],
+    "grid": [[1, 2], [3]],
+    "ports": [22, null, 443]
+  },
+  "flat": {
+    "enabled": true,
+    "tls.version": "1.3",
+    "tls.ciphers[0]": "a",
+    "tls.ciphers[1]": "b",
+    "rules[0].port": 443,
+    "rules[0].sources[0]": "10.0.0.0/8",
+    "rules[1].port": 22,
+    "rules[1].meta.owner": "ops",
+    "grid[0][0]": 1,
+    "grid[0][1]": 2,
+    "grid[1][0]": 3,
+    "ports[0]": 22,
+    "ports[1]": null,
+    "ports[2]": 443
+  }
+}

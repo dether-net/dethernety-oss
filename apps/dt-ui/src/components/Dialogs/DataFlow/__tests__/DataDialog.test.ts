@@ -259,6 +259,10 @@ describe('DataDialog — saving attributes', () => {
     const w = mountDialog()
     await flushPromises()
     vm(w).dataClass = 'classA'
+    // Mounting an element with a class starts an attribute load 100 ms later that resets the baseline: let it run first.
+    await flushPromises()
+    await new Promise((r) => setTimeout(r, 150))
+    await flushPromises()
     vm(w).lastLoadedAttributes = { encrypted: true, owner: 'ops' }
     vm(w).pendingAttributes = { owner: 'ops' }
     vm(w).attributesDirty = true
@@ -287,6 +291,21 @@ describe('DataDialog — saving attributes', () => {
       }),
     )
     expect(vm(w).storedAttributeKeys).toEqual({ 'open_ports[0]': 22, 'open_ports[1]': 8443 })
+  })
+
+  it('a save that returns after the dialog shows another class leaves the baseline of that one alone', async () => {
+    const w = await prepare({ success: true, staleFlippedCount: 0 })
+    let finish!: (v: unknown) => void
+    mocks.flow.setInstantiationAttributesWithStaleCount.mockImplementationOnce(() => new Promise((r) => { finish = r }))
+    const saving = vm(w).saveAttributes()
+    vm(w).dataClass = 'classB'
+    vm(w).lastLoadedAttributes = { other: 'b' }
+    vm(w).storedAttributeKeys = { 'other[0]': 'b' }
+    finish({ success: true, staleFlippedCount: 0 })
+    await saving
+    await flushPromises()
+    expect(vm(w).lastLoadedAttributes).toEqual({ other: 'b' })
+    expect(vm(w).storedAttributeKeys).toEqual({ 'other[0]': 'b' })
   })
 
   it('keeps the baseline when the server refuses the save, so a retry sends the cleared answer again', async () => {

@@ -90,6 +90,9 @@
   const showFolderSelectDialog = ref(false)
 
   const lastLoadedAttributes = ref<object>({})
+  // The stored keys as loaded, flat. A save clears every one it no longer sends, so an answer the form cannot show
+  // (`name[i]` entries stored by another client beside the whole list this dialog writes) does not outlive it.
+  const storedAttributeKeys = ref<Record<string, unknown>>({})
   const attributesSchema = ref<object | null>(null)
   const attributesUiSchema = ref<UISchemaElement | null>(null)
   const attributesLoading = ref(false)
@@ -604,16 +607,27 @@
     showDeleteCountermeasureDialog.value = true
   }
 
+  // Each class load counts; a slower, earlier load that returns after a later one changes nothing.
+  let classLoadRequest = 0
+  // Per class, the last save still in flight, resolving with the baseline it leaves; the class's saves settle in order.
+  // A class reopened meanwhile reads its answers only once it has settled, so the read cannot be served before a save
+  // commits and bring back the answers it replaced.
+  const savesInFlight = new Map<string, Promise<Record<string, unknown>>>()
+
   const showClassControl = async (classId: string) => {
+    const request = ++classLoadRequest
     // Reset before load so a prior class's attributes/schema can't bleed into the new class's form.
     attributesLoading.value = true
     lastLoadedAttributes.value = {}
+    storedAttributeKeys.value = {}
     attributesSchema.value = null
     attributesUiSchema.value = null
     attributesTemplateWarning.value = false
     try {
       selectedClassId.value = classId
-      currentItemClass.value = await controlsStore.getClass({ classId })
+      const loadedClass = await controlsStore.getClass({ classId })
+      if (request !== classLoadRequest) return
+      currentItemClass.value = loadedClass
       if (
         currentItemClass.value?.template &&
         typeof currentItemClass.value.template.schema === 'object' &&
@@ -623,11 +637,15 @@
         attributesUiSchema.value = currentItemClass.value.template.uischema as UISchemaElement
         // AWAIT (was a fire-and-forget .then) so the dialog opens with the new class's data,
         // which the buffered-mode child then snapshots on mount — no stale bleed.
+        await savesInFlight.get(classId)
+        if (request !== classLoadRequest) return
         const attributes = await controlsStore.getAttributesFromClassRelationship({
           classId: classId,
           componentId: props.id,
         })
+        if (request !== classLoadRequest) return
         if (attributes) {
+          storedAttributeKeys.value = attributes as Record<string, unknown>
           lastLoadedAttributes.value = unflattenProperties(attributes)
         }
       } else {
@@ -635,32 +653,63 @@
         attributesTemplateWarning.value = true
       }
     } catch (error) {
+      if (request !== classLoadRequest) return
       console.error('Error loading class control:', error)
       // Surface a warning instead of opening a silent blank form on a load failure.
       attributesTemplateWarning.value = true
     } finally {
-      // Always show the dialog, even if there was an error loading the class
-      attributesLoading.value = false
-      showClassControlDialog.value = true
+      // Always show the dialog, even if there was an error loading the class (the latest load's, only).
+      if (request === classLoadRequest) {
+        attributesLoading.value = false
+        showClassControlDialog.value = true
+      }
     }
   }
 
   const saveAttributes = (pending: object): Promise<boolean> => {
     // A list row the user emptied is dropped rather than sent as null, which the server refuses.
     const attributes = withoutEmptiedListEntries(pending as Record<string, unknown>)
-    return controlsStore.setInstantiationAttributes({
-      classId: selectedClassId.value,
-      componentId: props.id,
-      // An answer taken back (Not answered) is sent as null, so the server clears it. The map stays in its
-      // top-level shape, as the control library stores it: a list is one value, replaced whole.
-      attributes: withClearedAttributes(lastLoadedAttributes.value as Record<string, unknown>, attributes),
-    }).then(ret => {
-      if (ret) {
-        lastLoadedAttributes.value = attributes
+    // The control and class this save is for, and the load it was made from: by the time it returns, another class may
+    // be shown, or this one reopened and read again.
+    const forClass = selectedClassId.value
+    const forComponent = props.id
+    const forLoad = classLoadRequest
+    // The form stays dirty until a save returns, so a second save of the class can start before the first settles. It
+    // is sent once the first has settled, and clears from the baseline that one left, so a key only the first wrote and
+    // the second no longer has is cleared.
+    const earlier = savesInFlight.get(forClass)
+      ?? Promise.resolve({ ...storedAttributeKeys.value, ...(lastLoadedAttributes.value as Record<string, unknown>) })
+    const sent = earlier.then(async (baseline) => {
+      try {
+        const ok = await controlsStore.setInstantiationAttributes({
+          classId: forClass,
+          componentId: forComponent,
+          // An answer taken back (Not answered) is sent as null, so the server clears it, and so is every other stored
+          // key the save does not send. The map stays in its top-level shape, as the control library stores it: a list
+          // is one value, replaced whole.
+          attributes: withClearedAttributes(baseline, attributes),
+        })
+        return { ok, left: ok ? { ...attributes } : baseline }
+      } catch {
+        return { ok: false, left: baseline }
+      }
+    })
+    const left = sent.then(({ left }) => left)
+    savesInFlight.set(forClass, left)
+    left.finally(() => {
+      if (savesInFlight.get(forClass) === left) savesInFlight.delete(forClass)
+    })
+    return sent.then(({ ok }) => {
+      if (ok) {
+        // Adopted only if no load started since: a later load has reset the form and reads the answers itself.
+        if (classLoadRequest === forLoad) {
+          lastLoadedAttributes.value = attributes
+          storedAttributeKeys.value = { ...attributes }
+        }
         if (Object.keys(attributes).length > 0) {
-          classesWithAttributes.value.add(selectedClassId.value)
+          classesWithAttributes.value.add(forClass)
         } else {
-          classesWithAttributes.value.delete(selectedClassId.value)
+          classesWithAttributes.value.delete(forClass)
         }
         snackBar.value = { show: true, message: 'Attributes saved', color: 'success' }
         fetchCountermeasures()
@@ -679,8 +728,10 @@
   }
 
   const onAttributesSaveAndClose = async (pending: object) => {
+    const forLoad = classLoadRequest
     const success = await saveAttributes(pending)
-    if (success) showClassControlDialog.value = false
+    // Closes the form it saved, not one opened since.
+    if (success && classLoadRequest === forLoad) showClassControlDialog.value = false
   }
 
   const showDelete = (id: string) => {
@@ -789,8 +840,8 @@
   defineExpose({
     onCountermeasureFailed, onCountermeasureCreated, showCountermeasureDialog,
     showClassControl, showClassControlDialog,
-    lastLoadedAttributes, attributesSchema, attributesUiSchema, attributesLoading, attributesTemplateWarning,
-    saveAttributes,
+    lastLoadedAttributes, storedAttributeKeys, attributesSchema, attributesUiSchema, attributesLoading, attributesTemplateWarning,
+    saveAttributes, onAttributesSaveAndClose,
   })
 
 </script>

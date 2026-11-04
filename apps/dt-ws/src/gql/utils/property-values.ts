@@ -95,13 +95,47 @@ export function describeRefusedFlatKeys(dropped: DroppedFlatKey[], stored: Reado
     if (d.problem === 'budget') overTotal++;
     else {
       const where = stored.has(d.key) ? ' (already stored)' : '';
-      lines.push(`attributes.${printableFlatKey(d.key)}${where}: ${FLAT_KEY_PROBLEM_TEXT[d.problem]}`);
+      const parts = flatKeySegments(d.key);
+      const atTop = d.problem === 'conflict' && Array.isArray(parts) && 'index' in parts[0];
+      const why = atTop ? 'a key cannot start with a list index' : FLAT_KEY_PROBLEM_TEXT[d.problem];
+      lines.push(`attributes.${printableFlatKey(d.key)}${where}: ${why}`);
     }
   }
   if (overTotal > 0) {
     lines.push(`attributes: the lists would hold more than ${FLAT_KEY_MAX_LIST_SLOTS} entries in all (${overTotal} key(s) over)`);
   }
   return lines;
+}
+
+/**
+ * Why each key a request writes is not in its plain form: the form its own parts rebuild to (`name`, `name.part`,
+ * `name[3]`). The rebuild reads `a[]` as `a`, `a[x]` as `a.x`, `d[-1]` as `d.-1` and `l[01]` as `l[1]`, so two keys
+ * could address one answer; only the plain form is written. A key the rebuild leaves out anyway is reported there.
+ */
+export function describeMalformedFlatKeys(request: Record<string, unknown>): string[] {
+  return malformedFlatKeyLines(malformedFlatKeys(request));
+}
+
+/** The reasons for keys malformedFlatKeys found. One whose plain form starts with a list index gets that reason. */
+export function malformedFlatKeyLines(malformed: Array<[key: string, plain: string]>): string[] {
+  return malformed.map(([key, plain]) =>
+    plain.startsWith('[')
+      ? `attributes.${printableFlatKey(key)}: a key cannot start with a list index`
+      : `attributes.${printableFlatKey(key)}: the key is not in its plain form (${printableFlatKey(plain)})`,
+  );
+}
+
+/** The keys a request writes that are not in their plain form, each with that form. */
+export function malformedFlatKeys(request: Record<string, unknown>): Array<[key: string, plain: string]> {
+  const out: Array<[string, string]> = [];
+  for (const [key, value] of Object.entries(request)) {
+    if (value === null || value === undefined) continue;
+    const segments = flatKeySegments(key);
+    if (typeof segments === 'string') continue;
+    const plain = segments.map((s, i) => ('index' in s ? `[${s.index}]` : i === 0 ? s.name : `.${s.name}`)).join('');
+    if (plain !== key) out.push([key, plain]);
+  }
+  return out;
 }
 
 /** Whether a request has a key with a value: one that only clears, or is empty, writes nothing. */

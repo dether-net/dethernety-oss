@@ -792,6 +792,36 @@ describe('SetInstantiationAttributesService — flattened keys over the limits a
     expect(result.error).toContain('and 280 more');
   });
 
+  it('refuses a key not in its plain form, naming the plain form, and writes nothing', async () => {
+    const { service } = makeService();
+    const run = withWrite(service);
+    const result = await service.setAttributes({ componentId: 'comp-1', classId: 'cls-1', attributes: { 'tags[]': 'x', 'ports[01]': 2, ok: 1 } });
+    expect(result).toMatchObject({ success: false, errorCode: 'VALIDATION_ERROR' });
+    expect(result.error).toContain('attributes.tags[]: the key is not in its plain form (tags)');
+    expect(result.error).toContain('attributes.ports[01]: the key is not in its plain form (ports[1])');
+    expect(result.error).not.toContain('attributes.ok');
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('refuses a key not in its plain form for that reason only, never blaming the plain key it would collide with', async () => {
+    const { service } = makeService();
+    const run = withWrite(service);
+    const result = await service.setAttributes({ componentId: 'comp-1', classId: 'cls-1', attributes: { x: [1], '[x]': 1 } });
+    expect(result).toMatchObject({ success: false, errorCode: 'VALIDATION_ERROR' });
+    expect(result.error).toContain('attributes.[x]: the key is not in its plain form (x)');
+    expect(result.error).not.toContain('attributes.x:');
+    expect(result.error).not.toContain('list index');
+    expect(result.error!.split('attributes.')).toHaveLength(2);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('lets a key not in its plain form through when it is sent as null, so it can be cleared', async () => {
+    const { service } = makeService();
+    withWrite(service);
+    jest.spyOn(service as any, 'processComponentExposures').mockResolvedValue({ unresolved: [], staleFlipped: 0 });
+    expect((await service.setAttributes({ componentId: 'comp-1', classId: 'cls-1', attributes: { 'tags[]': null } as any })).success).toBe(true);
+  });
+
   it('lets a key through when it is sent as null, so an old key over the limits can be cleared', async () => {
     const { service } = makeService();
     withWrite(service);
