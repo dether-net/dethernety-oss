@@ -1,7 +1,21 @@
 import { describe, it, expect } from 'vitest'
+import { DtUtils } from '@dethernety/dt-core'
 import { flattenProperties, unflattenProperties, getNewName, getPageDisplayName, withClearedAttributes, withoutEmptiedListEntries } from '../dataFlowUtils'
 
 describe('flattenProperties', () => {
+  // The server writes a key only in its plain form, and checks dt-core's flattener for that; this one writes the same keys.
+  it('writes the keys dt-core writes, for groups, lists, lists of groups and empty groups', () => {
+    const answers = {
+      enabled: true,
+      tls: { version: '1.3', ciphers: ['a', 'b'] },
+      rules: [{ port: 443, sources: ['10.0.0.0/8'] }, { port: 22, meta: { owner: 'ops' } }],
+      ports: [22, null, 443],
+      extra: {},
+      none: null,
+    }
+    expect(flattenProperties(answers)).toEqual(DtUtils.flattenProperties(answers))
+  })
+
   it('should flatten a simple nested object', () => {
     const result = flattenProperties({ a: { b: 'value' } })
     expect(result).toEqual({ 'a.b': 'value' })

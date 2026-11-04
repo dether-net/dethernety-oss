@@ -320,6 +320,9 @@
   const saveAttributes = async (): Promise<boolean> => {
     if (!selectedItem.value?.id || !itemClass.value || attributesFormLoading.value) return false
 
+    // The element and class this save is for: the selection may move while it runs.
+    const forItem = selectedItem.value.id
+    const forClass = itemClass.value.id
     try {
       // What this save sends. An edit made while it is in flight replaces pendingAttributes, so it stays unsaved.
       const sent = pendingAttributes.value
@@ -332,8 +335,8 @@
       // true inside the same write transaction. Surface the count to the user
       // when non-zero.
       const result = await flowStore.setInstantiationAttributesWithStaleCount({
-        componentId: selectedItem.value.id,
-        classId: itemClass.value.id,
+        componentId: forItem,
+        classId: forClass,
         attributes: flatAttributes,
       })
       // A save the server refused keeps the baseline, so a retry sends the same changes (cleared answers included).
@@ -342,8 +345,12 @@
         return false
       }
 
-      lastLoadedAttributes.value = sent
-      storedAttributeKeys.value = sentFlat
+      // What was saved becomes the baseline only for the element it was saved to: if another element is shown now, its
+      // own baseline, loaded for it, stays.
+      if (selectedItem.value?.id === forItem && itemClass.value?.id === forClass) {
+        lastLoadedAttributes.value = sent
+        storedAttributeKeys.value = sentFlat
+      }
       // Refetch exposures so row-level stale flags propagate; the count is
       // the headline, the refetch tells the table which rows to highlight.
       await loadExposures()

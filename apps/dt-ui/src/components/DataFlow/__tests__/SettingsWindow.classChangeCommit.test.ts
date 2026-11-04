@@ -335,6 +335,29 @@ describe('saving General with Attributes in one action', () => {
     )
   })
 
+  it('a save that returns after another element is selected leaves the baseline of that element alone', async () => {
+    const w = await mountPanel()
+    const vm = w.vm as any
+    vm.onAttributesChanged({ port: 443 })
+    let finish!: (v: unknown) => void
+    mockFlowStore.setInstantiationAttributesWithStaleCount.mockImplementationOnce(() => new Promise((r) => { finish = r }))
+    const saving = vm.saveAttributes()
+    await flushPromises()
+    // The user discards the edits and selects another element while the save is in flight.
+    vm.clearAllDirty()
+    mockFlowStore.selectedItem = { ...node, id: 'n-2', data: { ...node.data } }
+    await flushPromises()
+    const shown = vm.lastLoadedAttributes
+    const shownKeys = vm.storedAttributeKeys
+    finish({ success: true, staleFlippedCount: 0 })
+    await saving
+    await flushPromises()
+    expect(vm.lastLoadedAttributes).toEqual(shown)
+    expect(vm.lastLoadedAttributes).not.toEqual({ port: 443 })
+    expect(vm.storedAttributeKeys).toEqual(shownKeys)
+    expect(vm.storedAttributeKeys).not.toEqual({ port: 443 })
+  })
+
   it('keeps an attribute edit whose save failed, for a retry', async () => {
     const w = await mountPanel()
     editName(w)

@@ -7,6 +7,7 @@ import {
   assertStorableProperties,
   capErrorLines,
   changesAnswers,
+  describeMalformedFlatKeys,
   describeNonPrimitiveValue,
   describeRefusedFlatKeys,
   flatKeysRefusedByMerge,
@@ -15,6 +16,8 @@ import {
   requestWrites,
   withRequestShapes,
 } from '../property-values';
+import * as fs from 'fs';
+import * as path from 'path';
 
 describe('describeNonPrimitiveValue', () => {
   it('accepts primitives', () => {
@@ -197,6 +200,59 @@ describe('error text for flat keys', () => {
     const lines = Array.from({ length: 25 }, (_, i) => `r${i}`);
     expect(capErrorLines(lines)).toEqual([...lines.slice(0, 20), 'and 5 more']);
     expect(capErrorLines(['a'])).toEqual(['a']);
+  });
+});
+
+describe('describeMalformedFlatKeys: only the plain form of a key is written', () => {
+  it.each([
+    ['a[]', 'a'],
+    ['a[x]', 'a.x'],
+    ['d[-1]', 'd.-1'],
+    ['l[01]', 'l[1]'],
+    ['l[0003]', 'l[3]'],
+    ['a..b', 'a.b'],
+    ['.a', 'a'],
+    ['a.', 'a'],
+    ['a]', 'a'],
+  ])('refuses %s, naming its plain form %s', (key, plain) => {
+    expect(describeMalformedFlatKeys({ [key]: 1 })).toEqual([`attributes.${key}: the key is not in its plain form (${plain})`]);
+  });
+
+  it('accepts plain keys, names that are all digits, and keys sent as null', () => {
+    expect(describeMalformedFlatKeys({ a: 1, 'a.b': 2, 'l[0]': 3, 'l[10]': 4, 'g[0].x[2]': 5, 'v.5': 6, 'with space': 7 })).toEqual([]);
+    expect(describeMalformedFlatKeys({ 'a[]': null, 'l[01]': undefined })).toEqual([]);
+  });
+
+  it('accepts every key the dt-core flattener writes: groups, lists, lists of groups, lists of lists', () => {
+    // The keys dt-core's flattenProperties writes, pinned by its own test against this same file.
+    const fixture = path.join(__dirname, '../../../../../../packages/dt-core/src/dt-utils/__tests__/fixtures/flattened-answers.json');
+    const { flat } = JSON.parse(fs.readFileSync(fixture, 'utf8'));
+    expect(Object.keys(flat).length).toBeGreaterThan(10);
+    expect(describeMalformedFlatKeys(flat)).toEqual([]);
+  });
+
+  it('gives a key whose plain form starts with a list index that reason', () => {
+    expect(describeMalformedFlatKeys({ '[05]': 1, '.[5]': 2 })).toEqual([
+      'attributes.[05]: a key cannot start with a list index',
+      'attributes..[5]: a key cannot start with a list index',
+    ]);
+  });
+
+  it('gives a bracketed name at the top the plain-form reason, not the list-index one', () => {
+    expect(describeMalformedFlatKeys({ '[ABC]': 1 })).toEqual(['attributes.[ABC]: the key is not in its plain form (ABC)']);
+    expect(describeRefusedFlatKeys([{ key: '[ABC]', problem: 'conflict' }])).not.toContain(
+      'attributes.[ABC]: a key cannot start with a list index',
+    );
+  });
+
+  it('leaves keys the rebuild refuses anyway to that check', () => {
+    expect(describeMalformedFlatKeys({ 'x.__proto__': 1, 'l[99999]': 1, '': 1 })).toEqual([]);
+  });
+
+  it('says plainly that a key cannot start with a list index', () => {
+    expect(describeRefusedFlatKeys([{ key: '[5]', problem: 'conflict' }])).toEqual([
+      'attributes.[5]: a key cannot start with a list index',
+    ]);
   });
 });
 

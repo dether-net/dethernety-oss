@@ -228,6 +228,9 @@
     if (!dataId.value || !dataClass.value || attributesLoading.value) return
     if (!attributesDirty.value) return
 
+    // The item and class this save is for: the dialog may show another while it runs.
+    const forId = dataId.value
+    const forClass = dataClass.value
     try {
       // What this save sends. An edit made while it is in flight replaces pendingAttributes, so it stays unsaved.
       const sent = pendingAttributes.value
@@ -240,8 +243,8 @@
       // true inside the same write transaction. Surface the count to the user
       // when non-zero.
       const result = await flowStore.setInstantiationAttributesWithStaleCount({
-        componentId: dataId.value,
-        classId: dataClass.value,
+        componentId: forId,
+        classId: forClass,
         attributes: flatAttributes,
       })
       // A save the server refused keeps the baseline, so a retry sends the same changes (cleared answers included).
@@ -250,8 +253,12 @@
         return
       }
 
-      lastLoadedAttributes.value = sent
-      storedAttributeKeys.value = sentFlat
+      // What was saved becomes the baseline only for the item it was saved to: if the dialog shows another now, that
+      // one's own baseline, loaded for it, stays.
+      if (dataId.value === forId && dataClass.value === forClass) {
+        lastLoadedAttributes.value = sent
+        storedAttributeKeys.value = sentFlat
+      }
       if (pendingAttributes.value === sent) attributesDirty.value = false
       // Refetch exposures so the row-level stale flags propagate to the
       // exposures table. The staleFlippedCount is the *count*, not the *which*

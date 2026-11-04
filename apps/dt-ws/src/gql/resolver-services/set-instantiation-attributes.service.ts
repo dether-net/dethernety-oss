@@ -56,10 +56,12 @@ import { STAMP_POLICY_CYPHER, UNSTAMP_POLICY_CYPHER, stampPolicyParams, unstampP
 import { lockElementInTx } from './shared/element-db-lock';
 import {
   capErrorLines,
+  changesAnswers,
   describeNonPrimitiveValue,
   describeRefusedFlatKeys,
-  changesAnswers,
   flatKeysRefusedByMerge,
+  malformedFlatKeyLines,
+  malformedFlatKeys,
   printableFlatKey,
   propertyViolations,
   requestWrites,
@@ -1798,10 +1800,17 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       // reserved name, or keys in this request that disagree about one place — so the author gets a reason instead
       // of an answer that silently reads as unanswered. A key sent as null clears its property and is always let
       // through, so a key written before these limits can still be removed.
+      // A key not in its plain form gets that one reason, and is kept out of the rebuild, where it could collide with a
+      // plain key and have that one blamed.
+      const malformedKeys = malformedFlatKeys(request.attributes);
+      const malformed = new Set(malformedKeys.map(([key]) => key));
       const written = Object.fromEntries(
-        Object.entries(request.attributes).filter(([, value]) => value !== null && value !== undefined),
+        Object.entries(request.attributes).filter(
+          ([key, value]) => value !== null && value !== undefined && !malformed.has(key),
+        ),
       );
       errors.push(...describeRefusedFlatKeys(unflattenFlatKeys(written).dropped));
+      errors.push(...malformedFlatKeyLines(malformedKeys));
     }
 
     return {
