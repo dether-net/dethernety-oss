@@ -122,6 +122,8 @@ export function buildExposureDetail(finding, ctx = {}) {
     element: ctx.element
       ? { id: ctx.element.id, name: ctx.element.name ?? '', type: ctx.element.type ?? null }
       : null,
+    // Who runs the element it sits on, as the snapshot froze it; null when it has nothing resolved to say.
+    whoRuns: typeof ctx.whoRuns === 'string' ? ctx.whoRuns : null,
     disposition,
     routeJewels,
     onCrownJewelRoute: routeJewels.length > 0,

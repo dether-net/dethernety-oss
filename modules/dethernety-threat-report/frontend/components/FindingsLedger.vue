@@ -268,6 +268,7 @@
   import { buildCoverageView } from '../lib/coverageMatrix.js'
   import { buildExposureDetail } from '../lib/exposureDetail.js'
   import { zoningAdvisories } from '../lib/zoningPolicy.js'
+  import { whoRunsItLine } from '../lib/whoRunsIt.js'
   import TechniqueChips from './TechniqueChips.vue'
   import TechniqueInfoDialog from './TechniqueInfoDialog.vue'
   import ExposureDetailDialog from './ExposureDetailDialog.vue'
@@ -300,6 +301,8 @@
     // under-protected / mgmt-plane / cross-tier-domain) render as a compact un-scored
     // advisory block here (they are per-boundary, not per per-flow like the crossings).
     zoning: { type: Object, default: () => ({ findings: [], effectiveZones: {} }) },
+    // The snapshot's who-runs-it block, frozen at generate time. Absent on a report from before 2.2.0.
+    operation: { type: Object, default: null },
     // The snapshot modelGraph — used only to resolve boundary names for the zoning
     // advisory block.
     modelGraph: { type: Object, default: () => ({ boundaries: [] }) },
@@ -411,6 +414,7 @@
       techniques: techsFor(f.id),
       element: { id: g.id, name: g.name, type: g.type },
       routeJewels: routeJewels(g.id),
+      whoRuns: whoRunsItLine(props.operation, g.id),
     })
   }
 

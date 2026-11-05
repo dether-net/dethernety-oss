@@ -181,7 +181,9 @@ MITRE Frameworks is the odd one out: it is a **data pack** rather than a running
 ### Dethernety General
 The default class-providing module:
 - General-purpose component classes for all three component types — processes (web server, API gateway, application service, firewall), data stores (relational database, object storage, cache, message queue), and external entities (end user, administrator, third-party service)
-- Boundary classes (network perimeter, network segment, application layer, data layer, container, host, and more) and data flow classes (HTTP/S request, API call, database query, authentication exchange, and more)
+- Boundary classes (network perimeter, network segment, application layer, data layer, container, host, SaaS tenant, managed runtime, and more)
+  - Draw a vendor-run SaaS tenant, such as a Microsoft 365 or Google Workspace tenant or a Salesforce org, as a **SaaS Tenant** boundary with its SaaS components inside it. Draw a vendor-run environment that you deploy your own code or agents into, such as serverless functions, a managed container or app platform, or a managed agent runtime, as a **Managed Runtime** boundary with those workloads inside it. A vendor-run SaaS organization that you build your own apps or agents in, such as a Salesforce org or a Microsoft 365 tenant with Copilot Studio, is a **SaaS Tenant**, not a **Managed Runtime**.
+- Data flow classes (HTTP/S request, API call, database query, authentication exchange, and more)
 - Control classes (encryption at rest and in transit, multi-factor authentication, role-based access control, web application firewall rules, and more), data classes, and issue classes
 - Core security analysis policies — every class carries the Rego rules that turn its configured attributes into exposures and countermeasures
 

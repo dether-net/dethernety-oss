@@ -171,13 +171,17 @@ On an **Attributes** form — of a component, boundary, data flow, data item, co
 
 ## Operation & version
 
-Once a component or a security boundary has a class, its **Attributes** tab ends with one more panel, whichever module the class comes from: **Operation & version** on a component, **Operation** on a boundary. It records who runs the element and which software it is. Click the panel's information icon for guidance on each field.
+Once a component or a security boundary has a class, its **Attributes** tab starts with a panel the platform adds, whichever module the class comes from: **Operation & version** on a component, **Operation** on a boundary. It is closed by default, and if you switch the form to tabs, it is the first tab. It records who runs the element and which software it is. Click the panel's information icon for guidance on each field.
 
 The panel is missing where the tab shows no form split into panels, for example a read-only notice in place of the class's attributes.
 
 - Every field is optional. Clearing a field removes its value when you save, as with any attribute.
 - The values belong to the element's class binding: replacing or removing the class clears them, together with the class's other attributes.
 - The class's policies do not read these fields, so filling them in does not change the exposures the class raises.
+
+**Exposures on a vendor-run element stay listed as pending.** An exposure nobody has reviewed stays [**Pending**](MANAGING_FINDINGS.md#the-finding-lifecycle) on the **Exposures** tab, and in the tab's count. Declaring who runs an element does not judge whose exposure it is.
+
+A threat report freezes who runs each element when it is generated: see [Reading the Report](threat-report/READING_THE_REPORT.md#who-runs-an-element).
 
 ### Operated by
 

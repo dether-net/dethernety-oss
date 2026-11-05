@@ -75,6 +75,8 @@ interface ClassFiles {
   typeDir: string;
   slug: string;
   schema?: unknown;
+  /** Written as it is, in place of `schema`. */
+  schemaText?: string;
   guide?: unknown;
   /** Written as it is, in place of `guide`. */
   guideText?: string;
@@ -86,7 +88,8 @@ function fileModule(spec: ClassFiles, attributes: Record<string, unknown> = {}) 
   const dataDir = fs.mkdtempSync(path.join(root, 'mod-'));
   const classDir = path.join(dataDir, MODULE_NAME, spec.typeDir, spec.slug);
   fs.mkdirSync(classDir, { recursive: true });
-  if (spec.schema !== undefined) fs.writeFileSync(path.join(classDir, 'schema.json'), JSON.stringify(spec.schema));
+  const schemaText = spec.schemaText ?? (spec.schema === undefined ? undefined : JSON.stringify(spec.schema));
+  if (schemaText !== undefined) fs.writeFileSync(path.join(classDir, 'schema.json'), schemaText);
   const guideText = spec.guideText ?? (spec.guide === undefined ? undefined : JSON.stringify(spec.guide));
   if (guideText !== undefined) fs.writeFileSync(path.join(classDir, 'guide.json'), guideText);
   if (spec.rego !== undefined) fs.writeFileSync(path.join(classDir, 'policies.rego'), spec.rego);
@@ -119,6 +122,19 @@ describe('DtFileOpaModule', () => {
     const mod = fileModule({ typeDir: 'component', slug: 'bare' });
     expect(await mod.getClassTemplate('c')).not.toContain(RESERVED_ATTRIBUTE_PREFIX);
     expect(await mod.getClassGuide('c')).not.toContain(RESERVED_ATTRIBUTE_PREFIX);
+  });
+
+  it('returns a template it cannot parse as it is', async () => {
+    const mod = fileModule({ typeDir: 'component', slug: 'web', schemaText: '{ not json' });
+    expect(await mod.getClassTemplate('c')).toBe('{ not json');
+  });
+
+  it('fails a template it cannot extend, rather than serving it unread', async () => {
+    const depth = 50_000;
+    const nested = `${'{"type":"Unknown","elements":['.repeat(depth)}${']}'.repeat(depth)}`;
+    const schemaText = `{"schema":{"type":"object","properties":{}},"uischema":{"type":"Categorization","elements":[${nested}]}}`;
+    const mod = fileModule({ typeDir: 'component', slug: 'web', schemaText });
+    await expect(mod.getClassTemplate('c')).rejects.toThrow();
   });
 
   it('returns a guide it cannot parse as it is', async () => {

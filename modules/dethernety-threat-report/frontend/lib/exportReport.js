@@ -8,6 +8,7 @@
 // buildJsonExport / buildHtmlExport are pure (string in, string out) → unit
 // tested. downloadBlob is the only DOM touch.
 
+import { WHO_RUNS_COPY, entryTexts, hasOperationToShow } from './whoRunsIt.js'
 import { aggregateLedger, dispositionKindLabel, lifecycleStatus } from './aggregateLedger.js'
 import { buildCoverageView } from './coverageMatrix.js'
 import { modeAReachability } from './reachability.js'
@@ -514,6 +515,28 @@ function boundaryCrossingsHtml(doc) {
   ${deadConduits}`
 }
 
+// Who runs each element, as the snapshot froze it. A list of what declares something: a model that declares nothing
+// says so, and an older report or a failed resolution says that instead of showing a default.
+function whoRunsHtml(doc) {
+  const title = esc(WHO_RUNS_COPY.title)
+  const operation = doc?.operation
+  if (!operation || typeof operation !== 'object') return `<h2>${title}</h2><p class="none">${esc(WHO_RUNS_COPY.recreate)}</p>`
+  if (operation.state !== 'resolved') return `<h2>${title}</h2><p class="none">${esc(WHO_RUNS_COPY.unavailable)}</p>`
+  const graph = doc?.modelGraph ?? {}
+  const nameOf = new Map([...(graph.boundaries ?? []), ...(graph.components ?? [])].map((e) => [e.id, e.name]))
+  const rows = Object.keys(operation.elements ?? {})
+    .filter((id) => hasOperationToShow(operation.elements[id]))
+    .map((id) => [nameOf.get(id) ?? id, entryTexts(operation.elements[id])])
+    .sort(([a], [b]) => String(a).localeCompare(String(b)))
+    .map(([name, texts]) => `<tr><td>${esc(name)}</td><td>${texts.map(esc).join('<br>')}</td></tr>`)
+    .join('')
+  return `<h2>${title}</h2>${
+    rows
+      ? `<table><thead><tr><th>Element</th><th>${title}</th></tr></thead><tbody>${rows}</tbody></table>`
+      : `<p class="none">${esc(WHO_RUNS_COPY.noneDeclared)}</p>`
+  }`
+}
+
 // Self-contained printable HTML. Pure: (doc, coverage) → string.
 export function buildHtmlExport(doc, coverage = null) {
   const { totals, groups } = aggregateLedger(doc?.ledger ?? [])
@@ -521,6 +544,7 @@ export function buildHtmlExport(doc, coverage = null) {
   const covSection = coverageHtml(coverageForExport(doc, coverage))
   const reachSection = reachabilityHtml(doc)
   const boundarySection = boundaryCrossingsHtml(doc)
+  const whoRunsSection = whoRunsHtml(doc)
   const bandSummary = ['critical', 'high', 'medium', 'low', 'unknown']
     .filter((b) => totals.byBand[b])
     .map(
@@ -594,6 +618,7 @@ export function buildHtmlExport(doc, coverage = null) {
   ${covSection}
   ${reachSection}
   ${boundarySection}
+  ${whoRunsSection}
   <h2>Residual-Risk Ledger</h2>
   ${groups.map(groupHtml).join('\n') || '<p class="none">No findings in this model.</p>'}
   <footer>

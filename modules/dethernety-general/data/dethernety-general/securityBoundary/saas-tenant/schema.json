@@ -1,0 +1,308 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "admin_phishing_resistant_mfa_enforced": {
+        "type": "boolean",
+        "title": "Phishing-Resistant MFA for Admins",
+        "description": "TRUE when every tenant administrator must complete a phishing-resistant second factor (a FIDO2 security key, passkey or certificate) before they can use admin privileges. FALSE when an admin can sign in with a password alone or with a phishable factor such as SMS, voice or a one-time code."
+      },
+      "all_user_mfa_enforced": {
+        "type": "boolean",
+        "title": "MFA Enforced for All Users",
+        "description": "TRUE when every interactive tenant user must complete multi-factor authentication, with no long enrollment window in which a password alone works. FALSE when MFA is optional or left to each user to enroll."
+      },
+      "legacy_auth_protocols_disabled": {
+        "type": "boolean",
+        "title": "Legacy Authentication Blocked",
+        "description": "TRUE when sign-in protocols that cannot perform MFA (legacy or basic authentication such as IMAP, POP or SMTP AUTH with a password) are blocked tenant-wide. FALSE when they are still accepted, so a password alone works through them."
+      },
+      "sso_federation_enabled": {
+        "type": "boolean",
+        "title": "Sign-In Federated to the Organization's Identity Provider",
+        "description": "Presence discriminator: TRUE when the tenant signs its users in through the organization's own identity provider (SSO federation). FALSE when users sign in with passwords held by the service. It gates the local sign-in check and never fires on its own."
+      },
+      "local_signin_restricted_to_break_glass": {
+        "type": "boolean",
+        "title": "Local Sign-In Limited to Emergency Accounts",
+        "description": "Only relevant when the tenant signs users in through the organization's identity provider (SSO). TRUE when only the designated emergency-access accounts can sign in with a password held by the service itself. FALSE when ordinary users or admins can still sign in locally and bypass the identity provider's controls."
+      },
+      "no_standing_admin_privileges_jit_required": {
+        "type": "boolean",
+        "title": "Admin Roles Granted Just in Time",
+        "description": "TRUE when day-to-day admins hold privileged roles as eligible, time-bound activations that require MFA (and optionally approval) to use, and only the emergency-access accounts hold standing assignments. FALSE when admins hold the roles permanently."
+      },
+      "emergency_access_accounts_monitored": {
+        "type": "boolean",
+        "title": "Emergency Access Accounts Hardened and Alerted",
+        "description": "TRUE when the tenant's emergency-access (break-glass) accounts are protected by a phishing-resistant factor that differs from normal admins', and every sign-in to them raises an alert to the security team. FALSE when they are tied to one person's device, are protected by a phishable factor, or can be used without raising an alert."
+      },
+      "user_app_consent_restricted": {
+        "type": "boolean",
+        "title": "User App Consent Restricted",
+        "description": "TRUE when ordinary users cannot grant third-party OAuth apps access to organizational data without admin review: user consent is off, or limited to verified publishers with low-impact permissions. FALSE when users may consent to any app."
+      },
+      "stale_app_grants_revoked": {
+        "type": "boolean",
+        "title": "Stale App Grants Revoked",
+        "description": "TRUE when no OAuth grant or trusted-app entry remains for an app that is unused, comes from an unverified publisher, or holds broader scopes than it needs. FALSE when such grants remain. Tightening user consent does not revoke grants already given, which keep working."
+      },
+      "integration_credentials_governed": {
+        "type": "boolean",
+        "title": "Integration Credentials Governed",
+        "description": "TRUE when every non-human tenant identity (service principal, OAuth client, connected app, API key, integration user, including agents and apps the organization builds in the tenant) has an owner, least-privilege scopes and expiring or rotated credentials. FALSE when long-lived secrets, broad scopes or ownerless integrations exist."
+      },
+      "cross_tenant_collaboration_restricted": {
+        "type": "boolean",
+        "title": "Cross-Tenant Collaboration Restricted",
+        "description": "TRUE when sharing with, inviting from and collaborating with other tenants of the same service is limited to named partner tenants or trusted domains. FALSE when collaboration with any tenant of the service is open, so data can be shared into an outside organization's account on the same service."
+      },
+      "anonymous_link_sharing_disabled": {
+        "type": "boolean",
+        "title": "Anonymous Links Off or Expiring View-Only",
+        "description": "TRUE when content cannot be shared through unauthenticated 'anyone with the link' URLs, or such links must expire and are limited to view-only. FALSE when anyone-links are allowed without an expiry or with edit permission."
+      },
+      "guest_directory_access_restricted": {
+        "type": "boolean",
+        "title": "Guest Directory Access Restricted",
+        "description": "TRUE when guest identities can see only their own directory objects, or a limited view, and not the tenant's full list of users, groups and memberships. FALSE when guests have the same directory access as members."
+      },
+      "tenant_audit_logging_enabled": {
+        "type": "boolean",
+        "title": "Tenant Audit Logging Enabled",
+        "description": "TRUE when the tenant records user and admin activity in its audit log. FALSE when auditing is off. Some service tiers leave it off by default, and an admin can switch it off."
+      },
+      "log_retention_days": {
+        "type": "integer",
+        "minimum": 0,
+        "title": "Audit Log Retention (Days)",
+        "description": "Number of days the tenant keeps searchable audit records, inside the service or in organization-owned storage. Values below a year leave too short a window to investigate a slow intrusion."
+      },
+      "audit_log_streaming_enabled": {
+        "type": "boolean",
+        "title": "Audit Logs Exported to the Organization's Store",
+        "description": "TRUE when the tenant's audit and sign-in logs are streamed continuously to storage or a SIEM the organization controls, so a tenant admin who later disables or shortens auditing cannot erase what was already exported. FALSE when the logs exist only inside the vendor's console."
+      },
+      "residency_confined_to_approved_regions": {
+        "type": "boolean",
+        "title": "Data Location Matches Requirement",
+        "description": "TRUE when the tenant's data-at-rest region, and its processing region where offered, matches the organization's residency obligations. FALSE when the region is unknown, left at no preference, or differs from what the organization must meet."
+      },
+      "inbound_identity_trust_restricted": {
+        "type": "boolean",
+        "title": "Inbound Identity Trust Limited to Known Providers",
+        "description": "TRUE when the tenant accepts sign-ins only from identity providers the organization runs: every federated domain (including its current and next token-signing certificates), SAML or OIDC SSO profile, authentication provider, trusted certificate authority for certificate-based sign-in and external MFA provider belongs to the organization, and the tenant trusts MFA or device claims from another tenant only when that tenant is a named partner. FALSE when an unrecognized federated domain, token-signing certificate (current or next), SSO profile, authentication provider, trusted certificate authority or external MFA provider is configured, or the default inbound trust settings accept MFA or device claims from any external tenant."
+      },
+      "admin_role_and_security_setting_changes_alerted": {
+        "type": "boolean",
+        "title": "Admin-Role and Security-Setting Changes Alerted",
+        "description": "TRUE when an alert rule notifies the security team every time a tenant admin role is granted and every time audit logging, app-consent, Conditional Access, federation or SSO, or cross-tenant trust settings are changed. FALSE when these changes are only written to the audit log and no alert rule fires on them."
+      },
+      "admin_signin_device_or_location_restricted": {
+        "type": "boolean",
+        "title": "Admin Sign-In Limited to Managed Devices or Named Locations",
+        "description": "TRUE when the service lets tenant admins sign in, or reach the admin console, only from a compliant or organization-managed device or from named network locations, through a Conditional Access grant or block on admin roles, a Context-Aware Access level on the admin console, or login IP ranges on admin profiles that are enforced on every request or with sessions locked to their originating IP address. FALSE when a valid admin credential and second factor work from any device on any network, or when login IP ranges are checked only at login."
+      }
+    },
+    "required": [
+      "admin_phishing_resistant_mfa_enforced",
+      "all_user_mfa_enforced",
+      "legacy_auth_protocols_disabled",
+      "sso_federation_enabled",
+      "no_standing_admin_privileges_jit_required",
+      "emergency_access_accounts_monitored",
+      "user_app_consent_restricted",
+      "stale_app_grants_revoked",
+      "integration_credentials_governed",
+      "cross_tenant_collaboration_restricted",
+      "anonymous_link_sharing_disabled",
+      "guest_directory_access_restricted",
+      "tenant_audit_logging_enabled",
+      "log_retention_days",
+      "audit_log_streaming_enabled",
+      "residency_confined_to_approved_regions",
+      "inbound_identity_trust_restricted",
+      "admin_role_and_security_setting_changes_alerted",
+      "admin_signin_device_or_location_restricted"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/admin_phishing_resistant_mfa_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/admin_signin_device_or_location_restricted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/all_user_mfa_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/inbound_identity_trust_restricted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/legacy_auth_protocols_disabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/emergency_access_accounts_monitored"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/local_signin_restricted_to_break_glass",
+                "rule": {
+                  "effect": "SHOW",
+                  "condition": {
+                    "scope": "#/properties/sso_federation_enabled",
+                    "schema": {
+                      "const": true
+                    }
+                  }
+                }
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/sso_federation_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/no_standing_admin_privileges_jit_required"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/user_app_consent_restricted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/stale_app_grants_revoked"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Data Handling & Residency",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cross_tenant_collaboration_restricted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/anonymous_link_sharing_disabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/guest_directory_access_restricted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/residency_confined_to_approved_regions"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/integration_credentials_governed"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_log_streaming_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/admin_role_and_security_setting_changes_alerted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_retention_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tenant_audit_logging_enabled"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

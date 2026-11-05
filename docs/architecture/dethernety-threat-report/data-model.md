@@ -11,6 +11,7 @@ The Threat Report renders over a single **persisted snapshot document** that is 
 - [The ledger](#the-ledger) — elements, findings, and supporting controls (`LedgerElement` / `LedgerFinding` / `LedgerControl`).
 - [The model graph](#the-model-graph) — positional boundaries, components, flows, and data nodes, including each boundary's declared trust-zoning.
 - [The zoning block](#the-zoning-block) — the computed per-boundary declared effective zones and advisory zoning findings.
+- [The operation block](#the-operation-block) — who runs each component and boundary, resolved and frozen at generate time.
 - [The graded coverage payload](#the-graded-coverage-payload) — the live, disposition-agnostic coverage facts.
 - [The fingerprint and staleness contract](#the-fingerprint-and-staleness-contract) — what the structural fingerprint covers.
 - [Join keys and invariants](#join-keys-and-invariants) — the identifiers that tie the three shapes together.
@@ -39,6 +40,7 @@ graph LR
     L["ledger<br/>LedgerElement[]"]
     G["modelGraph<br/>boundaries / components / flows / dataNodes"]
     Z["zoning<br/>effectiveZones / findings"]
+    O["operation<br/>state / elements"]
     FP["fingerprint"]
   end
   COV["gradedCoverage<br/>(live, disposition-agnostic)"]
@@ -47,6 +49,7 @@ graph LR
   COV -- "exposureId == finding.id" --> L
   G -- "dataNode.handledBy == element ids" --> L
   Z -- "effectiveZones keyed by boundary id" --> G
+  O -- "elements keyed by boundary and component id" --> G
   FP -. "live recompute compared for staleness" .-> COV
 ```
 
@@ -67,6 +70,7 @@ The top-level persisted document. It is serialized to a JSON string and stored o
 | `ledger` | `LedgerElement[]?` | The residual-risk ledger — every element with its findings and supporting controls. See [the ledger](#the-ledger). |
 | `modelGraph` | `ModelGraph?` | The positional model graph — boundaries, components, flows, and data nodes. See [the model graph](#the-model-graph). |
 | `zoning` | `{ findings: ZoningFinding[]; effectiveZones: Record<boundaryId, EffectiveZone> }?` | The computed trust-zoning block — per-boundary **declared effective zones** and advisory zoning findings. See [the zoning block](#the-zoning-block). Absent on snapshots generated before this field existed (the frontend defaults it). |
+| `operation` | `OperationBlock?` | Who runs each component and boundary, frozen at generate time. See [the operation block](#the-operation-block). Absent on a snapshot from before 2.2.0, which the frontend says rather than showing a default. |
 
 ### Empty state
 
@@ -285,6 +289,28 @@ The frontend renders a subset of these — the four per-boundary conduit-indepen
 
 ---
 
+## The operation block
+
+The operation block (`SnapshotDoc.operation`) says who runs each component and boundary, as resolved at generate time by dt-core's operation rules over the operator and product each element's class edges declare (see [backend.md](./backend.md#who-runs-it-computation)). It states a declaration and how it was decided, never a judgement, and it does not hold the version.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `state` | `'resolved' \| 'unavailable'` | `unavailable` means who runs each element could not be worked out. `elements` is then empty and the frontend shows no operator. |
+| `elements` | `Record<elementId, ElementOperation>` | One entry per boundary and component in `modelGraph` when `resolved`. |
+
+### ElementOperation
+
+| Field | Type | Meaning |
+|---|---|---|
+| `operator` | `{ party: 'CUSTOMER' \| 'VENDOR'; source: 'declared' \| 'invalid' \| 'zone' \| 'default' }` | Who runs the element's own software, and how that was decided. `zone` is `VENDOR` read from a `VENDOR` effective zone; `invalid` and `default` are `CUSTOMER`. |
+| `product` | `string?` | The declared product: trimmed, in Unicode NFC, at most 200 characters. Absent when none is declared. |
+| `hosting` | `{ boundaryId: string; name: string; party: 'CUSTOMER' \| 'VENDOR'; source: 'declared' \| 'invalid' }?` | Components only: the direct parent boundary, when it carries a value. The name is frozen with the report, and renaming a boundary does not make a report stale, as with other names in the snapshot: the fingerprint holds no names. Absent when the parent declares nothing or is the model's root. |
+| `drawnComponents` | `number?` | Boundaries only, when declared as `VENDOR` and not the model's root: the number of components drawn directly in it. |
+
+**Absent versus unavailable.** A snapshot from before 2.2.0 has no `operation`, and the report asks to be recreated. `{ state: 'unavailable', elements: {} }` is a current report that could not resolve the block, and the report says that. Neither shows a default operator.
+
+---
+
 ## The graded coverage payload
 
 The `gradedCoverage(modelId)` query is contributed to the merged GraphQL schema by the sibling `dethernety-coverage-tools` module and returns the coverage facts as a **JSON-encoded string**. The report fetches it live, parses it, and layers its own honesty rules on top — the disposition filter, the tier-segregated bucketing, the detect-only reduction, and the no-percentage presentation all live in the report, not in the payload. The payload itself is **disposition-agnostic**: it states which techniques each exposure maps to and how well each is covered, as a fact about the exposure, regardless of any disposition.
@@ -359,6 +385,21 @@ The digest is computed in the module (sorted ids, hashed) so it is independent o
 - **Data sensitivity** — each data element's id paired with its sensitivity, so re-classifying data flips the fingerprint instead of leaving a now-misclassified snapshot reading "fresh".
 - **Handling edges** — each element-handles-data relationship, so re-wiring which element handles a data element flips the fingerprint.
 - **Zoning inputs** — every input the zoning engine reads: each boundary's `zone` / `planes` / `domains` and its nesting parent, each component's `crownJewel` flag and containing boundary, each data element's regulatory flags, each declared conduit edge, and each flow's endpoints. Re-zoning, re-tagging, re-parenting, or re-wiring the model therefore flips the fingerprint, so a re-computed zoning block never reads "fresh" against a changed model.
+- **Operation signatures (conditional)** — the `op` key, present only when at least one element declares an operator or a product. See below.
+
+The `op` key holds one signature per declaring element, sorted: the JSON array `[id, operator, product]`, over **normalised values**, with `''` for the one it does not declare.
+
+- `operator` is the value as dt-core's `readOperator` reads it: `CUSTOMER`, `VENDOR`, or `invalid`. An absent, `null`, or empty-string value is no declaration.
+- `product` is trimmed, in Unicode NFC, and cut to 200 characters. A value that is only whitespace is no declaration.
+
+| Change to the model | Effect on the fingerprint |
+|---|---|
+| An operator or product changes, or is cleared | Moves |
+| A value is stored another way that reads the same | Does not move |
+| A version changes | Does not move: the query never reads it |
+| Nothing declares | Unchanged: with no `op` key, the digest is byte-identical to one from before 2.2.0 |
+
+So a report from before 2.2.0 stays fresh on a model that declares nothing, and its `operation` is still absent. On a model that declares, it reads stale. The module normalises the values itself rather than importing dt-core, so the staleness query cannot fail on a dynamic import; a test holds that reading to dt-core's.
 
 The digest collects scalar ids and signatures only — never the full ledger — so the live staleness check stays light enough to poll. The query mechanics are documented in [backend.md](./backend.md); the rationale for treating freshness this way is in [design-principles.md](./design-principles.md).
 
@@ -366,7 +407,7 @@ The digest collects scalar ids and signatures only — never the full ledger —
 
 ## Join keys and invariants
 
-Three identifier relationships tie the shapes together. They hold because the ledger, the model graph, and the fingerprint are all gathered by the same model→all-elements traversal at generate time.
+These identifier relationships tie the shapes together. They hold because the ledger, the model graph, and the fingerprint are all gathered by the same model→all-elements traversal at generate time.
 
 | Join | Relationship | Used by |
 |---|---|---|
@@ -374,6 +415,7 @@ Three identifier relationships tie the shapes together. They hold because the le
 | `modelGraph` element ids ↔ `ledger` element ids | Same id sets (same traversal) | Reachability minimap, Boundary Crossings, on-flow and crossed-boundary posture |
 | `dataNode.handledBy[]` ↔ `ledger` / `modelGraph` element ids | Many-to-many handling topology | Component Profile data relations (both directions) |
 | `zoning.effectiveZones` keys ↔ `modelGraph.boundaries[].id` | Keyed by boundary id | Boundary Crossings declared-zone policy, Component Profile trust-zoning block, Residual Risk zoning advisories |
+| `operation.elements` keys ↔ `modelGraph.boundaries[].id`, `modelGraph.components[].id` | Keyed by boundary or component id | Component Profile who-runs-it block, exposure detail, HTML export |
 
 **Invariants worth relying on:**
 

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { Node } from '@vue-flow/core'
+import { resolveEffectiveZone as resolveInCore, type StructureBoundary } from '@dethernety/dt-core'
 import { resolveEffectiveZone, DEFAULT_ZONE } from '../effectiveZone'
 
 const DEFAULT_ID = 'root'
@@ -56,5 +57,32 @@ describe('resolveEffectiveZone', () => {
   it('falls back to default when an ancestor is unhydrated (getBoundary returns undefined)', () => {
     const get = makeGraph({ child: { zone: null, parentNode: 'missing' } }) // 'missing' not in graph
     expect(resolveEffectiveZone('child', get, DEFAULT_ID)).toEqual({ zone: DEFAULT_ZONE, source: 'default' })
+  })
+})
+
+// A copy of dt-core's resolver, over the canvas's nodes: the two must answer alike, since the canvas and the zoning
+// overview read this one and the report reads dt-core's.
+describe('parity with dt-core', () => {
+  const graphs: Array<Record<string, { zone?: string | null; parentNode?: string }>> = [
+    { root: { zone: null }, b: { zone: null, parentNode: '' } },
+    { root: { zone: 'VENDOR' }, b: { zone: null, parentNode: '' } },
+    { root: { zone: 'VENDOR' }, b: { zone: null, parentNode: 'root' } },
+    { root: { zone: 'INTERNAL' }, a: { zone: 'VENDOR', parentNode: '' }, b: { zone: null, parentNode: 'a' } },
+    { root: { zone: null }, a: { zone: 'PUBLIC', parentNode: '' }, b: { zone: 'VENDOR', parentNode: 'a' } },
+  ]
+
+  it('gives the same zone for every boundary', () => {
+    for (const defs of graphs) {
+      const canvas = makeGraph(defs)
+      const structure = new Map<string, StructureBoundary>(Object.entries(defs).map(([id, d]) => [id, {
+        id,
+        name: id,
+        zone: (d.zone ?? undefined) as StructureBoundary['zone'],
+        parentBoundary: id === DEFAULT_ID ? undefined : { id: d.parentNode || DEFAULT_ID, name: '' },
+      }]))
+      for (const id of Object.keys(defs)) {
+        expect(resolveEffectiveZone(id, canvas, DEFAULT_ID).zone, id).toBe(resolveInCore(id, structure, DEFAULT_ID).zone)
+      }
+    }
   })
 })

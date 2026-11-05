@@ -1,0 +1,109 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "public_endpoint_exposed": true,
+      "invocation_authentication_required": false,
+      "invocation_path_non_bypassable": false,
+      "invocation_authorization_scoped": false,
+      "deployment_basic_credentials_disabled": false,
+      "private_network_attached": false,
+      "egress_default_deny_enforced": false,
+      "execution_identity_least_privilege": false,
+      "execution_identity_attachment_restricted": false,
+      "secrets_stored_in_dedicated_secret_manager": false,
+      "artifact_source_org_controlled": false,
+      "artifact_signature_verified_at_deploy": false,
+      "runtime_version_supported": false,
+      "platform_logs_exported_to_org_store": false,
+      "log_pipeline_tamper_resistant": false,
+      "resource_ceiling_configured": false,
+      "edge_management_interfaces_not_internet_reachable": false,
+      "tls_only_transport": false
+    },
+    "expectedExposures": [
+      "Plaintext HTTP accepted on a public endpoint",
+      "Exploitation of an unsupported runtime on a public endpoint",
+      "Unfiltered egress from deployed code",
+      "Secrets exposed in environment variables or code",
+      "Compromised third-party artifact run in the workload",
+      "Privilege escalation through a workload's privileged identity",
+      "Deployment takeover with long-lived publishing credentials",
+      "Over-privileged execution identity",
+      "Unauthenticated invocation of an internet-reachable workload",
+      "Workload log trail silenced",
+      "Deployment and management site reachable from the internet",
+      "Workload logs not kept by the organization",
+      "Unbounded scaling and cost"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "public_endpoint_exposed": false,
+      "invocation_authentication_required": true,
+      "invocation_path_non_bypassable": true,
+      "invocation_authorization_scoped": true,
+      "deployment_basic_credentials_disabled": true,
+      "private_network_attached": true,
+      "egress_default_deny_enforced": true,
+      "execution_identity_least_privilege": true,
+      "execution_identity_attachment_restricted": true,
+      "secrets_stored_in_dedicated_secret_manager": true,
+      "artifact_source_org_controlled": true,
+      "artifact_signature_verified_at_deploy": true,
+      "runtime_version_supported": true,
+      "platform_logs_exported_to_org_store": true,
+      "log_pipeline_tamper_resistant": true,
+      "resource_ceiling_configured": true,
+      "edge_management_interfaces_not_internet_reachable": true,
+      "tls_only_transport": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "public_endpoint_exposed": false,
+      "invocation_authentication_required": true,
+      "invocation_path_non_bypassable": true,
+      "invocation_authorization_scoped": true,
+      "deployment_basic_credentials_disabled": true,
+      "private_network_attached": true,
+      "egress_default_deny_enforced": true,
+      "execution_identity_least_privilege": true,
+      "execution_identity_attachment_restricted": true,
+      "secrets_stored_in_dedicated_secret_manager": true,
+      "artifact_source_org_controlled": true,
+      "artifact_signature_verified_at_deploy": true,
+      "runtime_version_supported": true,
+      "platform_logs_exported_to_org_store": true,
+      "log_pipeline_tamper_resistant": true,
+      "resource_ceiling_configured": true,
+      "edge_management_interfaces_not_internet_reachable": true,
+      "tls_only_transport": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Unfiltered egress from deployed code",
+      "Secrets exposed in environment variables or code",
+      "Compromised third-party artifact run in the workload",
+      "Privilege escalation through a workload's privileged identity",
+      "Deployment takeover with long-lived publishing credentials",
+      "Over-privileged execution identity",
+      "Invocation by any authenticated identity",
+      "Workload log trail silenced",
+      "Deployment and management site reachable from the internet",
+      "Workload logs not kept by the organization",
+      "Unbounded scaling and cost"
+    ]
+  }
+]

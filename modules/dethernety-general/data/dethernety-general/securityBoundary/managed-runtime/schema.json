@@ -1,0 +1,332 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "public_endpoint_exposed": {
+        "type": "boolean",
+        "title": "Public Endpoint Exposed",
+        "description": "Presence discriminator: TRUE when the workload's invocation endpoint can be reached directly from the internet (a vendor-assigned default URL or public ingress), or through an internet-facing gateway or load balancer that passes unauthenticated requests to it. FALSE when it is reachable only from the organization's private network or a designated front door that itself authenticates callers. It gates the public-invocation checks and never fires on its own."
+      },
+      "invocation_authentication_required": {
+        "type": "boolean",
+        "title": "Invocation Authentication Required",
+        "description": "Only relevant when the endpoint is public. TRUE when every invocation must present an identity the platform checks (a signed request, an invoker permission check, built-in authentication, a JWT authorizer) before the organization's code runs. FALSE when anonymous callers reach the code."
+      },
+      "invocation_path_non_bypassable": {
+        "type": "boolean",
+        "title": "Invocation Path Not Bypassable",
+        "description": "Only relevant when the endpoint is public. TRUE when every route that reaches the workload's code passes the platform's authentication gate. FALSE when an alternate route (a default URL left live, a private endpoint) reaches the code without that gate. A route that skips only a front door or firewall but still authenticates does not make this FALSE."
+      },
+      "invocation_authorization_scoped": {
+        "type": "boolean",
+        "title": "Invocation Authorization Scoped",
+        "description": "TRUE when authenticated callers are also restricted to the intended principals, audiences, clients or scopes. FALSE when any authenticated identity, for example any user of the identity provider, may invoke the workload. A non-public workload that accepts calls from anyone who can reach it is FALSE. On a public endpoint whose invocations are not authenticated at all, the unauthenticated-invocation check reports the case and this one stays silent."
+      },
+      "deployment_basic_credentials_disabled": {
+        "type": "boolean",
+        "title": "Deployment Basic Credentials Disabled",
+        "description": "TRUE when the platform's deployment and management paths for the workload (an advanced-tools or deployment site, FTP, a container registry) refuse long-lived basic credentials such as publishing passwords or a registry admin user. Also TRUE when the platform has no such separate deployment path, as with AWS Lambda or Google Cloud Run. FALSE when basic publishing passwords or a registry admin user are accepted."
+      },
+      "private_network_attached": {
+        "type": "boolean",
+        "title": "Attached to a Private Network",
+        "description": "TRUE when the workload's outbound interface is attached to the organization's private network (VPC or VNet integration) with all outbound traffic routed through it, so the organization's network controls apply. FALSE when it runs on the vendor's default network, or routes only private ranges through the organization's network, and reaches the internet directly."
+      },
+      "egress_default_deny_enforced": {
+        "type": "boolean",
+        "title": "Egress Default-Deny Enforced",
+        "description": "TRUE when outbound destinations are restricted to an explicit allowlist by security-group, NSG, firewall or proxy rules, so a compromised workload cannot send data to arbitrary internet endpoints. FALSE when outbound traffic to any destination is allowed."
+      },
+      "execution_identity_least_privilege": {
+        "type": "boolean",
+        "title": "Execution Identity Least Privilege",
+        "description": "TRUE when the identity the workload runs as (execution role, service account, managed identity, runtime role) is dedicated to it and holds only the permissions it needs. FALSE when it runs as a shared or default identity with broad project, subscription or account rights."
+      },
+      "execution_identity_attachment_restricted": {
+        "type": "boolean",
+        "title": "Identity Attachment Restricted",
+        "description": "TRUE when the right to attach an identity to the workload, or to redeploy code that runs as it (pass-role or act-as permissions, or update-code rights on a workload that already runs as a more privileged identity), is held only by the deployment pipeline and named administrators. FALSE when many principals can use this route to run code as a more privileged identity."
+      },
+      "secrets_stored_in_dedicated_secret_manager": {
+        "type": "boolean",
+        "title": "Secrets From a Secret Manager",
+        "description": "TRUE when the credentials the workload uses are referenced from a secret manager or vault and resolved at run time. FALSE when they are pasted as literal environment variables or app settings, or built into the code or image, where anyone with configuration-read rights or access to the image can read them."
+      },
+      "artifact_source_org_controlled": {
+        "type": "boolean",
+        "title": "Artifacts From an Organization-Controlled Registry",
+        "description": "TRUE when everything that runs in the workload (container image, code package, layers, dependencies, base image) is pulled from a registry or bucket the organization controls. A remote or pull-through repository that proxies a public registry does not count. FALSE when any of it is pulled directly from a public registry, a third party, or such a proxy."
+      },
+      "artifact_signature_verified_at_deploy": {
+        "type": "boolean",
+        "title": "Artifact Signature Enforced at Deploy",
+        "description": "TRUE when the platform enforces signature or attestation verification at deploy: unsigned or untrusted artifacts are blocked, not only warned about, and an organization policy requires it. FALSE when verification is off, set to warn, or optional per workload."
+      },
+      "runtime_version_supported": {
+        "type": "boolean",
+        "title": "Runtime Version Supported",
+        "description": "TRUE when the language runtime or base image the workload runs on is within vendor support and receives security patches. For container images, TRUE when the organization rebuilds them from a current base. FALSE when the runtime is deprecated or the image is stale. It is checked only for a workload with a public endpoint."
+      },
+      "platform_logs_exported_to_org_store": {
+        "type": "boolean",
+        "title": "Platform Logs Exported",
+        "description": "TRUE when the platform's request, application and audit logs for the workload are routed to a log store or SIEM the organization controls with a set retention. FALSE when they stay only in default vendor-side locations or are not collected."
+      },
+      "log_pipeline_tamper_resistant": {
+        "type": "boolean",
+        "title": "Log Pipeline Tamper-Resistant",
+        "description": "TRUE when identities close to the workload (its execution identity, its deployers) cannot silence its logging, for example by removing log-write permissions, adding exclusion filters or deleting sinks. FALSE when they can."
+      },
+      "resource_ceiling_configured": {
+        "type": "boolean",
+        "title": "Resource Ceiling Configured",
+        "description": "TRUE when the organization has set an upper bound on the workload's scale-out, concurrency or session lifetime. FALSE when no such bound is set, so abusive or unauthenticated invocation can drive instance count up to the platform or account limit, and cost with it."
+      },
+      "edge_management_interfaces_not_internet_reachable": {
+        "type": "boolean",
+        "title": "Deployment and Management Site Not Internet-Reachable",
+        "description": "TRUE when the platform's separate deployment and management site for the workload (the advanced-tools, SCM or Kudu site of Azure App Service and Functions, which is both the deployment endpoint and a console) cannot be reached from the internet. This holds when the app's public network access is disabled, when the site's own access restrictions end in a Deny for unmatched traffic and allow only the organization's networks or addresses, or when it inherits main-site rules of that kind. Also TRUE when the platform has no separately reachable deployment or management site, because code and configuration change only through the cloud provider's identity-authenticated control-plane API, as with AWS Lambda, Google Cloud Run, Azure Container Apps and Amazon Bedrock AgentCore Runtime. A service-tag allow rule is not organization-specific: a tag such as AzureCloud covers addresses any Azure customer can use, and an AzureFrontDoor.Backend rule limits the site to the organization's own Front Door only with an X-Azure-FDID header check. FALSE when the deployment and management site accepts connections from any internet address, or from a shared service tag: no access-restriction rules and an unmatched action that is not Deny, or an allow rule for any address."
+      },
+      "tls_only_transport": {
+        "type": "boolean",
+        "title": "HTTPS-Only Public Endpoint",
+        "description": "Only relevant when the endpoint is public. TRUE when the workload's public endpoint does not serve requests over plain HTTP: plain-HTTP requests are refused or redirected to HTTPS before they reach the organization's code. Examples are Azure Container Apps ingress with allowInsecure false, Azure App Service or Functions with HTTPS Only on, the Google Cloud Run run.app URL, a Lambda Web Function endpoint and an Amazon Bedrock AgentCore Runtime endpoint. FALSE when the endpoint serves plain-HTTP requests to the code, for example Container Apps ingress with allowInsecure true, or App Service with HTTPS Only off. When the workload is public only through a gateway or load balancer in front, record TRUE: that component is assessed on its own."
+      }
+    },
+    "required": [
+      "public_endpoint_exposed",
+      "invocation_authorization_scoped",
+      "deployment_basic_credentials_disabled",
+      "private_network_attached",
+      "egress_default_deny_enforced",
+      "execution_identity_least_privilege",
+      "execution_identity_attachment_restricted",
+      "secrets_stored_in_dedicated_secret_manager",
+      "artifact_source_org_controlled",
+      "artifact_signature_verified_at_deploy",
+      "runtime_version_supported",
+      "platform_logs_exported_to_org_store",
+      "log_pipeline_tamper_resistant",
+      "resource_ceiling_configured",
+      "edge_management_interfaces_not_internet_reachable"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/egress_default_deny_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/private_network_attached"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/public_endpoint_exposed"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/invocation_authentication_required",
+                "rule": {
+                  "effect": "SHOW",
+                  "condition": {
+                    "scope": "#/properties/public_endpoint_exposed",
+                    "schema": {
+                      "const": true
+                    }
+                  }
+                }
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/invocation_path_non_bypassable",
+                "rule": {
+                  "effect": "SHOW",
+                  "condition": {
+                    "scope": "#/properties/public_endpoint_exposed",
+                    "schema": {
+                      "const": true
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authorization & RBAC",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/execution_identity_attachment_restricted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/execution_identity_least_privilege"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/invocation_authorization_scoped"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_only_transport",
+                "rule": {
+                  "effect": "SHOW",
+                  "condition": {
+                    "scope": "#/properties/public_endpoint_exposed",
+                    "schema": {
+                      "const": true
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Secrets & Credentials",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/deployment_basic_credentials_disabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_stored_in_dedicated_secret_manager"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/edge_management_interfaces_not_internet_reachable"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Supply Chain Integrity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/artifact_signature_verified_at_deploy"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/artifact_source_org_controlled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Availability & Resilience",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/resource_ceiling_configured"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_pipeline_tamper_resistant"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/platform_logs_exported_to_org_store"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/runtime_version_supported"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

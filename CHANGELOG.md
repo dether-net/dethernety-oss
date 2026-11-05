@@ -5,6 +5,57 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Two boundary classes in `dethernety-general` 1.1.0.** **SaaS Tenant** is the organization's own
+  tenant of a vendor-run SaaS service, and **Managed Runtime** is a vendor-run environment that the
+  organization deploys its own code, containers or agents into. The module now has 83 classes (77
+  classes and 6 issue classes).
+- **The threat report freezes who runs each element.** `dethernety-threat-report` 2.2.0 resolves
+  who runs each component and boundary when a report is generated: what is declared and how it was
+  decided (declared, read from the Vendor zone, not declared, or not valid), the product, a
+  component's hosting boundary with that boundary's own declaration, and, for a boundary declared
+  as a vendor's, the number of components drawn directly in it. The component profile, the exposure
+  detail and the HTML export show them, and the JSON export carries them through the snapshot
+  (`snapshot.operation`). The version is not read. A report from before 2.2.0 asks to be recreated.
+  When the rules cannot load or zoning failed, the report is still written, and says who runs it
+  could not be worked out instead of showing a default. The only new staleness input is the
+  declaration: changing an operator or product makes a report stale, and a version edit does not. A
+  model that declares nothing keeps its fingerprint, so its existing reports stay fresh. See the
+  threat report's *Reading the Report*, *Who runs an element*.
+
+### Changed
+
+- **The operation category comes first on the Attributes tab.** On a component or boundary,
+  **Operation & version** or **Operation** now comes first on the **Attributes** tab rather than
+  last: the first panel, closed, in the default view, and the first tab, open by default, when the
+  form is switched to tabs. For module authors, `runContractSuite` in
+  `@dethernety/dt-module/testing` now expects a served template to have the category first. Guide
+  entries stay appended after the class's own.
+
+- **A served component or boundary template keeps only plain uischema scopes.** For module authors:
+  `withOperationFields` now keeps a uischema element with a `scope` only when the scope is a plain
+  chain of `#/properties/<key>` with no key under the reserved `dethernety_` prefix. Any other
+  element with a scope no longer appears in a served component or boundary template, whatever its
+  type: one with a combinator, brackets, a root scope or a reserved key. This holds at any depth
+  under `elements` and in any option whose value is an object, such as `options.detail`. An element
+  whose `elements` is not a list goes as well, and so does a layout or category left empty. An
+  option left empty is removed while its element stays. A template without `schema.properties` or
+  without a root `Categorization` gets no operation fields, and is held to the same rule. In
+  `DtFileOpaModule`, a template that parses but cannot be extended now fails the read rather than
+  being served unread; text that does not parse is still returned as it is.
+
+### Fixed
+
+- **dt-ui reads the zone the model's root boundary declares.** `DtModel.dumpModelData` left the
+  root boundary's `zone` out of what it returned, so when dt-ui loaded a model, every boundary
+  inheriting from the root read the default `INTERNAL`: no zone pill on the canvas, and *Unset →
+  default Internal* in the boundary zoning overview. The threat report read the root's declared
+  zone, so the two disagreed. These boundaries now read what the root declares. A root that declares
+  nothing still reads the default.
+
 ## [0.15.0] - 2026-11-04
 
 Elements bound to a remote module's classes are stamped with the class policy at their next save,

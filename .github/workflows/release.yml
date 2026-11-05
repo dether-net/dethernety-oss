@@ -666,8 +666,8 @@ jobs:
             echo "issued for any other release will not satisfy it:"
             echo
             echo '```'
-            echo "cosign verify-blob dethernety-general-1.0.0.tar.gz \\"
-            echo "  --bundle dethernety-general-1.0.0.tar.gz.bundle \\"
+            echo "cosign verify-blob dethernety-general-1.1.0.tar.gz \\"
+            echo "  --bundle dethernety-general-1.1.0.tar.gz.bundle \\"
             echo "  --certificate-identity '${IDENTITY}' \\"
             echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com"
             echo '```'

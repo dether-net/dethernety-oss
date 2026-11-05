@@ -25,6 +25,7 @@
 // defense-in-depth context — the technique-set intent partition needs the coverage
 // engine and is NOT here.
 
+import { whoRunsItView } from './whoRunsIt.js'
 import { aggregateLedger } from './aggregateLedger.js'
 import {
   makeStackResolver,
@@ -70,10 +71,10 @@ function singleGroup(ledgerEl) {
  * Synthesise the Component Profile for an element.
  *
  * @param {string} elementId
- * @param {{ ledger: Array, modelGraph: object, zoning?: object }} doc
+ * @param {{ ledger: Array, modelGraph: object, zoning?: object, operation?: object }} doc
  * @returns {object} the Component Profile view model (see fields below)
  */
-export function computeComponentProfile(elementId, { ledger, modelGraph, zoning } = {}) {
+export function computeComponentProfile(elementId, { ledger, modelGraph, zoning, operation } = {}) {
   const mg = modelGraph && typeof modelGraph === 'object' ? modelGraph : {}
   const components = Array.isArray(mg.components) ? mg.components : []
   const boundaries = Array.isArray(mg.boundaries) ? mg.boundaries : []
@@ -386,6 +387,8 @@ export function computeComponentProfile(elementId, { ledger, modelGraph, zoning 
     element,
     boundaryContext,
     zoning: zoningDetail,
+    // Components and boundaries only: nothing here says who runs a flow or a data item.
+    whoRuns: comp || bound ? whoRunsItView(operation, elementId) : null,
     ownExposures,
     dataHandled,
     handledByElements,

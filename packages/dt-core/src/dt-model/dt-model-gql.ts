@@ -131,6 +131,9 @@ export const DUMP_MODEL_DATA = gql`
         zone
         domains
         planes
+        securityBoundaryClass {
+          id
+        }
         controls {
           id
           name

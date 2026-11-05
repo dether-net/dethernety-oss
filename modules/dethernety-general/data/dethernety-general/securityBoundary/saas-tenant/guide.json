@@ -1,0 +1,838 @@
+[
+  {
+    "option_name": "admin_phishing_resistant_mfa_enforced",
+    "option_description": "Whether every tenant administrator must complete a phishing-resistant second factor (FIDO2 security key, passkey or certificate) before using admin privileges, rather than a password alone or a phishable factor such as SMS, voice or a one-time code.",
+    "security_impact": "One of the two OR-groups of \"Tenant admin account takeover\" (ATT&CK T1078.004 Valid Accounts: Cloud Accounts, and T1550.004 Use Alternate Authentication Material: Web Session Cookie). It fires when admin_phishing_resistant_mfa_enforced is false. Without a phishing-resistant factor, an admin password obtained by phishing or password spraying where no second factor applies, or a session cookie captured by an adversary-in-the-middle proxy where the factor is phishable, gives full control of the tenant.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Microsoft 365 / Entra ID: open the Conditional Access policies and find the policy that targets the privileged directory roles. Check that it requires the phishing-resistant authentication strength and is enforced, not in Report-only mode.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Entra admin center > Entra ID > Conditional Access > Policies",
+        "expected_output": "Secure: an enabled policy (state On, not Report-only) that includes at least the privileged directory roles (Global Administrator, Privileged Role Administrator, Security Administrator, etc.), excludes only the emergency-access accounts, targets All resources, and grants access with 'Require authentication strength' = 'Phishing-resistant MFA strength'. Insecure: no such policy, policy only in Report-only mode, a plain 'Require multifactor authentication' grant, broader exclusions, or admins holding custom or administrative-unit-scoped roles the policy cannot cover. Note: CA policies are not enforced for administrative-unit-scoped or custom roles.",
+        "source": "Microsoft Learn - Require phishing-resistant MFA for Microsoft Entra administrator roles"
+      },
+      {
+        "type": "gui",
+        "instruction": "Google Workspace: read the 2-Step Verification enforcement and the allowed methods for the organizational unit or group that holds the admin accounts.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Google Admin console > Menu > Security > Authentication > 2-step verification (applied to the admin organizational unit or group)",
+        "expected_output": "Secure: Enforcement = On and Methods = 'Only security key' for admin accounts. Insecure: Enforcement Off, Methods = 'Any', or 'Allow user to trust the device' turned on for admins. Security center > Security health > 'Two-step verification for admins' shows the posture.",
+        "source": "Google Workspace Admin Help - Deploy 2-Step Verification"
+      },
+      {
+        "type": "gui",
+        "instruction": "Salesforce: check the session security level for MFA and the org-wide MFA requirement for direct UI logins. This shows that MFA is required; then confirm with the tenant admin which verification methods each admin has registered (security key or passkey versus an authenticator app or one-time code), and capture a screenshot of each admin's registered methods as evidence.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Salesforce Setup > Quick Find 'Session Settings' > Session Security Levels; then Setup > Quick Find 'Identity' > Identity Verification",
+        "expected_output": "Secure: Multi-Factor Authentication sits in the High Assurance category, 'Require multi-factor authentication (MFA) for all direct UI logins to your Salesforce org' is selected, and every admin's registered method is a security key or passkey. Insecure: MFA not required, or admins able to complete MFA with a phishable method.",
+        "source": "Salesforce Trailhead - Identity Login: multi-factor authentication unit"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "all_user_mfa_enforced",
+    "option_description": "Whether every interactive tenant user, not only admins, must complete multi-factor authentication, with no long enrollment window in which a password alone works.",
+    "security_impact": "One of the three OR-groups of \"Missing MFA, or MFA bypassed through legacy protocols or local sign-in\" (ATT&CK T1078.004 Valid Accounts: Cloud Accounts). It fires when all_user_mfa_enforced is false. A stolen or sprayed password alone then opens a tenant account.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Google Workspace: review per-user 2-Step Verification enrollment and enforcement across all organizational units, and the new-user enrollment period.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Google Admin console > Menu > Reporting > User Reports > Security (or Security > Security center > Security health > 'Two-step verification for users')",
+        "expected_output": "Per-user 2SV enrollment and enforcement columns. Secure: Enforcement On for all organizational units, users enrolled. Insecure: 'Allow users to turn on 2-Step Verification' checked with Enforcement Off, or a long 'New user enrollment period' (users can sign in with a password only during that period).",
+        "source": "Google Workspace Admin Help - Deploy 2-Step Verification"
+      },
+      {
+        "type": "gui",
+        "instruction": "Salesforce: confirm the org-wide MFA requirement for direct UI logins and review which users hold the MFA exemption permission.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Salesforce Setup > Quick Find 'Identity' > Identity Verification",
+        "expected_output": "Secure: the 'Require multi-factor authentication (MFA) for all direct UI logins to your Salesforce org' checkbox is selected. Exempt users can be excluded through a user permission, so review who holds the MFA exemption.",
+        "source": "Salesforce Trailhead - Identity Login: multi-factor authentication unit"
+      },
+      {
+        "type": "gui",
+        "instruction": "Microsoft 365 / Entra ID: find the Conditional Access policy that requires MFA for all users, or confirm security defaults are on for tenants without Conditional Access. Review the policy's user exclusions.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Entra admin center > Entra ID > Conditional Access > Policies (or Entra ID > Overview > Properties > Manage security defaults)",
+        "expected_output": "Secure: an enabled (not Report-only) policy for All users and All resources that grants access only with MFA or an authentication strength, and excludes only the emergency-access accounts. Alternatively, security defaults enabled. Insecure: no such policy, broad group exclusions, or Report-only.",
+        "source": "Microsoft Learn - Require MFA for all users with Conditional Access"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "legacy_auth_protocols_disabled",
+    "option_description": "Whether sign-in protocols that cannot perform MFA (legacy or basic authentication such as IMAP, POP or SMTP AUTH with a password, or password-only API login flows) are blocked tenant-wide.",
+    "security_impact": "One of the three OR-groups of \"Missing MFA, or MFA bypassed through legacy protocols or local sign-in\" (ATT&CK T1078.004). It fires when legacy_auth_protocols_disabled is false. A protocol that cannot carry MFA lets a valid password authenticate even though an MFA policy appears to be in place, which is how most password spray and credential stuffing succeeds.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Microsoft 365 / Entra ID: find the Conditional Access policy that blocks legacy authentication client apps for all users, or confirm security defaults are on.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Entra admin center > Entra ID > Conditional Access > Policies",
+        "expected_output": "Secure: an enabled policy including All users, targeting All resources, with Conditions > Client apps = 'Exchange ActiveSync clients' + 'Other clients' and Grant = 'Block access' (or Security defaults on for tenants without Conditional Access licenses). Insecure: no such policy, or policy only in Report-only.",
+        "source": "Microsoft Learn - Block legacy authentication with Conditional Access"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Microsoft 365 / Entra ID: filter the interactive and non-interactive sign-in logs by Client App to show legacy protocols, and check for successful sign-ins.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Entra admin center > Entra ID > Monitoring & health > Sign-in logs > Columns > Client App; Add filters > Client App = legacy protocols (repeat on 'User sign-ins (non-interactive)')",
+        "expected_output": "Secure: no successful sign-ins with legacy authentication clients. Insecure: successful legacy-protocol sign-ins present.",
+        "source": "Microsoft Learn - Block legacy authentication with Conditional Access"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Salesforce: read the 'Allow OAuth Username-Password Flows' setting on the OAuth and OpenID Connect Settings page and capture a screenshot of it as evidence. Google Workspace: there is no longer a less-secure-apps setting to read, because Google Workspace accounts stopped supporting username-and-password sign-in by third-party apps on May 1, 2025. Ask the tenant admin whether any devices or apps still sign in with app passwords.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Salesforce Setup > Quick Find 'OAuth' > OAuth and OpenID Connect Settings",
+        "expected_output": "Secure: 'Allow OAuth Username-Password Flows' is off in Salesforce (blocked by default in orgs created in Summer '23 or later), and in Google Workspace no device or app relies on an app password where OAuth is available. Insecure: the username-password flow is still allowed in Salesforce, or devices and apps sign in with app passwords.",
+        "source": "Salesforce Help - Block Authorization Flows to Improve Security"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "sso_federation_enabled",
+    "option_description": "Whether the tenant signs its users in through the organization's own identity provider (SSO federation) rather than with passwords held by the service.",
+    "security_impact": "A presence switch that never fires on its own. It is the first half of the AND-group in \"Missing MFA, or MFA bypassed through legacy protocols or local sign-in\": that group fires only when sso_federation_enabled is true AND local_signin_restricted_to_break_glass is false, meaning local service passwords still sign users in around the identity provider's controls. When it is false, the other two OR-groups of the same rule (all_user_mfa_enforced, legacy_auth_protocols_disabled) carry the sign-in assessment.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Microsoft 365 / Entra ID: read each domain's authentication type with a read-only GET (needs Domain.Read.All). For a domain that shows Federated, the identity provider's settings (issuer and sign-in URI) can be read with GET https://graph.microsoft.com/v1.0/domains/{domain}/federationConfiguration, which needs Domain-InternalFederation.Read.All. The same domain list appears in the Entra admin center.",
+        "command": "GET https://graph.microsoft.com/v1.0/domains?$select=id,authenticationType,isVerified",
+        "file_path": null,
+        "navigation": "or Microsoft Entra admin center > Entra ID > Domain names",
+        "expected_output": "authenticationType 'Federated' on the domains that hold the users means TRUE. 'Managed' means Microsoft Entra ID authenticates the users itself; record FALSE unless another identity provider signs those users in. Accounts on a Managed domain, such as the *.onmicrosoft.com domain Microsoft recommends for emergency-access accounts, keep signing in with an Entra password even when the user domains are federated. That is the local sign-in path local_signin_restricted_to_break_glass assesses.",
+        "source": "Microsoft Graph v1.0 - domain resource type; Microsoft Learn - Manage emergency access admin accounts"
+      },
+      {
+        "type": "gui",
+        "instruction": "Google Workspace: open the SSO profile assignments and record which organizational units and groups are assigned a SAML or OIDC SSO profile and which are set to None. Group assignments override organizational units, and the Users view shows the result for one user.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Google Admin console > Menu > Security > Authentication > SSO with third party IdP > Manage SSO profile assignments",
+        "expected_output": "TRUE: a SAML or OIDC SSO profile is assigned to the organizational units or groups that hold the users. FALSE: no third-party profile, or the users' units are assigned None (they sign in directly with Google). Super admins signing in at admin.google.com use their Google password and are not redirected to SSO, and the newer SSO profiles don't support super admin SSO at all. Super admin accounts therefore stay a local sign-in path even when SSO is on.",
+        "source": "Google Workspace Admin Help - Setting up SSO; Google Workspace Admin Help - Super administrator SSO"
+      },
+      {
+        "type": "gui",
+        "instruction": "Salesforce: check whether SAML is enabled with an SSO configuration for the organization's identity provider, which authentication services the My Domain login page offers, and whether 'Disable login with Salesforce credentials' is selected.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Salesforce Setup > Quick Find 'Single Sign-On Settings'; then Setup > Quick Find 'My Domain' > Authentication Configuration",
+        "expected_output": "TRUE: SAML Enabled, with at least one SAML Single Sign-On configuration for the organization's identity provider, and that provider listed under Authentication Service. FALSE: no SSO configuration, and only Login Form (the default: Salesforce username and password). Even with SSO on, 'Disable login with Salesforce credentials' applies only to users who hold the 'Is Single Sign-On Enabled' permission, and Salesforce recommends not requiring SSO for admins. Username-and-password login therefore stays available to everyone else.",
+        "source": "Salesforce Help - Step 2: Create a SAML Single Sign-On Setting in Salesforce; Salesforce Help - Require Users to Log In with Single Sign-On (SSO); Add Identity Providers to the My Domain Login Page - Salesforce Help"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "local_signin_restricted_to_break_glass",
+    "option_description": "Only relevant when the tenant signs users in through the organization's identity provider (SSO): whether only the designated emergency-access accounts can still sign in with a password held by the service itself.",
+    "security_impact": "Second half of the AND-group in \"Missing MFA, or MFA bypassed through legacy protocols or local sign-in\" (ATT&CK T1078.004). It fires only when sso_federation_enabled is true AND local_signin_restricted_to_break_glass is false; with sso_federation_enabled false this attribute has no effect. Every local service password other than an emergency account is a path around the identity provider's MFA, device and lifecycle controls.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "List the accounts that can authenticate directly against the service rather than through SSO, for example cloud-only accounts with passwords in a federated Entra tenant, users not covered by the Google Workspace SSO profile, or Salesforce users without the SSO-only setting. Compare that list with the documented break-glass accounts.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: the list of accounts able to sign in without the SSO identity provider matches the documented break-glass accounts exactly. Insecure: ordinary users or admins appear on it. Confirm with the tenant admin which setting removes local sign-in for SSO users in this service, and capture a screenshot of it and of the account list as evidence.",
+        "source": "Microsoft Learn - Manage emergency access admin accounts"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review successful interactive sign-ins over the last 30 to 90 days and list the accounts that the service authenticated with its own password rather than through the identity provider. Salesforce: in Login History, filter a list view on Login Type or download the records. Google Workspace: filter User log events on Login type = Google Password and a succeeded event status. Microsoft Entra: review sign-ins by users on Managed (non-federated) domains such as *.onmicrosoft.com, with the methods shown on each sign-in's Authentication Details tab. The output lists user identities and IP addresses, so treat it as sensitive.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Salesforce Setup > Quick Find 'Login History'; Google Admin console > Menu > Reporting > Audit and investigation > User log events; Microsoft Entra admin center > Entra ID > Monitoring & health > Sign-in logs",
+        "expected_output": "Secure: the only successful direct (non-SSO) sign-ins come from the designated emergency-access accounts, each explained by a drill or a real emergency. Insecure: ordinary users or admins signing in with a local password. Salesforce Login History covers up to 20,000 records for the past 6 months. Google User log events show the last 7 days by default, so set the date range. With Google's legacy SSO profile, a risk-flagged SAML sign-in can also log a failed 'Google Password' event, so count only succeeded events.",
+        "source": "Salesforce Help - Login History (users_login_history)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "no_standing_admin_privileges_jit_required",
+    "option_description": "Whether day-to-day admins hold privileged roles as eligible, time-bound activations that need MFA (and optionally approval) to use, with only the emergency-access accounts holding standing assignments.",
+    "security_impact": "One of the two OR-groups of \"Tenant admin account takeover\" (ATT&CK T1078.004 Valid Accounts: Cloud Accounts, and T1550.004 Use Alternate Authentication Material: Web Session Cookie). It fires when no_standing_admin_privileges_jit_required is false. With standing assignments, a phished admin credential carries tenant-wide rights at any moment, without an activation step that could be challenged or noticed.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Microsoft 365 / Entra ID: in Privileged Identity Management, compare Eligible and Active assignments for the Entra roles.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Entra Privileged Identity Management (PIM) > Microsoft Entra roles > assignments (Eligible vs Active)",
+        "expected_output": "Secure: admins are Eligible and activate for a limited time, with MFA on activation and optional approval and notification. Insecure: permanent Active assignments for named admins. Emergency-access accounts should be Active permanent, not Eligible. PIM requires Entra ID P2 or ID Governance.",
+        "source": "Microsoft Learn - Best practices for Microsoft Entra roles"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Google Workspace: review the super admin list and check that routine work is delegated to limited admin roles rather than standing super admin rights.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Google Admin console super admin list (review)",
+        "expected_output": "Secure: more than one super admin, each managed by a separate person, no shared admin accounts, routine work delegated to limited admin roles. Google publishes no numeric maximum.",
+        "source": "Google Workspace Admin Help - Security best practices for administrator accounts"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Salesforce: list the users on the System Administrator profile and the users holding Modify All Data through any permission set or permission set group, and check whether elevated rights for day-to-day admins are granted through expiring permission set assignments.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Salesforce Setup > Quick Find 'Profiles' > System Administrator > View Users; Setup > Quick Find 'Permission Sets' (sets granting Modify All Data) > Manage Assignments",
+        "expected_output": "Secure: only the emergency-access accounts hold standing System Administrator or Modify All Data. Other admins receive elevated rights through permission set or permission set group assignments that carry an expiration date. This requires 'Permission Set & Permission Set Group Assignments with Expiration Dates' to be enabled in User Management Settings. Profiles carry no expiry, and a permission set that contains Assign Permission Set, Manage Profiles, Manage Users or Permission Sets can't be given an expiration date, so record those as standing. Insecure: named day-to-day admins with permanent System Administrator or Modify All Data.",
+        "source": "Salesforce Help - Set Assignment Expiration Details for Users in Permission Sets and Permission Set Groups"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Lockout check: confirm that making roles eligible-only has not left the tenant without a way to approve activation.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lockout check: if every Global Administrator and Privileged Role Administrator assignment is eligible and activation needs approval with no approvers selected, nobody can approve activation and tenant administration is locked. Confirm that approvers exist or that break-glass accounts are permanently active.",
+        "source": "Microsoft Learn - Manage emergency access admin accounts"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "emergency_access_accounts_monitored",
+    "option_description": "Whether the tenant's emergency-access (break-glass) accounts are protected by a phishing-resistant factor that differs from normal admins', are not tied to one person's device, and raise an alert to the security team on every sign-in.",
+    "security_impact": "The sole condition of \"Weakly protected or unmonitored emergency-access accounts\" (ATT&CK T1078.004). It fires when emergency_access_accounts_monitored is false. Break-glass accounts are exempt from the normal sign-in controls by design and hold standing top-level rights; unalerted or weakly protected, they give full tenant access without anyone noticing.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Microsoft 365 / Entra ID: open the existing alert rules on the Log Analytics workspace that receives Entra sign-in logs and confirm one fires on any sign-in by the emergency-access accounts. Run the query (read-only) to review recent hits; inspect the existing rule rather than creating one. The output lists identities and IP addresses, so treat it as sensitive.",
+        "command": "SigninLogs | where UserId == \"<break-glass-object-id-1>\" or UserId == \"<break-glass-object-id-2>\" | project TimeGenerated, UserPrincipalName, UserId, IPAddress, ResultType, ResultDescription",
+        "file_path": null,
+        "navigation": "Azure portal > Monitor > Alerts > Alert rules (Custom log search on the Log Analytics workspace receiving Entra sign-in logs), threshold > 0",
+        "expected_output": "Secure: an alert rule (severity 0) exists that fires on any sign-in by the emergency-access accounts, and every hit is explained by a drill or a real emergency. Insecure: no alert, or unexplained sign-ins.",
+        "source": "Microsoft Learn - Manage emergency access admin accounts"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Microsoft 365 / Entra ID: locate the emergency accounts and review their domain, authentication methods, role assignment, Conditional Access exclusions and validation-drill evidence.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Entra admin center > Entra ID > Users (locate the emergency accounts)",
+        "expected_output": "Secure for this check: the accounts use passkey (FIDO2) or certificate-based authentication, a factor that differs from the one normal admins use, and are not tied to one person's device. Good practice beyond this check: cloud-only accounts on the *.onmicrosoft.com domain (not federated or synchronized), two or more such accounts, Global Administrator permanent active in PIM, exclusion from blocking Conditional Access policies via a dedicated group, and a validation drill every 90 days.",
+        "source": "Microsoft Learn - Manage emergency access admin accounts"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Google Workspace: review the super admin recovery settings and the custody of the security keys and backup codes used for emergency access, and confirm with the tenant admin which admin email alert or SIEM rule fires when an emergency account signs in.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Google Workspace super admin recovery settings",
+        "expected_output": "Secure for this check: the emergency super admin account signs in with its own security keys, separate from the day-to-day admins' keys, with more than one enrolled and a spare stored safely so it does not depend on one person's device, and its sign-ins raise an admin alert. Good practice beyond this check: recovery phone and email set on every admin account, backup codes generated and stored securely, and a deliberate choice on super admin self-recovery (off by default for most current and all new customers).",
+        "source": "Google Workspace Admin Help - Security best practices for administrator accounts"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "user_app_consent_restricted",
+    "option_description": "Whether ordinary users are prevented from granting third-party OAuth apps access to organizational data without admin review: user consent is off, or limited to verified publishers with low-impact permissions.",
+    "security_impact": "One of the two OR-conditions of \"Illicit OAuth consent grant\" (ATT&CK T1528 Steal Application Access Token). It fires when user_app_consent_restricted is false. When users may consent to any app, an attacker-registered app phished to a user obtains long-lived token access to organizational data.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Microsoft 365 / Entra ID: read the tenant authorization policy (read-only GET, needs Policy.Read.All) and inspect the permission grant policies assigned to the default user role. The same value is shown in the admin center path given.",
+        "command": "GET https://graph.microsoft.com/v1.0/policies/authorizationPolicy/authorizationPolicy",
+        "file_path": null,
+        "navigation": "or Microsoft Entra admin center > Identity > Applications > Enterprise apps > Consent and permissions > User consent settings",
+        "expected_output": "defaultUserRolePermissions.permissionGrantPoliciesAssigned. Secure: no managePermissionGrantsForSelf.* entry (user consent disabled) or managePermissionGrantsForSelf.microsoft-user-default-low. Insecure: managePermissionGrantsForSelf.microsoft-user-default-legacy ('Allow user consent for apps'). By default all users can consent to permissions that don't require admin consent. Reading the policy needs Policy.Read.All.",
+        "source": "Microsoft Learn - Configure how users consent to applications"
+      },
+      {
+        "type": "gui",
+        "instruction": "Google Workspace: read the API controls setting that governs unconfigured third-party apps.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Google Admin console > Menu > Security > Access and data control > API controls > Settings card (Unconfigured third-party apps)",
+        "expected_output": "Secure: 'Don't allow users to access any third-party apps', 'Allow users to access third-party apps that only request basic info needed for Sign in with Google' (sign-in only), or 'Block all third-party API access'. Insecure: unconfigured third-party apps allowed to request any scope.",
+        "source": "Google Workspace Admin Help - Control which third-party & internal apps access Google Workspace data"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Salesforce: read each connected app's Permitted Users policy (All users may self-authorize, or Admin approved users are pre-authorized), and list the users who hold the 'Use Any API Client' permission, which lets them use any connected app regardless of that policy. Capture a screenshot of each connected app's OAuth policies as evidence.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Salesforce Setup > Quick Find 'Connected Apps' > Manage Connected Apps > Edit (next to the app) > OAuth Policies",
+        "expected_output": "Secure: connected apps set to 'Admin approved users are pre-authorized', and 'Use Any API Client' held only by a small number of admins. Insecure: connected apps left at the default 'All users may self-authorize', or 'Use Any API Client' granted broadly.",
+        "source": "Salesforce Help - Manage OAuth Access Policies for a Connected App"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "stale_app_grants_revoked",
+    "option_description": "Whether the tenant is currently free of OAuth grants and trusted-app entries for apps that are unused, come from an unverified publisher, or hold broader scopes than they need. Tightening user consent does not revoke grants already given, so this is a separate state from the consent setting.",
+    "security_impact": "One of the two OR-conditions of \"Illicit OAuth consent grant\" (ATT&CK T1528). It fires when stale_app_grants_revoked is false, that is when any grant to an unused, unverified or over-scoped app remains. A tenant can show a strict consent setting while a malicious app consented to earlier keeps its token access, because existing grants and trusted-app entries keep working after the setting change.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Microsoft 365 / Entra ID: export the delegated permission grants with a read-only GET (needs Directory.Read.All). For application permissions, also read each service principal's appRoleAssignments. Map each grant's clientId to its enterprise application and record publisher verification and scopes.",
+        "command": "GET https://graph.microsoft.com/v1.0/oauth2PermissionGrants",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One entry per grant with clientId, consentType (AllPrincipals or Principal), principalId and scope. Secure: every remaining grant belongs to an app in use, from a verified publisher, with scopes matching its function. Insecure: grants to apps with no recent sign-in, unverified publishers, or broad scopes such as Mail.ReadWrite or Files.ReadWrite.All without need.",
+        "source": "Microsoft Graph v1.0 - List oAuth2PermissionGrants (delegated permission grants)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Microsoft 365 / Entra ID: for each enterprise application with granted permissions, check whether it is still used and whether its permissions are needed, and confirm that grants failing either test have been revoked.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Entra admin center > Enterprise apps > (application) > Permissions (review granted permissions)",
+        "expected_output": "Microsoft documents that updates to user consent settings only affect future consent operations and existing consent grants remain unchanged. Secure: no granted permission remains for an unused, unverified or over-scoped app. Insecure: such grants are still listed.",
+        "source": "Microsoft Learn - Configure how users consent to applications"
+      },
+      {
+        "type": "gui",
+        "instruction": "Google Workspace: review the configured and accessed apps with their access state and scopes, and the 'Trust internal apps' option.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Google Admin console > Menu > Security > Access and data control > API controls > Manage Third-Party App Access; Settings card > Internal apps",
+        "expected_output": "Each configured app shows Trusted / Limited / Blocked. 'Trusted' overrides service restrictions and gives access to all Workspace services including restricted ones. Secure: no Trusted or accessed app that is unused, unverified or over-scoped; 'Trust internal apps' left unchecked unless justified.",
+        "source": "Google Workspace Admin Help - Control which third-party & internal apps access Google Workspace data"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Establish which of the remaining apps are actually used over the last 90 days. Microsoft Entra: for delegated grants, filter the interactive and non-interactive user sign-in logs by application. For application permissions, use the Service principal sign-ins log or Usage & insights > Service principal sign-in activity. Google Workspace: search OAuth log events by application name or ID, and set the date range. Salesforce: open Connected Apps OAuth Usage and the per-user usage for each app.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Entra admin center > Entra ID > Monitoring & health > Sign-in logs; Google Admin console > Menu > Reporting > Audit and investigation > OAuth log events; Salesforce Setup > Quick Find 'OAuth' > Connected Apps OAuth Usage",
+        "expected_output": "Secure: every app that still holds a grant shows recent token use. Insecure: grants held by apps with no token activity in the review window. The Google search shows only the last 7 days unless the date range is changed. Salesforce lists first use, most recent use and total uses per user.",
+        "source": "Google Workspace Admin Help - OAuth log events"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "integration_credentials_governed",
+    "option_description": "Whether every non-human tenant identity (service principal, OAuth client, connected app, API key, integration user, including agents and apps the organization builds in the tenant) has an owner, least-privilege scopes and expiring or rotated credentials.",
+    "security_impact": "The sole condition of \"Ungoverned integration credentials\" (ATT&CK T1550.001 Use Alternate Authentication Material: Application Access Token, and T1078.004 Valid Accounts: Cloud Accounts). It fires when integration_credentials_governed is false. A long-lived, broadly scoped token or key is replayed against the tenant's APIs without any interactive sign-in, so it never meets user MFA or user-scoped conditional access. A service principal or integration user with a long-lived secret is also a cloud account the adversary can sign in as.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Microsoft 365 / Entra ID: inventory enterprise apps and app registrations with their credentials, owners and scopes. Check whether workload identities are covered by their own Conditional Access policies or replaced by managed identities.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Entra admin center > Enterprise apps / App registrations (credential inventory)",
+        "expected_output": "Microsoft states that calls made by service principals aren't blocked by Conditional Access policies scoped to users; Conditional Access for workload identities targets them. Secure: workload-identity CA policies or managed identities in place of secrets in scripts, plus an owner and expiry for every credential. Insecure: service accounts only 'excluded' from user CA with nothing in its place.",
+        "source": "Microsoft Learn - Microsoft Entra Conditional Access for workload identities"
+      },
+      {
+        "type": "api",
+        "instruction": "Microsoft 365 / Entra ID: list app registrations with their secret and certificate metadata using a read-only GET (needs Application.Read.All), then read each app's owners with GET https://graph.microsoft.com/v1.0/applications/{id}/owners. Secret values are not returned, but the output describes the tenant's credentials, so treat it as sensitive.",
+        "command": "GET https://graph.microsoft.com/v1.0/applications?$select=displayName,appId,passwordCredentials,keyCredentials",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "For each app, passwordCredentials and keyCredentials with startDateTime and endDateTime. Secure: short credential lifetimes with a rotation record, and at least one named owner per app. Insecure: secrets valid for years, expired-but-unrotated credentials still in use, or apps with no owner.",
+        "source": "Microsoft Graph v1.0 - List applications"
+      },
+      {
+        "type": "gui",
+        "instruction": "Google Workspace: review each OAuth client's access state and requested scopes.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Google Admin console > Menu > Security > Access and data control > API controls > Manage Third-Party App Access",
+        "expected_output": "Each OAuth client's access state (Trusted / Limited / Blocked) and its scopes. Secure: only reviewed clients Trusted; others Limited or Blocked.",
+        "source": "Google Workspace Admin Help - Control which third-party & internal apps access Google Workspace data"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Salesforce: with the tenant admin, list the connected apps and integration users, their assigned profiles or permission sets, the refresh token policy of each connected app, and the named owner of each integration. Capture screenshots as evidence.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Salesforce Setup > Quick Find 'Connected Apps OAuth Usage'; Setup > Quick Find 'Manage Connected Apps'",
+        "expected_output": "Secure: every integration has an owner, a dedicated integration user with least-privilege permissions, and tokens that expire or are rotated. Insecure: integrations running as admin users, refresh tokens valid until revoked with no review, or no named owner.",
+        "source": "Salesforce Help - Manage OAuth Access Policies for a Connected App"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "cross_tenant_collaboration_restricted",
+    "option_description": "Whether sharing with, inviting from and collaborating with other tenants of the same service is limited to named partner tenants or trusted domains, rather than open to any tenant of the service.",
+    "security_impact": "The sole condition of \"Data shared into another tenant of the service\" (ATT&CK T1537 Transfer Data to Cloud Account). It fires when cross_tenant_collaboration_restricted is false. With collaboration open to any tenant, data can be shared or synced to an adversary-controlled account on the same provider, and the transfer never crosses the organization's network egress.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Microsoft 365 / Entra ID: read the default and organizational cross-tenant access settings for B2B collaboration.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Entra admin center > External Identities > Cross-tenant access settings (Default settings and Organizational settings)",
+        "expected_output": "Defaults: B2B collaboration enabled for all external Entra organizations, B2B direct connect blocked, no organizational settings. Secure: default inbound/outbound B2B collaboration restricted and partner tenants added explicitly under Organizational settings. Insecure: untouched defaults. Changes are audited under category 'CrossTenantAccessSettings'.",
+        "source": "Microsoft Learn - Cross-tenant access overview"
+      },
+      {
+        "type": "gui",
+        "instruction": "Google Workspace: read the Drive external sharing option for each organizational unit.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Google Admin console > Menu > Apps > Google Workspace > Drive and Docs > Sharing settings > Sharing options",
+        "expected_output": "'Sharing outside of <org>': OFF / ON / ALLOWLISTED DOMAINS. Secure: OFF, or ALLOWLISTED DOMAINS (sharing limited to trusted Workspace domains; no personal accounts). Insecure: ON without restrictions.",
+        "source": "Google Workspace Admin Help - Manage external sharing for your organization"
+      },
+      {
+        "type": "gui",
+        "instruction": "Microsoft 365 SharePoint / OneDrive: check whether external sharing is limited to an allow-list of partner domains. Read the setting only.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SharePoint admin center > Policies > Sharing > More external sharing settings > Limit external sharing by domain",
+        "expected_output": "Secure: 'Limit external sharing by domain' checked with an allow-list of partner domains. Insecure: unchecked, or only a short block-list. Entra allow/deny domain lists also apply to site sharing.",
+        "source": "Microsoft Learn - Manage sharing settings for SharePoint and OneDrive"
+      },
+      {
+        "type": "command",
+        "instruction": "Microsoft 365 SharePoint / OneDrive: read the same domain restriction in SharePoint Online Management Shell (read-only).",
+        "command": "Get-SPOTenant | Select-Object SharingDomainRestrictionMode,SharingAllowedDomainList",
+        "file_path": null,
+        "navigation": "SharePoint Online Management Shell, connected to the tenant's SharePoint admin URL",
+        "expected_output": "Secure: SharingDomainRestrictionMode : AllowList, with SharingAllowedDomainList naming the partner domains. Insecure: SharingDomainRestrictionMode : None, or BlockList.",
+        "source": "Microsoft Learn - Set-SPOTenant (Microsoft.Online.SharePoint.PowerShell)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "anonymous_link_sharing_disabled",
+    "option_description": "Whether anyone-with-the-link sharing is off, or limited to links that expire and allow viewing only.",
+    "security_impact": "The sole condition of \"Content exposed through anonymous links\" (ATT&CK T1530 Data from Cloud Storage). It fires when anonymous_link_sharing_disabled is false. An anyone-link without expiry is an unauthenticated read path into the tenant's document storage, and no identity is recorded for whoever uses it.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Microsoft 365 SharePoint / OneDrive: read the external sharing level and, if 'Anyone' is allowed, the expiry and permission limits for Anyone links.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SharePoint admin center > Policies > Sharing > External sharing (SharePoint and OneDrive sliders)",
+        "expected_output": "Levels: Anyone / New and existing guests / Existing guests / Only people in your organization. Secure: not 'Anyone', or 'Anyone' with link expiration days and View-only link permissions set under Advanced settings for Anyone links. Insecure: 'Anyone' with no expiry and edit permission, and default link type 'Anyone with the link'.",
+        "source": "Microsoft Learn - Manage sharing settings for SharePoint and OneDrive"
+      },
+      {
+        "type": "command",
+        "instruction": "Microsoft 365 SharePoint / OneDrive: read the anonymous-link settings in SharePoint Online Management Shell (read-only).",
+        "command": "Get-SPOTenant | Select-Object SharingCapability,RequireAnonymousLinksExpireInDays,FileAnonymousLinkType,FolderAnonymousLinkType,DefaultSharingLinkType",
+        "file_path": null,
+        "navigation": "SharePoint Online Management Shell, connected to the tenant's SharePoint admin URL",
+        "expected_output": "Secure: SharingCapability other than ExternalUserAndGuestSharing, or ExternalUserAndGuestSharing with a positive RequireAnonymousLinksExpireInDays and FileAnonymousLinkType / FolderAnonymousLinkType = View. Insecure: ExternalUserAndGuestSharing with no expiry, Edit link types, and DefaultSharingLinkType = AnonymousAccess.",
+        "source": "Microsoft Learn - Set-SPOTenant (Microsoft.Online.SharePoint.PowerShell)"
+      },
+      {
+        "type": "gui",
+        "instruction": "Google Workspace: in the Drive sharing options for each organizational unit, check whether external sharing is on and whether the box 'When sharing outside of your organization is allowed, users in your organization can make files and published web content visible to anyone with the link' is checked. Also read the default general access for new files.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Google Admin console > Menu > Apps > Google Workspace > Drive and Docs > Sharing settings > Sharing options (and Sharing settings > General access default)",
+        "expected_output": "Secure: external sharing Off or Allowlisted Domains, or the 'visible to anyone with the link' box unchecked, for the organizational units that hold sensitive data. General access default left at Restricted (Private to the owner). Insecure: that box checked, which lets users publish files on the web or give anyone with the link access. The security health page reports the number of organizational units where file publishing on the web is on.",
+        "source": "Google Workspace Admin Help - Monitor the health of your Drive settings"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Check whether anyone-links created before the setting was tightened are still active. Microsoft 365: ask the SharePoint admin for the Data access governance Sharing links report, which covers the last 28 days and needs SharePoint Advanced Management or Microsoft 365 E5, and for the Site permissions snapshot. Google Workspace: search Drive log events filtered on Visibility to find files shared externally or published. Turning off file publishing does not revert files already published.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SharePoint admin center > Reports > Data access governance > Sharing links; Google Admin console > Menu > Reporting > Audit and investigation > Drive log events (filter Visibility)",
+        "expected_output": "Secure: a recent review of existing anyone-links and published files, with unneeded links removed. Insecure: no review, or old anyone-links and published files with sensitive content still active. In SharePoint, shortening the Anyone-link expiry also shortens existing links, but turning publishing off in Google Drive leaves earlier publishing in place.",
+        "source": "Microsoft Learn - Data access governance reports for SharePoint sites"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "guest_directory_access_restricted",
+    "option_description": "Whether guest identities can see only their own directory objects, or a limited view, rather than the tenant's full list of users, groups and memberships.",
+    "security_impact": "The sole condition of \"Directory reconnaissance by guests\" (ATT&CK T1087.004 Account Discovery: Cloud Account). It fires when guest_directory_access_restricted is false. A guest, or a compromised partner identity, with member-level directory access can enumerate users, groups and memberships to plan phishing and privilege escalation.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Microsoft 365 / Entra ID: read the guest user access level in the external collaboration settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Entra admin center > Entra ID > External Identities > External collaboration settings > Guest user access",
+        "expected_output": "Insecure: 'Guest users have the same access as members (most inclusive)'. Default: 'Guest users have limited access to properties and memberships of directory objects'. Graph: authorizationPolicy resource.",
+        "source": "Microsoft Learn - Configure external collaboration settings"
+      },
+      {
+        "type": "api",
+        "instruction": "Microsoft 365 / Entra ID: read the same value with a read-only GET (needs Policy.Read.All) from the authorization policy's guestUserRoleId.",
+        "command": "GET https://graph.microsoft.com/v1.0/policies/authorizationPolicy",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "guestUserRoleId 2af84b1e-32c8-42b7-82bc-daa82404023b (restricted) or 10dae51f-b6af-4016-8d66-8c2a99b929b3 (limited, the default) means TRUE. a0b1b346-4d3e-4e8b-98f8-753987be4970 (same access as members) means FALSE.",
+        "source": "Microsoft Graph v1.0 - authorizationPolicy resource type"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Other services (for example Google Workspace): read the Directory visibility setting for the organizational units that hold guest or external accounts, and check whether those units are assigned a custom directory instead of the full Directory. Capture a screenshot of the setting as evidence.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Google Admin console > Menu > Directory > Directory settings > Visibility settings (select the organizational unit)",
+        "expected_output": "Secure: organizational units holding guest or external accounts are assigned a custom directory, or none, so they can't browse the organization's full user and group directory. Insecure: those units see everyone in the Directory, which is Google's default.",
+        "source": "Google Workspace Admin Help - Customize a directory for a team or group"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "tenant_audit_logging_enabled",
+    "option_description": "Whether the tenant records user and admin activity in its audit log. Some service tiers leave auditing off by default, and an admin can switch it off.",
+    "security_impact": "One of the two OR-conditions of \"Tenant activity not recorded or not kept\". It fires when tenant_audit_logging_enabled is false. With auditing off, admin and user activity in the tenant cannot be investigated after the fact. The rule carries no ATT&CK reference.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Microsoft 365: read the unified audit log ingestion status in Exchange Online PowerShell (read-only).",
+        "command": "Get-AdminAuditLogConfig | Format-List UnifiedAuditLogIngestionEnabled",
+        "file_path": null,
+        "navigation": "Run in Exchange Online PowerShell (not Security & Compliance PowerShell, where the property always reads False)",
+        "expected_output": "UnifiedAuditLogIngestionEnabled : True (auditing on) or False (off). Auditing isn't enabled by default for SMB licenses (Business Basic / Standard / Premium) or for unmanaged enterprise trials.",
+        "source": "Microsoft Learn (Purview) - Turn auditing on or off"
+      },
+      {
+        "type": "command",
+        "instruction": "Microsoft 365: search the audit log for changes to the auditing status itself over the last 180 days, to see whether auditing was ever switched off and by whom (read-only search). The records contain admin identities and source IP addresses, so treat the output as sensitive.",
+        "command": "Search-UnifiedAuditLog -StartDate (Get-Date).AddDays(-180) -EndDate (Get-Date) -Operations Set-AdminAuditLogConfig",
+        "file_path": null,
+        "navigation": "Exchange Online PowerShell",
+        "expected_output": "Records of every change to auditing status, including the admin, the time and the source IP. Look for UnifiedAuditLogIngestionEnabled in AuditData. Secure: no unexplained False transitions.",
+        "source": "Microsoft Learn (Purview) - Turn auditing on or off"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Google Workspace: confirm that the activity reports return recent events. Activity logging cannot be switched off here, so focus the assessment on retention and export.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Google Admin console > Reporting (Admin log events, User log events, OAuth Token log events)",
+        "expected_output": "Google Workspace activity logs are always on. Administrators cannot delete log event data or change the length of time it is available, so the assessor checks retention and export rather than enablement.",
+        "source": "Google Workspace Admin Help - Data retention and lag times"
+      },
+      {
+        "type": "gui",
+        "instruction": "Salesforce: open View Setup Audit Trail and confirm it shows recent configuration changes by admins. The page lists only the 20 most recent changes; download the full history to see the oldest entry available.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Salesforce Setup > Quick Find 'View Setup Audit Trail'",
+        "expected_output": "Secure: recent setup changes listed with date, user and action, and the download covers the past 180 days. Insecure: no recent entries although admins are known to have made changes. Setup Audit Trail cannot be switched off. Its fixed in-service window is 180 days, which is assessed under log_retention_days.",
+        "source": "Salesforce Help - Monitor Setup Changes with Setup Audit Trail"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "log_retention_days",
+    "option_description": "The number of days the tenant keeps searchable audit records, either inside the service or in organization-owned storage the logs are exported to.",
+    "security_impact": "One of the two OR-conditions of \"Tenant activity not recorded or not kept\". It fires when log_retention_days is less than 365. A window shorter than a year leaves too little history to investigate a slow intrusion. The rule carries no ATT&CK reference.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Microsoft 365: list the custom audit log retention policies and their durations in Security & Compliance PowerShell (read-only). Then work out the default from the license tier, because the cmdlet does not show the default policy.",
+        "command": "Get-UnifiedAuditLogRetentionPolicy | Sort-Object -Property Priority -Descending | FL Priority,Name,Description,RecordTypes,Operations,UserIds,RetentionDuration",
+        "file_path": null,
+        "navigation": "Security & Compliance PowerShell (or Microsoft Purview portal > Audit > Audit retention policies)",
+        "expected_output": "Custom retention policies and their RetentionDuration. The cmdlet does not show the default policy. Defaults: Audit (Standard) 180 days; Audit (Premium) keeps Entra / Exchange / SharePoint / OneDrive records 1 year for E5-licensed users; up to 10 years with the add-on. A custom policy with a shorter duration overrides the default (it can also reduce retention).",
+        "source": "Microsoft Learn (Purview) - Manage audit log retention policies"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Google Workspace: record the fixed in-service retention and check whether an export extends it.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Google Workspace: Admin, User (login), OAuth Token and Drive log events are kept 6 months, and the admin cannot change this. Longer retention requires an export to organization-owned storage (assessed under audit_log_streaming_enabled).",
+        "source": "Google Workspace Admin Help - Data retention and lag times"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Where logs are exported, read the retention set on the organization-owned destination (for example the Log Analytics workspace retention, the BigQuery table expiration, or the SIEM's retention policy). Record the effective number of days as the longer of in-service and destination retention.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer number of days, for example 180 (vendor default only) or 365 and above (exported with a year or more kept). Watch for a destination default that silently shortens retention: Log Analytics tables keep data 30 days by default (90 for some log tables) unless the table or workspace retention is raised, and Google Workspace BigQuery exports expire after 60 days by default.",
+        "source": "Microsoft Learn - Manage data retention in a Log Analytics workspace"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "90",
+      "180",
+      "365",
+      "730"
+    ]
+  },
+  {
+    "option_name": "audit_log_streaming_enabled",
+    "option_description": "Whether the tenant's audit and sign-in logs are streamed continuously to storage or a SIEM the organization controls, so a tenant admin who later disables or shortens auditing cannot erase what was already exported.",
+    "security_impact": "The sole condition of \"Tenant audit trail can be removed from inside the tenant\" (ATT&CK T1685.002 Disable or Modify Cloud Log). It fires when audit_log_streaming_enabled is false. When logs live only inside the vendor console, on services that allow it an adversary with admin rights can turn auditing off, so later activity goes unrecorded, or shorten retention, so older records age out.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Microsoft 365 / Entra ID: read the Entra diagnostic settings and confirm that audit and sign-in log categories go to an organization-controlled destination. For the Microsoft 365 unified audit log, confirm the Management Activity API or Microsoft Sentinel connector is in use.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Entra admin center > Entra ID > Monitoring & health > Diagnostic settings",
+        "expected_output": "Secure: at least one diagnostic setting sending audit and sign-in log categories to a Log Analytics workspace, event hub (SIEM streaming), storage account or partner solution. Insecure: table empty. Logs may take up to three days to appear. For the M365 unified audit log, the Office 365 Management Activity API / Microsoft Sentinel are the export routes, and both stop returning data if auditing is turned off.",
+        "source": "Microsoft Learn - Configure Microsoft Entra diagnostic settings; Microsoft Learn (Purview) - Turn auditing on or off"
+      },
+      {
+        "type": "gui",
+        "instruction": "Google Workspace: open the BigQuery export configuration and read it without saving changes. Check that export is enabled, the project has billing, and table expiration is above the default.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Google Admin console > Menu > Reporting > Data integrations > BigQuery Export > Edit",
+        "expected_output": "Secure: 'Enable Google Workspace data export to Google BigQuery' checked, project billing enabled (sandbox projects do not receive log data), and BigQuery table expiration raised above the 60-day default. Bypass to check: the export appears enabled while the 60-day default expiration silently deletes the data.",
+        "source": "Google Workspace Admin Help - Set up service log exports to BigQuery"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "At the destination (SIEM, log workspace or storage), query for the newest tenant audit and sign-in events. Confirm they are recent, within the vendor's documented lag, and that the destination is administered outside the tenant admin role.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: audit and sign-in events from the last day or so are present at the destination. Google activity events normally arrive in BigQuery within minutes. Entra logs can take up to three days to start appearing after a diagnostic setting is first created. Access to the destination is also separate from tenant admin rights. For an Azure destination in the same Entra tenant, note that a Global Administrator can elevate to User Access Administrator over every subscription, so separation there depends on monitoring that elevation. Insecure: no events, a gap of days or weeks, or a destination the tenant admins can delete.",
+        "source": "Microsoft Learn - How to configure Microsoft Entra diagnostic settings"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "residency_confined_to_approved_regions",
+    "option_description": "Whether the tenant's data-at-rest region, and its processing region where offered, matches the organization's residency obligations.",
+    "security_impact": "The sole condition of \"Tenant data held outside the required region\". It fires when residency_confined_to_approved_regions is false: the region is unknown, left at no preference, or differs from what the organization must meet. The rule carries no ATT&CK reference; the risk is a compliance and legal-jurisdiction exposure.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Microsoft 365: read the tenant-specific data locations per service.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft 365 admin center > Data Location Card",
+        "expected_output": "Tenant-specific data locations per service. Services with durable data-location commitments: Exchange Online, SharePoint/OneDrive, Teams, Microsoft 365 Copilot, Purview Audit and others. Advanced Data Residency or Multi-Geo are needed for stronger commitments.",
+        "source": "Microsoft Learn - Microsoft 365 services data locations"
+      },
+      {
+        "type": "gui",
+        "instruction": "Google Workspace: read the data region policy per organizational unit or group, and the data regions report for actual storage status.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Google Admin console > Menu > Data > Compliance > Data regions; report at Menu > Reporting > Apps reports > Data regions",
+        "expected_output": "Region per organizational unit / group: United States, Europe or No preference. Data processing location is an option on Frontline Plus / Enterprise Plus / Enterprise Essentials Plus. Users without a supported edition aren't covered by the policy.",
+        "source": "Google Workspace Admin Help - Choose a geographic location for your data"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Salesforce: look up the org's Hyperforce instance location and check whether the services in use are available in that country.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Salesforce Hyperforce 'find my instance' lookup (linked from salesforce.com/hyperforce)",
+        "expected_output": "Customer data is stored at rest in the country where the org is located, provided the services in use are available in that Hyperforce country. Some product components or integrations may run elsewhere, and data can be transferred out of the country for processing. Some customer data can also be held elsewhere for support and operations. EU Operating Zone is a paid option for in-region storage, processing and support.",
+        "source": "Salesforce - Hyperforce data residency page; Salesforce Help (Knowledge 000795008) - Hyperforce Data Residency"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Compare the region read from the admin center with the organization's documented residency requirement (contract, data processing agreement or regulatory register). Note any services or integrations that fall outside the region commitment.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: the documented required region equals the observed region for every service that holds regulated data. Insecure: no documented requirement, 'No preference', or a mismatch.",
+        "source": "Microsoft Learn - Microsoft 365 services data locations"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "inbound_identity_trust_restricted",
+    "option_description": "Whether every identity provider the tenant accepts sign-ins from (federated domains and their token-signing certificates, SAML or OIDC SSO profiles, authentication providers, certificate authorities trusted for certificate-based sign-in, external MFA providers) is one the organization runs, and whether inbound trust of another tenant's MFA or device claims is set only for named partner tenants.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Microsoft 365 / Entra ID: list the tenant's domains whose authentication type is Federated, and read each domain's federation configuration. Check that every issuer URI and sign-in URL belongs to an IdP the organization runs, and that the current and next token-signing certificates match that IdP's certificates (a second, unknown signing certificate lets its holder sign tokens for the domain). Read the certificate authorities trusted for certificate-based authentication in both places: the older list (Get-MgOrganizationCertificateBasedAuthConfiguration) and the PKI-based trust store (GET https://graph.microsoft.com/v1.0/directory/publicKeyInfrastructure/certificateBasedAuthConfigurations, then /{id}/certificateAuthorities for each entry, with PublicKeyInfrastructure.Read.All). Also read the external MFA providers under Entra ID > Authentication methods. Then open the cross-tenant access settings and read the inbound Trust settings on the Default settings and on each organization entry.",
+        "command": "Get-MgDomain | Where-Object AuthenticationType -eq 'Federated' | ForEach-Object { Get-MgDomainFederationConfiguration -DomainId $_.Id | Select-Object DisplayName, IssuerUri, PassiveSignInUri, SigningCertificate, NextSigningCertificate }; Get-MgOrganizationCertificateBasedAuthConfiguration",
+        "file_path": null,
+        "navigation": "Microsoft Graph PowerShell (Domain.Read.All, Domain-InternalFederation.Read.All); then Microsoft Entra admin center > Entra ID > External Identities > Cross-tenant access settings > Default settings / Organizational settings > Inbound access > Trust settings",
+        "expected_output": "Secure: every Federated domain returns an IssuerUri and sign-in URLs of the organization's own IdP, and SigningCertificate and NextSigningCertificate match that IdP's certificates; every trusted certificate authority belongs to the organization's PKI; every external MFA provider is one the organization set up; no unknown domain is Federated. The Default inbound Trust settings leave MFA, compliant-device and hybrid-joined-device claims untrusted, and trust is set only on named partner organizations. Insecure: a Federated domain whose issuer or sign-in URL the organization does not recognize, a SigningCertificate or NextSigningCertificate that does not match the organization's IdP, a trusted certificate authority outside the organization's PKI, an external MFA provider the organization did not set up, or Default inbound trust that accepts MFA or device claims from any Microsoft Entra organization.",
+        "source": "List internalDomainFederations - Microsoft Graph v1.0; domain resource type - Microsoft Graph v1.0; Cross-tenant access overview - Microsoft Entra External ID; Microsoft Graph v1.0 - internalDomainFederation resource type; Microsoft Learn - How to configure certificate authorities for Microsoft Entra certificate-based authentication; certificateBasedAuthPki resource type - Microsoft Graph v1.0; List certificateAuthorityDetail objects - Microsoft Graph v1.0; Microsoft Learn - How to manage external MFA in Microsoft Entra ID"
+      },
+      {
+        "type": "gui",
+        "instruction": "Google Workspace: open the third-party SSO settings and list every SSO profile (SAML, custom OIDC, the preconfigured Microsoft Entra OIDC profile, and the legacy SSO profile), then check which organizational units and groups each profile is assigned to. Each profile's IdP entity ID and sign-in URL must belong to the organization's own IdP.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Google Admin console > Menu > Security > Authentication > SSO with third party IdP > Third-party SSO profiles; and Manage SSO profile assignments",
+        "expected_output": "Secure: only profiles for the organization's own IdP exist, each assigned to the intended organizational units or groups, and the legacy SSO profile is unused or points to the same IdP. Insecure: a profile whose IdP entity ID or sign-in URL the organization does not recognize.",
+        "source": "Setting up SSO - Google Workspace Admin Help; Optional SSO settings and maintenance - Google Workspace Admin Help"
+      },
+      {
+        "type": "gui",
+        "instruction": "Salesforce: open Single Sign-On Settings and list every SAML Single Sign-On configuration with its Issuer and Identity Provider Certificate. Then open Auth. Providers and list every authentication provider with its type and registration handler. Each must correspond to an IdP the organization runs.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Salesforce Setup > Quick Find 'Single Sign-On Settings'; Setup > Quick Find 'Auth. Providers'",
+        "expected_output": "Secure: every SAML configuration's Issuer and certificate belong to the organization's IdP, and every authentication provider is one the organization set up for a known IdP. Insecure: an unrecognized SAML configuration or authentication provider (for example a social or OpenID Connect provider with a registration handler that creates or updates users), which lets that provider's accounts sign in to the org.",
+        "source": "View and Edit Single Sign-On Settings - Salesforce Help; Single Sign-On - Salesforce Help"
+      }
+    ],
+    "security_impact": "The sole condition of \"Sign-in trusted from an unrecognized identity provider\" (ATT&CK T1606.002 Forge Web Credentials: SAML Tokens, and T1078.004 Valid Accounts: Cloud Accounts). It fires when inbound_identity_trust_restricted is false, because whoever controls an unrecognized provider can issue sign-in assertions the tenant accepts (with that provider's signing key, SAML tokens for any covered user), and a default inbound MFA or device trust lets a guest from any external tenant satisfy the tenant's own MFA and device checks with claims its home tenant issued.",
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "admin_role_and_security_setting_changes_alerted",
+    "option_description": "Whether an alert reaches the security team when a tenant admin role is granted, and when audit logging, app-consent, Conditional Access, federation or SSO, or cross-tenant trust settings are changed, rather than the change only being written to the audit log.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Microsoft 365 / Entra ID: confirm that alert rules exist and are enabled for these Microsoft Entra audit-log activities, each with an action group or incident that reaches the security team: role assignments (Category = Role management, Add member to role / Add eligible member), federation changes ('Set federation settings on domain', 'Set domain authentication'), cross-tenant access changes (Category = CrossTenantAccessSettings), Conditional Access policy add, update or delete, changes to the user consent settings (authorization policy), and auditing being turned off (Set-AdminAuditLogConfig in the unified audit log). Also check that the PIM alert 'Roles are being assigned outside of Privileged Identity Management' and its email notification are enabled.",
+        "command": "Search-UnifiedAuditLog -StartDate (Get-Date).AddDays(-90) -EndDate (Get-Date) -Operations Set-AdminAuditLogConfig",
+        "file_path": null,
+        "navigation": "Azure portal > Monitor > Alerts > Alert rules (Log Analytics workspace receiving Microsoft Entra AuditLogs), or Microsoft Sentinel > Analytics; Microsoft Entra admin center > ID Governance > Privileged Identity Management > Microsoft Entra roles > Alerts > Setting",
+        "expected_output": "Secure: enabled alert rules whose queries cover role assignments, federation settings, cross-tenant access settings, Conditional Access changes, user consent settings and auditing-status changes, each wired to an action group or incident queue that the security team receives; the PIM 'roles assigned outside of PIM' alert is on with email notification. Insecure: the activities appear only in the audit log (the Search-UnifiedAuditLog command returns the records, but no alert rule queries them), or the alert rules are disabled or have no action group.",
+        "source": "Security operations for privileged accounts in Microsoft Entra ID; Monitor changes to federation configuration in Microsoft Entra ID; Security alerts for Microsoft Entra roles in PIM; Cross-tenant access overview; Turn auditing on or off (Microsoft Purview)"
+      },
+      {
+        "type": "gui",
+        "instruction": "Google Workspace: open Rules and filter on system-defined rules. Check that 'User granted Admin privilege' (inactive by default) and 'SSO profile added', 'SSO profile updated' and 'SSO profile deleted' send alerts, and check their email recipients. For changes not covered by a system-defined rule (third-party app access or API controls, other admin settings), check for an activity rule on Admin log events that sends to the Alert center or by email.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Google Admin console > Menu > Rules > Add a filter > Type > System defined; and Rules > Create activity rule (data source Admin log events)",
+        "expected_output": "Secure: 'User granted Admin privilege' and the SSO-profile rules are Active with alerts on and the security team as recipients, and an activity rule covers changes to API controls and app access. Insecure: 'User granted Admin privilege' left at its default Inactive state, or alerts that send email to no recipient the security team monitors.",
+        "source": "View and edit system-defined rules - Google Workspace Admin Help; Create and manage activity rules - Google Workspace Admin Help"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Salesforce: Setup Audit Trail records setup changes but does not alert. Ask the tenant admin how admin-permission grants and security-setting changes reach the security team. Accept as evidence (a) a transaction security policy on permission set events (Real-Time Event Monitoring, which needs Shield or the Event Monitoring add-on) with notification on, for assignments of critical permissions such as Modify All Data, View All Data, Customize Application and Assign Permission Sets, or (b) a SIEM rule over the exported Setup Audit Trail that alerts on changes to profiles, permission sets, Single Sign-On Settings, Auth. Providers and session or network-access settings. Capture the policy or SIEM rule definition as evidence.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Salesforce Setup > Quick Find 'Transaction Security' (policies on PermissionSetEventStore); Setup > Quick Find 'View Setup Audit Trail'",
+        "expected_output": "Secure: an enabled permission-set-event policy with notifications, or a SIEM alert rule on the exported Setup Audit Trail covering admin-permission and security-setting changes. Insecure: changes visible only in View Setup Audit Trail, which shows the 20 most recent changes and keeps 180 days, with no alert.",
+        "source": "Monitor Setup Changes with Setup Audit Trail - Salesforce Help; PermissionSetEventStore Policies - Salesforce Help"
+      }
+    ],
+    "security_impact": "The sole condition of \"Admin-role grants and security-setting changes raise no alert\" (ATT&CK T1098.003 Account Manipulation: Additional Cloud Roles, T1685.002 Disable or Modify Cloud Log, and T1484.002 Domain or Tenant Policy Modification: Trust Modification). It fires when admin_role_and_security_setting_changes_alerted is false, because an added admin role, auditing turned off, or a new federation or cross-tenant trust then goes unnoticed until someone reads the audit log.",
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "admin_signin_device_or_location_restricted",
+    "option_description": "Whether the service lets tenant admins sign in, or reach the admin console, only from compliant or organization-managed devices or from named network locations, rather than from any device on any network.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Microsoft 365 / Entra ID: find the Conditional Access policy that includes the privileged directory roles and targets All resources. Check that its grant requires 'Require device to be marked as compliant' or 'Require Microsoft Entra hybrid joined device', or that it blocks access outside named locations, and that it is On rather than Report-only. Note that Conditional Access does not apply to administrative-unit-scoped or custom roles; check those admins separately.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Entra admin center > Entra ID > Conditional Access > Policies (Assignments > Users > Include > Directory roles; Access controls > Grant)",
+        "expected_output": "Secure: an enabled (On) policy that includes the admin directory roles, excludes only the emergency-access accounts, targets All resources, and grants access only on a compliant or hybrid-joined device, or blocks sign-in from outside named locations. Insecure: no such policy, policy in Report-only mode, a grant of MFA only, or admins holding custom or administrative-unit-scoped roles that the policy cannot cover.",
+        "source": "Require administrators use compliant or hybrid joined devices - Microsoft Entra ID"
+      },
+      {
+        "type": "gui",
+        "instruction": "Google Workspace: open Context-Aware Access and check the access levels assigned to the Admin console entry at the top of the application list. Read each level's conditions (device policy such as company-owned or managed device, or IP subnets).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Google Admin console > Menu > Security > Access and data control > Context-Aware Access > Admin console (top of the application list)",
+        "expected_output": "Secure: one or more access levels assigned to the Admin console that require a company-owned or managed device, or the organization's IP subnets. Insecure: no access level assigned to the Admin console. Also insecure: the edition does not support Context-Aware Access (it is offered in Frontline Standard and Plus, Enterprise Standard and Plus, Education, Enterprise Essentials Plus and Cloud Identity Premium) and nothing else restricts admin sign-in.",
+        "source": "Assign Context-Aware access levels to the Admin console - Google Workspace Admin Help"
+      },
+      {
+        "type": "gui",
+        "instruction": "Salesforce: open the System Administrator profile and every other profile that holds admin permissions, and read their Login IP Ranges. Then open Session Settings and check whether 'Enforce login IP ranges on every request' or 'Lock sessions to the IP address from which they originated' is on. The lock setting is available in Enterprise, Performance, Unlimited, Developer and Database.com editions.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Salesforce Setup > Quick Find 'Profiles' > (admin profile) > Login IP Ranges; Setup > Quick Find 'Session Settings'",
+        "expected_output": "Secure: every admin profile carries Login IP Ranges limited to the organization's networks, and Session Settings enforces them on every request or locks sessions to their originating IP address. Insecure: admin profiles with no Login IP Ranges; or Login IP Ranges with neither session setting on, because the ranges are then checked only at login and a stolen session works from any IP address. Org-wide Network Access trusted IP ranges are not enough: they only skip the identity verification challenge and do not block logins from other IPs.",
+        "source": "Restrict Login IP Addresses in Profiles - Salesforce Help; Modify Session Security Settings - Salesforce Help"
+      }
+    ],
+    "security_impact": "The sole condition of \"Admin sessions usable from any device or network\" (ATT&CK T1550.004 Use Alternate Authentication Material: Web Session Cookie). It fires when admin_signin_device_or_location_restricted is false, because an admin session cookie stolen from the admin's browser or device, or captured by an adversary-in-the-middle proxy where the second factor is phishable, is then accepted from the adversary's own device and network.",
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  }
+]
