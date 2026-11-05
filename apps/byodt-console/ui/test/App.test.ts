@@ -2,6 +2,8 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App.vue'
 import { clearCloudTokens, clearSession, setSession, type ModeView, type PostureView, type StateView } from '@/api'
+import { memoryStorage } from './memory-storage'
+import { OnScreenObserver } from './fake-observer'
 
 // The PKCE module is mocked: the callback tests drive App's exchange paths without real crypto or a
 // redirect, and the SSO-button test asserts beginSignIn is invoked.
@@ -56,6 +58,8 @@ let postureCall = 0
 let postureBodyAfter: PostureView | null = null
 let postureFailOnRefetch = false
 let mode401Once = false
+// The news the daemon answers. Nothing switched on by default, as on a fresh deployment.
+let newsBody: unknown = { status: 'off', categories: [], items: [] }
 
 const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
   // Requests carry the SPA base prefix in production (e.g. /console/api/…); strip it so these
@@ -94,6 +98,7 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Pr
     if (rosterStatus !== 200) return new Response('refused by the gate', { status: rosterStatus })
     return new Response(JSON.stringify(url === '/api/cloud/roster' ? rosterBody : allowlistBody), { status: 200 })
   }
+  if (url === '/api/news') return new Response(JSON.stringify(newsBody), { status: 200 })
   return new Response('not found', { status: 404 })
 })
 
@@ -114,6 +119,8 @@ beforeEach(() => {
   postureBodyAfter = null
   postureFailOnRefetch = false
   mode401Once = false
+  newsBody = { status: 'off', categories: [], items: [] }
+  vi.stubGlobal('localStorage', memoryStorage())
   clearSession()
   clearCloudTokens()
   completeSignIn.mockReset()
@@ -418,9 +425,9 @@ describe('App', () => {
     // At-a-glance verdict is present (stateBody has no failures → healthy).
     expect(w.find('[data-verdict]').exists()).toBe(true)
     expect(w.find('[data-verdict]').attributes('data-verdict')).toBe('healthy')
-    // Overview/Cloud tabs exist; Content does not (not post-cloud).
+    // Overview/Cloud/News tabs exist; Content does not (not post-cloud).
     const tabIds = w.findAll('[data-tab]').map((b) => b.attributes('data-tab'))
-    expect(tabIds).toEqual(['overview', 'cloud'])
+    expect(tabIds).toEqual(['overview', 'cloud', 'news'])
     w.unmount()
   })
 
@@ -510,5 +517,55 @@ describe('App', () => {
     await flushPromises()
     expect(member.find('[data-cloud-departed-alert]').exists()).toBe(false)
     member.unmount()
+  })
+  describe('news', () => {
+    const today = new Date().toISOString().slice(0, 10)
+    const view = () => ({
+      status: 'ok',
+      categories: [
+        { key: 'announcement', label: 'Announcements', group: 'posts', enabled: true, since: '2026-01-01' },
+        { key: 'release:platform', label: 'Platform', group: 'releases', enabled: true, since: '2026-01-01' },
+      ],
+      items: [
+        { id: 'release:platform-9.0.0', category: 'release:platform', group: 'releases', version: '9.0.0', title: 'Platform 9.0.0', summary: '', date: today, url: 'https://dether.net/releases#platform-9.0.0', tags: [], notify: false },
+        { id: 'blog:/blog/a', category: 'announcement', group: 'posts', title: 'A post', summary: '', date: today, url: 'https://dether.net/blog/a', tags: [], notify: true },
+      ],
+    })
+
+    it('counts new items on the tab label and keeps their markers while they are read', async () => {
+      vi.stubGlobal('IntersectionObserver', OnScreenObserver)
+      setSession('sess-1')
+      newsBody = view()
+      const w = mount(App)
+      await flushPromises()
+      expect(w.find('[data-tab-badge="news"]').text()).toBe('2')
+
+      await w.find('[data-tab="news"]').trigger('click')
+      await flushPromises()
+      // Opening the tab reads them: the count goes, the markers stay for this visit.
+      expect(w.find('[data-tab-badge="news"]').exists()).toBe(false)
+      expect(w.findAll('[data-news-new]')).toHaveLength(2)
+      // And the browser remembers them, so a reload does not count them again.
+      expect(JSON.parse(localStorage.getItem('console_news_seen') ?? '[]').sort()).toEqual(['blog:/blog/a', 'release:platform-9.0.0'])
+      w.unmount()
+    })
+
+    it('does not count what this browser has already read', async () => {
+      setSession('sess-1')
+      localStorage.setItem('console_news_seen', JSON.stringify(['blog:/blog/a']))
+      newsBody = view()
+      const w = mount(App)
+      await flushPromises()
+      expect(w.find('[data-tab-badge="news"]').text()).toBe('1')
+      w.unmount()
+    })
+
+    it('shows no count while nothing is switched on', async () => {
+      setSession('sess-1')
+      const w = mount(App)
+      await flushPromises()
+      expect(w.find('[data-tab-badge="news"]').exists()).toBe(false)
+      w.unmount()
+    })
   })
 })

@@ -32,6 +32,7 @@ type server struct {
 	// without producing real signed bundles, and production wires the real verifier in main.
 	verify      moduleinstall.Verifier
 	mintLimiter semaphore // caps concurrent cloud-mint probes against the platform's auth path
+	newsCache   newsCache // the website's news feed, fetched only while a news category is on (news.go)
 }
 
 // mintConcurrency caps the number of in-flight cloud-mint delegation probes. The mint route is
@@ -188,6 +189,12 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /api/modules", s.sess.requireSession(s.modulesList))
 	mux.HandleFunc("POST /api/modules", s.sess.requireSession(s.requireAdmin(s.mountModule)))
 	mux.HandleFunc("DELETE /api/modules/{key}", s.sess.requireSession(s.requireAdmin(s.unmountModule)))
+
+	// News from the project's website (news.go). Reading it is open to every session; choosing which
+	// categories the deployment shows changes the deployment's settings, so it is admin-gated like the rest.
+	// Nothing is fetched from the website until a category is switched on.
+	mux.HandleFunc("GET /api/news", s.sess.requireSession(s.news))
+	mux.HandleFunc("POST /api/news/preferences", s.sess.requireSession(s.requireAdmin(s.newsPreferences)))
 
 	return mux
 }
