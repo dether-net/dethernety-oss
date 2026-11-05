@@ -24,6 +24,7 @@ const mockFlowStore = reactive<Record<string, any>>({
   modelId: 'model-1',
   defaultBoundary: null,
   defaultBoundaryId: 'b-default',
+  nodes: [],
   controls: [
     { id: 'ctl-1', name: 'C1' },
     { id: 'ctl-2', name: 'C2' },

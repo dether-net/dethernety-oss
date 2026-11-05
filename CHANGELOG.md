@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **The settings window shows who runs a component or boundary.** A **Who runs it** line above the
+  tabs states what is saved and how it was decided: declared, read from the Vendor zone, not
+  declared, or not valid. It names the product, and a component's hosting boundary with that
+  boundary's own declaration. For a boundary declared as a vendor's, it gives the number of
+  components drawn directly in it. A read that fails says so rather than showing a default. The
+  version is never shown. See the component configuration guide, *The Who runs it line*.
+- **The threat report freezes who runs each element.** `dethernety-threat-report` 2.2.0 resolves
+  the same facts when a report is generated. The component profile, the exposure detail and the
+  HTML export show them, and the JSON export carries them through the snapshot
+  (`snapshot.operation`). The version is not read. A report from before 2.2.0 asks to be recreated.
+  When the rules cannot load or zoning failed, the report is still written, and says who runs it
+  could not be worked out instead of showing a default. The only new staleness input is the
+  declaration: changing an operator or product makes a report stale, and a version edit does not. A
+  model that declares nothing keeps its fingerprint, so its existing reports stay fresh. See the
+  threat report's *Reading the Report*, *Who runs an element*.
+
+### Fixed
+
+- **dt-ui reads the zone the model's root boundary declares.** `DtModel.dumpModelData` left the
+  root boundary's `zone` out of what it returned, so when dt-ui loaded a model, every boundary
+  inheriting from the root read the default `INTERNAL`: no zone pill on the canvas, and *Unset →
+  default Internal* in the boundary zoning overview. The threat report read the root's declared
+  zone, so the two disagreed. These boundaries now read what the root declares. A root that declares
+  nothing still reads the default.
+
 ## [0.15.0] - 2026-11-04
 
 Elements bound to a remote module's classes are stamped with the class policy at their next save,

@@ -398,7 +398,7 @@
 }
 
 .settings-panel-content {
-  height: 330px; /* Set max height */
+  height: 374px; /* Set max height: the tab window and the Who runs it line */
   width: 100%; /* Set width */
   overflow-y: auto; /* Set overflow to none */
 }

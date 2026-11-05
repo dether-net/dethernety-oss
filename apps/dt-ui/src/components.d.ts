@@ -91,5 +91,6 @@ declare module 'vue' {
     UnclassifiedPill: typeof import('./components/DataFlow/ClassPicker/UnclassifiedPill.vue')['default']
     UnresolvedReferencesBadge: typeof import('./components/Disposition/UnresolvedReferencesBadge.vue')['default']
     UserQuestionDialog: typeof import('./components/Dialogs/Analysis/UserQuestionDialog.vue')['default']
+    WhoRunsItLine: typeof import('./components/DataFlow/WhoRunsItLine.vue')['default']
   }
 }

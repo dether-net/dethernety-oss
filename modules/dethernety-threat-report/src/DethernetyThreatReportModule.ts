@@ -10,6 +10,15 @@ import {
 import { AnalysisSession, AnalysisStatus } from '@dethernety/dt-core';
 import type { ZoningFinding, EffectiveZone } from '@dethernety/dt-core';
 import { computeZoning, type ZoningEngine } from './zoning-adapter';
+import {
+  OPERATION_ROWS_QUERY,
+  OPERATION_UNAVAILABLE,
+  operationRows,
+  operationSignatures,
+  resolveOperation,
+  type OperationBlock,
+  type OperationRules,
+} from './operation-adapter';
 import { writeThreatReportSnapshot } from './snapshot-write';
 
 /**
@@ -231,6 +240,10 @@ interface SnapshotDoc {
    *  (`{ findings: [], effectiveZones: {} }`) on any adapter/engine failure so a zoning fault never
    *  takes down the ledger/modelGraph snapshot. Absent on pre-zoning snapshots — the frontend defaults it. */
   zoning?: { findings: ZoningFinding[]; effectiveZones: Record<string, EffectiveZone> };
+  /** Who runs each component and boundary, resolved at generate time through dt-core's rules, and frozen with the
+   *  report. `state: 'unavailable'` when the rules could not load or the zones failed: nothing is guessed. Absent on a
+   *  snapshot from before 2.2.0, which the frontend says rather than showing a default. */
+  operation?: OperationBlock;
 }
 
 class DethernetyThreatReportModule implements DTModule {
@@ -250,7 +263,7 @@ class DethernetyThreatReportModule implements DTModule {
     return {
       name: 'dethernety-threat-report',
       description: 'Query-based threat reporting with interactive dashboards.',
-      version: '2.1.0',
+      version: '2.2.0',
       author: 'Dethernety',
       analysisClasses: [
         {
@@ -413,6 +426,8 @@ class DethernetyThreatReportModule implements DTModule {
       const dRegs = (zrec?.get('dRegs') ?? []) as { id: string; flags: string[] }[];
       const conduitSigs = (zrec?.get('conduitSigs') ?? []) as string[];
       const flowEndpointSigs = (zrec?.get('flowSigs') ?? []) as string[];
+      const operationRes = await session.run(OPERATION_ROWS_QUERY, { modelId });
+      const operationSigs = operationSignatures(operationRows(operationRes));
 
       const sortedJoin = (xs: string[] | undefined): string => [...(xs ?? [])].sort().join(',');
       // `.filter(b => b.id)` drops the `{id:null}` sentinel map an empty model yields (the map-valued
@@ -438,6 +453,8 @@ class DethernetyThreatReportModule implements DTModule {
         dr: dataRegulatorySigs, // Data regulatory flags — a flag alone makes data an asset
         cd: [...conduitSigs].sort(), // declared CONDUIT edges — conduit-policy findings
         fe: [...flowEndpointSigs].sort(), // flow endpoints — adjacency → tiers/ingress findings
+        // Who runs each element, only when something declares: a model that declares nothing keeps its digest.
+        ...(operationSigs.length ? { op: operationSigs } : {}),
       });
       const fingerprint = createHash('sha256')
         .update(digestInput)
@@ -810,6 +827,39 @@ class DethernetyThreatReportModule implements DTModule {
     }
   }
 
+  /** Load dt-core's operation rules, the same way as the zoning engine below and for the same reason. */
+  private async loadOperationRules(): Promise<OperationRules> {
+    // eslint-disable-next-line no-new-func -- intentional, as in loadZoningEngine below
+    const dynamicImport = new Function('s', 'return import(s)') as (s: string) => Promise<any>;
+    let rules: any;
+    try {
+      rules = await dynamicImport('@dethernety/dt-core/operation-determination');
+    } catch (subpathErr) {
+      this.logger.warn('threat-report: ./operation-determination subpath import failed; falling back to the @dethernety/dt-core barrel', subpathErr as Error);
+      rules = await dynamicImport('@dethernety/dt-core');
+    }
+    if (typeof rules.operatorOf !== 'function' || typeof rules.hostingOf !== 'function') {
+      throw new Error('@dethernety/dt-core has no operation rules');
+    }
+    return { operatorOf: rules.operatorOf, hostingOf: rules.hostingOf };
+  }
+
+  /** Who runs each element, for the snapshot. Advisory like zoning: a fault never takes down the report, and says so. */
+  private async computeOperation(modelId: string, modelGraph: ModelGraph, zones: Record<string, EffectiveZone>): Promise<OperationBlock> {
+    try {
+      const rules = await this.loadOperationRules();
+      const session = this.session();
+      try {
+        return resolveOperation(operationRows(await session.run(OPERATION_ROWS_QUERY, { modelId })), modelGraph, zones, rules);
+      } finally {
+        await session.close();
+      }
+    } catch (err) {
+      this.logger.warn(`threat-report: who runs each element could not be worked out for model '${modelId}'`, err as Error);
+      return OPERATION_UNAVAILABLE;
+    }
+  }
+
   /**
    * Load the pure dt-core zoning engine at runtime. The module compiles to CommonJS, but dt-core is
    * ESM-only (its `exports` carry only an `import` condition), so a literal dynamic `import()` would be
@@ -873,15 +923,22 @@ class DethernetyThreatReportModule implements DTModule {
     // never take down the core snapshot, so it degrades to an empty zoning block (rendered as "no
     // findings"; the model's completeness surface is unaffected).
     let zoning: SnapshotDoc['zoning'] = { findings: [], effectiveZones: {} };
+    let zoningFailed = false;
     try {
       const engine = await this.loadZoningEngine();
       zoning = computeZoning(modelGraph, engine);
     } catch (err) {
+      zoningFailed = true;
       this.logger.warn(
         `threat-report: zoning computation failed for model '${modelId}'; snapshot carries an empty zoning block`,
         err as Error,
       );
     }
+
+    // An element's operator can fall back on its zone, so without the zones it cannot be worked out.
+    const operation = zoningFailed
+      ? OPERATION_UNAVAILABLE
+      : await this.computeOperation(modelId, modelGraph, zoning?.effectiveZones ?? {});
 
     const generatedAt = new Date().toISOString();
     const doc: SnapshotDoc = {
@@ -894,6 +951,7 @@ class DethernetyThreatReportModule implements DTModule {
       ledger,
       modelGraph,
       zoning,
+      operation,
     };
 
     const session = this.session();

@@ -59,6 +59,7 @@
           :title="`Open ${exposure.element.name} profile`"
         >open profile ↗</button>
       </p>
+      <p v-if="exposure.whoRuns" class="trd-xd-on">{{ exposure.whoRuns }}</p>
 
       <!-- Crown-jewel route cross-ref (the ② visibility join) -->
       <p v-if="exposure.onCrownJewelRoute" class="trd-xd-route">

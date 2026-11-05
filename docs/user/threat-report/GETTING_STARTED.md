@@ -96,7 +96,8 @@ The report detects this for you. When the underlying model has changed since the
 
 - add, remove, or rewire components, flows, boundaries, or data;
 - reclassify data sensitivity, change a boundary's declared zoning, or change which element handles which data;
-- record a decision on a finding from somewhere other than this report (the canvas, another session).
+- record a decision on a finding from somewhere other than this report (the canvas, another session);
+- change what an element declares under **Operated by** or **Product**.
 
 To refresh, click **Recreate**. The report recomputes a fresh snapshot over the current model and the banner returns to **Fresh**. A routine save that changes nothing report-relevant will *not* mark the report stale, so you won't be nagged for no reason.
 

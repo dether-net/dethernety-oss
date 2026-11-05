@@ -20,6 +20,7 @@ const mockFlowStore = reactive<Record<string, any>>({
   modelId: 'model-1',
   defaultBoundary: null,
   defaultBoundaryId: 'b-default',
+  nodes: [],
   controls: [{ id: 'ctl-a', name: 'A' }, { id: 'ctl-b', name: 'B' }, { id: 'ctl-new', name: 'New' }],
   dataItems: [],
   allBoundaries: () => [],
@@ -49,6 +50,7 @@ vi.mock('vue-router', () => ({
 vi.mock('@jsonforms/vue-vuetify', () => ({ extendedVuetifyRenderers: [], ControlWrapper: {}, useVuetifyControl: () => ({}) }))
 
 import SettingsWindow from '../SettingsWindow.vue'
+import WhoRunsItLine from '../WhoRunsItLine.vue'
 
 const node = (id: string, data: Record<string, unknown> = {}, type = 'PROCESS') => ({
   id,
@@ -103,6 +105,8 @@ afterEach(() => {
 beforeEach(() => {
   vi.clearAllMocks()
   mockFlowStore.selectedItem = node('n-a')
+  mockFlowStore.nodes = []
+  mockFlowStore.defaultBoundary = null
   mockFlowStore.getAttributesFromClassRelationship.mockReset().mockResolvedValue([])
   mockFlowStore.getComponentClass.mockReset().mockImplementation(async ({ componentId }: { componentId: string }) =>
     componentClass(`class-of-${componentId}`))
@@ -299,5 +303,109 @@ describe('a save of the same element', () => {
 
     expect((w.vm as any).itemClass.id).toBe('class-of-n-a')
     expect(formLoading(w)).toBe(false)
+  })
+  // Empty stored keys read as "nothing declared" to the Who runs it line, so they may only mean that once a read landed.
+  describe('how far the read of the stored attributes got', () => {
+    const line = (w: ReturnType<typeof mount>) => w.findComponent(WhoRunsItLine)
+    const readState = (w: ReturnType<typeof mount>) => line(w).props('ownState')
+
+    it('is loading until the read answers, then read', async () => {
+      const read = pendingRead()
+      mockFlowStore.getAttributesFromClassRelationship.mockReturnValueOnce(read.promise)
+      const w = await mountPanel()
+      expect(readState(w)).toBe('loading')
+      read.answer({ dethernety_operated_by: 'VENDOR' })
+      await flushPromises()
+      expect(readState(w)).toBe('read')
+    })
+
+    it('says failed when the read fails', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      mockFlowStore.getAttributesFromClassRelationship.mockRejectedValueOnce(new Error('boom'))
+      const w = await mountPanel()
+      await flushPromises()
+      expect(readState(w)).toBe('failed')
+    })
+
+    it('says not read when the class has no usable template', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      mockFlowStore.getComponentClass.mockResolvedValue({ id: 'c', name: 'c', category: 'c', template: null })
+      const w = await mountPanel()
+      await flushPromises()
+      expect(readState(w)).toBe('not-read')
+      expect(mockFlowStore.getAttributesFromClassRelationship).not.toHaveBeenCalled()
+    })
+
+    it('says there is no class when the element has none', async () => {
+      mockFlowStore.getComponentClass.mockResolvedValue(null)
+      const w = await mountPanel()
+      await flushPromises()
+      expect(readState(w)).toBe('no-class')
+    })
+
+    it('says failed when the class read fails: the model dump knows the element has a class', async () => {
+      mockFlowStore.nodes = [{ id: 'n-a', data: { classId: 'class-of-n-a' } }]
+      mockFlowStore.getComponentClass.mockResolvedValue(undefined)
+      const w = await mountPanel()
+      await flushPromises()
+      expect(readState(w)).toBe('failed')
+    })
+
+    it('says failed for a classed root too, which the store holds apart from the nodes', async () => {
+      const root = { ...node('b-default', {}, 'BOUNDARY'), data: { label: 'root', classId: 'cls-root' } }
+      mockFlowStore.defaultBoundary = root
+      mockFlowStore.selectedItem = root
+      mockFlowStore.getBoundaryClass.mockResolvedValueOnce(undefined)
+      const w = await mountPanel()
+      await flushPromises()
+      expect(readState(w)).toBe('failed')
+    })
+
+    it('an element representing a model has no class, whatever class id it still carries', async () => {
+      mockFlowStore.nodes = [{ id: 'n-a', data: { classId: 'stale' } }]
+      mockFlowStore.getComponentClass.mockResolvedValue(null)
+      mockFlowStore.getComponentRepresentedModel.mockResolvedValueOnce({ id: 'm' })
+      const w = await mountPanel()
+      await flushPromises()
+      expect(readState(w)).toBe('no-class')
+    })
+
+    it('gives the line the stored keys as stored, flat', async () => {
+      mockFlowStore.getAttributesFromClassRelationship.mockResolvedValueOnce({ 'dethernety_operated_by[0]': 'VENDOR' })
+      const w = await mountPanel()
+      await flushPromises()
+      expect(line(w).props('ownBag')).toEqual({ 'dethernety_operated_by[0]': 'VENDOR' })
+    })
+
+    it('reads loading while the class loads, whatever the attributes read last said', async () => {
+      const w = await mountPanel()
+      await flushPromises()
+      const read = pendingRead()
+      mockFlowStore.getComponentClass.mockReturnValueOnce(read.promise)
+      mockFlowStore.selectedItem = node('n-b')
+      await nextTick()
+      expect(readState(w)).toBe('loading')
+    })
+
+    it('a read that fails on the next element shows nothing of the previous one', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      mockFlowStore.getAttributesFromClassRelationship.mockResolvedValueOnce({ dethernety_operated_by: 'VENDOR', dethernety_product: 'A' })
+      const w = await mountPanel()
+      await flushPromises()
+      expect(line(w).props('ownBag')).toHaveProperty('dethernety_product', 'A')
+
+      mockFlowStore.getComponentRepresentedModel.mockRejectedValueOnce(new Error('down'))
+      mockFlowStore.selectedItem = node('n-b')
+      await flushPromises()
+      expect(readState(w)).toBe('failed')
+      expect(line(w).props('ownBag')).toEqual({})
+    })
+
+    it('shows no line for a data flow', async () => {
+      mockFlowStore.selectedItem = { id: 'e-1', source: 'a', target: 'b', data: {} }
+      const w = await mountPanel()
+      await flushPromises()
+      expect(line(w).exists()).toBe(false)
+    })
   })
 })

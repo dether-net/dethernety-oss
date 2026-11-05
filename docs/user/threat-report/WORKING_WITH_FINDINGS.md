@@ -199,6 +199,10 @@ Each boundary in the stack also carries its **declared trust-zoning tags**, when
 
 These are the operator's **declaration**, never recomputed by the report. A chip is an exposure position, not a safety rating — `RESTRICTED` means "declared most sensitive," not "protected."
 
+### Who runs it
+
+For a Component or a Security Boundary, the **Who runs it** block states what is declared and how it was decided, as frozen with the report. It's labelled *as modelled, not a judgement*. See [Reading the Report](./READING_THE_REPORT.md#who-runs-an-element).
+
 ### Trust zoning
 
 When the element you're drilled into *is* a **Security Boundary**, a dedicated **Trust zoning** block spells out its declared zoning in full. It's labelled *declared intent, not enforcement* — the report reads what you declared, it never proves the boundary is enforced.

@@ -4,7 +4,7 @@
 
 The Dethernety Threat Report is a **pure `DTModule`** — a read-only, query-based reporting surface laid over an *existing* threat model. It contributes no threat-modeling classes (no components, controls, exposures, policies), runs no AI or LangGraph analysis, and edits nothing in the platform UI, backend, or core packages. Its entire footprint is a single TypeScript class that mounts through the platform's native analysis lifecycle, gathers a model snapshot at generate time, and persists that snapshot as JSON on the standing `Analysis` node so the analysis-results page can render it. Everything else — aggregation, charting, the minimap, boundary-crossing math — is pure client-side logic over the snapshot (see [`./frontend.md`](./frontend.md)).
 
-**What this document covers:** the module's role and deliberate non-responsibilities; how it mounts via the analysis lifecycle; the snapshot generation path and the three gather passes; the additive trust-zoning computation and its degradation guard; how the snapshot is read back; the static status contract; the live staleness query; the database-portability discipline; and where MITRE coverage data comes from. Field-level shapes of the snapshot live in [`./data-model.md`](./data-model.md); the lifecycle at a glance is in [`./architecture.md`](./architecture.md).
+**What this document covers:** the module's role and deliberate non-responsibilities; how it mounts via the analysis lifecycle; the snapshot generation path and the three gather passes; the additive trust-zoning computation and its degradation guard; the who-runs-it computation and when it is `unavailable`; how the snapshot is read back; the static status contract; the live staleness query; the database-portability discipline; and where MITRE coverage data comes from. Field-level shapes of the snapshot live in [`./data-model.md`](./data-model.md); the lifecycle at a glance is in [`./architecture.md`](./architecture.md).
 
 ---
 
@@ -54,6 +54,8 @@ sequenceDiagram
     Platform->>Module: runAnalysis(analysisId, classId, scope=modelId, …)
     Module->>DB: gather (structure + ledger + modelGraph)
     Module->>Module: compute zoning (declared effective zones + findings)<br/>additive, degradation-guarded
+    Module->>DB: read operator and product from class edges
+    Module->>Module: resolve who runs each element<br/>additive, degradation-guarded
     Module->>DB: atomic SET snapshot JSON on (:Analysis)
     Module-->>Platform: AnalysisSession
 
@@ -93,7 +95,8 @@ The method follows a strict **compute-before-write** ordering:
 
 1. **Compute everything first.** Run the three gather passes (`computeStructure`, `computeLedger`, `computeModelGraph`) and stamp `generatedAt`. If any pass throws, the method throws *before* any write — so a previously generated snapshot is left intact. A failed regeneration never destroys a good prior report.
 2. **Compute trust-zoning additively.** After the gather passes, an additive [trust-zoning computation](#trust-zoning-computation) runs over the model graph. It is wrapped in a degradation guard: unlike the gather passes, a zoning fault does **not** abort the run — it degrades to an empty zoning block so a zoning problem can never take down the core snapshot.
-3. **Write atomically.** A single-statement Cypher `SET` replaces the snapshot in one operation: it serializes the assembled document to JSON and stores it alongside its `generatedAt` timestamp and structural `fingerprint` on the standing `Analysis` node.
+3. **Resolve who runs it, also additively.** The [who-runs-it computation](#who-runs-it-computation) reads the effective zones, so it follows zoning. It degrades to an `unavailable` block rather than aborting the run.
+4. **Write atomically.** A single-statement Cypher `SET` replaces the snapshot in one operation: it serializes the assembled document to JSON and stores it alongside its `generatedAt` timestamp and structural `fingerprint` on the standing `Analysis` node.
 
 ```mermaid
 flowchart TD
@@ -101,8 +104,11 @@ flowchart TD
     B --> C[computeLedger → per-element findings + controls]
     C --> D[computeModelGraph → positional graph]
     D --> Z[computeZoning → declared effective zones + advisory findings]
-    Z -- throws --> ZE[log + empty zoning block]
-    Z --> E[assemble SnapshotDoc + generatedAt]
+    Z -- throws --> ZE[log + empty zoning block + operation unavailable]
+    Z --> O[computeOperation → who runs each element]
+    O -- rules or read fail --> OU[log + operation unavailable]
+    O --> E[assemble SnapshotDoc + generatedAt]
+    OU --> E
     ZE --> E
     E --> F{MATCH Analysis node}
     F -- found --> G[atomic SET doc + generatedAt + fingerprint]
@@ -146,6 +152,7 @@ What the digest folds in determines what counts as a meaningful change:
 | **Data signature** — Data id + `sensitivity` | **Sensitivity-aware.** Re-classifying a Data node (e.g. `PUBLIC` → `RESTRICTED`) flips it. |
 | **HANDLES signature** — each `(element)-[:HANDLES]->(Data)` edge | **Handler-aware.** Re-wiring which element handles which data flips it. |
 | **Zoning signatures** — boundary `zone` / `planes` / `domains` + nesting parent, component `crownJewel` + containing boundary, Data regulatory flags, declared `CONDUIT` edges, and flow endpoints | **Zoning-aware.** Re-zoning, re-tagging, re-parenting, flag changes, or re-wiring a flow flips it, so the [zoning block](#trust-zoning-computation) never reads "fresh" against a changed model. Gathered by a separate structural query so the proven digest query is left untouched. |
+| **Operation signatures** — each declaring element's id + operator + product, normalised, under an `op` key present only when something declares | **Declaration-aware.** Changing an operator or product flips it. A version edit does not, and a model that declares nothing keeps its digest. See [the fingerprint contract](./data-model.md#the-fingerprint-and-staleness-contract). |
 
 The design intent is **accurate staleness**: a re-disposition, re-classification, or re-wiring changes the live fingerprint so an open snapshot correctly reads stale, while a no-op model save leaves the fingerprint unchanged so the snapshot stays "fresh". The same method also returns `componentCount` and `boundaryCount`, which the snapshot carries as headline figures.
 
@@ -232,6 +239,37 @@ The whole computation is **additive and non-fatal**. Where the three gather pass
 ### Staleness folds in the zoning inputs
 
 Because the zoning block is derived from the model, the structural [fingerprint](#computestructure--the-cheap-structural-fingerprint) folds in every input the engine reads — boundary `zone` / `planes` / `domains` and nesting, component `crownJewel` and containment, data regulatory flags, declared conduit edges, and flow endpoints — so a re-zoned or re-wired model correctly reads **stale** rather than leaving a now-inconsistent zoning block reading "fresh".
+
+---
+
+## Who-runs-it computation
+
+After zoning, `runAnalysis` resolves who runs each component and boundary and folds the result into the snapshot as `operation` (shape in [`./data-model.md`](./data-model.md#the-operation-block)). The logic is in `src/operation-adapter.ts`, split like the zoning adapter: the reads and the digest signatures import nothing, and `resolveOperation` takes the rules as an argument.
+
+### The query
+
+`OPERATION_ROWS_QUERY` walks the same boundary forest as the gather passes, then reads each element's `IS_INSTANCE_OF` edges. It keeps only `dethernety_operated_by`, that key's flattened list and object forms, and `dethernety_product`, and returns one row per edge that holds any of them: the element's id and those keys as pairs. The filter is in the query, so `dethernety_product_version` never reaches the module.
+
+The query runs in two places:
+
+| Where | Used for | When it fails |
+|---|---|---|
+| `computeStructure` | The `op` term of the [fingerprint](#computestructure--the-cheap-structural-fingerprint) | Not guarded. A generate run throws before any write, so the prior snapshot stays, and the live `threatReportFingerprint` query errors. |
+| `computeOperation` | The `operation` block | Guarded: the block is `unavailable`. |
+
+### The rules
+
+`loadOperationRules` loads dt-core's `operatorOf` and `hostingOf` the same way [`loadZoningEngine`](#the-runtime-esm-loader-commonjs--esm) loads the zoning engine: the `@dethernety/dt-core/operation-determination` subpath first, then the barrel, with the fallback logged. `resolveOperation` gives `operatorOf` each element's zone from `zoning.effectiveZones`: a boundary's own, a component's from its boundary. It treats a boundary with a `null` `parentBoundaryId` as the model's root, which never hosts.
+
+### When the block is `unavailable`
+
+The block is `{ state: 'unavailable', elements: {} }`, with a logged warning, when:
+
+- **Zoning failed.** An element's operator can fall back on its zone, so without the zones it cannot be worked out. The rules do not run.
+- **The rules could not load**, or the loaded package does not have them.
+- **The read or the resolution threw** inside `computeOperation`.
+
+In each case the report is still written. Nothing is guessed: the frontend says who runs it could not be worked out.
 
 ---
 

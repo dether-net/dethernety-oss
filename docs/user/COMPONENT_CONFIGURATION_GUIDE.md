@@ -209,6 +209,35 @@ The vendor and product name of the element's software or service, for example *P
 
 The version is not asked for an element a vendor operates: while **Operated by** is **A vendor**, the **Version** field is hidden.
 
+### The Who runs it line
+
+The settings panel of a component or security boundary shows a **Who runs it** line above its tabs, whichever tab is open. It states what the element's saved values say and how that was decided, and it judges nothing. Data flows and data items don't have the line.
+
+The line starts with one of these:
+
+| The line reads | What it means |
+|----------------|---------------|
+| **A vendor, as declared** | **Operated by** is saved as **A vendor**. |
+| **You (your organisation), as declared** | **Operated by** is saved as **You (your organisation)**. |
+| **A vendor, read from its Vendor zone; not declared** | No value is saved, or the element has no class, and its effective zone is the one shown as **Vendor** on the zone pill (**Trusted external** in the **Trust zone** dropdown). A component reads the zone of the boundary it is drawn in. |
+| **Not declared; treated as yours** | No value is saved, or the element has no class, and its effective zone is any other. |
+| **The declared value is not valid; treated as yours** | The stored value is not one of the two choices, for example one written outside this form. |
+| **Reading the declaration…** | The saved values are still loading. |
+| **The declaration could not be read** | The read failed, or the class has no usable form to read it through. The line says so rather than showing a default, so this does not mean nothing is declared. |
+
+More follows where it applies. The version never appears.
+
+- **Product: …** names the saved **Product**.
+- **Its environment, *boundary*: …** appears on a component drawn directly in a boundary that has a class. It gives that boundary's own answer: a vendor, you, a value that is not valid, or a declaration that could not be read. It is left out when the boundary declares nothing, and for a component drawn straight on the canvas.
+- **Declared as running the environment of *N* components drawn directly in it** appears on a boundary saved as **A vendor** that has components drawn directly in it. The **Default Boundary** never shows it.
+- **This class's attributes are not available here** appears when the class serves a read-only notice in place of its form. The line still shows the saved declaration.
+
+**The line follows saved values.** An edit you haven't saved, on the **Attributes** tab or the **Zoning** tab, does not change it. Saving does.
+
+**Exposures on a vendor-run element stay listed as pending.** An exposure nobody has reviewed stays [**Pending**](MANAGING_FINDINGS.md#the-finding-lifecycle) on the **Exposures** tab, and in the tab's count, whoever the line says runs the element. The line does not judge whose exposure it is.
+
+A threat report freezes the same facts when it is generated: see [Reading the Report](threat-report/READING_THE_REPORT.md#who-runs-an-element).
+
 ## Issue Class Integration
 
 > **No integration module ships with Dethernety.** The platform provides the *seam* described below; a module has to implement it before an issue in Dethernety is connected to anything outside it. Out of the box, issues are created and tracked entirely within the platform — see the [Issue Management Guide](ISSUE_MANAGEMENT_GUIDE.md).

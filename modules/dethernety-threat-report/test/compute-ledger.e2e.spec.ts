@@ -25,6 +25,7 @@ import { Driver } from 'neo4j-driver';
 import { startMemgraph, clearGraph, MemgraphHandle, TEST_ENGINE } from './memgraph-container';
 // Default export — the class itself is not named-exported.
 import DethernetyThreatReportModule from '../src/DethernetyThreatReportModule';
+import { OPERATION_ROWS_QUERY, operationRows, type OperationRow } from '../src/operation-adapter';
 
 const MODEL = 'm-ledger';
 
@@ -261,5 +262,59 @@ describe('computeLedger — multiplicity and identity against a real engine', ()
     await clearGraph(driver);
     await run(`CREATE (:Model {id: '${MODEL}', name: 'Empty'})`);
     expect(await ledgerOf()).toEqual([]);
+  });
+});
+
+// Who runs each element: the statement the digest and the snapshot both read. It filters the keys in the query itself,
+// by dynamic key over the edge's properties, so only a real engine shows what leaves the database.
+describe('who runs each element: the operation rows against a real engine', () => {
+  const OP = 'dethernety_operated_by';
+  const PRODUCT = 'dethernety_product';
+  const VERSION = 'dethernety_product_version';
+
+  const seed = () => run(
+    `CREATE (m:Model {id: 'm-op'})
+     CREATE (root:SecurityBoundary {id: 'op-root', name: 'Root'})
+     CREATE (env:SecurityBoundary {id: 'op-env', name: 'Env'})
+     CREATE (vendor:Component {id: 'op-vendor', name: 'Vendor', type: 'PROCESS'})
+     CREATE (flat:Component {id: 'op-flat', name: 'Flat', type: 'PROCESS'})
+     CREATE (bare:Component {id: 'op-bare', name: 'Bare', type: 'PROCESS'})
+     CREATE (plain:Component {id: 'op-plain', name: 'Plain', type: 'PROCESS'})
+     CREATE (cc:ComponentClass {id: 'op-cc'})
+     CREATE (bc:SecurityBoundaryClass {id: 'op-bc'})
+     CREATE (m)-[:CONTAINS]->(root)
+     CREATE (env)-[:BELONGS_TO]->(root)
+     CREATE (vendor)-[:BELONGS_TO]->(env)
+     CREATE (flat)-[:BELONGS_TO]->(env)
+     CREATE (bare)-[:BELONGS_TO]->(root)
+     CREATE (plain)-[:BELONGS_TO]->(root)
+     CREATE (env)-[:IS_INSTANCE_OF {\`${OP}\`: 'VENDOR'}]->(bc)
+     CREATE (vendor)-[:IS_INSTANCE_OF {\`${OP}\`: 'VENDOR', \`${PRODUCT}\`: 'Mail', \`${VERSION}\`: '9.9.9', other: 'x'}]->(cc)
+     CREATE (flat)-[:IS_INSTANCE_OF {\`${OP}[0]\`: 'VENDOR'}]->(cc)
+     CREATE (bare)-[:IS_INSTANCE_OF {other: 'x'}]->(cc)`,
+  );
+
+  const rows = async (): Promise<OperationRow[]> => {
+    return operationRows(await run(OPERATION_ROWS_QUERY, { modelId: 'm-op' }));
+  };
+
+  it('returns only the operator and product keys, and nothing for an element with neither', async () => {
+    await seed();
+    const got = await rows();
+    const byId = new Map(got.map((r) => [r.id, Object.fromEntries(r.pairs)]));
+    expect([...byId.keys()].sort()).toEqual(['op-env', 'op-flat', 'op-vendor']);
+    expect(byId.get('op-vendor')).toEqual({ [OP]: 'VENDOR', [PRODUCT]: 'Mail' });
+    expect(byId.get('op-flat')).toEqual({ [`${OP}[0]`]: 'VENDOR' });
+    expect(JSON.stringify(got)).not.toContain('9.9.9');
+  });
+
+  it('moves the fingerprint when a declaration changes, not when only the version does', async () => {
+    await seed();
+    const structure = makeModule() as unknown as { computeStructure: (id: string) => Promise<{ fingerprint: string }> };
+    const before = (await structure.computeStructure('m-op')).fingerprint;
+    await run(`MATCH (:Component {id: 'op-vendor'})-[i:IS_INSTANCE_OF]->() SET i.\`${VERSION}\` = '10.0.0'`);
+    expect((await structure.computeStructure('m-op')).fingerprint).toBe(before);
+    await run(`MATCH (:Component {id: 'op-vendor'})-[i:IS_INSTANCE_OF]->() SET i.\`${OP}\` = 'CUSTOMER'`);
+    expect((await structure.computeStructure('m-op')).fingerprint).not.toBe(before);
   });
 });

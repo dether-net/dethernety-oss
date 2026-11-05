@@ -125,6 +125,8 @@ export class DtModel {
             description: model.description,
             controls: model.controls?.map((control: { id: any }) => control.id),
           }
+          const firstId = (arr: { id: string }[] | undefined): string | null =>
+            arr && arr.length > 0 ? arr[0].id : null
           if (model.defaultBoundary) {
             const rootBoundary = Array.isArray(model.defaultBoundary) && model.defaultBoundary.length > 0
               ? model.defaultBoundary[0]
@@ -136,14 +138,14 @@ export class DtModel {
               data: {
                 label: rootBoundary.name,
                 description: rootBoundary.description,
+                zone: rootBoundary.zone,
+                classId: firstId(rootBoundary.securityBoundaryClass),
                 controls: rootBoundary.controls?.map((boundary: { id: any }) => boundary.id),
                 dataItems: rootBoundary.dataItems?.map((data: { id: any }) => data.id),
               },
             }
             results.defaultBoundary = defaultBoundary
 
-            const firstId = (arr: { id: string }[] | undefined): string | null =>
-              arr && arr.length > 0 ? arr[0].id : null
             const mapComponent = (component: ComponentData): Node => ({
               id: component.id,
               type: component.type,

@@ -14,6 +14,8 @@
   import SettingsDataTab from '@/components/DataFlow/SettingsTabs/SettingsDataTab.vue'
   import SettingsControlsTab from '@/components/DataFlow/SettingsTabs/SettingsControlsTab.vue'
   import SettingsExposuresTab from '@/components/DataFlow/SettingsTabs/SettingsExposuresTab.vue'
+  import WhoRunsItLine from '@/components/DataFlow/WhoRunsItLine.vue'
+  import type { OwnReadState } from '@/utils/whoRunsIt'
   import StaleBadge from '@/components/Disposition/StaleBadge.vue'
   import PendingBadge from '@/components/Disposition/PendingBadge.vue'
   import ConfirmDeleteDialog from '@/components/Dialogs/General/ConfirmDeleteDialog.vue'
@@ -61,6 +63,8 @@
   const attributesSchema = shallowRef<object | null>(null)
   const attributesUiSchema = shallowRef<UISchemaElement | null>(null)
   const attributesLoading = ref(false)
+  // How far the read of storedAttributeKeys got. Empty keys mean "nothing declared" only once it says `read`.
+  const attributesRead = ref<OwnReadState>('no-class')
   // The selected element's class (with its template) is still loading after a change of selection.
   const classLoading = ref(false)
   const attributesFormLoading = computed(() => attributesLoading.value || classLoading.value)
@@ -158,9 +162,9 @@
     conduits: Conduit[];
   }
   const isBoundary = computed(() => isNode(selectedItem.value) && selectedItem.value.type === 'BOUNDARY')
-  // The Zoning tab is gated off the default/root boundary: its zoning isn't in the model-dump read and
-  // doesn't re-pin to server truth, so an edit there would silently not persist. The default boundary is
-  // the implicit Internal fallback anyway (real boundaries inherit from it), so it has no editable zone.
+  // The Zoning tab is gated off the default/root boundary: the model dump reads only its zone, not its planes, domains
+  // or conduits, and a save doesn't re-pin it to server truth, so an edit there would be lost on reload. Real boundaries
+  // inherit from it, and it has no editable zone.
   const showZoningTab = computed(
     () => isBoundary.value && isNode(selectedItem.value) && selectedItem.value.id !== flowStore.defaultBoundaryId,
   )
@@ -269,6 +273,7 @@
     attributesUiSchema.value = null
     lastLoadedAttributes.value = {}
     storedAttributeKeys.value = {}
+    attributesRead.value = 'loading'
     pendingAttributes.value = {}
     clearDirty('attributes')
     attributesTemplateWarning.value = false
@@ -277,7 +282,14 @@
     await nextTick()
 
     if (!selectedItem.value?.id || !itemClass.value) {
-      if (request === attributesRequest) attributesLoading.value = false
+      if (request === attributesRequest) {
+        attributesLoading.value = false
+        // A failed class read answers "no class" too. The model dump knows the element has one (an element
+        // representing a model keeps a stale class id, so that one really has none).
+        const held = forItem === flowStore.defaultBoundaryId ? flowStore.defaultBoundary : flowStore.nodes.find((n) => n.id === forItem)
+        const classed = held?.data?.classId && !representedModel.value
+        attributesRead.value = classed ? 'failed' : 'no-class'
+      }
       return
     }
 
@@ -293,6 +305,7 @@
       } else {
         console.warn('Invalid or missing schema/uischema in the class')
         attributesTemplateWarning.value = true
+        if (request === attributesRequest) attributesRead.value = 'not-read'
         return
       }
 
@@ -305,6 +318,7 @@
 
       const loaded = unflattenProperties(rawProperties)
       storedAttributeKeys.value = (rawProperties ?? {}) as Record<string, unknown>
+      attributesRead.value = 'read'
       lastLoadedAttributes.value = loaded
       pendingAttributes.value = loaded
       clearDirty('attributes')
@@ -312,6 +326,7 @@
       if (request !== attributesRequest || !stillShown()) return
       console.error('Failed to fetch attributes data', e)
       attributesTemplateWarning.value = true
+      attributesRead.value = 'failed'
     } finally {
       if (request === attributesRequest) attributesLoading.value = false
     }
@@ -388,6 +403,9 @@
     itemClass.value = null
     representedModel.value = null
     classLoading.value = true
+    // The previous element's keys stop being this one's now, whatever the reads below go on to do.
+    storedAttributeKeys.value = {}
+    attributesRead.value = 'loading'
     exposures.value = []
     updateForm()
   }
@@ -455,6 +473,8 @@
     } catch (e) {
       if (request !== formRequest) return
       console.warn('Failed to fetch item data or class', e)
+      // The attributes read never ran, so no declaration was read. A reload of the same element keeps what it has.
+      if (!itemClass.value) attributesRead.value = 'failed'
     } finally {
       if (request === formRequest) classLoading.value = false
     }
@@ -1107,6 +1127,13 @@
 
         <!-- Tabs Content -->
         <v-col cols="9">
+          <WhoRunsItLine
+            v-if="isNode(selectedItem)"
+            :item="selectedItem"
+            :own-bag="storedAttributeKeys"
+            :own-state="classLoading ? 'loading' : attributesRead"
+            :template="itemClass?.template"
+          />
           <v-tabs-window v-model="tab" class="settings-window elevation-8 mb-4">
             <v-tabs-window-item value="general">
               <SettingsGeneralTab
