@@ -47,6 +47,21 @@ const node = (id: string, classId: string | null): any => ({
   data: { label: id, classId },
 })
 
+describe('flowStore — a class change on the model root', () => {
+  // The window offers to delete whatever is not the root by comparing selectedItem with defaultBoundary.
+  it('keeps the root the object selectedItem holds, and updates its class id', async () => {
+    changeElementBindingMock.mockResolvedValue({ success: true })
+    const store = useFlowStore()
+    store.$patch({ defaultBoundaryId: 'root', defaultBoundary: { ...node('root', null), type: 'BOUNDARY' } as any })
+    store.setSelectedItem({ item: store.defaultBoundary as any })
+
+    await store.updateNodeClass({ nodeId: 'root', classId: 'k1' })
+
+    expect(store.selectedItem).toBe(store.defaultBoundary)
+    expect((store.defaultBoundary as any).data.classId).toBe('k1')
+  })
+})
+
 describe('flowStore — class unassign (kind: NONE)', () => {
   it('updateNodeClass with null sends a NONE target and clears local data.classId', async () => {
     changeElementBindingMock.mockResolvedValue({ success: true })

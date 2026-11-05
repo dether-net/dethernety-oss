@@ -60,6 +60,14 @@
           </ul>
         </section>
 
+        <!-- Who runs it (Component and SecurityBoundary targets) — what is declared, frozen with the report. -->
+        <section v-if="profile.whoRuns" class="trd-prof-section">
+          <h4 class="trd-prof-sec-head">{{ WHO_RUNS_COPY.title }} <span class="trd-muted">(as modelled, not a judgement)</span></h4>
+          <ul class="trd-controls">
+            <li v-for="text in profile.whoRuns.texts" :key="text">{{ text }}</li>
+          </ul>
+        </section>
+
         <!-- Trust zoning (SecurityBoundary target only) — declared intent, not enforcement. -->
         <section v-if="profile.zoning" class="trd-prof-section">
           <h4 class="trd-prof-sec-head">Trust zoning <span class="trd-muted">(declared intent, not enforcement)</span></h4>
@@ -298,6 +306,7 @@
   import { lifecycleChipFor } from '../lib/findingActions.js'
   import { dataItemSensitivity } from '../lib/boundaryCrossings.js'
   import { tierClass } from '../lib/zoningPolicy.js'
+  import { WHO_RUNS_COPY, whoRunsItLine } from '../lib/whoRunsIt.js'
 
   const props = defineProps({
     elementId: { type: String, default: '' },
@@ -306,6 +315,8 @@
     // The snapshot zoning block — declared effective zones per boundary, joined into the
     // boundary context + the boundary zoning block. Defaulted for pre-zoning snapshots.
     zoning: { type: Object, default: () => ({ findings: [], effectiveZones: {} }) },
+    // The snapshot's who-runs-it block, frozen at generate time. Absent on a report from before 2.2.0.
+    operation: { type: Object, default: null },
     canDispose: { type: Boolean, default: false },
     // exposureId → resolved ATT&CK techniques (buildExposureTechniqueIndex over the
     // live coverage facts). Empty when coverage-tools isn't deployed → no chips.
@@ -322,6 +333,7 @@
       ledger: props.ledger,
       modelGraph: props.modelGraph,
       zoning: props.zoning,
+      operation: props.operation,
     }),
   )
   // Effective-zone source → a short human note ("declared" / "inherited from X" / "default").
@@ -344,6 +356,7 @@
     detailExposure.value = buildExposureDetail(f, {
       techniques: techsFor(f.id),
       element: { id: e.id, name: e.name, type: e.type },
+      whoRuns: whoRunsItLine(props.operation, e.id),
     })
   }
   const crownJewelIds = computed(() =>

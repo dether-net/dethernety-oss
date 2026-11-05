@@ -3,12 +3,12 @@
   "name": "dethernety-general",
   "displayName": "Dethernety General",
   "description": "General, technology agnostic classes for everyday threat modeling. It contains general networking, computing and storage classes, external entities, data flows and controls for services that are typical for both could or on-premises deployments.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "tags": [
     "studio"
   ],
   "exportedAt": "2026-06-08T20:48:48.519Z",
   "exportedFrom": "studio",
-  "classCount": 75,
-  "contentHash": "sha256:1a1fd7d1e5016553dfca4e2bb71bfc4150d3144223909ff79d73ed2ecddcc00f"
+  "classCount": 77,
+  "contentHash": "sha256:d8e2f9ede16938c4ad1e2cd51f3ed8838ed1a151b0baeda5035cf7cc3d0e4957"
 }

@@ -76,19 +76,19 @@ describe('the constants', () => {
 });
 
 describe('withOperationFields', () => {
-  it('gives a component the operator, the product and the version, in one category placed last', () => {
+  it('gives a component the operator, the product and the version, in one category placed first', () => {
     const out = withOperationFields(template(), 'component');
     expect(Object.keys(props(out))).toEqual(['tls_min_version', 'mfa_enforced', OPERATION_OPERATOR_KEY, OPERATION_PRODUCT_KEY, OPERATION_VERSION_KEY]);
-    const last = categories(out)[categories(out).length - 1];
-    expect(last).toMatchObject({ type: 'Category', label: 'Operation & version' });
-    const scopes = JSON.stringify(last);
+    const first = categories(out)[0];
+    expect(first).toMatchObject({ type: 'Category', label: 'Operation & version' });
+    const scopes = JSON.stringify(first);
     for (const key of [OPERATION_OPERATOR_KEY, OPERATION_PRODUCT_KEY, OPERATION_VERSION_KEY]) expect(scopes).toContain(`#/properties/${key}`);
   });
 
   it('gives a boundary the operator and the product, under its own label', () => {
     const out = withOperationFields(template(), 'securityBoundary');
     expect(Object.keys(props(out))).toEqual(['tls_min_version', 'mfa_enforced', OPERATION_OPERATOR_KEY, OPERATION_PRODUCT_KEY]);
-    expect(categories(out)[categories(out).length - 1]).toMatchObject({ type: 'Category', label: 'Operation' });
+    expect(categories(out)[0]).toMatchObject({ type: 'Category', label: 'Operation' });
   });
 
   it('leaves the other class types as they came', () => {
@@ -107,8 +107,8 @@ describe('withOperationFields', () => {
   });
 
   it('hides the version for a vendor-operated element', () => {
-    const last = categories(withOperationFields(template(), 'component')).at(-1);
-    const version = last.elements.find((e: any) => e.scope === `#/properties/${OPERATION_VERSION_KEY}`);
+    const first = categories(withOperationFields(template(), 'component'))[0];
+    const version = first.elements.find((e: any) => e.scope === `#/properties/${OPERATION_VERSION_KEY}`);
     expect(version.rule).toEqual({
       effect: 'HIDE',
       condition: { scope: `#/properties/${OPERATION_OPERATOR_KEY}`, schema: { const: 'VENDOR' } },
@@ -122,7 +122,7 @@ describe('withOperationFields', () => {
     expect(input).toEqual(before);
     expect(out.schema.required).toEqual(['tls_min_version']);
     expect(out.schema.properties.tls_min_version).toEqual(before.schema.properties.tls_min_version);
-    expect(out.uischema.elements.slice(0, -1)).toEqual(before.uischema.elements);
+    expect(out.uischema.elements.slice(1)).toEqual(before.uischema.elements);
   });
 
   it('is idempotent', () => {
@@ -149,23 +149,42 @@ describe('withOperationFields', () => {
     expect(out.schema.required).toEqual(['tls_min_version']);
     // The served control is gone from its layout, the category that held only a reserved control is gone,
     // and the platform's category is the only one with operation controls.
-    expect(out.uischema.elements[0]).toEqual(template().uischema.elements[0]);
-    expect(out.uischema.elements.map((c: any) => c.label)).toEqual(['Access', 'Operation & version']);
+    expect(out.uischema.elements[1]).toEqual(template().uischema.elements[0]);
+    expect(out.uischema.elements.map((c: any) => c.label)).toEqual(['Operation & version', 'Access']);
   });
 
-  it('drops a served Control that reaches a reserved key through any scope form', () => {
+  it('drops a served Control unless its scope is a plain chain of properties with no reserved key', () => {
     const scopes = [
       `#/properties/${OPERATION_OPERATOR_KEY}`,
       `#/allOf/0/properties/${OPERATION_OPERATOR_KEY}`,
       `/properties/${OPERATION_OPERATOR_KEY}`,
       `#/x/${OPERATION_OPERATOR_KEY}`,
       '#/properties/dethernety_example/properties/nested',
+      `#/properties/mfa_enforced/properties/${OPERATION_OPERATOR_KEY}`,
+      '#/properties/dethernetyanyOf/0/_operated_by',
+      '#/properties/dethernetyallOf/12/_operated_by',
+      '#/properties/dethernetyoneOf/3/_operated_by',
+      '#/properties/dethernetythen/_operated_by',
+      '#/properties/dethernetyelse/_operated_by',
+      `#/properties/[${OPERATION_OPERATOR_KEY}]`,
+      `#/properties/["${OPERATION_OPERATOR_KEY}"]`,
+      `#/properties/['${OPERATION_OPERATOR_KEY}']`,
+      '#/properties/["dethernety\\_operated_by"]',
+      '#/properties/[dethernetythen/_operated_by]',
+      '#/allOf/0/properties/mfa_enforced',
+      '#/properties/a.b',
+      '#/properties/a~1b',
+      '#/properties/',
+      '#/properties',
+      '#/',
+      '#',
+      '',
     ];
     for (const scope of scopes) {
       const input = template() as any;
       input.uischema.elements[0].elements[0].elements.push({ type: 'Control', scope, label: 'Swapped' });
       const out = withOperationFields(input, 'component') as any;
-      expect(out.uischema.elements[0]).toEqual(template().uischema.elements[0]);
+      expect(out.uischema.elements[1]).toEqual(template().uischema.elements[0]);
     }
   });
 
@@ -175,10 +194,145 @@ describe('withOperationFields', () => {
     input.uischema.elements[0].elements[0].elements.push({ type: 'Control', scope: '#/properties/dethernetyish' });
     const out = withOperationFields(input, 'component') as any;
     expect(out.schema.properties).toHaveProperty('dethernetyish');
-    expect(JSON.stringify(out.uischema.elements[0])).toContain('#/properties/dethernetyish');
+    expect(JSON.stringify(out.uischema.elements[1])).toContain('#/properties/dethernetyish');
   });
 
-  it('leaves a template of another shape as it came, and never throws', () => {
+  it('keeps an element with a plain scope, whatever its key looks like, as the same object', () => {
+    const scopes = [
+      '#/properties/dethernetyish',
+      '#/properties/dethernety',
+      '#/properties/authenthen',
+      '#/properties/anyOf/properties/x',
+      '#/properties/mfa_enforced/properties/nested-key/properties/k 2',
+    ];
+    for (const scope of scopes) {
+      const control = { type: 'Control', scope };
+      const input = template() as any;
+      input.uischema.elements[0].elements[0].elements.push(control);
+      const out = withOperationFields(input, 'component') as any;
+      expect(out.uischema.elements[1].elements[0].elements).toContain(control);
+    }
+  });
+
+  it('drops every element with a scope it may not carry, whatever its type', () => {
+    for (const type of ['ListWithDetail', 'Custom', 'Group']) {
+      const input = template() as any;
+      input.uischema.elements[0].elements[0].elements.push({ type, scope: '#/properties/dethernetythen/_operated_by' });
+      const out = withOperationFields(input, 'component') as any;
+      expect(out.uischema.elements[1]).toEqual(template().uischema.elements[0]);
+    }
+  });
+
+  it('drops an element whose scope is not a string', () => {
+    const input = template() as any;
+    input.uischema.elements[0].elements[0].elements.push({ type: 'Control', scope: 7 }, { type: 'Control', scope: null });
+    const out = withOperationFields(input, 'component') as any;
+    expect(out.uischema.elements[1]).toEqual(template().uischema.elements[0]);
+  });
+
+  it('reads options.detail by the same rule, and leaves a detail with nothing to drop as the same object', () => {
+    const reserved = { type: 'Control', scope: `#/properties/${OPERATION_OPERATOR_KEY}`, label: 'Swapped' };
+    const plain = { type: 'Control', scope: '#/properties/nested' };
+    const served = (detail: unknown) => {
+      const input = template() as any;
+      input.uischema.elements[0].elements[0].elements.push({ type: 'Control', scope: '#/properties/mfa_enforced', options: { detail, showSortButtons: true } });
+      return (withOperationFields(input, 'component') as any).uischema.elements[1].elements[0].elements.at(-1);
+    };
+
+    const onlyReserved = { type: 'VerticalLayout', elements: [reserved] };
+    expect(served(onlyReserved).options).toEqual({ showSortButtons: true });
+
+    const mixed = { type: 'VerticalLayout', elements: [reserved, plain] };
+    expect(served(mixed).options).toEqual({ showSortButtons: true, detail: { type: 'VerticalLayout', elements: [plain] } });
+
+    const clean = { type: 'VerticalLayout', elements: [plain] };
+    expect(served(clean).options.detail).toBe(clean);
+    expect(served('GENERATE').options.detail).toBe('GENERATE');
+  });
+
+  it('reads every option that holds an object, since a renderer builds some of their keys per schema type', () => {
+    const reserved = { type: 'Control', scope: `#/properties/${OPERATION_OPERATOR_KEY}`, label: 'Swapped' };
+    const clean = { format: 'radio' };
+    const input = template() as any;
+    input.uischema.elements[0].elements[0].elements.push({
+      type: 'Control',
+      scope: '#/properties/mfa_enforced',
+      options: { 'object-detail': reserved, 'string-detail': { type: 'VerticalLayout', elements: [reserved] }, clean, multi: true, absent: null },
+    });
+    const control = (withOperationFields(input, 'component') as any).uischema.elements[1].elements[0].elements.at(-1);
+    expect(control.options).toEqual({ clean, multi: true, absent: null });
+    expect(control.options.clean).toBe(clean);
+  });
+
+  it('drops an element whose elements are not a list, whatever it holds', () => {
+    const input = template() as any;
+    input.uischema.elements[0].elements[0].elements.push({
+      type: 'Group',
+      label: 'G',
+      elements: { a: { type: 'Control', scope: `#/properties/${OPERATION_OPERATOR_KEY}` } },
+    });
+    const out = withOperationFields(input, 'component') as any;
+    expect(out.uischema.elements[1]).toEqual(template().uischema.elements[0]);
+  });
+
+  it('drops a root-scope element with its detail, and a category left empty goes with it', () => {
+    const input = template() as any;
+    input.uischema.elements.push({
+      type: 'Category',
+      label: 'Whole form',
+      elements: [{ type: 'Control', scope: '#', options: { detail: { type: 'VerticalLayout', elements: [{ type: 'Control', scope: '#/properties/mfa_enforced' }] } } }],
+    });
+    const out = withOperationFields(input, 'component') as any;
+    expect(out.uischema.elements.map((c: any) => c.label)).toEqual(['Operation & version', 'Access']);
+  });
+
+  it('holds the root of a template it extends to the same rule, and still serves the category', () => {
+    const reserved = { type: 'Control', scope: `#/properties/${OPERATION_OPERATOR_KEY}` };
+    const withRoot = (root: Record<string, unknown>) => {
+      const input = template() as any;
+      input.uischema = { ...input.uischema, ...root };
+      return withOperationFields(input, 'component') as any;
+    };
+
+    const scoped = withRoot({ scope: `#/allOf/0/properties/${OPERATION_OPERATOR_KEY}` });
+    expect(scoped.uischema).not.toHaveProperty('scope');
+    expect(scoped.uischema.elements.map((c: any) => c.label)).toEqual(['Operation & version', 'Access']);
+
+    const optioned = withRoot({ scope: '#/properties/mfa_enforced', options: { 'object-detail': reserved, multi: true } });
+    expect(optioned.uischema.scope).toBe('#/properties/mfa_enforced');
+    expect(optioned.uischema.options).toEqual({ multi: true });
+
+    const emptied = withRoot({ scope: '#', elements: [{ type: 'Category', label: 'Gone', elements: [reserved] }] });
+    expect(emptied.uischema).not.toHaveProperty('scope');
+    expect(emptied.uischema.elements.map((c: any) => c.label)).toEqual(['Operation & version']);
+
+    expect(withOperationFields(optioned, 'component')).toEqual(optioned);
+  });
+
+  it('moves a category served last to the front, ahead of every category of the class', () => {
+    const input = template() as any;
+    input.uischema.elements.push({ type: 'Category', label: 'Logging', elements: [{ type: 'Control', scope: '#/properties/mfa_enforced' }] });
+    const once = withOperationFields(input, 'component') as any;
+    expect(once.uischema.elements.map((c: any) => c.label)).toEqual(['Operation & version', 'Access', 'Logging']);
+    const servedLast = { ...once, uischema: { ...once.uischema, elements: [...once.uischema.elements.slice(1), once.uischema.elements[0]] } };
+    expect(withOperationFields(servedLast, 'component')).toEqual(once);
+  });
+
+  it('gives a template of another shape no fields, but holds its elements to the same rule', () => {
+    const plain = { type: 'Control', scope: '#/properties/mfa_enforced' };
+    const reserved = { type: 'Control', scope: `#/properties/${OPERATION_OPERATOR_KEY}` };
+    const shaped = (uischema: unknown, schema: unknown = { type: 'object', properties: { mfa_enforced: { type: 'boolean' } } }) =>
+      withOperationFields({ schema, uischema }, 'component') as any;
+
+    const layout = shaped({ type: 'VerticalLayout', elements: [plain, reserved] });
+    expect(layout.uischema).toEqual({ type: 'VerticalLayout', elements: [plain] });
+    expect(layout.schema.properties).not.toHaveProperty(OPERATION_OPERATOR_KEY);
+
+    expect(shaped({ type: 'Categorization', elements: [{ type: 'Category', label: 'A', elements: [reserved] }] }, {}).uischema).toEqual({ type: 'VerticalLayout', elements: [] });
+    expect(shaped({ type: 'Control', scope: '#' }).uischema).toEqual({ type: 'VerticalLayout', elements: [] });
+  });
+
+  it('leaves a template of another shape as it came', () => {
     const noProps = { schema: { type: 'object' }, uischema: template().uischema };
     const vertical = { schema: template().schema, uischema: { type: 'VerticalLayout', elements: [] } };
     const noElements = { schema: template().schema, uischema: { type: 'Categorization' } };
@@ -241,6 +395,11 @@ describe('withOperationGuide', () => {
 });
 
 describe('withOperationContent', () => {
+  it('returns template text the rule leaves as it was with its exact bytes', () => {
+    const text = '{ "schema": {"type": "object"},  "uischema": {"type": "VerticalLayout", "elements": [] } }';
+    expect(withOperationContent('template', text, 'component')).toBe(text);
+  });
+
   it('extends served template and guide text of an operated class', () => {
     expect(JSON.parse(withOperationContent('template', JSON.stringify(template()), 'component'))).toEqual(
       withOperationFields(template(), 'component'),

@@ -375,17 +375,19 @@ export class DtFileOpaModule implements DTModule {
     }
 
     const raw = fs.readFileSync(schemaPath, 'utf8');
+    let parsed;
     try {
-      const parsed = JSON.parse(raw);
-      // Normalize uiSchema → uischema (platform convention)
-      if (parsed.uiSchema && !parsed.uischema) {
-        parsed.uischema = parsed.uiSchema;
-        delete parsed.uiSchema;
-      }
-      return JSON.stringify(withOperationFields(parsed, classTypeFromPath(classDataPath)));
+      parsed = JSON.parse(raw);
     } catch {
       return raw;
     }
+    // Normalize uiSchema → uischema (platform convention)
+    if (parsed?.uiSchema && !parsed.uischema) {
+      parsed.uischema = parsed.uiSchema;
+      delete parsed.uiSchema;
+    }
+    // Outside the parse's catch: a template this cannot extend must not be served unread.
+    return JSON.stringify(withOperationFields(parsed, classTypeFromPath(classDataPath)));
   }
 
   async getClassGuide(id: string, token?: string): Promise<string> {

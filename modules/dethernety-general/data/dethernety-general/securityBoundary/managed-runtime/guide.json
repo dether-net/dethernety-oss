@@ -1,0 +1,866 @@
+[
+  {
+    "option_name": "public_endpoint_exposed",
+    "option_description": "Records whether the workload's invocation endpoint can be reached from the internet, directly (a vendor-assigned default URL or public ingress) or through an internet-facing gateway or load balancer that passes unauthenticated requests to it, or only from the organization's private network or a designated front door that itself authenticates callers. It gates the public-invocation checks and never fires on its own.",
+    "security_impact": "A gating condition, not a standalone trigger. It is a required AND-condition in both condition groups of \"Unauthenticated invocation of an internet-reachable workload\": that exposure fires when public_endpoint_exposed is true together with invocation_authentication_required false, or together with invocation_path_non_bypassable false. It is also a required AND-condition of \"Exploitation of an unsupported runtime on a public endpoint\", which fires when public_endpoint_exposed is true and runtime_version_supported is false. It is also a required AND-condition of \"Plaintext HTTP accepted on a public endpoint\", and it selects which group of \"Invocation by any authenticated identity\" applies: when it is false, only that exposure's non-public group can fire.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Google Cloud Run: read the service-level annotations and check the ingress setting (and any run.allowedIngress organization policy). Treat the output as sensitive.",
+        "command": "gcloud run services describe SERVICE --region REGION --format 'yaml(metadata.annotations)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Google Cloud Run: annotation run.googleapis.com/ingress = internal or internal-and-cloud-load-balancing (restricted) vs all (direct internet requests to the run.app URL allowed). Org admins can constrain choices with the run.allowedIngress organization policy. Restricted ingress is not enough: an internet-facing load balancer in front of the service that does not authenticate callers also means TRUE.",
+        "source": "Google Cloud Run - Restrict network ingress"
+      },
+      {
+        "type": "command",
+        "instruction": "AWS Lambda: check whether the function (or an alias) has a function URL, which is an HTTPS endpoint reachable from the internet.",
+        "command": "aws lambda get-function-url-config --function-name <function> [--qualifier <alias>]",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AWS Lambda: a FunctionUrl in the output means the function has an HTTPS endpoint; absence (ResourceNotFound) means no function URL. Combine with AuthType (see invocation_authentication_required). A missing function URL is not enough: an internet-facing API Gateway route or load balancer that does not authenticate callers also means TRUE.",
+        "source": "AWS CLI reference - lambda get-function-url-config; AWS Lambda - Using Lambda with Amazon API Gateway"
+      },
+      {
+        "type": "gui",
+        "instruction": "Azure App Service / Functions and Azure Container Apps: read the inbound public network access and ingress settings in the portal.",
+        "command": null,
+        "file_path": null,
+        "navigation": "App Service / Functions: Settings > Networking > Inbound traffic configuration > Public network access. Container Apps: Settings > Ingress",
+        "expected_output": "Azure App Service / Functions: Settings > Networking > Inbound traffic configuration > Public network access (ARM property publicNetworkAccess = Disabled, or Enabled with site access-restriction rules and unmatched action Deny). With no rules and unmatched action not Deny, the app is accessible from anywhere. Azure Container Apps: Settings > Ingress shows 'Limited to Container Apps Environment' (internal) or 'Accepting traffic from anywhere' (external); internet reachability also depends on whether the environment was created --internal-only. An internet-facing gateway or load balancer in front that does not authenticate callers also means TRUE.",
+        "source": "Azure App Service - Access restrictions overview; Azure Container Apps - Ingress overview"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Managed agent runtime (for example Amazon Bedrock AgentCore Runtime): establish how callers reach the invocation endpoint. Callers reach the runtime through the regional bedrock-agentcore endpoint unless the organization uses an AgentCore interface VPC endpoint (com.amazonaws.<region>.bedrock-agentcore) and the runtime's resource-based policy denies invocation from outside that VPC or endpoint. Read the policy with: aws bedrock-agentcore-control get-resource-policy --resource-arn <runtime-arn>. Every call is still authenticated; this attribute records reachability, direct or through such a gateway, not whether the runtime itself authenticates.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "FALSE when the runtime resource policy denies bedrock-agentcore:InvokeAgentRuntime unless aws:SourceVpc or aws:SourceVpce matches the organization's VPC or endpoint (and callers use the interface endpoint). TRUE when there is no such policy, or callers invoke through the public regional endpoint (https://bedrock-agentcore.<region>.amazonaws.com). An endpoint policy on its own does not count: it limits what passes through the endpoint and does not block the public path. An internet-facing gateway or load balancer in front that does not authenticate callers also means TRUE.",
+        "source": "Resource-based policies for Amazon Bedrock AgentCore"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "invocation_authentication_required",
+    "option_description": "Records whether every invocation of a public endpoint must present an identity that the platform checks (a signed request, an invoker permission check, built-in authentication, a JWT authorizer) before the organization's code runs. FALSE when anonymous callers reach the code.",
+    "security_impact": "One of the two OR-groups of \"Unauthenticated invocation of an internet-reachable workload\": that group fires when invocation_authentication_required is false AND public_endpoint_exposed is true, because any internet client then reaches the organization's code (T1190). It has no effect when public_endpoint_exposed is false. On a public endpoint an explicit false also keeps \"Invocation by any authenticated identity\" silent, because the unauthenticated case is reported by the exposure above.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AWS Lambda: read the AuthType of the function URL.",
+        "command": "aws lambda get-function-url-config --function-name <function> --query '{FunctionUrl: FunctionUrl, AuthType: AuthType}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AWS Lambda function URL: AuthType = AWS_IAM (IAM-authenticated) vs NONE (Lambda performs no authentication; anyone with the URL can invoke if the resource policy grants public access).",
+        "source": "AWS Lambda - Control access to Lambda function URLs"
+      },
+      {
+        "type": "command",
+        "instruction": "Google Cloud Run: read the service-level annotations and check whether the invoker IAM check is disabled; also confirm roles/run.invoker is not bound to allUsers. Treat the output as sensitive.",
+        "command": "gcloud run services describe SERVICE --region REGION --format 'yaml(metadata.annotations)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Google Cloud Run: annotation run.googleapis.com/invoker-iam-disabled absent or 'false' (Invoker IAM check enforced) vs 'true' (public, unauthenticated). A roles/run.invoker binding to allUsers is the other way to make it public. Org admins can restrict disabling the check with constraints/run.managed.requireInvokerIam (not enforced by default).",
+        "source": "Google Cloud Run - Allowing public (unauthenticated) access"
+      },
+      {
+        "type": "api",
+        "instruction": "Azure App Service / Functions: read the built-in authentication (authsettingsV2) configuration with a GET request and check the action taken on unauthenticated requests.",
+        "command": "az rest --uri /subscriptions/<SUBSCRIPTIONID>/resourceGroups/<RESOURCEGROUP>/providers/Microsoft.Web/sites/<APPNAME>/config/authsettingsV2?api-version=2020-09-01 --method get",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Azure App Service / Functions built-in auth (Easy Auth): platform authentication enabled with 'Action to take when request is not authenticated' set to require authentication (302 redirect / 401 / 403 / 404) vs 'Allow anonymous requests (no action)', which defers all authorization of unauthenticated traffic to app code.",
+        "source": "Azure App Service - Authentication and authorization overview"
+      },
+      {
+        "type": "command",
+        "instruction": "Managed agent runtime (Amazon Bedrock AgentCore Runtime): read the runtime's inbound authorizer configuration.",
+        "command": "aws bedrock-agentcore-control get-agent-runtime --agent-runtime-id <id> --query authorizerConfiguration",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AgentCore Runtime: authorizerConfiguration.customJWTAuthorizer (JWT) or none (default IAM SigV4); inbound invocation is always authenticated by one of the two.",
+        "source": "Amazon Bedrock AgentCore - Authenticate and authorize with Inbound Auth and Outbound Auth"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "invocation_path_non_bypassable",
+    "option_description": "Records whether every route that reaches the workload's code passes the platform's authentication gate. FALSE when an alternate route (a default URL left live, a private endpoint) reaches the code without that gate. A route that skips only a front door or firewall but still authenticates does not make this FALSE.",
+    "security_impact": "One of the two OR-groups of \"Unauthenticated invocation of an internet-reachable workload\": that group fires when invocation_path_non_bypassable is false AND public_endpoint_exposed is true, because an alternate route reaches the code without passing the authentication gate (T1190). It has no effect when public_endpoint_exposed is false.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Google Cloud Run: read the service-level annotations and check whether the default run.app URL is disabled. A live run.app URL makes this FALSE only when authentication is done in front of the service (for example at a load balancer) and the service itself has the invoker IAM check disabled; when the invoker IAM check applies, the run.app URL still authenticates and is not a bypass. Treat the output as sensitive.",
+        "command": "gcloud run services describe SERVICE --region REGION --format 'yaml(metadata.annotations)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Google Cloud Run: annotation run.googleapis.com/default-url-disabled: true when traffic must arrive only via a load balancer / custom domain; absent means the run.app URL is still a live path (subject to ingress).",
+        "source": "Google Cloud Run - Restrict network ingress"
+      },
+      {
+        "type": "gui",
+        "instruction": "AWS Lambda: list the services that invoke the function: the triggers in the Function overview pane, and the service principals in the resource-based policy (triggers created in the console add their invoke permission there). Requests to the Lambda Invoke API must be SigV4-signed and need lambda:InvokeFunction, and the function URL's auth type is covered by the authentication check. So record TRUE unless a service in front passes unauthenticated requests to the function, such as an API Gateway route created with Security 'Open' or with no authorizer. A public principal on an invoke permission is an authorization gap, recorded under invocation scoping, not a bypass.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Lambda console > function > Function overview (triggers); Configuration > Permissions > Resource-based policy",
+        "expected_output": "AWS Lambda: every trigger listed authenticates its callers (for API Gateway, an authorizer or IAM authorization on the route). A trigger that accepts unauthenticated requests is an alternate unauthenticated route.",
+        "source": "AWS IAM - AWS Signature Version 4 for API requests; AWS Lambda - Invoke (API reference); AWS Lambda - Using Lambda with Amazon API Gateway; AWS Lambda - Invoking Lambda with events from other AWS services"
+      },
+      {
+        "type": "command",
+        "instruction": "Managed agent runtime fronted by a gateway (Amazon Bedrock AgentCore Runtime): read the inbound authorizer (aws bedrock-agentcore-control get-agent-runtime --agent-runtime-id <id> --query authorizerConfiguration) and, for IAM (SigV4) inbound auth, the runtime's resource policy (aws bedrock-agentcore-control get-resource-policy --resource-arn <runtime-arn>), and check whether callers are restricted to the gateway. The runtime authenticates every direct call (IAM SigV4 or JWT), so a direct call that skips the gateway still passes an authentication gate; record FALSE only if the gateway is the sole place where callers are authenticated.",
+        "command": "aws bedrock-agentcore-control get-agent-runtime --agent-runtime-id <id> --query authorizerConfiguration",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AgentCore Runtime behind a gateway: customJWTAuthorizer.allowedWorkloadConfiguration lists the gateway (hostingEnvironments ARN or workloadIdentities), or for IAM auth the runtime resource policy allows only the gateway execution role with an explicit Deny for other principals. Absent means direct invocation bypassing the gateway is possible.",
+        "source": "Amazon Bedrock AgentCore - Authenticate and authorize with Inbound Auth and Outbound Auth"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Azure App Service / Functions: establish whether the app has a private endpoint and which networks can reach it. Access-restriction rules do not apply to traffic that enters through a private endpoint. This makes the value FALSE only when the app relies on those rules, or on a front door, instead of platform authentication, so that the private path reaches the code unauthenticated.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Either no private endpoint exists, or built-in authentication applies to traffic arriving through it. A private endpoint that reaches the code with no authentication gate is an alternate unauthenticated route.",
+        "source": "Azure App Service - Access restrictions overview"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "invocation_authorization_scoped",
+    "option_description": "Records whether authenticated callers are also restricted to the intended principals, audiences, clients or scopes, rather than any identity the identity provider or cloud account can authenticate. A non-public workload that accepts calls from anyone who can reach it records FALSE. On a public endpoint whose invocations are not authenticated at all, the unauthenticated-invocation check reports the case.",
+    "security_impact": "The scoping condition of both groups of \"Invocation by any authenticated identity\": that exposure fires when invocation_authorization_scoped is false, because any account of the identity provider, or any holder of a valid token for it, can invoke the workload (T1078.004). On a public endpoint it applies unless invocation_authentication_required is explicitly false, a case reported by \"Unauthenticated invocation of an internet-reachable workload\"; on a non-public endpoint it applies on its own.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Managed agent runtime (Amazon Bedrock AgentCore Runtime): read the JWT authorizer's allowed audiences, clients, scopes and claims; with IAM inbound auth, review who holds the invoke permission on the runtime ARN.",
+        "command": "aws bedrock-agentcore-control get-agent-runtime --agent-runtime-id <id> --query authorizerConfiguration",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AgentCore Runtime with JWT inbound auth: customJWTAuthorizer lists allowedAudience / allowedClients / allowedScopes / customClaims (restricted) vs only discoveryUrl (any token from that issuer). With IAM inbound auth, review who holds bedrock-agentcore:InvokeAgentRuntime on the runtime ARN.",
+        "source": "AWS CLI reference - bedrock-agentcore-control get-agent-runtime; Amazon Bedrock AgentCore - Inbound/Outbound Auth"
+      },
+      {
+        "type": "gui",
+        "instruction": "Azure App Service / Functions with built-in authentication: check whether the Microsoft Entra app is restricted to assigned users or whether the built-in authorization checks (allowed applications and identities) are configured.",
+        "command": null,
+        "file_path": null,
+        "navigation": "App Service app > Authentication > identity provider settings, and the linked Microsoft Entra app registration",
+        "expected_output": "Azure App Service built-in auth provides authentication only, not authorization; with the Microsoft Entra provider any user in the tenant can request a token by default unless the Entra app is restricted to assigned users or the built-in authorization checks are configured.",
+        "source": "Azure App Service - Authentication and authorization overview"
+      },
+      {
+        "type": "gui",
+        "instruction": "AWS Lambda: review the resource-based policy principals for the invoke actions.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Lambda console > function > Configuration > Permissions > Resource-based policy",
+        "expected_output": "Statements name specific principals (scoped). Principal \"*\" on lambda:InvokeFunction, or on lambda:InvokeFunctionUrl with auth type AWS_IAM, lets any AWS principal invoke (record FALSE). With auth type NONE the URL is unauthenticated: on a public function URL that case is reported by the unauthenticated-invocation check; a non-public function reachable by anyone records FALSE here.",
+        "source": "AWS Lambda - Control access to Lambda function URLs"
+      },
+      {
+        "type": "command",
+        "instruction": "Google Cloud Run: read the service's IAM policy and list the members of roles/run.invoker.",
+        "command": "gcloud run services get-iam-policy SERVICE --region REGION",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "roles/run.invoker granted to named service accounts, users or groups (scoped) vs allAuthenticatedUsers (any Google account, including personal accounts outside the organization; record FALSE). A domain: member grants every identity in that Google Workspace or Cloud Identity domain; record FALSE unless the whole domain is meant to be a caller. allUsers means unauthenticated access: on a public service that case is reported by the unauthenticated-invocation check; a service with internal-only ingress that grants allUsers records FALSE here.",
+        "source": "Access control with IAM | Cloud Run"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "deployment_basic_credentials_disabled",
+    "option_description": "Records whether the platform's deployment and management paths for the workload (an advanced-tools or deployment site, FTP, a container registry) refuse long-lived basic credentials such as publishing passwords or a registry admin user. TRUE also when the platform has no such separate deployment path, as with AWS Lambda, Google Cloud Run or a managed agent runtime deployed only through the vendor's identity-authenticated API.",
+    "security_impact": "The sole condition of \"Deployment takeover with long-lived publishing credentials\" (ATT&CK T1078.004 Valid Accounts: Cloud Accounts): that exposure fires when deployment_basic_credentials_disabled is false, because whoever obtains the publishing passwords or the registry admin password can push code into the runtime or browse its files.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Azure App Service / Functions: check that SCM and FTP basic-authentication publishing credentials are turned off.",
+        "command": null,
+        "file_path": null,
+        "navigation": "App Service app > Configuration > General settings > SCM Basic Auth Publishing Credentials / FTP Basic Auth Publishing Credentials",
+        "expected_output": "Azure App Service: Configuration > General settings > 'SCM Basic Auth Publishing Credentials' and 'FTP Basic Auth Publishing Credentials' = Off (resource basicPublishingCredentialsPolicies/scm and /ftp properties.allow=false). Built-in Azure Policy definitions audit both flags.",
+        "source": "Azure App Service - Disable basic authentication for deployment"
+      },
+      {
+        "type": "command",
+        "instruction": "Azure App Service / Functions: read the basic publishing credentials policy from the command line; run it once with --name scm and once with --name ftp.",
+        "command": "az resource show --resource-group <RESOURCEGROUP> --name scm --namespace Microsoft.Web --resource-type basicPublishingCredentialsPolicies --parent sites/<APPNAME> --query properties.allow",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "false for both scm and ftp (basic credentials refused) vs true for either (basic publishing passwords accepted, record FALSE).",
+        "source": "Disable Basic Authentication for Deployment - Azure App Service"
+      },
+      {
+        "type": "command",
+        "instruction": "Container registry the workload pulls from (for example Azure Container Registry used by Azure Container Apps or App Service): check whether the registry admin user is enabled.",
+        "command": "az acr show --name <REGISTRY> --query adminUserEnabled",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "false (no admin user; pulls use a managed identity or other identity-based token) vs true (a long-lived admin username and password exist, record FALSE).",
+        "source": "Azure Container Registry Authentication Options Explained - Azure Container Registry"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "AWS Lambda, Google Cloud Run and managed agent runtimes such as Amazon Bedrock AgentCore Runtime: confirm the workload is deployed only through the cloud provider's identity-authenticated control-plane API, with artifacts from an identity-controlled registry or bucket, and that no separate deployment endpoint accepting passwords exists. In that case record TRUE.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Deployment pipeline evidence showing updates go through the provider API (for example function or service update calls signed by a deployer identity) and no FTP, deployment site or registry admin password is in use. Any such password-based path found makes the value FALSE.",
+        "source": "Deploy container images to Cloud Run services"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "private_network_attached",
+    "option_description": "Records whether the workload's outbound interface is attached to the organization's private network (VPC or VNet integration) with all outbound traffic routed through it, so the organization's network controls apply, rather than running on the vendor's default network or routing only private ranges through the organization's network.",
+    "security_impact": "One of the two OR-groups of \"Unfiltered egress from deployed code\": that exposure fires when private_network_attached is false, because code on the vendor's default network, or with private-ranges-only routing, can send data to any internet destination including attacker-controlled cloud storage (T1567.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AWS Lambda: read only the function's VPC configuration. Treat the output as sensitive.",
+        "command": "aws lambda get-function-configuration --function-name <function> --query VpcConfig",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AWS Lambda: VpcConfig.SubnetIds / SecurityGroupIds / VpcId populated (attached) vs empty (not attached; Lambda functions have access to the public internet by default). Org-wide enforcement is possible with the lambda:VpcIds IAM condition key (Deny CreateFunction/UpdateFunctionConfiguration when lambda:VpcIds is Null).",
+        "source": "AWS Lambda - Giving functions access to resources in an Amazon VPC"
+      },
+      {
+        "type": "command",
+        "instruction": "Google Cloud Run: read the revision template annotations and check the VPC attachment and its egress routing mode. Treat the output as sensitive.",
+        "command": "gcloud run services describe SERVICE --region REGION --format 'yaml(spec.template.metadata.annotations)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Google Cloud Run: annotations run.googleapis.com/network-interfaces (Direct VPC egress attached) and run.googleapis.com/vpc-access-egress = all-traffic (all outbound via VPC) vs private-ranges-only (only internal addresses via VPC). Absent means no VPC attachment. Org admins can restrict the choice with constraints/run.allowedVPCEgress.",
+        "source": "Google Cloud Run - Direct VPC egress"
+      },
+      {
+        "type": "gui",
+        "instruction": "Azure App Service / Functions: check VNet integration and whether outbound internet traffic is routed through the VNet.",
+        "command": null,
+        "file_path": null,
+        "navigation": "App Service app > Networking > VNet integration",
+        "expected_output": "Azure App Service / Functions: Networking > VNet integration > outbound internet traffic routing enabled (site property vnetRouteAllEnabled = true; legacy app setting WEBSITE_VNET_ROUTE_ALL) vs disabled (only RFC1918 and service-endpoint traffic enters the VNet; internet traffic leaves directly from the app). Configuration routing (container image pull, Key Vault references, managed identity token acquisition) has separate routing settings and goes over the public route by default.",
+        "source": "Azure App Service - Virtual network integration overview"
+      },
+      {
+        "type": "command",
+        "instruction": "Managed agent runtime (Amazon Bedrock AgentCore Runtime): read the runtime's network configuration.",
+        "command": "aws bedrock-agentcore-control get-agent-runtime --agent-runtime-id <id> --query networkConfiguration",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AgentCore Runtime: networkConfiguration.networkMode = VPC with networkModeConfig.subnets / securityGroups vs PUBLIC.",
+        "source": "AWS CLI reference - bedrock-agentcore-control get-agent-runtime"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "egress_default_deny_enforced",
+    "option_description": "Records whether the workload's outbound destinations are restricted to an explicit allowlist by security-group, NSG, firewall or proxy rules, so that a compromised workload cannot send data to arbitrary internet endpoints.",
+    "security_impact": "One of the two OR-groups of \"Unfiltered egress from deployed code\": that exposure fires when egress_default_deny_enforced is false, even if the workload is attached to a private network, because outbound traffic to any destination is allowed (T1567.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AWS Lambda / AgentCore in VPC mode: read the outbound rules of the security groups attached to the workload.",
+        "command": "aws ec2 describe-security-groups --group-ids <sg-id> --query 'SecurityGroups[0].IpPermissionsEgress'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AWS Lambda / AgentCore VPC mode: outbound rules limited to required destinations/ports (least privilege) vs 0.0.0.0/0 all traffic.",
+        "source": "Configure Amazon Bedrock AgentCore Runtime and tools for VPC"
+      },
+      {
+        "type": "gui",
+        "instruction": "AWS Lambda / AgentCore in VPC mode: review the route tables of the attached subnets to see where internet-bound traffic goes (NAT gateway, firewall) and therefore which egress controls apply.",
+        "command": null,
+        "file_path": null,
+        "navigation": "VPC console > Route tables of the subnets listed in VpcConfig / networkModeConfig",
+        "expected_output": "AWS Lambda / AgentCore in VPC mode: internet access exists only if the private subnets route 0.0.0.0/0 to a NAT gateway; a public subnet gives no internet access. Review the subnet route tables of VpcConfig / networkModeConfig subnets.",
+        "source": "Configure Amazon Bedrock AgentCore Runtime and tools for VPC; AWS Lambda - Giving functions access to resources in an Amazon VPC"
+      },
+      {
+        "type": "gui",
+        "instruction": "Azure App Service and Google Cloud Run: review the NSG and route table on the integration subnet, or the VPC firewall egress rules that target the service.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure: integration subnet > Network security group / Route table. Google Cloud: VPC network > Firewall (egress rules targeting the service account, subnet range or tags)",
+        "expected_output": "Azure App Service: an NSG on the integration subnet blocks outbound traffic and a route table can send it to a firewall; both apply only to traffic routed through VNet integration. Google Cloud Run Direct VPC egress: VPC firewall egress rules can target the service by service account, subnet range or network tags (VPC firewall rules logging is not supported with Direct VPC egress).",
+        "source": "Azure App Service - Virtual network integration overview; Google Cloud Run - Direct VPC egress"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "execution_identity_least_privilege",
+    "option_description": "Records whether the identity the workload runs as (execution role, service account, managed identity, runtime role) is dedicated to it and holds only the permissions it needs, rather than a shared or default identity with broad project, subscription or account rights.",
+    "security_impact": "The sole condition of \"Over-privileged execution identity\": that exposure fires when execution_identity_least_privilege is false, because the platform hands the identity's credentials to the running code and anyone who runs code in the workload acts with its broad rights (T1078.004).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Google Cloud Run: read the service account the revision runs as, then review that account's role bindings.",
+        "command": "gcloud run services describe SERVICE --region REGION --format 'value(spec.template.spec.serviceAccountName)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Google Cloud Run: spec.template.spec.serviceAccountName = a user-managed SERVICE_ACCOUNT_NAME@PROJECT_ID.iam.gserviceaccount.com vs PROJECT_NUMBER-compute@developer.gserviceaccount.com (Compute Engine default SA, which may hold the project Editor role unless iam.automaticIamGrantsForDefaultServiceAccounts is enforced).",
+        "source": "Google Cloud Run - Configure service identity for services; Google Cloud Run - Introduction to service identity"
+      },
+      {
+        "type": "command",
+        "instruction": "AWS Lambda: read only the execution role ARN, then review that role's attached policies.",
+        "command": "aws lambda get-function-configuration --function-name <function> --query Role",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AWS Lambda: Role = a function-specific execution role whose policy was right-sized (IAM Access Analyzer can generate a least-privilege policy from CloudTrail activity) vs a shared or broadly-permissioned role.",
+        "source": "AWS Lambda - Execution role"
+      },
+      {
+        "type": "command",
+        "instruction": "Managed agent runtime (Amazon Bedrock AgentCore Runtime): read the runtime role ARN, then review that role's attached policies.",
+        "command": "aws bedrock-agentcore-control get-agent-runtime --agent-runtime-id <id> --query roleArn",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AgentCore: get-agent-runtime returns roleArn; it names a role dedicated to this runtime with narrowly scoped policies vs a shared or broadly-permissioned role.",
+        "source": "AWS CLI reference - bedrock-agentcore-control get-agent-runtime"
+      },
+      {
+        "type": "gui",
+        "instruction": "Azure App Service / Functions / Container Apps: list the managed identities and review each identity's role assignments for scope and breadth.",
+        "command": null,
+        "file_path": null,
+        "navigation": "App / container app > Settings > Identity",
+        "expected_output": "Azure App Service / Functions / Container Apps: Settings > Identity shows system-assigned and/or user-assigned identities; review the Azure role assignments of each identity for scope (resource vs resource group/subscription) and role breadth. A user-assigned identity can be shared across multiple resources.",
+        "source": "Azure App Service - Managed identities"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "execution_identity_attachment_restricted",
+    "option_description": "Records whether the right to attach an identity to the workload, or to redeploy code that runs as it (pass-role or act-as permissions, or update-code rights on a workload that already runs as a more privileged identity), is held only by the deployment pipeline and named administrators.",
+    "security_impact": "The sole condition of \"Privilege escalation through a workload's privileged identity\": that exposure fires when execution_identity_attachment_restricted is false, because principals who can deploy code into a workload that runs as a more privileged identity, or attach such an identity to a workload they can deploy to, can run arbitrary code with its rights (T1648).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "List the principals that hold identity-attachment rights on the execution identity, and those that hold deploy or update rights on the workload, and compare them with the intended deployers.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Google Cloud Run: list principals holding roles/iam.serviceAccountUser (contains iam.serviceAccounts.actAs) on each service-identity service account together with roles/run.admin; these can deploy code that runs as that identity. AWS: list principals with lambda:UpdateFunctionCode or lambda:UpdateFunctionConfiguration on the function, which run code as its role with no pass-role right, and principals with iam:PassRole on execution roles together with lambda:CreateFunction (or AgentCore create/update runtime). Expect only CI/CD deploy identities.",
+        "source": "Google Cloud Run - Configure service identity for services; MITRE ATT&CK T1648 Serverless Execution; AWS IAM - Grant a user permissions to pass a role to an AWS service"
+      },
+      {
+        "type": "command",
+        "instruction": "Google Cloud: read the IAM policy on the workload's service account to see who holds act-as rights on it. The service account's own allow policy does not show roles inherited from the project, folder or organization: also check those levels, or use the console's Principals with access tab, which includes inherited grants.",
+        "command": "gcloud iam service-accounts get-iam-policy SERVICE_ACCOUNT_EMAIL",
+        "file_path": null,
+        "navigation": "IAM & Admin > Service accounts > (service account) > Principals with access",
+        "expected_output": "roles/iam.serviceAccountUser (or another role containing iam.serviceAccounts.actAs), granted directly or inherited from the project, folder or organization, held only by the deployment pipeline's identity and named administrators vs broad groups or many users.",
+        "source": "Manage access to service accounts | Identity and Access Management (IAM)"
+      },
+      {
+        "type": "command",
+        "instruction": "Azure: list role assignments on the user-assigned managed identity to see who can assign it to an app (for example through the Managed Identity Operator role). Also list who holds write or deploy rights on the app (repeat with --scope <APP_RESOURCE_ID>): an identity already on the app, system-assigned or user-assigned, runs whatever they deploy.",
+        "command": "az role assignment list --scope <USER_ASSIGNED_IDENTITY_RESOURCE_ID> --include-inherited",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Assignment rights (Managed Identity Operator, Owner, Contributor) on the identity, and write or deploy rights on the app, held only by the deployment pipeline and named administrators vs broad groups; inherited subscription-level Owner or Contributor grants widen the set.",
+        "source": "List Azure role assignments using Azure CLI - Azure RBAC"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "secrets_stored_in_dedicated_secret_manager",
+    "option_description": "Records whether the credentials the workload uses are referenced from a secret manager or vault and resolved at run time, rather than pasted as literal environment variables or app settings, or built into the code or image.",
+    "security_impact": "The sole condition of \"Secrets exposed in environment variables or code\": that exposure fires when secrets_stored_in_dedicated_secret_manager is false, because literal credentials are returned to anyone with configuration-read rights and are read by any code running in the workload (T1552).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AWS Lambda: read the environment variables and the encryption key, and check for literal credentials. The output may contain secret values: treat it as sensitive and do not paste it into tickets or reports. For AgentCore, the equivalent read is get-agent-runtime --agent-runtime-id <id> --query environmentVariables.",
+        "command": "aws lambda get-function-configuration --function-name <function> --query '{Variables: Environment.Variables, KMSKeyArn: KMSKeyArn}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AWS Lambda: Environment.Variables contains no credentials (AWS recommends Secrets Manager instead of environment variables for database credentials, API keys and tokens); KMSKeyArn shows a customer managed key if one encrypts env vars at rest. AgentCore: get-agent-runtime --agent-runtime-id <id> --query environmentVariables should hold no secrets; outbound third-party OAuth tokens / API keys belong in AgentCore Identity credential providers (token vault).",
+        "source": "AWS Lambda - Working with environment variables; Amazon Bedrock AgentCore - Inbound/Outbound Auth"
+      },
+      {
+        "type": "command",
+        "instruction": "Google Cloud Run: read the containers' environment definitions and check that secrets appear as Secret Manager references rather than plain values. The output may contain secret values: treat it as sensitive.",
+        "command": "gcloud run services describe SERVICE --region REGION --format 'yaml(spec.template.spec.containers[].env)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Google Cloud Run: secrets listed as Secret Manager references (env var or volume, e.g. set with --update-secrets=ENV_VAR_NAME=SECRET_NAME:VERSION) vs credentials as plain env values. Env-var secrets should be pinned to a version rather than 'latest'; the service identity needs roles/secretmanager.secretAccessor per secret. Console: service > Containers tab.",
+        "source": "Google Cloud Run - Configure secrets for services"
+      },
+      {
+        "type": "gui",
+        "instruction": "Azure App Service / Functions and Azure Container Apps: review application settings and secrets for Key Vault references versus literal values.",
+        "command": null,
+        "file_path": null,
+        "navigation": "App Service: Configuration > Application settings. Container Apps: Security > Secrets",
+        "expected_output": "Azure App Service / Functions: Application settings values of the form @Microsoft.KeyVault(SecretUri=...) or @Microsoft.KeyVault(VaultName=...;SecretName=...) with a resolved status (Edit dialog shows status) vs literal secret values. Azure Container Apps: Security > Secrets entries of type 'Key Vault reference' (keyVaultUrl + identity) vs 'Container Apps Secret' with a literal value (Microsoft: avoid literal values in production); env vars reference them via secretRef.",
+        "source": "Azure App Service - Key Vault references; Azure Container Apps - Manage secrets"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Azure Container Apps: where literal secret values remain, review which role assignments can read them back through the management plane.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Azure Container Apps: role assignments granting Microsoft.App/containerApps/listSecrets/action (directly or via Microsoft.App/containerApps/*/action, e.g. Container Apps Contributor / Operator) and Microsoft.App/jobs/start/action are limited to identities that need secret values; custom roles omit listSecrets and avoid */action wildcards.",
+        "source": "Azure Container Apps - Manage secrets"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "artifact_source_org_controlled",
+    "option_description": "Records whether everything that runs in the workload (container image, code package, layers, dependencies, base image) is pulled from the organization's own controlled registry or bucket, rather than directly from a public registry or a third party.",
+    "security_impact": "Selects which supply-chain exposure applies when signatures are not verified at deploy. With artifact_source_org_controlled false AND artifact_signature_verified_at_deploy false, \"Compromised third-party artifact run in the workload\" fires (T1195.002). With artifact_source_org_controlled true AND artifact_signature_verified_at_deploy false, \"Backdoored image in the organization's own registry\" fires (T1525). Neither fires when artifact_signature_verified_at_deploy is true.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AWS Lambda: read the package type and the layer ARNs, and compare the account id embedded in each layer ARN with the organization's accounts.",
+        "command": "aws lambda get-function-configuration --function-name <function> --query '{PackageType: PackageType, Layers: Layers[].Arn}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AWS Lambda: PackageType (Zip or Image) and Layers[].Arn; each layer ARN embeds the owning account id (arn:aws:lambda:<region>:<account>:layer:<name>:<version>), so an account other than the organization's indicates third-party code injected into /opt. Layers apply only to .zip functions.",
+        "source": "AWS CLI reference - lambda get-function-configuration; AWS Lambda - Managing dependencies with layers"
+      },
+      {
+        "type": "command",
+        "instruction": "Managed agent runtime (Amazon Bedrock AgentCore Runtime): read the runtime artifact location (container URI or S3 code location).",
+        "command": "aws bedrock-agentcore-control get-agent-runtime --agent-runtime-id <id> --query agentRuntimeArtifact",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AgentCore Runtime: agentRuntimeArtifact.containerConfiguration.containerUri (ECR URI in the organization's account) or codeConfiguration.code.s3 bucket/prefix owned by the organization.",
+        "source": "AWS CLI reference - bedrock-agentcore-control get-agent-runtime"
+      },
+      {
+        "type": "command",
+        "instruction": "Azure Container Apps: read the container images and the configured registries, and check each image against the organization's registries.",
+        "command": "az containerapp show -n <app> -g <rg> --query \"{images: properties.template.containers[].image, registries: properties.configuration.registries}\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Azure Container Apps: images reference the organization's <registry>.azurecr.io rather than public registries; registries entries use a managed identity (identity set, Azure Container Registry pull via acrpull role) vs username/passwordSecretRef admin credentials. Container Apps re-pulls the image on every container start (pull policy always), so tag mutation in the registry changes what runs.",
+        "source": "Azure Container Apps - Image pull from ACR with managed identity"
+      },
+      {
+        "type": "command",
+        "instruction": "Google Cloud Run: read the container image references of the current revision template.",
+        "command": "gcloud run services describe SERVICE --region REGION --format 'value(spec.template.spec.containers[].image)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Image paths in the organization's own Artifact Registry standard repository (LOCATION-docker.pkg.dev/PROJECT_ID/REPO_NAME/...) vs public registries such as docker.io or a third party's repository. An Artifact Registry remote repository can proxy Docker Hub or other external registries, so a docker.pkg.dev path alone does not prove the image is first-party: check the repository mode.",
+        "source": "Deploy container images to Cloud Run services"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "artifact_signature_verified_at_deploy",
+    "option_description": "Records whether the platform verifies the signature or attestation of each deployed artifact and blocks unsigned or untrusted artifacts (rather than only warning), and an organization policy enforces this. FALSE when verification is off, set to warn, or optional per workload.",
+    "security_impact": "A required AND-condition of both supply-chain exposures: with artifact_signature_verified_at_deploy false, \"Compromised third-party artifact run in the workload\" fires when artifact_source_org_controlled is false (T1195.002), and \"Backdoored image in the organization's own registry\" fires when artifact_source_org_controlled is true (T1525). When it is true, neither fires.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AWS Lambda: read the signing fields of the deployed package.",
+        "command": "aws lambda get-function-configuration --function-name <function> --query '{SigningProfileVersionArn: SigningProfileVersionArn, SigningJobArn: SigningJobArn}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AWS Lambda: SigningProfileVersionArn and SigningJobArn populated (package was signed) and a code signing config attached whose CodeSigningPolicies.UntrustedArtifactOnDeployment = Enforce vs Warn (the default: deployment allowed, SignatureValidationErrors metric and CloudTrail warning only) or no code signing config. Layers must also be signed by an allowed profile when code signing is on.",
+        "source": "AWS Lambda - Using code signing to verify code integrity; AWS CLI reference - lambda get-function-configuration"
+      },
+      {
+        "type": "command",
+        "instruction": "AWS Lambda: find the code signing config attached to the function, then read its policy with aws lambda get-code-signing-config --code-signing-config-arn <arn>.",
+        "command": "aws lambda get-function-code-signing-config --function-name <function>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A CodeSigningConfigArn is returned, and the referenced config shows CodeSigningPolicies.UntrustedArtifactOnDeployment = Enforce (record TRUE if also mandated) vs Warn or no config (record FALSE).",
+        "source": "get-function-code-signing-config - AWS CLI Command Reference"
+      },
+      {
+        "type": "command",
+        "instruction": "Google Cloud Run: read the service-level annotations and check the Binary Authorization annotation. Treat the output as sensitive.",
+        "command": "gcloud run services describe SERVICE --region REGION --format 'yaml(metadata.annotations)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Google Cloud Run: annotation run.googleapis.com/binary-authorization = default (Binary Authorization enforced) vs absent. Console: service > Security tab.",
+        "source": "Google Cloud Run - Enabling Binary Authorization"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm that enforcement is mandated by organization policy rather than optional per workload, that emergency (breakglass) overrides are audited, and that code deployed before enforcement has been redeployed.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Google Cloud Run: an organization policy requires Binary Authorization for Cloud Run (the new-service checkbox appears disabled); Cloud Audit Logs reviewed for breakglass deployments. AWS Lambda: functions whose code signing config was added after deployment have been redeployed so the running package carries SigningJobArn.",
+        "source": "Google Cloud Run - Enabling Binary Authorization; AWS Lambda - Using code signing to verify code integrity"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "runtime_version_supported",
+    "option_description": "Records whether the language runtime or base image the workload runs on is within vendor support and receives security patches, and, for a container image, whether the organization rebuilds it from a current base.",
+    "security_impact": "An AND-condition of \"Exploitation of an unsupported runtime on a public endpoint\": that exposure fires when runtime_version_supported is false AND public_endpoint_exposed is true, because unpatched runtime flaws are then reachable from the internet (T1190). It has no effect when public_endpoint_exposed is false.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "AWS Lambda: read the runtime identifier and package type, and compare the runtime with the vendor's deprecated-runtimes table.",
+        "command": "aws lambda get-function-configuration --function-name <function> --query '{Runtime: Runtime, PackageType: PackageType}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AWS Lambda: Runtime identifier not in the Lambda deprecated-runtimes table (as of 2026-11-03 deprecated includes python3.10, provided.al2, nodejs20.x, ruby3.2, python3.9, nodejs18.x, dotnet6, python3.8, nodejs16.x, java8, go1.x, provided and older). After deprecation AWS may no longer apply security patches.",
+        "source": "AWS Lambda - Event Function runtimes"
+      },
+      {
+        "type": "gui",
+        "instruction": "Use the vendor's deprecated-runtime reporting (AWS Trusted Advisor), the Azure App Service stack version, or the AgentCore code runtime to identify unsupported runtimes.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Trusted Advisor > Security > AWS Lambda Functions Using Deprecated Runtimes",
+        "expected_output": "AWS Trusted Advisor > Security > 'AWS Lambda Functions Using Deprecated Runtimes' lists affected $LATEST and published versions (also Health Dashboard notifications at least 180 days before deprecation). Azure App Service: after a language version's community end of support, apps continue to run unchanged but App Service cannot provide security patches; check the app's configured stack version per the language-specific configure pages. AgentCore code deployments: get-agent-runtime returns agentRuntimeArtifact.codeConfiguration.runtime (e.g. PYTHON_3_10..PYTHON_3_14, NODE_22).",
+        "source": "AWS Lambda - Event Function runtimes; Azure App Service - Language runtime support policy; AWS CLI reference - bedrock-agentcore-control get-agent-runtime"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Container-image workloads (Lambda PackageType Image, AgentCore containers, Cloud Run, Container Apps): ask for evidence that the image is rebuilt from a current base image and redeployed regularly, since vendor runtime patching and deprecation notices do not cover images.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AWS Lambda functions with PackageType = Image (and AgentCore containerConfiguration, Cloud Run, Container Apps images): evidence of regular rebuild and redeploy from the latest base image; Lambda states that for container-image functions the customer is responsible for updates and deprecation notifications are not available.",
+        "source": "AWS Lambda - Event Function runtimes"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "platform_logs_exported_to_org_store",
+    "option_description": "Records whether the platform's request, application and audit logs for the workload are routed to a log store or SIEM the organization controls with a set retention, rather than left only in default vendor-side locations or not collected.",
+    "security_impact": "The sole condition of \"Workload logs not kept by the organization\": that exposure fires when platform_logs_exported_to_org_store is false, because the workload's activity cannot then be investigated with the organization's own retention.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Google Cloud Run: list the log sinks in the project and check for one that routes the service's logs to an organization-controlled destination.",
+        "command": "gcloud logging sinks list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Google Cloud Run: request, container and system logs go to Cloud Logging automatically; a sink (gcloud logging sinks describe SINK_NAME) routes them to the organization's Cloud Storage / BigQuery / Pub/Sub (e.g. for Splunk) / another project / log bucket. Only _Required/_Default sinks means logs stay in the project's default buckets.",
+        "source": "Google Cloud Logging - Route logs to supported destinations; Google Cloud Run - Logging"
+      },
+      {
+        "type": "command",
+        "instruction": "AWS Lambda: read the logging configuration (log group, format, levels) and confirm the execution role can write logs; then check where that log group is subscribed or exported.",
+        "command": "aws lambda get-function-configuration --function-name <function> --query LoggingConfig",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AWS Lambda: LoggingConfig.LogGroup (default /aws/lambda/<function-name>), LogFormat, ApplicationLogLevel, SystemLogLevel. Logs reach CloudWatch Logs only if the execution role has logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents. AgentCore Runtime also writes to CloudWatch Logs (VPC mode needs the com.amazonaws.region.logs endpoint without internet).",
+        "source": "AWS Lambda - Sending function logs to CloudWatch Logs; AWS CLI reference - lambda get-function-configuration; Configure Amazon Bedrock AgentCore Runtime and tools for VPC"
+      },
+      {
+        "type": "gui",
+        "instruction": "Azure App Service / Functions / Container Apps: check that a diagnostic setting sends the resource's log categories to an organization-controlled destination.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Resource > Monitoring > Diagnostic settings",
+        "expected_output": "Azure App Service / Functions / Container Apps: resource > Monitoring > Diagnostic settings has a setting sending log categories (e.g. AppServiceHTTPLogs, AppServiceConsoleLogs, AppServiceAppLogs, AppServiceAuditLogs, AppServicePlatformLogs, IPSecurity audit logs) to a Log Analytics workspace, storage account (optionally immutable) or Event Hubs for a SIEM. Resource logs are not collected until a diagnostic setting exists.",
+        "source": "Azure Monitor - Diagnostic settings; Azure App Service - Enable diagnostic logs"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "In the organization's log store or SIEM, search for recent request and application entries from this workload, to confirm the route delivers and to read the configured retention.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Entries from the workload present in the organization's destination for recent invocations, with a retention period set by the organization. Allow for destination latency: logs routed to a Cloud Logging bucket appear immediately, while new sinks to Cloud Storage can take several hours (they are processed hourly). A new Azure diagnostic setting can take up to 90 minutes before data starts flowing. No entries after that window, or only stale ones, means the route is configured but not delivering.",
+        "source": "Diagnostic Settings in Azure Monitor - Azure Monitor"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "log_pipeline_tamper_resistant",
+    "option_description": "Records whether identities close to the workload (its execution identity, its deployers) are unable to silence its logging, for example by removing log-write permissions, adding exclusion filters or deleting sinks.",
+    "security_impact": "The sole condition of \"Workload log trail silenced\": that exposure fires when log_pipeline_tamper_resistant is false, because those identities can then hide what an adversary does in the workload.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Google Cloud: describe the export sink and check that it is enabled and that no exclusion filter drops the service's request or audit entries.",
+        "command": "gcloud logging sinks describe SINK_NAME",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Google Cloud: the export sink exists, is enabled, and its exclusion filters do not drop Cloud Run request/audit entries; principals able to edit sinks/exclusions are limited.",
+        "source": "Google Cloud Logging - Route logs to supported destinations"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "AWS Lambda and Azure App Service: review who can modify the execution role's log-write permissions, and whether long-term logging relies on a mechanism that switches itself off.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AWS Lambda: the execution role retains logs:CreateLogStream / logs:PutLogEvents and only deploy/admin principals can modify it. Azure App Service: long-term logging uses a diagnostic setting or blob logging, not 'Application logging (Filesystem)', which auto-disables after 12 hours.",
+        "source": "AWS Lambda - Sending function logs to CloudWatch Logs; Azure App Service - Enable diagnostic logs"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review the cloud control-plane audit trail (AWS CloudTrail, Google Cloud Audit Logs, Azure Activity Log) and the alerting configured on it, to see whether changes to the workload's log sinks, exclusions, diagnostic settings or execution-role log permissions raise an alert.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An alert rule exists for deletion or modification of the workload's sinks, exclusions, diagnostic settings or role log permissions, and past changes of that kind appear in the audit trail with a recorded owner.",
+        "source": "Cloud Logging audit logging"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "resource_ceiling_configured",
+    "option_description": "Records whether the organization has set an upper bound on the workload's scale-out, concurrency or session lifetime, so that abusive or unauthenticated invocation cannot drive instance count up to the platform or account limit, and cost with it.",
+    "security_impact": "The sole condition of \"Unbounded scaling and cost\" (ATT&CK T1499 Endpoint Denial of Service): that exposure fires when resource_ceiling_configured is false, because abusive or unauthenticated invocation then drives instance counts up to the platform or account limit, and cost with them, and can starve other workloads. That reference covers the availability effect, not the cost.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Managed agent runtime (Amazon Bedrock AgentCore Runtime): read the session lifecycle configuration.",
+        "command": "aws bedrock-agentcore-control get-agent-runtime --agent-runtime-id <id> --query lifecycleConfiguration",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AgentCore Runtime: lifecycleConfiguration.idleRuntimeSessionTimeout and maxLifetime set to bounded values. Azure Container Apps: template.scale.minReplicas / maxReplicas set (visible in the app's ARM/YAML definition).",
+        "source": "AWS CLI reference - bedrock-agentcore-control get-agent-runtime; Azure Container Apps - Scaling in Azure Container Apps"
+      },
+      {
+        "type": "command",
+        "instruction": "AWS Lambda: read the function's reserved concurrency, which caps how many instances can run at once.",
+        "command": "aws lambda get-function-concurrency --function-name <function>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ReservedConcurrentExecutions set to a bounded number (ceiling configured) vs absent from the output (the function draws on the account's unreserved concurrency pool).",
+        "source": "get-function-concurrency - AWS CLI Command Reference"
+      },
+      {
+        "type": "command",
+        "instruction": "Google Cloud Run: read the service and revision template annotations and check the maximum-instances setting. Treat the output as sensitive.",
+        "command": "gcloud run services describe SERVICE --region REGION --format 'yaml(metadata.annotations,spec.template.metadata.annotations)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Service-level annotation run.googleapis.com/maxScale (metadata.annotations; Google's recommended level) or revision-level autoscaling.knative.dev/maxScale (spec.template.metadata.annotations) set to a deliberate bound for the workload (ceiling configured) vs neither set, so the platform default of 100 instances per revision applies. Console: service > Scaling tab.",
+        "source": "Set maximum instances for services | Cloud Run"
+      },
+      {
+        "type": "command",
+        "instruction": "Azure Container Apps: read the scale rules of the container app.",
+        "command": "az containerapp show --name <APP> --resource-group <RESOURCEGROUP> --query properties.template.scale",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "maxReplicas set to a deliberate bound for the workload vs left at the platform default.",
+        "source": "Scaling in Azure Container Apps"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "edge_management_interfaces_not_internet_reachable",
+    "option_description": "Records whether the platform's separate deployment and management site for the workload (the advanced-tools, SCM or Kudu site of Azure App Service and Functions) is closed to the internet. TRUE when public network access is disabled, or when the site's access restrictions deny unmatched traffic and allow only the organization's networks. TRUE also when the platform has no such separate site, as with AWS Lambda, Google Cloud Run, Azure Container Apps or a managed agent runtime changed only through the vendor's identity-authenticated API.",
+    "security_impact": "The sole condition of \"Deployment and management site reachable from the internet\": that exposure fires when edge_management_interfaces_not_internet_reachable is false, because a publishing password or a deploy-capable identity then reaches the site's console, file browser and deployment API from any network. Closing the site has two limits. A deploy-capable identity can still deploy and change the site's restrictions through the management API. FTP, which access restrictions cannot close, still accepts publishing passwords while basic credentials are enabled. Disabling basic credentials and limiting deploy roles remain the primary controls. The condition does not also require basic credentials to be enabled, because the site accepts Microsoft Entra-authenticated deployment as well. The exposure declares no ATT&CK technique: every caller still needs a valid credential, so it only widens the networks a stolen credential can be used from.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Azure App Service (use az functionapp config show for a function app): read the app's public network access and the advanced-tools (SCM) site access-restriction settings. Repeat with --slot <SLOT> for every deployment slot.",
+        "command": "az webapp config show --resource-group <RESOURCEGROUP> --name <APPNAME> --query \"{publicNetworkAccess:publicNetworkAccess, scmUseMain:scmIpSecurityRestrictionsUseMain, scmDefaultAction:scmIpSecurityRestrictionsDefaultAction, scmRules:scmIpSecurityRestrictions, mainDefaultAction:ipSecurityRestrictionsDefaultAction, mainRules:ipSecurityRestrictions}\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: publicNetworkAccess is Disabled; or scmDefaultAction is Deny (or unset with at least one SCM rule, which denies implicitly) and every Allow rule names only the organization's addresses, subnets or pipeline ranges (a shared service tag such as AzureCloud or AzureDevOps is not organization-specific, and AzureFrontDoor.Backend counts only with an X-Azure-FDID header check); or scmUseMain is true and the main-site rules meet the same test. Insecure: scmUseMain is false with no SCM rules and an scmDefaultAction that is not Deny (the SCM site accepts all traffic), or an Allow rule for any address such as 0.0.0.0/0 or ::/0.",
+        "source": "Azure App Service - Set up access restrictions"
+      },
+      {
+        "type": "gui",
+        "instruction": "Azure App Service / Functions: confirm the same settings in the portal, on the Advanced tool site tab of the access-restriction pane.",
+        "command": null,
+        "file_path": null,
+        "navigation": "App Service or Function app > Settings > Networking > Inbound traffic configuration > Public network access > Access Restrictions > Advanced tool site",
+        "expected_output": "Secure: Public network access is Disabled; or 'Use main site rules' is checked and the main site is restricted; or the Advanced tool site has its own rules with Unmatched rule action set to Deny. Insecure: the Advanced tool site has no rules and its unmatched rule action is Allow, so the site is accessible from anywhere.",
+        "source": "Azure App Service - Access restrictions overview"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Azure App Service / Functions deployed from a private network: when the deployment pipeline reaches the app through a private endpoint, confirm that the public default endpoint of the advanced-tools site is closed by its unmatched rule. Traffic through the private endpoint skips access restrictions; its exposure is governed by network security groups.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: a private endpoint exists for deployment and the advanced-tools site's unmatched rule action is Deny, which blocks all public traffic to that site. Insecure: deployment uses a private endpoint, but the advanced-tools site still accepts public traffic on the default endpoint.",
+        "source": "Azure App Service - Access restrictions overview"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "AWS Lambda: confirm that code and configuration change only through the Lambda API, console or SDK, which authenticate with IAM. Lambda has no per-function deployment site to restrict. Record TRUE.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: the function is managed only through the console, SDK or Lambda API (identity-authenticated, TLS); no separate deployment site exists, so record TRUE. Insecure: not applicable on this platform.",
+        "source": "AWS Lambda - Data protection in AWS Lambda"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Google Cloud Run: confirm that services change only through the Cloud Run Admin API, through the Google Front End and the control plane. Cloud Run has no per-service deployment or console site. Record TRUE.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: deployments and configuration changes are Cloud Run Admin API requests handled by the GFE and the control plane; no separate deployment site exists, so record TRUE. Insecure: not applicable on this platform.",
+        "source": "Google Cloud Run - Security design overview"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Azure Container Apps: confirm that the app is updated through the Azure resource commands (az containerapp update, revision copy, or templates). Container Apps has no Kudu or SCM site. Record TRUE.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: image and configuration changes are made through az containerapp update or revision copy (Azure Resource Manager, identity-authenticated); no separate deployment site exists, so record TRUE. Insecure: not applicable on this platform.",
+        "source": "Azure Container Apps - Manage revisions"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Amazon Bedrock AgentCore Runtime: confirm that the runtime is created and updated through the bedrock-agentcore-control API, and that command execution (InvokeAgentRuntimeCommand / InvokeAgentRuntimeCommandShell) goes through the IAM-authorized data-plane API, not through a separately reachable site. Record TRUE. Who may run commands is an identity-permission question, not a network one.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: the runtime has no separate deployment or console site; command and shell access are runtime API operations authorized by policies on the agent runtime and the endpoint (SigV4 at WebSocket upgrade for the shell), so record TRUE. Insecure: not applicable on this platform.",
+        "source": "Amazon Bedrock AgentCore - Security best practices for AgentCore Runtime"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "tls_only_transport",
+    "option_description": "Records whether the workload's public endpoint keeps plain HTTP from reaching the organization's code. TRUE when plain-HTTP requests are refused or redirected to HTTPS first. FALSE when they are passed to the code. When the workload is public only through a gateway or load balancer in front, record TRUE: that component is assessed on its own. Only relevant when the endpoint is public.",
+    "security_impact": "The condition of \"Plaintext HTTP accepted on a public endpoint\", together with public_endpoint_exposed true: that exposure fires when tls_only_transport is false and the endpoint is internet-reachable, because credentials, tokens and data a client sends to an http:// address cross the network unencrypted and can be captured on the network path (T1040). It has no effect when public_endpoint_exposed is false.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Azure Container Apps: read the ingress allowInsecure flag. Empty output means the property is unset, which defaults to false.",
+        "command": "az containerapp show --name <APPNAME> --resource-group <RESOURCEGROUP> --query properties.configuration.ingress.allowInsecure",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: false or empty (HTTP requests to port 80 are redirected to HTTPS on 443). Insecure: true (HTTP requests to port 80 are not redirected and reach the app in plaintext; the portal Ingress blade shows 'Insecure connections' selected).",
+        "source": "Azure Container Apps - Configure ingress"
+      },
+      {
+        "type": "command",
+        "instruction": "Azure App Service (use az functionapp show for a function app): read the HTTPS Only flag on the app, and repeat with --slot <SLOT> for every deployment slot. Do not assume a default; the documentation differs on it.",
+        "command": "az webapp show --resource-group <RESOURCEGROUP> --name <APPNAME> --query httpsOnly",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: true (all HTTP traffic is redirected to HTTPS; portal Configuration > General settings > HTTPS Only = On). Insecure: false (the app answers plain HTTP on http://<app>.azurewebsites.net and on custom domains).",
+        "source": "Azure App Service - Configure an App Service App"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Google Cloud Run: the run.app URL requires HTTPS, and Cloud Run redirects plain-HTTP requests to HTTPS before they reach the container. Record TRUE for the run.app URL. A load balancer the organization put in front is assessed on that component.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: the service is reached on its run.app URL (HTTPS required; HTTP redirected), so record TRUE. Insecure: no Cloud Run setting produces this state.",
+        "source": "Google Cloud Run - Invoke with an HTTPS request; Google Cloud Run - Security design overview"
+      },
+      {
+        "type": "command",
+        "instruction": "AWS Lambda function URL: first test only whether port 80 accepts a TCP connection, which sends no request to the function. If the connection is refused, record TRUE. A timeout proves nothing: retry from an unfiltered network before recording a value. If it is accepted and the URL's auth type is AWS_IAM, send one unsigned HEAD request over plain HTTP (curl -sS -o /dev/null -I --max-time 10 -w '%{http_code} %{redirect_url}' http://<url-id>.lambda-url.<region>.on.aws/), and only then: the URL's IAM authentication rejects it before the function runs, so a 301 or 308 redirect to https means TRUE and a 403 answered over plain HTTP means FALSE. If the auth type is NONE, send no request (it would run the function) and record FALSE. Never send credentials over plain HTTP. Lambda Web Function endpoints are documented HTTPS-only: record TRUE for them.",
+        "command": "nc -z -w 5 <url-id>.lambda-url.<region>.on.aws 80; aws lambda get-function-url-config --function-name <FUNCTION> --query AuthType",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: port 80 refuses the connection, or an AWS_IAM function URL answers the unsigned plain-HTTP request with a redirect to https, or the workload is a Lambda Web Function endpoint. Insecure: port 80 is open on an auth-type NONE function URL, or an AWS_IAM function URL answers over plain HTTP (for example 403) instead of redirecting.",
+        "source": "AWS Lambda - Select a method to invoke your Lambda Event Function using an HTTP request; AWS Lambda - Control access to Lambda function URLs; AWS Lambda - Lambda Web Function runtimes"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Amazon Bedrock AgentCore Runtime: client-to-runtime traffic is TLS 1.2 or higher by default and plaintext WebSocket is not supported. Record TRUE.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: invocation goes through the AgentCore endpoint over TLS 1.2+ (WebSocket only as wss://), so record TRUE. Insecure: no AgentCore Runtime setting produces this state.",
+        "source": "Amazon Bedrock AgentCore - Security best practices for AgentCore Runtime"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  }
+]

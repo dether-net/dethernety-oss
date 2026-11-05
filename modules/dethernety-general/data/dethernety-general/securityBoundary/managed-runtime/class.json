@@ -1,0 +1,9 @@
+{
+  "id": "b4d8c989-ce00-42ca-841e-94593bb87b69",
+  "name": "Managed Runtime",
+  "classType": "securityBoundary",
+  "type": "securityBoundary",
+  "description": "A managed runtime (also called serverless compute, function-as-a-service, a platform-as-a-service app or container platform, or a managed agent runtime): a vendor-run execution environment that the organization deploys its own code, containers or agents into, such as AWS Lambda, Google Cloud Run, Azure Functions, Azure App Service, Azure Container Apps or a managed agent runtime. The vendor runs the hosts, isolation and platform. The organization holds the endpoint exposure and invocation authentication, network attachment and egress, the execution identity and secrets, the deployment sources and the logs. The place to draw the vendor boundary that customer-built workloads run in. A vendor-run SaaS organization that the organization builds agents in is a SaaS Tenant instead.",
+  "category": "Compute Architecture",
+  "status": "draft"
+}

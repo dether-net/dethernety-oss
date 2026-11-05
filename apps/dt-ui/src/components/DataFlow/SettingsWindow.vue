@@ -158,9 +158,9 @@
     conduits: Conduit[];
   }
   const isBoundary = computed(() => isNode(selectedItem.value) && selectedItem.value.type === 'BOUNDARY')
-  // The Zoning tab is gated off the default/root boundary: its zoning isn't in the model-dump read and
-  // doesn't re-pin to server truth, so an edit there would silently not persist. The default boundary is
-  // the implicit Internal fallback anyway (real boundaries inherit from it), so it has no editable zone.
+  // The Zoning tab is gated off the default/root boundary: the model dump reads only its zone, not its planes, domains
+  // or conduits, and a save doesn't re-pin it to server truth, so an edit there would be lost on reload. Real boundaries
+  // inherit from it, and it has no editable zone.
   const showZoningTab = computed(
     () => isBoundary.value && isNode(selectedItem.value) && selectedItem.value.id !== flowStore.defaultBoundaryId,
   )

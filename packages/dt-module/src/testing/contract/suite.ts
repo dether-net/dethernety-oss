@@ -63,13 +63,13 @@ const ZERO_CLASS_DOC: ModuleDocument = {
 
 /**
  * The fixture class is a component, so a served template is the fixture with the operation fields of a
- * component added: the fields after its own properties and one more category last, and nothing else
+ * component added: the fields after its own properties and one more category first, and nothing else
  * changed. Checked against the fixture itself, independently of the code that adds them.
  */
 function expectServedTemplate(served: string): void {
   const template = JSON.parse(served);
   for (const key of OPERATION_FIELD_KEYS.component) expect(template.schema.properties).toHaveProperty(key);
-  const added = template.uischema.elements.pop();
+  const added = template.uischema.elements.shift();
   expect(added).toMatchObject({ type: 'Category', label: OPERATION_CATEGORY_LABEL.component });
   for (const key of OPERATION_FIELD_KEYS.component) delete template.schema.properties[key];
   expect(template).toEqual(templateResponse.template);

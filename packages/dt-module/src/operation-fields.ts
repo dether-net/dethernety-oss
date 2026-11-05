@@ -51,10 +51,15 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const isReserved = (key: unknown): boolean => typeof key === 'string' && key.startsWith(RESERVED_ATTRIBUTE_PREFIX);
 
-/** Whether a uischema scope reaches a reserved key at any depth or through any combinator: JSONForms
- * binds a scope by its segments, so `#/allOf/0/properties/dethernety_x` reaches `dethernety_x` too. */
-const scopeIsReserved = (scope: string): boolean =>
-  scope.split('/').some((segment) => isReserved(segment.replace(/~1/g, '/').replace(/~0/g, '~')));
+/** The scope a served element may carry: a chain of `#/properties/<key>`, whose keys hold no path syntax. */
+const PLAIN_SCOPE = /^#\/properties\/[^/~.[\]"'\\]+(?:\/properties\/[^/~.[\]"'\\]+)*$/;
+
+/**
+ * Whether a uischema element may carry this scope. JSONForms resolves a scope to a data path in more ways than its
+ * form shows, so this names what may bind rather than what may not: a plain chain with no key under the reserved prefix.
+ */
+const scopeMayBind = (scope: unknown): boolean =>
+  typeof scope === 'string' && PLAIN_SCOPE.test(scope) && !scope.split('/').some(isReserved);
 
 /**
  * The class type a class's `path` attribute names. The path is `<module>/<typeDir>/<class>`, so the
@@ -112,28 +117,43 @@ function category(classType: OperatedClassType): Record<string, unknown> {
   return { type: 'Category', label: OPERATION_CATEGORY_LABEL[classType], elements };
 }
 
-/** A uischema element without the Controls that point at a reserved key, and without the layouts that
+/** A uischema element without what its options hold that may not bind. A renderer takes nested uischema from an
+ * option: `detail`, or a key it builds per schema type. An element with nothing to drop is returned as it is. */
+function withoutUnboundOptions(element: Record<string, unknown>): Record<string, unknown> {
+  if (!isRecord(element.options)) return element;
+  const walked = Object.entries(element.options).map(
+    ([key, value]) => [key, value, isRecord(value) ? withoutUnboundElements(value) : value] as const,
+  );
+  if (!walked.some(([, value, kept]) => kept !== value)) return element;
+  const kept = walked.filter(([, value, walkedValue]) => walkedValue !== null || value === null);
+  return { ...element, options: Object.fromEntries(kept.map(([key, , walkedValue]) => [key, walkedValue])) };
+}
+
+/** A uischema element without the elements whose scope may not bind, at any depth, and without the layouts that
  * held only those. `null` when nothing of it is left. Elements that hold none are returned as they are. */
-function withoutReservedControls(element: unknown): unknown {
+function withoutUnboundElements(element: unknown): unknown {
   if (!isRecord(element)) return element;
-  if (element.type === 'Control' && typeof element.scope === 'string') {
-    return scopeIsReserved(element.scope) ? null : element;
+  if ('scope' in element && !scopeMayBind(element.scope)) return null;
+  let next = element;
+  if ('elements' in element) {
+    const children = element.elements;
+    if (!Array.isArray(children)) return null;
+    const kept = children.map(withoutUnboundElements).filter((e) => e !== null);
+    const changed = kept.length !== children.length || kept.some((e, i) => e !== children[i]);
+    if (changed && kept.length === 0) return null;
+    if (changed) next = { ...next, elements: kept };
   }
-  const children = element.elements;
-  if (!Array.isArray(children)) return element;
-  const kept = children.map(withoutReservedControls).filter((e) => e !== null);
-  const changed = kept.length !== children.length || kept.some((e, i) => e !== children[i]);
-  if (!changed) return element;
-  return kept.length === 0 ? null : { ...element, elements: kept };
+  return withoutUnboundOptions(next);
 }
 
 /**
  * The template with the operation fields of its class type: the properties after the existing ones,
- * and one category after the existing categories. The platform owns the reserved prefix, so anything a
- * template itself declares under it (properties, `required` entries, Controls) is replaced by the
- * platform's own; applying this twice gives the same result as once. Anything else is returned as it
- * came: a class type without fields, or a template without `schema.properties` or without a root
- * `Categorization`. `required` keeps its other entries; the fields are optional.
+ * and one category before the existing categories. The platform owns the reserved prefix, so anything a
+ * template itself declares under it (properties, `required` entries, uischema elements) is replaced by the
+ * platform's own, and a uischema element whose scope is not a plain chain of `#/properties/<key>` is dropped;
+ * applying this twice gives the same result as once. A template without `schema.properties` or without a
+ * root `Categorization` gets no fields, and only loses those elements. A class type without fields is
+ * returned as it came. `required` keeps its other entries; the fields are optional.
  *
  * The result shares the input's nested objects that it does not change, so a caller should hand it a
  * template it owns, such as a fresh parse.
@@ -142,16 +162,22 @@ export function withOperationFields(template: unknown, classType: string | undef
   if (!isOperated(classType) || !isRecord(template)) return template;
   const schema = template.schema;
   const uischema = template.uischema;
-  if (!isRecord(schema) || !isRecord(schema.properties)) return template;
-  if (!isRecord(uischema) || uischema.type !== 'Categorization' || !Array.isArray(uischema.elements)) return template;
+  if (!isRecord(uischema)) return template;
+  if (!isRecord(schema) || !isRecord(schema.properties) || uischema.type !== 'Categorization' || !Array.isArray(uischema.elements)) {
+    const kept = withoutUnboundElements(uischema) ?? { type: 'VerticalLayout', elements: [] };
+    return kept === uischema ? template : { ...template, uischema: kept };
+  }
 
   const own = Object.fromEntries(Object.entries(schema.properties).filter(([key]) => !isReserved(key)));
   const nextSchema: Record<string, unknown> = { ...schema, properties: { ...own, ...properties(classType) } };
   if (Array.isArray(schema.required) && schema.required.some(isReserved)) {
     nextSchema.required = schema.required.filter((key) => !isReserved(key));
   }
-  const categories = uischema.elements.map(withoutReservedControls).filter((e) => e !== null);
-  return { ...template, schema: nextSchema, uischema: { ...uischema, elements: [...categories, category(classType)] } };
+  const categories = uischema.elements.map(withoutUnboundElements).filter((e) => e !== null);
+  const held = withoutUnboundOptions(uischema);
+  const { scope, ...unscoped } = held;
+  const root = scopeMayBind(scope) ? held : unscoped;
+  return { ...template, schema: nextSchema, uischema: { ...root, elements: [category(classType), ...categories] } };
 }
 
 // ── Guide ────────────────────────────────────────────────────────────────────────────────────

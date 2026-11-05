@@ -707,6 +707,11 @@ export const useFlowStore = defineStore('flow', () => {
   }
 
   const writeLocalClassId = (nodeId: string, classId: string | null): void => {
+    if (nodeId === defaultBoundaryId.value && defaultBoundary.value) {
+      // In place: the root stays the object selectedItem holds, which is how the window knows not to offer to delete it.
+      defaultBoundary.value.data = { ...defaultBoundary.value.data, classId }
+      return
+    }
     const idx = getNodeIndexById({ nodeId })
     if (idx === -1) return
     const cur = nodes.value[idx]

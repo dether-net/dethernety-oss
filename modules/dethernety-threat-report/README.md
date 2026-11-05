@@ -51,6 +51,14 @@ as-of-generation state). A cheap structural `threatReportFingerprint` query lets
 the frontend detect when the underlying model has changed since a snapshot was
 generated and surface a staleness banner — re-running the report refreshes it.
 
+Since 2.2.0 the snapshot also freezes **who runs each component and boundary**:
+what is declared and how it was decided, the product, the hosting boundary with its
+own declaration, and the number of components drawn directly in a boundary declared
+as a vendor's. The version is not read. The Component Profile, the exposure detail
+and the HTML export show these facts, and the JSON export carries them. A report from
+before 2.2.0 asks to be recreated. See
+[`data-model.md`](../../docs/architecture/dethernety-threat-report/data-model.md#the-operation-block).
+
 The richer **Coverage & Gaps** facts come from the sibling
 [`dethernety-coverage-tools`](../dethernety-coverage-tools/) module (a manifest
 dependency), fetched live and joined to the snapshot ledger by exposure id. When

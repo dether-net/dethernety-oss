@@ -36,7 +36,7 @@ The report is a single screen titled **Threat Report**. From top to bottom:
 
 ### Exporting
 
-**Export JSON** downloads the snapshot as structured data; **Export HTML** downloads a self-contained page you can share or archive. Both export the snapshot you're currently viewing — generate or recreate first if the banner says it's stale.
+**Export JSON** downloads the snapshot as structured data; **Export HTML** downloads a self-contained page you can share or archive. Both export the snapshot you're currently viewing — generate or recreate first if the banner says it's stale. For what they hold about who runs each element, see [Who runs an element](#who-runs-an-element).
 
 ## Moving around the report
 
@@ -52,7 +52,7 @@ Most things in the report are clickable: a finding's element name, a flow, a cro
 - Close it with the **✕** in the dialog header, by pressing **Esc**, or by clicking outside it.
 - A link to a neighbouring element *inside* the profile re-targets the same dialog rather than stacking a second one.
 
-For what the profile shows, see [Working with Findings](./WORKING_WITH_FINDINGS.md).
+For what the profile shows, see [Working with Findings](./WORKING_WITH_FINDINGS.md) and [Who runs an element](#who-runs-an-element).
 
 ### Filters and breadcrumb chips
 
@@ -170,6 +170,57 @@ A **conduit-error** panel appears above the list when any declared conduit autho
 Boundary Crossings never shows a reassuring blank. If no boundaries or no flows are modeled, it says the analysis isn't applicable. Crossings that are **allowed and carry no data, no exposures, and no controls** collapse into a single muted **"under-modeled"** tail — present, never dropped, never counted as a clean result. A summary line at the top reads `N flows pierce membranes · N violations · N warnings · N under-modeled`.
 
 > **Where zoning advisories go.** Per-boundary zoning notes (an unclassified boundary, an under-protected asset holder, a management plane on an exposed tier, shared-domain cross-tier coupling) are *not* per-crossing, so they don't clutter this view — they appear as a compact, un-scored **zoning advisories** block in the **Residual Risk** ledger. See [Working with Findings](./WORKING_WITH_FINDINGS.md#zoning-advisories).
+
+## Who runs an element
+
+A report freezes who runs each component and boundary when it is generated: what is declared and how it was decided, the product, the hosting boundary with its own declaration, and the number of components drawn directly in a boundary declared as a vendor's. The version is not read. To set these values, see [Operation & version](../COMPONENT_CONFIGURATION_GUIDE.md#operation--version).
+
+These lines state the model as declared. They change no count, band, or ledger row: exposures on a vendor-run element stay listed like any other, and the report doesn't judge whose they are.
+
+### In the Component Profile
+
+The profile of a component or boundary has a **Who runs it** block, marked *as modelled, not a judgement*. Flows and data elements don't have one. It shows one of three things:
+
+| State | The block reads |
+|-------|-----------------|
+| **Worked out** | What is declared and how it was decided, for example *A vendor, as declared* or *Not declared; treated as yours*, frozen with the report. See [What the wording means](#what-the-wording-means). |
+| **Report from before 2.2.0** | *Recreate the report to see who runs each element*. |
+| **Could not be worked out** | *Who runs it could not be worked out for this report*. This happens when the rules could not load or zoning failed while generating. |
+
+The last two show no operator, not even a default.
+
+### In the exposure detail
+
+When an exposure sits on a component or boundary, its detail dialog adds one line under the element's name, for example *Who runs it: A vendor, as declared. Product: PostgreSQL.* Exposures on flows and data elements have no such line, and neither does a report in the last two states above.
+
+### In the exports
+
+- **Export HTML** adds a **Who runs it** section before the ledger: a table of the elements with something beyond the default to say (a declaration, a vendor zone, a product, or a hosting boundary). If there are none, it reads *No element declares who runs it.* A report in the last two states above says the same sentence as its profile block.
+- **Export JSON** carries the facts in the snapshot, as `snapshot.operation`. A report from before 2.2.0 has no such key.
+
+### What the wording means
+
+The wording states the values saved when the report was generated. The profile block, the exposure detail and the HTML export use the same words, and each element's entry starts with one of these:
+
+| The report reads | What it means |
+|------------------|---------------|
+| *A vendor, as declared* | **Operated by** was saved as **A vendor**. |
+| *You (your organisation), as declared* | **Operated by** was saved as **You (your organisation)**. |
+| *A vendor, read from its Vendor zone; not declared* | No value was saved, or the element had no class, and its effective zone was `VENDOR` (**Trusted external** in the **Trust zone** dropdown). A component reads the zone of the boundary it is drawn in. |
+| *Not declared; treated as yours* | No value was saved, or the element had no class, and its effective zone was any other. |
+| *The declared value is not valid; treated as yours* | The stored value was not one of the two choices, for example one written outside the form. |
+
+More follows where it applies:
+
+- *Product: PostgreSQL* names the saved **Product**.
+- *Declared as running the environment of 3 components drawn directly in it* appears on a boundary saved as **A vendor** that has components drawn directly in it. The canvas itself, the **Default Boundary**, never shows it.
+- A line starting *Its environment,* and the boundary's name appears on a component drawn directly in a boundary that has a value saved under **Operated by**. It gives that boundary's own answer: *a vendor, as declared*, *you (your organisation), as declared*, or *the declared value is not valid*. It is left out when the boundary declares nothing, and for a component drawn straight on the canvas.
+
+### What makes it stale
+
+Changing what an element declares under **Operated by** or **Product** marks the report stale, and so does a zone change or a move between boundaries, as for any report. A **Version** edit does not.
+
+A model that declares nothing keeps its fingerprint, so a report from before 2.2.0 stays **Fresh** on such a model, and its profile still asks you to recreate it. On a model that declares something, that older report reads stale. Click **Recreate** in either case.
 
 ## Where to go next
 

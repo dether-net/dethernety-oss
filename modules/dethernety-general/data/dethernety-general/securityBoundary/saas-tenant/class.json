@@ -1,0 +1,9 @@
+{
+  "id": "2222f658-cd40-4009-bf92-433a2c24e840",
+  "name": "SaaS Tenant",
+  "classType": "securityBoundary",
+  "type": "securityBoundary",
+  "description": "A SaaS tenant (also called a SaaS organization, workspace or org, or a cloud productivity tenant): the organization's own instance of a vendor-run, multi-tenant service, such as a Microsoft 365 or Google Workspace tenant, a Salesforce org, or another SaaS account, including one the organization builds its own apps or agents in. The vendor runs the service and its environment. The tenant holds the organization's identities and admin roles, app consents and integrations, sharing and guest settings, audit logs and data-location choices. The place to draw the vendor boundary that SaaS components and their data sit in.",
+  "category": "Cloud Architecture",
+  "status": "draft"
+}
