@@ -308,6 +308,56 @@ export interface ModulesResponse {
   note?: string
 }
 
+// News from the project's website, read by the daemon from the website's feed (GET /api/news). Nothing is
+// fetched until a category is switched on, which is a deployment-wide setting an administrator changes.
+export type NewsGroup = 'posts' | 'releases'
+
+export interface NewsCategory {
+  key: string
+  label: string
+  group: NewsGroup
+  enabled: boolean
+  // The UTC date the category was switched on. An item dated before it is back catalogue, never "new".
+  since?: string
+}
+
+export interface NewsItem {
+  id: string
+  category: string
+  group: NewsGroup
+  version?: string
+  title: string
+  summary: string
+  date: string // YYYY-MM-DD
+  url: string // always on the website's own host — the daemon drops any other link
+  tags: string[]
+  notify: boolean
+  // A platform release newer than the version this deployment runs. A fact about the deployment, not
+  // about what the operator has read.
+  newerThanDeployment?: boolean
+}
+
+export interface NewsView {
+  // off: nothing switched on, nothing fetched. ok: items (stale when the latest fetch failed and these
+  // are from an earlier one). unavailable: no copy at all. unsupported: a feed format this console
+  // does not read.
+  status: 'off' | 'ok' | 'unavailable' | 'unsupported'
+  stale?: boolean
+  fetchedAt?: string
+  detail?: string
+  deploymentVersion?: string
+  categories: NewsCategory[]
+  items: NewsItem[]
+  // Per section: how many items the enabled categories hold (the daemon passes on only the newest), and
+  // the website's page listing all of them.
+  totals?: Partial<Record<NewsGroup, number>>
+  archives?: Partial<Record<NewsGroup, string>>
+}
+
+export interface NewsPreferencesResult {
+  categories: NewsCategory[]
+}
+
 // SessionExpired is thrown when a gated route returns 401 — the session the daemon minted is no
 // longer live (a daemon restart drops in-memory sessions). The caller returns to the sign-in card.
 export class SessionExpired extends Error {
@@ -578,4 +628,10 @@ export const api = {
   // still lists it as latest; it forwards the operator's token because it changes the deployment.
   updateKnowledgeGraph: (version: string) =>
     postEntitled<KnowledgeGraphUpdateResult>('/api/cloud/knowledge-graph', { version }),
+  // News. Reading it carries only the session header; every operator may read it. Choosing which
+  // categories the deployment shows changes the deployment's settings, so it is admin-gated in cloud mode
+  // and forwards the token the gate asks with.
+  news: () => get<NewsView>('/api/news'),
+  setNewsCategories: (enabled: string[]) =>
+    postEntitled<NewsPreferencesResult>('/api/news/preferences', { enabled }),
 }

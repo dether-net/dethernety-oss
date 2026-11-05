@@ -62,6 +62,9 @@ type Config struct {
 	ContentCacheDir string // the fixed per-realization content cache the console emits into it
 
 	ProbeTimeout time.Duration // per-probe timeout against the platform
+
+	NewsFeedURL   string // the website's news feed; fixed, never read from a request (news.go)
+	NewsPrefsPath string // which news categories are on; beside the mode layer when empty
 }
 
 // LoadConfig resolves configuration from the environment, applying defaults. version is the
@@ -78,6 +81,8 @@ func LoadConfig(version string) Config {
 		ModeLayerPath:   getenvDefault("MODE_LAYER_PATH", defaultModeLayerPath),
 		ContentCacheDir: getenvDefault("MODULE_CONTENT_CACHE_DIR", defaultContentCacheDir),
 		ProbeTimeout:    defaultProbeTimeout,
+		NewsFeedURL:     defaultNewsFeedURL,
+		NewsPrefsPath:   os.Getenv("NEWS_PREFS_PATH"),
 	}
 }
 

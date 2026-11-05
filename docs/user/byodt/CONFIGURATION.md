@@ -20,8 +20,9 @@ Everything you can change about the deployment lives in three files in the bundl
 | `.env` | **You** | Every readable setting: the pinned image versions, the front-door address, database and embedding settings. This is the file you edit. |
 | `.env.secrets` | Generated, then **yours to keep** | The database password, and the outbound proxy's login if you add one. Created once on the first start, mode `0600`. |
 | `mode/mode.env` | **The console** | The platform's authentication posture. Written by the console when you connect the deployment to the cloud or disconnect it. Do not hand-edit. |
+| `mode/news.json` | **The console** | Which News categories the console shows. Written when someone saves **Choose what to show** on the News tab; absent until then. See [Operations → News](./OPERATIONS.md#news). |
 
-All three are read on every command. `.env` and `.env.secrets` are deliberately separate so the password stays out of the file you open, share, and diff.
+The first three are read on every command. `.env` and `.env.secrets` are deliberately separate so the password stays out of the file you open, share, and diff.
 
 None of the three exists in the release tarball. [`./byodt setup`](./INSTALLATION.md#set-up-with-byodt-setup) writes `.env` from your answers (and `.env.secrets` only for a proxy login), and the first `./byodt up` creates whatever is still missing: `.env` with the defaults, the database password, and the mode layer. A later start never overwrites them.
 

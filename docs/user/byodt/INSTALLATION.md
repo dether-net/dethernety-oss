@@ -145,6 +145,7 @@ The first start needs to reach these destinations, directly or through an outbou
 | **The npm registry**, only when you install with npx | `registry.npmjs.org` | The installer's npm package. |
 | **`huggingface.co`** and the host it redirects downloads to | `huggingface.co`, and its download host, for example `us.aws.cdn.hf.co` | The embedding model's weights. The platform verifies each file's sha256 before it uses it. |
 | **In cloud mode:** the content service and identity provider your cloud connection names | Their hosts | Sign-in, content packages, and the knowledge graph. Needed in use, not only on the first start. |
+| **Only if you switch on News in the console:** the project's website | `dether.net` | Blog posts and release notes on the console's **News** tab. Nothing is fetched until a category is switched on. Needed in use, not on the first start. |
 
 About the second column:
 

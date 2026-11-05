@@ -8,6 +8,7 @@ import {
   mintLocal,
   SessionExpired,
   type ModeView,
+  type NewsView,
   type PostureView,
   type StateView,
 } from '@/api'
@@ -24,8 +25,13 @@ import IngestPanel from '@/components/IngestPanel.vue'
 import CloudPanel from '@/components/CloudPanel.vue'
 import CloudNotice, { type CloudNoticeData } from '@/components/CloudNotice.vue'
 import ContentModules from '@/components/ContentModules.vue'
+import NewsPanel from '@/components/NewsPanel.vue'
+import { loadSeen, newIds, saveSeen } from '@/news'
 
 const POLL_MS = 5000
+// News is re-read far less often than the status: the daemon caches the website's feed for an hour, and
+// a new post is not an alert.
+const NEWS_POLL_MS = 15 * 60 * 1000
 
 // The deployment posture, read ungated from the daemon before any session exists. It decides which
 // sign-in the SPA presents (local auto-mints with no credential; cloud runs SSO) and carries the OIDC
@@ -58,6 +64,46 @@ const kgWithdrawnAlert = computed(() => kgWithdrawn.value && mode.value?.phase =
 // administrator's credential is in the tab, and it is gone with the tab.
 const departedCount = ref<number | undefined>(undefined)
 let timer: ReturnType<typeof setInterval> | undefined
+let newsTimer: ReturnType<typeof setInterval> | undefined
+
+// News from the project's website (NewsPanel). Held here rather than in the panel because the tab label
+// carries the count of new items, and that has to show on whichever tab is open.
+//
+// `seen` is what this operator has read, kept in this browser (news.ts). `fresh` is what was new when it
+// was read during THIS visit: those keep their marker until the next load, so an item does not lose it
+// while the operator is reading it. Only the tab's count goes down at once.
+const news = ref<NewsView | null>(null)
+const newsError = ref('')
+const newsSeen = ref<Set<string>>(loadSeen())
+const newsFresh = ref<Set<string>>(new Set())
+const newsCount = computed(() => newIds(news.value, newsSeen.value).length)
+
+async function loadNews() {
+  try {
+    news.value = await api.news()
+    newsError.value = ''
+  } catch (e) {
+    // An expired session is the status poll's to recover from; it reaches the same 401 within seconds.
+    if (e instanceof SessionExpired) return
+    newsError.value = e instanceof Error ? e.message : 'failed to load news'
+  }
+}
+
+function onNewsSeen(ids: string[]) {
+  const unread = ids.filter((id) => !newsSeen.value.has(id))
+  if (!unread.length) return
+  newsFresh.value = new Set([...newsFresh.value, ...unread])
+  newsSeen.value = new Set([...newsSeen.value, ...unread])
+  // Pruned to the items on screen, and only from a feed that was read: an unavailable feed lists nothing,
+  // and pruning against it would forget everything.
+  if (news.value?.status === 'ok') saveSeen(newsSeen.value, news.value.items.map((i) => i.id))
+}
+
+function onNewsDismiss(ids: string[]) {
+  const next = new Set(newsFresh.value)
+  for (const id of ids) next.delete(id)
+  newsFresh.value = next
+}
 // Bounds the local auto-remint recovery: a healthy re-mint is honored by the next poll (which resets
 // this to 0), so >2 consecutive failures means the session keeps being rejected — stop rather than spin.
 let localRemintAttempts = 0
@@ -65,13 +111,14 @@ let localRemintAttempts = 0
 // The dashboard is tabbed so the content catalog doesn't shout on first load. The Content tab appears
 // only once the platform is actually running in cloud mode; if that goes away while it is selected, the
 // watcher below falls back to Overview.
-const activeTab = ref<'overview' | 'cloud' | 'content'>('overview')
+const activeTab = ref<'overview' | 'cloud' | 'content' | 'news'>('overview')
 const tabs = computed(() => {
-  const t: { id: typeof activeTab.value; label: string }[] = [
+  const t: { id: typeof activeTab.value; label: string; badge?: number }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'cloud', label: 'Cloud' },
   ]
   if (mode.value?.phase === 'post-cloud') t.push({ id: 'content', label: 'Content' })
+  t.push({ id: 'news', label: 'News', badge: newsCount.value })
   return t
 })
 watch(tabs, (list) => {
@@ -127,6 +174,11 @@ async function refresh() {
 function toLogin() {
   if (timer) clearInterval(timer)
   timer = undefined
+  if (newsTimer) clearInterval(newsTimer)
+  newsTimer = undefined
+  news.value = null
+  newsError.value = ''
+  newsFresh.value = new Set()
   clearSession() // ends the session and the tokens with it
   signedIn.value = false
   mode.value = null
@@ -156,6 +208,8 @@ function startPolling() {
   if (timer) return // guard against a second timer — this is reachable from several entry points now
   void refresh()
   timer = setInterval(() => void refresh(), POLL_MS)
+  void loadNews()
+  newsTimer = setInterval(() => void loadNews(), NEWS_POLL_MS)
 }
 
 function onSignedIn() {
@@ -277,6 +331,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (timer) clearInterval(timer)
+  if (newsTimer) clearInterval(newsTimer)
 })
 </script>
 
@@ -415,6 +470,13 @@ onUnmounted(() => {
             @click="activeTab = t.id"
           >
             {{ t.label }}
+            <!-- New items, counted on every tab so a post is noticed without opening this one. -->
+            <span
+              v-if="t.badge"
+              class="ml-1 rounded-full bg-dt-accent/20 px-1.5 py-0.5 text-xs font-semibold text-dt-accent"
+              :aria-label="`${t.badge} new`"
+              :data-tab-badge="t.id"
+            >{{ t.badge }}</span>
           </button>
         </nav>
 
@@ -454,6 +516,21 @@ onUnmounted(() => {
             />
           </section>
         </template>
+
+        <!-- News -->
+        <section v-show="activeTab === 'news'">
+          <NewsPanel
+            :view="news"
+            :load-error="newsError"
+            :active="activeTab === 'news'"
+            :seen="newsSeen"
+            :fresh="newsFresh"
+            @seen="onNewsSeen"
+            @dismiss="onNewsDismiss"
+            @changed="loadNews"
+            @sign-in-required="onSignInRequired"
+          />
+        </section>
       </div>
     </main>
 

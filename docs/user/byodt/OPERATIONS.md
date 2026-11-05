@@ -162,6 +162,15 @@ The console image is not listed, because it follows `PLATFORM_VERSION` rather th
 
 Prints the console address and opens it where the platform supports that. The console reports the deployment's health, what the one-shot placed, whether the platform registered it, and whether any change is waiting to be applied. It runs outside the request path and has no dependency on the rest of the deployment, so it can still report while the platform is down.
 
+#### News
+
+The console's **News** tab shows the project's blog posts and release notes, read from `https://dether.net/feed.json`. It is off until you switch a category on under **Choose what to show**: announcements, videos and technical notes, and releases of each component. Until then the console does not contact the website.
+
+- **The console's daemon fetches the feed, not your browser.** It goes through the deployment's outbound proxy like the console's other calls (allow `dether.net`; see [Network access](./INSTALLATION.md#network-access-for-the-first-start)), reads it at most once an hour, sends no credential and nothing that identifies the deployment, and shows only links to `dether.net`. When the website cannot be reached, the tab says so and shows the copy it read earlier, if there is one.
+- **The categories apply to the whole deployment.** They are saved in `mode/news.json`. In cloud mode only an administrator of the deployment's team can change them.
+- **What is new is kept per browser.** The tab's label counts the items you have not seen, and each one is marked **New** until the next time you load the console. A category you switch on starts from that day, so its earlier posts are not counted. Another browser, or a cleared one, counts again from there.
+- **A platform release newer than the version this deployment runs** is marked **Newer than this deployment**. See [Upgrading to a new release](#upgrading-to-a-new-release) before you act on it.
+
 ---
 
 ## The embedding model
