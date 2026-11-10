@@ -11,7 +11,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { promises as fs } from 'fs'
 
 const { mockHome, harness } = vi.hoisted(() => ({
-  mockHome: { dir: `${process.cwd()}/.test-auth-status-home` },
+  mockHome: { dir: `${process.cwd()}/.test-auth-status-home-${process.pid}` },
   harness: {
     /** What getCachedPlatformConfig returns; null = the platform was never reached. */
     cached: null as Record<string, unknown> | null,
@@ -59,6 +59,7 @@ vi.mock('cross-fetch', () => ({
 import { authStatusTool } from '../auth/auth-status.tool.js'
 import { saveTokens, loadStoredTokens, getTokenStoragePath, type StoredTokens } from '../../auth/token-store.js'
 import { redactSecrets } from '../../auth/redact.js'
+import { initProjectRoot, resetProjectRoot } from '../../utils/project-root.js'
 
 const BASE_URL = 'http://127.0.0.1:43127'
 
@@ -201,8 +202,9 @@ describe('auth_status', () => {
   })
 
   it('registers tokens for redaction even when saving them fails', async () => {
-    await fs.mkdir(mockHome.dir, { recursive: true })
-    await fs.mkdir(`${mockHome.dir}/.dethernety`, { mode: 0o500 })
+    // A home the store directory cannot be created in.
+    await fs.mkdir(mockHome.dir, { recursive: true, mode: 0o500 })
+    await fs.chmod(mockHome.dir, 0o500)
     try {
       await expect(
         saveTokens({
@@ -215,7 +217,7 @@ describe('auth_status', () => {
         })
       ).rejects.toThrow(/Failed to save tokens: E[A-Z]+/)
     } finally {
-      await fs.chmod(`${mockHome.dir}/.dethernety`, 0o700)
+      await fs.chmod(mockHome.dir, 0o700)
     }
     expect(redactSecrets('opaque-access-token-unsaved-0001')).toBe('[redacted]')
   })
@@ -225,21 +227,39 @@ describe('auth_status', () => {
     harness.cached = null
     harness.served = new Error(`Failed to fetch platform config from ${process.env.DETHERNETY_URL}/config: refused`)
     const { data, text } = await status({ verify: true })
-    expect(data.detail).toMatch(/^platform unreachable: /)
+    expect(data.detail).toMatch(/^configuration error: DETHERNETY_URL must not contain a user name or password/)
     expect(text).not.toContain('hunter2')
   })
 
-  it('reports a failed refresh by status and OAuth code only', async () => {
+  it('reports a failed refresh by status and OAuth code only, and keeps the session', async () => {
     await seed({ expiresAt: Date.now() - 1000 })
     harness.token = {
-      status: 400,
-      body: JSON.stringify({ error: 'invalid_grant', error_description: `bad token ${REFRESH_TOKEN}` }),
+      status: 503,
+      body: JSON.stringify({ error: 'temporarily_unavailable', error_description: `bad token ${REFRESH_TOKEN}` }),
     }
     const { data, text } = await status({ verify: true })
     expect(data.authenticated).toBe(false)
-    expect(data.detail).toBe('refresh failed: Token refresh failed: HTTP 400 (invalid_grant)')
+    expect(data.detail).toBe('refresh failed: Token refresh failed: HTTP 503 (temporarily_unavailable)')
     expectNoSecrets(text)
     expect(text).not.toContain('bad token')
+    // A provider that is down says nothing about the session: it is tried again next time.
+    expect((await loadStoredTokens(BASE_URL))?.refreshRejected).toBeUndefined()
+  })
+
+  it('says sign in again when the provider rejects the refresh token, and never tries it again', async () => {
+    await seed({ expiresAt: Date.now() - 1000 })
+    harness.token = { status: 400, body: JSON.stringify({ error: 'invalid_grant', error_description: `bad ${REFRESH_TOKEN}` }) }
+    const first = await status({ verify: true })
+    expect(first.data.authenticated).toBe(false)
+    expect(first.data.detail).toBe('session expired; sign in again')
+    expectNoSecrets(first.text)
+    expect(harness.tokenCalls).toBe(1)
+    // Kept, marked: only a logout removes a session.
+    expect((await loadStoredTokens(BASE_URL))?.refreshRejected).toBe(true)
+
+    const second = await status({ verify: true })
+    expect(second.data.detail).toBe('session expired; sign in again')
+    expect(harness.tokenCalls).toBe(1)
   })
 
   it('drops an OAuth error code that is not shaped like one', async () => {
@@ -250,17 +270,16 @@ describe('auth_status', () => {
     expectNoSecrets(text)
   })
 
-  it('says sign in again when the refresh window has closed', async () => {
-    await seed({ expiresAt: Date.now() - 1000 })
-    const stored = await loadStoredTokens(BASE_URL)
-    const file = JSON.parse(await fs.readFile(getTokenStoragePath(), 'utf8'))
-    file.tokens[BASE_URL].issuedAt = 0
-    await fs.writeFile(getTokenStoragePath(), JSON.stringify(file))
-    expect(stored).not.toBeNull()
+  it('refreshes an old session: only the provider decides whether it is still valid', async () => {
+    // Stored long ago, by an older version that also recorded when the token was issued.
+    await seed({ expiresAt: Date.now() - 1000, storedAt: 0, issuedAt: 0 })
+    harness.token = {
+      status: 200,
+      body: JSON.stringify({ access_token: 'opaque-access-token-after-a-month', id_token: ID_TOKEN, expires_in: 3600, token_type: 'Bearer' }),
+    }
     const { data } = await status({ verify: true })
-    expect(data.authenticated).toBe(false)
-    expect(data.detail).toBe('session expired; sign in again')
-    expect(harness.tokenCalls).toBe(0)
+    expect(harness.tokenCalls).toBe(1)
+    expect(data.authenticated).toBe(true)
   })
 
   it('counts an auth-disabled platform as authenticated', async () => {
@@ -330,5 +349,66 @@ describe('auth_status', () => {
     delete process.env.DETHERNETY_URL
     const { data } = await status()
     expect(data.urlSource).toBe('default')
+  })
+})
+
+describe('auth_status: configuration and project root', () => {
+  const saved = { url: process.env.DETHERNETY_URL, userConfig: process.env.DETHERNETY_PLATFORM_URL }
+  const restore = (name: string, value: string | undefined) => {
+    if (value === undefined) delete process.env[name]
+    else process.env[name] = value
+  }
+
+  beforeEach(async () => {
+    harness.cached = platform()
+    harness.served = platform()
+    harness.fetchConfigCalls = []
+    harness.tokenCalls = 0
+    await fs.rm(mockHome.dir, { recursive: true, force: true })
+  })
+  afterEach(async () => {
+    resetProjectRoot()
+    restore('DETHERNETY_URL', saved.url)
+    restore('DETHERNETY_PLATFORM_URL', saved.userConfig)
+    await fs.rm(mockHome.dir, { recursive: true, force: true })
+  })
+
+  it('reports the Claude user config as the URL source when the shell sets none', async () => {
+    process.env.DETHERNETY_URL = '${DETHERNETY_URL}'
+    process.env.DETHERNETY_PLATFORM_URL = BASE_URL
+    const { data } = await status()
+    expect(data).toMatchObject({ platformUrl: BASE_URL, urlSource: 'user_config' })
+  })
+
+  it('reports an unusable configuration without any network or store access', async () => {
+    process.env.DETHERNETY_URL = 'http://someone:hunter2@platform.example.test'
+    harness.cached = null
+    await seed()
+    const { data, text } = await status({ verify: true })
+    expect(data).toMatchObject({ urlSource: 'env', authDisabled: null, authenticated: false, pending: false })
+    expect(data.detail).toMatch(/^configuration error: DETHERNETY_URL must use HTTPS/)
+    expect(harness.fetchConfigCalls).toHaveLength(0)
+    expect(harness.tokenCalls).toBe(0)
+    expect(text).not.toMatch(/hunter2|someone/)
+    expectNoSecrets(text)
+  })
+
+  it('reports the project root resolved at startup', async () => {
+    process.env.DETHERNETY_URL = BASE_URL
+    const root = initProjectRoot({ cwd: process.cwd(), env: { DETHEREAL_PROJECT_ROOT: process.cwd() } })
+    const { data } = await status()
+    expect(root.root).not.toBeNull()
+    expect(data.projectRoot).toBe(root.root)
+    expect(data).not.toHaveProperty('projectRootDetail')
+  })
+
+  it('reports a refused project root as null, with a reason that names no path', async () => {
+    process.env.DETHERNETY_URL = BASE_URL
+    initProjectRoot({ env: { DETHEREAL_PROJECT_ROOT: 'not/absolute' } })
+    const { data, text } = await status()
+    expect(data.projectRoot).toBeNull()
+    expect(data.projectRootDetail).toMatch(/DETHEREAL_PROJECT_ROOT must be an absolute path/)
+    expect(text).not.toContain('not/absolute')
+    expect(text).not.toContain(process.cwd())
   })
 })

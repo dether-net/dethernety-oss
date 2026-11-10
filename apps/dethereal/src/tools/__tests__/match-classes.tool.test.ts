@@ -223,3 +223,67 @@ describe('MatchClassesTool.execute', () => {
     expect(mockMatchClasses).not.toHaveBeenCalled()
   })
 })
+
+describe('MatchClassesTool: elements matched by type only', () => {
+  const context: ToolContext = { debug: false, apolloClient: {} as any }
+  const typed = (classId: string) => ({ classId, className: `Class ${classId}`, matchType: 'type_match', confidence: 'low' })
+  const named = { classId: 'cls-web', className: 'Web Server', matchType: 'exact_name', confidence: 'high' }
+  beforeEach(() => mockMatchClasses.mockReset())
+
+  it('moves an element whose candidates are all type matches to unmatched, with the class_type to list and a hint', async () => {
+    mockMatchClasses.mockResolvedValueOnce({
+      matches: [
+        { elementName: 'web', candidates: [named] },
+        { elementName: 'orders-worker', candidates: [typed('cls-1'), typed('cls-2')] },
+        { elementName: 'mixed', candidates: [named, typed('cls-3')] },
+      ],
+      unmatched: ['nothing'],
+      vectorAvailable: true,
+    })
+    const r = await matchClassesTool.execute(
+      { elements: [{ name: 'web' }, { name: 'orders-worker', type: 'process' }, { name: 'mixed' }, { name: 'nothing' }], classLabel: 'COMPONENT', topN: 3 },
+      context,
+    )
+    expect(r.success).toBe(true)
+    const data = r.data!
+    expect(data.matches.map((m) => m.elementName)).toEqual(['web', 'mixed'])
+    expect(data.unmatched).toEqual(['nothing', 'orders-worker'])
+    expect(data.unmatched_type_only).toEqual([{ elementName: 'orders-worker', class_type: 'PROCESS' }])
+    expect(data.hint).toMatch(/get_classes .*class_type/)
+    expect(data).toMatchObject({ total_elements: 4, matched_count: 2, unmatched_count: 2 })
+  })
+
+  it('names the class_type from componentType, or the label for other classes, and leaves it out when unknown', async () => {
+    const one = async (input: Record<string, unknown>) => {
+      mockMatchClasses.mockResolvedValueOnce({ matches: [{ elementName: 'x', candidates: [typed('cls-1')] }], unmatched: [], vectorAvailable: true })
+      return (await matchClassesTool.execute({ elements: [{ name: 'x' }], topN: 3, ...input } as never, context)).data!.unmatched_type_only
+    }
+    expect(await one({ classLabel: 'COMPONENT', componentType: 'STORE' })).toEqual([{ elementName: 'x', class_type: 'STORE' }])
+    expect(await one({ classLabel: 'DATA_FLOW' })).toEqual([{ elementName: 'x', class_type: 'DATA_FLOW' }])
+    expect(await one({ classLabel: 'COMPONENT' })).toEqual([{ elementName: 'x' }])
+  })
+
+  it('names no class_type where same-named elements disagree on it, or the type is not a component type', async () => {
+    const types = async (elements: Array<{ name: string; type?: string }>) => {
+      mockMatchClasses.mockResolvedValueOnce({ matches: elements.map((e) => ({ elementName: e.name, candidates: [typed('cls-1')] })), unmatched: [], vectorAvailable: true })
+      return (await matchClassesTool.execute({ elements, classLabel: 'COMPONENT', topN: 3 }, context)).data!.unmatched_type_only
+    }
+    expect(await types([{ name: 'cache', type: 'PROCESS' }, { name: 'cache', type: 'STORE' }])).toEqual([{ elementName: 'cache' }, { elementName: 'cache' }])
+    expect(await types([{ name: 'cache', type: 'STORE' }, { name: 'cache', type: 'store' }])).toEqual([{ elementName: 'cache', class_type: 'STORE' }, { elementName: 'cache', class_type: 'STORE' }])
+    expect(await types([{ name: 'api', type: 'service' }])).toEqual([{ elementName: 'api' }])
+  })
+
+  it('counts an element with no candidate as unmatched, not as matched by type', async () => {
+    mockMatchClasses.mockResolvedValueOnce({ matches: [{ elementName: 'web', candidates: [named] }, { elementName: 'ghost', candidates: [] }], unmatched: [], vectorAvailable: true })
+    const data = (await matchClassesTool.execute({ elements: [{ name: 'web' }, { name: 'ghost' }], classLabel: 'COMPONENT', topN: 3 }, context)).data!
+    expect(data).toMatchObject({ unmatched: ['ghost'], matched_count: 1, unmatched_count: 1 })
+    expect(data).not.toHaveProperty('unmatched_type_only')
+  })
+
+  it('adds nothing when no element matched by type only', async () => {
+    mockMatchClasses.mockResolvedValueOnce({ matches: [{ elementName: 'web', candidates: [named] }], unmatched: [], vectorAvailable: true })
+    const data = (await matchClassesTool.execute({ elements: [{ name: 'web' }], classLabel: 'COMPONENT', topN: 3 }, context)).data!
+    expect(data).not.toHaveProperty('unmatched_type_only')
+    expect(data).not.toHaveProperty('hint')
+  })
+})

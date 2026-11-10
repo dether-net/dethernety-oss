@@ -252,6 +252,7 @@ class DtImport {
 interface ImportOptions {
   folderId?: string
   onProgress?: (progress: ImportProgress) => void
+  controlResolution?: 'lenient' | 'strict'  // default 'lenient'; see Strict Control Resolution
 }
 
 interface ImportResult {
@@ -260,6 +261,8 @@ interface ImportResult {
   errors: ImportError[]
   warnings: string[]
   progress: ImportProgress
+  resolvedControls?: Record<string, { id: string, name: string }[]>  // strict, on success only
+  unresolvedControls?: UnresolvedControl[]  // lenient; see Control Resolution
 }
 ```
 
@@ -338,7 +341,8 @@ interface ImportSplitResult extends ImportResult {
 │                                                                         │
 │  Step 7: Associate Controls (87.5%)                                     │
 │  └── Process deferred control associations                              │
-│      ├── Resolve control IDs (id → exact name → unique case-insens.)    │
+│      ├── Lenient: id → exact name → unique case-insensitive name        │
+│      ├── Strict: link from the preflight snapshot (before Step 2)       │
 │      └── Link controls to elements                                      │
 │                                                                         │
 │  Step 8: Complete (100%)                                                │
@@ -457,7 +461,7 @@ Each item in `data-items.json` may carry `controls: ControlReference[]`, the sam
 
 ### Import
 
-`DtImport` resolves an item's `controls` through the [control resolver](#control-resolution) and passes the ids to `createDataItem`, which connects them as it creates the item rather than in a later step. A reference that does not resolve is reported in `unresolvedControls` with the data item as its owner.
+`DtImport` resolves an item's `controls` through the [control resolver](#control-resolution) and passes the ids to `createDataItem`, which connects them as it creates the item rather than in a later step. A reference that does not resolve is reported in `unresolvedControls` with the data item as its owner. A [strict](#strict-control-resolution) import instead resolves the item's list from the preflight snapshot, so a reference that does not resolve refuses the whole import before anything is written and is never reported in `unresolvedControls`.
 
 ### Update (push)
 
@@ -570,7 +574,7 @@ Every `classData` written by `DtExport` (and `DtExportSplit`) carries `module: {
 
 ### Control Resolution
 
-Import and update resolve control references through one `ControlResolver` (`packages/dt-core/src/dt-control/control-resolver.ts`), which fetches the control catalog once per run:
+This is the default, `'lenient'`, mode; the dt-ui import uses it. Import and update resolve control references through one `ControlResolver` (`packages/dt-core/src/dt-control/control-resolver.ts`), which fetches the control catalog once per run:
 
 1. **Id** — a control with that id.
 2. **Exact name** — attached only when exactly one control has that name.
@@ -582,7 +586,60 @@ On update, a name several controls share never removes a control: if the element
 
 When the catalog could not be fetched in full (the all-folders fetch failed), an update leaves every element's controls as they are and reports one `resolve_controls` error. An import attaches only by id, since a name unique among the controls that were fetched may be shared by one in a folder; it reports every other reference with `reason: 'catalog_unavailable'`.
 
-Dethereal's push rewrites the local model files from the platform afterwards. It writes each entry of `unresolvedControls` back to the `controls[]` of its owner, as the local file has it (including fields such as `source`), so an unresolved reference stays in `manifest.json`, `structure.json`, `dataflows.json` or `data-items.json` until it is pinned by id or removed. A reference whose element or data item is no longer in the model is named in a warning instead.
+Dethereal does not push in this mode: its create, import and update tools always use `'strict'` (below), which resolves every controls list, a data item's included, on import and on update, so a Dethereal push never leaves a reference unresolved; it refuses instead. As a guard, its update still writes any entry of `unresolvedControls` back to the `controls[]` of its owner in `manifest.json`, `structure.json`, `dataflows.json` or `data-items.json`, as the local file has it (including fields such as `source`), when it rewrites the local model files from the platform, and names in a warning a reference whose element or data item is no longer in the model.
+
+### Strict Control Resolution
+
+`ImportOptions`, `UpdateOptions` and their Split variants take `controlResolution?: 'lenient' | 'strict'`. `'strict'` links an entry only to the control it names beyond doubt, and refuses the whole push, before the first write, when any entry does not resolve. The dethereal `create_threat_model`, `import_model` and `update_model` tools always push with `'strict'`.
+
+**Source:** [`dt-control-resolution/dt-control-resolution.ts`](../../../packages/dt-core/src/dt-control-resolution/dt-control-resolution.ts)
+
+**Rules:**
+
+- An entry with an `id` links that id, or nothing. When the linked control's catalog name differs from the entry's `name`, a warning is added.
+- An entry without an `id` links the single catalog control whose name equals the entry's `name`. Both names are NFC-normalised, stripped of zero-width characters (U+200B–U+200D, U+2060, U+FEFF) and trimmed before the comparison. Case matters; there is no case-insensitive or partial matching.
+
+**Preflight.** Every controls list is resolved once, before the first write:
+
+| Operation | After | Before |
+|-----------|-------|--------|
+| Import | validation | the model is created |
+| Update | the existing model is read | model properties, modules, element writes and orphan deletion |
+
+The preflight reads the control catalog once (the no-folder set and the all-folders set; either failing refuses), then resolves the model's own list, the default boundary, every nested boundary, every component, every data flow and every data item. No catalog is read when no entry needs one. Later writes resolve against the same snapshot, so they link exactly what the preflight checked.
+
+**Refusals.** Any failure refuses the push and nothing is written. Each error extends `ImportError` / `UpdateError`:
+
+```typescript
+{
+  step: 'resolve_controls',
+  code: string,                                   // see the table below
+  ref: string,                                    // the controls list (see Refs)
+  index: number,                                  // the entry's position in that list
+  control: { id: string | null, name: string | null },  // the entry as given
+  candidates?: { id: string, name: string }[],    // at most 20
+  candidates_total?: number,
+  error: string
+}
+```
+
+| Code | Meaning |
+|------|---------|
+| `control_id_not_found` | No catalog control has the entry's id. `candidates` lists the controls named as the entry is, if any. |
+| `control_name_not_found` | No catalog control has the entry's name. |
+| `control_name_ambiguous` | More than one catalog control has the entry's name; `candidates` lists them. The entry needs an id. |
+| `control_entry_invalid` | The entry has no usable id or name. Also a `controls` value that is not a list (no `index`). |
+| `control_catalog_unavailable` | The catalog could not be read. A single error with only `step`, `code` and the message. |
+
+**Refs.** `ref` is `'@model'` for the model's own list, the element id as the input holds it, or, for an element without an id, `<group>[<n>]`. The groups are `boundaries`, `components`, `dataFlows` and `dataItems`; `<n>` is the element's position in its group in document order: the boundaries and components from the root down (a boundary, then its components, then its child boundaries, with the default boundary counted as the first boundary), then the data flows, then the data items. A data item without an id is `dataItems[<n>]`.
+
+**Duplicate ids.** Before resolution, strict mode refuses an element id used more than once (data items included), including an id equal to `@model` or to a generated `<group>[<n>]` ref: `{ step: 'validate', code: 'duplicate_element_id', ref }`.
+
+**Greenfield controls are deferred.** An entry whose id matches `^greenfield-[A-Za-z0-9_-]{1,120}$` (`GREENFIELD_TEMP_ID`) is a control-library Control not yet created on the platform. It is neither linked nor refused. The control library's [greenfield push](../dethereal/CONTROL_LIBRARY.md#push--greenfield-controls-idempotent) creates the Control after the model push, rewrites the temporary id and links it to the elements.
+
+**`resolvedControls`.** A successful strict import or update returns `Record<ref, { id, name }[]>`, holding only the lists actually written, each in list order, with `name` the catalog name as linked. An element whose `controls` key is absent has no key; an explicit `[]` gives `[]`. Greenfield entries are left out. The field is absent on every `success: false` result.
+
+**Failed writes.** In strict mode a control write that fails is an error (`step: 'associate_controls'`, with `ref`), never a warning, so the result is never `success: true` over it. On update, a write that throws keeps its element's own error step. Lenient import still reports a failed control write as a warning.
 
 ---
 
@@ -636,6 +693,7 @@ interface ImportError {
   elementId?: string    // Element ID
   error: string         // Error message
   details?: any         // Additional context
+  // Strict control resolution adds code, ref, index, control, candidates, candidates_total
 }
 ```
 

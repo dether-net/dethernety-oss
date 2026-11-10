@@ -1,0 +1,42 @@
+{
+  "elementId": "d-signing-keys",
+  "elementType": "dataItem",
+  "elementName": "Identity provider signing keys",
+  "classData": {
+    "id": "e57ffaaa-62d3-4860-b556-8bb1f1769c69",
+    "name": "System Configuration"
+  },
+  "attributes": {
+    "secrets_hardcoded_in_config_or_iac": null,
+    "secret_scanning_enabled": null,
+    "secrets_in_env_or_image_layers": null,
+    "secrets_injected_at_runtime_not_baked_in": null,
+    "secrets_stored_in_dedicated_secret_manager": null,
+    "iac_version_controlled_with_required_review": null,
+    "commits_signed": null,
+    "config_change_detection_enabled": null,
+    "least_privilege_access_enforced": null,
+    "per_secret_access_scoping": null,
+    "secret_access_audited": null,
+    "encrypted_at_rest": null,
+    "tls_only_transport": null,
+    "iac_state_secrets_encrypted": null,
+    "hardened_baseline_documented": null,
+    "default_accounts_removed_or_changed": null,
+    "unnecessary_services_disabled": null,
+    "debug_and_verbose_errors_disabled_in_prod": null,
+    "sample_apps_and_default_content_removed": null,
+    "drift_detection_enabled": null,
+    "running_config_matches_baseline": null,
+    "out_of_band_changes_controlled": null,
+    "config_repo_private": null,
+    "config_files_not_world_readable": null,
+    "config_object_storage_not_publicly_accessible": null,
+    "metadata_endpoint_access_restricted": null,
+    "iac_state_not_publicly_exposed": null,
+    "config_backed_up_to_known_good": null,
+    "secret_store_and_state_backed_up": null,
+    "rollback_tested": null
+  },
+  "modifiedAt": "2026-09-27T22:22:54.238Z"
+}

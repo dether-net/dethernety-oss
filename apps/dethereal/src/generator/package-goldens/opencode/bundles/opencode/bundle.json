@@ -1,0 +1,323 @@
+{
+  "schemaVersion": 1,
+  "harness": "opencode",
+  "version": "<VERSION>",
+  "generatedFrom": "7d558ec187d8932972c39a298f2a59f97e464261dd383a848a6d383c003c9d47",
+  "contentHash": "c409e27d046b6deb8f35ae6586e66605f75af5e3d2fb1590ef84a2d5b65d584b",
+  "files": [
+    {
+      "path": "bundles/opencode/agents/dethereal-enrichment-applier.md",
+      "sha256": "19b3359a2142469be52f3b4cce83fd534c3cefbe9c54de3f66d7bbd513311e4c"
+    },
+    {
+      "path": "bundles/opencode/agents/dethereal-infrastructure-scout-scoped.md",
+      "sha256": "296e49ee686a4659d0f2d38584c8d9b7ebee208e74e7bcc779555dcfc9f28822"
+    },
+    {
+      "path": "bundles/opencode/agents/dethereal-infrastructure-scout.md",
+      "sha256": "204de841f560ebe255fd1bad4923bbb3ddc9269b428eb20719fd0b5c98492ed5"
+    },
+    {
+      "path": "bundles/opencode/agents/dethereal-model-reviewer.md",
+      "sha256": "60de647d6f0f731fa01563571a4f2b7a14078e911bd8cc024516944b1480e099"
+    },
+    {
+      "path": "bundles/opencode/agents/dethereal-security-enricher.md",
+      "sha256": "66a2928b18c476a932e7071fca7c8c0d3b1cb7dad66aa96ba9d5f3aac102db1c"
+    },
+    {
+      "path": "bundles/opencode/agents/dethereal-threat-modeler.md",
+      "sha256": "2f5bcd5ab2c3e3b1f6103a7cf5263a37929768d725626f2462bcfa35ba0b20b2"
+    },
+    {
+      "path": "bundles/opencode/commands/dethereal-review.md",
+      "sha256": "4de804eb11ec3916497e8d78b3eea510c0cb560530624eff0dacc93928d6c684"
+    },
+    {
+      "path": "bundles/opencode/commands/dethereal-surface.md",
+      "sha256": "270918ea446a9a2b06a643bc23a8565eae7120e3f979fe451d426ab88cc9bd3b"
+    },
+    {
+      "path": "bundles/opencode/mcp.fragment.json",
+      "sha256": "49d918e169a990574b5e4b2e21fdd390def3675c4935ffe41a122404c0b2f7d2"
+    },
+    {
+      "path": "bundles/opencode/plugins/dethereal.ts",
+      "sha256": "f668dd3f6001682c0264e9f8fb9ba1af73d3f6865a48221fc831db00d2838b30"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-add/SKILL.md",
+      "sha256": "f66df54c8470990b60f74d0bfb32a89727447b499dadf155d176706fc8a6bdc9"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-add/git-undo.md",
+      "sha256": "52cb2fea5be28ac198f1f906067edff0c3ea320af504793761d0041e2955904f"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-add/guidelines-core.md",
+      "sha256": "ae74794b051721c3860651269f849977c67d5df7690a5a834a2cc3ad65fced3d"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-add/guidelines-layout.md",
+      "sha256": "65ae95d70c692124d99a7edc042e91689e6f16f69e86f47f705b7d6def600a60"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-add/guidelines-schema.md",
+      "sha256": "90168b9cae8c337577917e22dc16f5db5946d378a44aead2754a5720e21d3408"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-add/secret-files.md",
+      "sha256": "3b3bc437b23f2b65c396d0d0e53259f64d5e6d623cf14cb20412505dbff78544"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-classify/SKILL.md",
+      "sha256": "1bc1433498ae3c3fa2828fd7bfaaae8b4e04ef9641973ee210b87a1c838e1571"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-classify/classification-protocol.md",
+      "sha256": "7b3b00182d455a62a137ed8ccf53e4beca7cff744d5840830fc0c72f51f54c61"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-classify/secret-files.md",
+      "sha256": "3b3bc437b23f2b65c396d0d0e53259f64d5e6d623cf14cb20412505dbff78544"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-create/SKILL.md",
+      "sha256": "a2373446b0e3c97f91f462db2634ab511abfac92c79efa77100bcdc5c2089583"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-create/guidelines-core.md",
+      "sha256": "ae74794b051721c3860651269f849977c67d5df7690a5a834a2cc3ad65fced3d"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-create/guidelines-examples.md",
+      "sha256": "ed1c1e6e4615e9044f477b3b768fdc6cf00cb885fa7681fca9a927fcce993798"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-create/guidelines-layout.md",
+      "sha256": "65ae95d70c692124d99a7edc042e91689e6f16f69e86f47f705b7d6def600a60"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-create/guidelines-schema.md",
+      "sha256": "90168b9cae8c337577917e22dc16f5db5946d378a44aead2754a5720e21d3408"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-create/secret-files.md",
+      "sha256": "3b3bc437b23f2b65c396d0d0e53259f64d5e6d623cf14cb20412505dbff78544"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-discover/SKILL.md",
+      "sha256": "e350009b58212eecdca1d452502e5017933ded52606201e7d2f1f7739efe9038"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-discover/decomposition.md",
+      "sha256": "8d76da1bb12f38cf40ceaa742a48db7b06f8d128137220558ed60923ad9a4711"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-discover/delegation.md",
+      "sha256": "d2f79820633a88b11cf50f5366a083298f482629266ba94331c8a41095d5d1d9"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-discover/discovery-protocol.md",
+      "sha256": "b69c736a787fcdb0c78b811be0fcce19ae96fea9c9ad94d0ce772a22042dd57c"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-discover/guidelines-core.md",
+      "sha256": "ae74794b051721c3860651269f849977c67d5df7690a5a834a2cc3ad65fced3d"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-discover/guidelines-layout.md",
+      "sha256": "65ae95d70c692124d99a7edc042e91689e6f16f69e86f47f705b7d6def600a60"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-discover/guidelines-schema.md",
+      "sha256": "90168b9cae8c337577917e22dc16f5db5946d378a44aead2754a5720e21d3408"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-discover/secret-files.md",
+      "sha256": "3b3bc437b23f2b65c396d0d0e53259f64d5e6d623cf14cb20412505dbff78544"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-enrich-controls/SKILL.md",
+      "sha256": "37058226e4aeacf3b6178326d4adbefe74feb60ae7767a849cc3f2a331afad25"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-enrich-controls/control-library.md",
+      "sha256": "258433ead3c861af5ba20180b0ff8bd67026bafaf2bfd0f53b725b5aa80c7a81"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-enrich-controls/controls-enrichment.md",
+      "sha256": "10f3be2834efb0aa189c5d3dbbca5101c5b7394c7cc245c7118d9a88be50f965"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-enrich-controls/enrichment-invariants.md",
+      "sha256": "adb2d2fcac419f12bc58dbeff0b3987da537d58c2eeda4d85a69d97ea98219f0"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-enrich-controls/relay.md",
+      "sha256": "c0fdbb472c094036a6a10ac699e911d06f6e0ba96ffc6ca06cd2277ce5985a00"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-enrich-controls/secret-files.md",
+      "sha256": "3b3bc437b23f2b65c396d0d0e53259f64d5e6d623cf14cb20412505dbff78544"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-enrich/SKILL.md",
+      "sha256": "782f0c958cf3ab93de638619d245d80a88728f6dbe9a0b447a2870e190c23a7f"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-enrich/enrich-skill-asks.md",
+      "sha256": "f9b9de63c957628570c4807fa2a61b24693864210f599f28c09ae1f6ebe2e276"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-enrich/enrichment-gates.md",
+      "sha256": "3b79ddd2378557df1e28021e17e4c65f8b24c2bd21eb569915f67e8aa9fa9007"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-enrich/enrichment-protocol.md",
+      "sha256": "55961167abeabefc5c693cdfcc198a314f915aca1e429b12398e5f547564ac90"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-enrich/relay.md",
+      "sha256": "c0fdbb472c094036a6a10ac699e911d06f6e0ba96ffc6ca06cd2277ce5985a00"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-enrich/secret-files.md",
+      "sha256": "3b3bc437b23f2b65c396d0d0e53259f64d5e6d623cf14cb20412505dbff78544"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-help/SKILL.md",
+      "sha256": "ac67e5075be80162df525154be970dc909f012f065bafbc327d1bc5e951a9108"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-login/SKILL.md",
+      "sha256": "222cfb01d7d873268cd8c60afe389740b51c47995fb8169e2bb70460be34a161"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-remove/SKILL.md",
+      "sha256": "509f46263024c23bb351d51d7c900dcd5f6643d5c9c163e4f2a88abfba0be8d2"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-remove/git-undo.md",
+      "sha256": "52cb2fea5be28ac198f1f906067edff0c3ea320af504793761d0041e2955904f"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-remove/secret-files.md",
+      "sha256": "3b3bc437b23f2b65c396d0d0e53259f64d5e6d623cf14cb20412505dbff78544"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-review/SKILL.md",
+      "sha256": "614721c24ecee9db759b3698a6768729c86eb3c6e92bf3eff57df6bc2c8c547c"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-review/task.md",
+      "sha256": "a6007c984d545a9c4e1b3e0a26e25d159005abe40065081ef189582fcd1d9ac3"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-status/SKILL.md",
+      "sha256": "fbc683d246c9c3a93d26c7e6f6a6043868144c6e47a22399b9908bb475202e8a"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-surface/SKILL.md",
+      "sha256": "e177bec1de58bee8e1625ab4b3a4603e63623ee98bcd82ef888127a0ca3c6e43"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-surface/task.md",
+      "sha256": "6fb2d1cf7d7bc623a8efd2ddb69eec7ff9e988c3a8d42806b758efa6209368aa"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-sync-controls/SKILL.md",
+      "sha256": "0633798513b29470369e316bad3c7e28fb9228e6231e06a0f6ef0069139fb145"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-sync-controls/control-library-push.md",
+      "sha256": "7117538c3f2c776e032d2f39c03353d9d91b1934c79618014249703acf1c026d"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-sync-pull/SKILL.md",
+      "sha256": "01677daccc1c8d7e0f727a973a6f74e593c46c44c8d8afe461504831ba37fa6f"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-sync-pull/sync-pull-reference.md",
+      "sha256": "20b2d11cc0bc811c933a57a3b9c0f1dc27f60089bfbab67ab2959b7a20d3c3db"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-sync/SKILL.md",
+      "sha256": "a8c65c0fc99fcaa5f5df99d20b9744c3ecc4cc19c7ee2e623050b8dcfa59e47b"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-sync/control-resolution.md",
+      "sha256": "e5f36e8d7fa3f24c1bacd29ab24aaacc5529fe142d216a499bbafe917cd19e1f"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-sync/push-flow-reference.md",
+      "sha256": "80d1cf729d25c09c428b461a2b4d86f37953724cab42d76a8c6d136786924334"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-threat-model/SKILL.md",
+      "sha256": "421d331cd49911e1f1e132f23e90357e524160bca10aad3dffaa695914524380"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-threat-model/drift-protocol.md",
+      "sha256": "d7c7c927a7120111420c33162d99bc04c2ac224d33b800fe91cb8ff5c3bbf4a2"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-threat-model/git-undo.md",
+      "sha256": "52cb2fea5be28ac198f1f906067edff0c3ea320af504793761d0041e2955904f"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-threat-model/guided-build.md",
+      "sha256": "c969785d0951beb1a5a254b32aa87a2cdb1247eb9c5eb067fd4ea3382d584f7b"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-threat-model/guided-classify.md",
+      "sha256": "75673b66246f2dac4b268cec874c952f17174d05ac81c56a79a4c00393c63721"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-threat-model/guided-enrich.md",
+      "sha256": "6ce6865f1c4cf7cd8fe1f6d1d1dd35c04e4e78584a99fdac36dd851fbab03ae1"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-threat-model/guided-publish.md",
+      "sha256": "057c4ff805d99fcf7285d2764132088791905966f1634f2604dcc036ac54eff4"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-threat-model/guided-review-quick.md",
+      "sha256": "c79b3cc35fd358f5954d380e553a684645589b4b7cd056771605a1dc7fafb6f5"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-threat-model/guided-review.md",
+      "sha256": "a2f1be0f6a93fae0380b3c04b17690f71698013fdb9c27dc838d7f10e62db697"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-threat-model/guidelines-core.md",
+      "sha256": "ae74794b051721c3860651269f849977c67d5df7690a5a834a2cc3ad65fced3d"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-threat-model/guidelines-examples.md",
+      "sha256": "ed1c1e6e4615e9044f477b3b768fdc6cf00cb885fa7681fca9a927fcce993798"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-threat-model/guidelines-schema.md",
+      "sha256": "90168b9cae8c337577917e22dc16f5db5946d378a44aead2754a5720e21d3408"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-threat-model/phase-tail.md",
+      "sha256": "0df2ae8853a16ea28dd7951dd10a8dc8ddf6557c307c7199634af5354b55e608"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-threat-model/secret-files.md",
+      "sha256": "3b3bc437b23f2b65c396d0d0e53259f64d5e6d623cf14cb20412505dbff78544"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-view/SKILL.md",
+      "sha256": "a46dff5557ce88a82388ef11942c012a266d48f3b0e73a6aa0f62bf875a53321"
+    }
+  ],
+  "placeholders": [
+    "<node-abs>",
+    "<platform-url>",
+    "<runtime>"
+  ],
+  "runtimePathContract": "~/.dethernety/runtime/current.json"
+}

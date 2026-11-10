@@ -1,0 +1,3 @@
+# Generated from apps/dethereal/workflow and committed; a test holds them byte-equal to the generator.
+apps/dethereal/bundles/
+apps/dethereal/.claude-plugin/

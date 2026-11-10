@@ -1,0 +1,17 @@
+{
+  "elementId": "f-orders-logs",
+  "elementType": "dataFlow",
+  "elementName": "Orders API logs",
+  "classData": {
+    "id": "8e7eb2dd-eab6-4167-9ece-5fd0bd070819",
+    "name": "Log & Telemetry Collection"
+  },
+  "attributes": {
+    "auth_failure_mode": "deny",
+    "encryption_in_transit": "TLS",
+    "required_credentials": [
+      "orders-log-ingest-key"
+    ],
+    "credential_type": "api_key"
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "elementId": "x-idp",
+  "elementType": "component",
+  "elementName": "Identity provider",
+  "classData": {
+    "id": "b61aed3e-b30b-4304-943a-0191a59ce0c6",
+    "name": "Third-Party Service"
+  },
+  "attributes": {
+    "vendor_security_attestations_reviewed": null,
+    "service_provider_inventoried": null,
+    "dpa_and_subprocessors_reviewed": null,
+    "installed_integrations_reviewed_approved": null,
+    "api_keys_stored_in_secret_manager": null,
+    "api_keys_rotated_regularly": null,
+    "third_party_app_scope_least_privilege": null,
+    "full_scope_allowed_clients": null,
+    "outbound_token_scope_breadth": null,
+    "api_credential_age_days": null,
+    "offboarding_credential_revocation_enforced": null,
+    "webhook_signature_verified": null,
+    "webhook_replay_timestamp_tolerance_enforced": null,
+    "saml_assertion_signature_verified": null,
+    "audience_claim_validated": null,
+    "issuer_claim_validated": null,
+    "expiry_claim_validated": null,
+    "webhook_source_ip_allowlisted": null,
+    "connection_encrypted": null,
+    "upstream_tls_verification_enabled": null,
+    "min_tls_version": null,
+    "pii_minimized_to_purpose": null,
+    "subprocessor_list_reviewed": null,
+    "data_residency_restriction": null,
+    "request_timeout_configured": null,
+    "circuit_breaker_enabled": null,
+    "graceful_degradation_enabled": null,
+    "third_party_interaction_logging_enabled": null,
+    "secrets_masked_in_logs": null,
+    "provider_security_monitoring_enabled": null
+  },
+  "modifiedAt": "2026-09-27T22:22:53.928Z"
+}

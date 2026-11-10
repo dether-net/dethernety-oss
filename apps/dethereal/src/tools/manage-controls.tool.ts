@@ -20,12 +20,104 @@ import {
   applyPendingRewrites,
   inspectPendingRewrite,
   clearPendingRewrite,
+  setJournalAuthenticator,
+  JournalRejectedError,
+  UnsafePathError,
   type LockHandle,
   readControlFile,
   listControlFiles,
+  type AuditValueTags,
 } from '@dethernety/dt-core'
 import { ClientDependentTool, ToolContext, ToolResult } from './base-tool.js'
 import { validatePathConfinement } from '../utils/directory-utils.js'
+import { assertRealModelTree, assertRegularOrAbsent, ModelTreeError } from '../utils/path-confinement.js'
+import { loadWaiverKey, MAC_TAGS, macHex, subkey, verifyMacHex, waiverKeyState } from '../utils/gates.js'
+import { canonicalJson } from '../utils/settlement.js'
+import { carryGreenfield, type Registration } from '../utils/settlement-writers.js'
+
+/**
+ * The key journals are signed with: derived from this machine's waiver key under
+ * a domain tag, so a journal MAC and a waiver MAC never share a key and the
+ * waiver key itself never signs a journal. Null when this machine has no usable
+ * key: journals are then written unsigned and never replayed by another process.
+ */
+async function journalKey(create: boolean, modelDir: string): Promise<Buffer | null> {
+  // The waiver key's refusals apply, including a key that lives inside this model.
+  const waiverKey = await loadWaiverKey(create, modelDir)
+  return waiverKey ? subkey(waiverKey, MAC_TAGS.journal) : null
+}
+
+/**
+ * How the control-library audit log records a value: its tag, a MAC under a key derived from this
+ * machine's key for this one purpose, over the attribute key and the canonical value (`[key, 0]` for an
+ * absent value, `[key, 1, value]` otherwise, so absent and null differ). A tag tells "changed / the same
+ * value" on this machine and nothing anywhere else. With no usable key the values are left out, with the
+ * key's refusal code; the push is not blocked.
+ */
+async function auditValueTags(modelDir: string): Promise<AuditValueTags> {
+  const state = await waiverKeyState(true, modelDir)
+  if (!state.key) return { omittedCode: state.code }
+  const key = subkey(state.key, MAC_TAGS.auditValue)
+  return { tag: (attrKey, value) => macHex(key, canonicalJson(value === undefined ? [attrKey, 0] : [attrKey, 1, value])).slice(0, 32) }
+}
+
+let journalAuthenticatorInstalled = false
+
+/**
+ * Install the control-library journal authenticator. Called once at server
+ * startup, before any tool runs; later calls do nothing. A journal is a
+ * machine-local crash-recovery artifact: one from another machine or checkout,
+ * or planted in a repository, is never replayed.
+ */
+export function installJournalAuthenticator(): void {
+  if (journalAuthenticatorInstalled) return
+  journalAuthenticatorInstalled = true
+  setJournalAuthenticator({
+    async sign(payload, modelDir) {
+      const key = await journalKey(true, modelDir)
+      return key ? macHex(key, payload) : null
+    },
+    async verify(payload, mac, modelDir) {
+      const key = await journalKey(false, modelDir)
+      return key ? verifyMacHex(key, payload, mac) : false
+    },
+  })
+}
+
+/** The files in `.dethereal/` the control library writes, which must be regular files or absent. */
+const CONTROL_LIBRARY_FILES = ['.dethereal/control-audit.log', '.dethereal/pending-id-rewrite.json']
+
+/** A refusal for a model directory whose tree reaches outside it; names a relative path and a code only. */
+function unsafeTree(err: ModelTreeError | UnsafePathError): ToolResult<unknown> {
+  return {
+    success: false,
+    error: 'MODEL_TREE_UNSAFE',
+    data: {
+      path: err.rel,
+      code: err.code,
+      message:
+        `${err.rel} in the model directory: ${err.code.replaceAll('_', ' ')}. Control-library changes to this model are ` +
+        'refused until it is a real directory or regular file (or removed).',
+    },
+  } as ToolResult<unknown>
+}
+
+/** A journal that will not be replayed: inspect or clear it, never retry. */
+function rejectedJournal(err: JournalRejectedError, modelDir: string): ToolResult<unknown> {
+  return {
+    success: false,
+    error: 'WAL_JOURNAL_REJECTED',
+    data: {
+      modelDir,
+      recoveryHint: 'repair-wal',
+      reason: err.code,
+      rejected: err.rejected,
+      recoveryMessage:
+        'The pending control id-rewrite journal was not written by this machine for this model, or is malformed, ' +
+        'so it is not replayed. Inspect it and clear it with the sync skill\'s repair-wal; retrying will not help.',
+    },
+  } as ToolResult<unknown>
+}
 
 /**
  * Actions that touch the model directory and therefore go through the
@@ -58,8 +150,7 @@ const SKIPS_WAL_REPLAY = new Set(['inspect-wal', 'clear-wal'])
  *
  * Returns `undefined` on any failure (malformed token, no payload
  * segment, base64 error, JSON parse error, missing claim) — the caller
- * treats `undefined` as "audit log entry written with only the local
- * `operator` field, no `authnOperator`".
+ * then records the sentinel `'unauthenticated'` as `authnOperator`.
  */
 function decodeJwtIdentity(token: string | undefined): string | undefined {
   if (!token) return undefined
@@ -82,15 +173,20 @@ function decodeJwtIdentity(token: string | undefined): string | undefined {
   }
 }
 
-const InputSchema = z.object({
-  action: z.enum([
-    'list', 'get', 'create', 'update', 'delete', 'assign', 'rank',
-    // Control-library actions backed by DtControlLibrary
-    'pull-controls', 'push-greenfield', 'push-brownfield', 'tombstone', 'set-local-edited',
-    'promote-external-edit',
-    // WAL repair recovery
-    'inspect-wal', 'clear-wal',
-  ]).describe('Action to perform'),
+/** What an MCP client may call. Reading controls (list, get, rank) is query_controls'. */
+const WRITE_ACTIONS = [
+  'create', 'update', 'delete', 'assign',
+  // Control-library actions backed by DtControlLibrary
+  'pull-controls', 'push-greenfield', 'push-brownfield', 'tombstone', 'set-local-edited',
+  'promote-external-edit',
+  // WAL repair recovery
+  'inspect-wal', 'clear-wal',
+] as const
+/** The read actions, served through execute to query_controls only. */
+const READ_ACTIONS = ['list', 'get', 'rank'] as const
+
+const Fields = z.object({
+  action: z.enum([...READ_ACTIONS, ...WRITE_ACTIONS]).describe('Action to perform'),
   folder_id: z.string().optional().describe('Folder ID for listing or creating controls. For update: omitted = current folder preserved'),
   // Security: control_id is interpolated into filesystem paths
   // (controls/<id>.json) by the engine. Restrict to characters that cannot
@@ -116,12 +212,18 @@ const InputSchema = z.object({
   supporting_element_ids: z.array(z.string()).optional().describe('Element IDs (components, boundaries, data flows, data items) to attach via SUPPORTS edges during push-greenfield'),
   live_assigned_model_ids: z.array(z.string()).nullable().optional().describe('Pre-fetched assignedModelIds — caller passes result of getControlsAssignedModels to avoid a redundant round-trip'),
   this_model_id: z.string().optional().describe('The id of the model being synced (push-brownfield Step E — recognises alone-vs-shared)'),
-  decision: z.any().optional().describe('BrownfieldDecision object: { sharedOwnership: "cancel"|"push-anyway"|"clone-and-swap"|"push-unverified", perKey?: Record<`${classIdx}.${key}`, { chosen: "keep"|"accept-theirs"|"merge", merged? }>, queryFailureReason?, queryAttempts? }'),
+  decision: z.any().optional().describe('BrownfieldDecision object: { sharedOwnership: "cancel"|"push-anyway"|"push-unverified", perKey?: Record<`${classIdx}.${key}`, { chosen: "keep"|"accept-theirs"|"merge", merged? }>, queryFailureReason?, queryAttempts? }'),
   fresh_platform_attrs: z.record(z.string(), z.record(z.string(), z.any())).optional().describe('Map<classId, Record<attrKey, value>> — fresh server attributes from the pre-push batched fetch (push-brownfield Step B)'),
   class_idx: z.number().int().nonnegative().optional().describe('Index into classes[] for set-local-edited'),
   new_attributes: z.record(z.string(), z.any()).optional().describe('Attribute map to merge into classes[class_idx].attributes (set-local-edited)'),
   edited_by: z.enum(['agent', 'operator']).optional().describe('Author of the pending edit (set-local-edited). Only "agent" or "operator" — the "external" discriminator is reserved for the dedicated promote-external-edit recovery action (closes the audit-discriminator spoofing surface).'),
-}).superRefine((data, ctx) => {
+})
+
+/** The ways a push may treat a control other models share. */
+const SHARED_OWNERSHIP: readonly unknown[] = ['cancel', 'push-anyway', 'push-unverified']
+
+/** The checks each action's fields need, in the public and the internal schema alike. */
+const checkFields = (data: z.infer<typeof Fields>, ctx: z.RefinementCtx) => {
   if (['get', 'update', 'delete'].includes(data.action) && !data.control_id) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"control_id" is required for this action', path: ['control_id'] })
   }
@@ -149,6 +251,10 @@ const InputSchema = z.object({
     if (!data.directory_path) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"directory_path" is required for "push-brownfield"', path: ['directory_path'] })
     if (!data.control_id) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"control_id" is required for "push-brownfield"', path: ['control_id'] })
     if (!data.decision) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"decision" (BrownfieldDecision shape) is required for "push-brownfield"', path: ['decision'] })
+    // Cloning a shared control is not offered: to fork one, cancel the row and create a separate control.
+    else if (!SHARED_OWNERSHIP.includes(data.decision.sharedOwnership)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `"decision.sharedOwnership" must be one of ${SHARED_OWNERSHIP.join(', ')}; to fork a shared control, cancel the row and create a separate control`, path: ['decision', 'sharedOwnership'] })
+    }
     if (!data.fresh_platform_attrs) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"fresh_platform_attrs" is required for "push-brownfield" — caller pre-fetches via getControlInstantiationAttributes', path: ['fresh_platform_attrs'] })
     if (data.live_assigned_model_ids === undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"live_assigned_model_ids" is required for "push-brownfield" (pass null when the query failed and you are pushing unverified)', path: ['live_assigned_model_ids'] })
     if (!data.this_model_id) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"this_model_id" is required for "push-brownfield"', path: ['this_model_id'] })
@@ -173,13 +279,18 @@ const InputSchema = z.object({
   if (data.action === 'inspect-wal' || data.action === 'clear-wal') {
     if (!data.directory_path) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `"directory_path" is required for "${data.action}"`, path: ['directory_path'] })
   }
-})
+}
 
-type ManageControlsInput = z.infer<typeof InputSchema>
+/** Every action: what execute takes, and what query_controls runs through it. */
+const InternalSchema = Fields.superRefine(checkFields)
+/** What an MCP client may call: the write actions only, without the inputs only ranking takes (query_controls' rank). */
+const InputSchema = Fields.omit({ element_types: true, top_n: true }).extend({ action: z.enum(WRITE_ACTIONS).describe('Action to perform') }).superRefine(checkFields)
+
+type ManageControlsInput = z.infer<typeof InternalSchema>
 
 export class ManageControlsTool extends ClientDependentTool<ManageControlsInput, unknown> {
   readonly name = 'manage_controls'
-  readonly description = 'Create, read, update, delete, assign, and rank security controls on the Dethernety platform. Controls can be assigned to component classes, linked to exposures via countermeasures, and assigned to model elements (components, boundaries, data flows and data items). Use "list" with filters (name, class_type, element_ids, module_name) for flexible search. Use "rank" with element_types to get pre-scored control candidates for a boundary or element set. Control-library actions (require directory_path): "pull-controls" materialises controls/<id>.json files for the given control_ids; "push-greenfield" drives a local temp-id Control through create + WAL-protected id rewrite + setInstantiationAttributes + assignControlToElements; "push-brownfield" runs the §7 Steps 0–F safety pipeline (caller passes fresh_platform_attrs, live_assigned_model_ids, decision); "tombstone" flips lifecycle to tombstoned while preserving pendingEdit; "set-local-edited" applies an edit through the two-write rule (caller MUST use this rather than editing controls/<id>.json directly so pendingEdit semantics are preserved). Never hand-edit lifecycle or platformState in controls/<id>.json — they are owned by the sync state machine; after any platform-side change run "pull-controls" to regenerate canonical files.'
+  readonly description = 'Create, update, delete and assign security controls on the Dethernety platform; list, read and rank them with query_controls. Controls can be assigned to component classes, linked to exposures via countermeasures, and assigned to model elements (components, boundaries, data flows and data items). Control-library actions (require directory_path): "pull-controls" materialises controls/<id>.json files for the given control_ids; "push-greenfield" drives a local temp-id Control through create + WAL-protected id rewrite + setInstantiationAttributes + assignControlToElements; "push-brownfield" runs the brownfield safety pipeline (caller passes fresh_platform_attrs, live_assigned_model_ids, decision); "tombstone" flips lifecycle to tombstoned while preserving pendingEdit; "set-local-edited" applies an edit through the two-write rule (caller MUST use this rather than editing controls/<id>.json directly so pendingEdit semantics are preserved). Never hand-edit lifecycle or platformState in controls/<id>.json — they are owned by the sync state machine; after any platform-side change run "pull-controls" to regenerate canonical files.'
   readonly inputSchema = InputSchema
 
   /**
@@ -195,10 +306,15 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
    * Returns an error envelope to return directly, or null when every id is a
    * valid CONTROL class (or the list is empty/omitted — happy path costs
    * nothing).
+   *
+   * `resuming` names a control file whose greenfield push already reached the
+   * platform: a class it binds that no longer exists cannot be bound again, so
+   * the message gives the one way to finish the push.
    */
   private async validateControlClassIds(
     dtClass: DtClass,
     classIds: readonly string[] | null | undefined,
+    resuming?: { controlId: string; classNames: ReadonlyMap<string, string | undefined> },
   ): Promise<ToolResult<unknown> | null> {
     if (!classIds || classIds.length === 0) return null
     const OTHER_KINDS = ['component', 'boundary', 'dataflow', 'data'] as const
@@ -219,6 +335,17 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
       }
 
       if (!actualKind || !actual) {
+        if (resuming) {
+          const name = resuming.classNames.get(classId)
+          return {
+            success: false,
+            error:
+              `controls/${resuming.controlId}.json binds class "${classId}"${name ? ` ("${name}")` : ''}, which no longer exists on the platform, ` +
+              `and this control's push has already reached the platform, so it cannot be bound to that class again and the push cannot resume. To finish the push, remove that ` +
+              `class's entry from the classes list in controls/${resuming.controlId}.json (its local attributes are given up), then run ` +
+              `push-greenfield again. Leave lifecycle and platformState as they are.`,
+          }
+        }
         return {
           success: false,
           error: `class_ids contains "${classId}", which does not resolve to any class on the platform. Verify the id with get_classes(class_type: 'CONTROL') or match_classes(classLabel: 'CONTROL').`,
@@ -280,8 +407,10 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
       // 1. If a pending id-rewrite journal still maps this temp id (rare —
       //    pre-dispatch usually replays and deletes it), name the exact
       //    platform id.
+      // Only a journal this machine wrote may name an id to resume with: an
+      // unverified one could point the push at another platform control.
       const wal = await inspectPendingRewrite(modelDir)
-      for (const op of wal.operations) {
+      for (const op of wal.verified ? wal.operations : []) {
         if (op.kind === 'greenfield-id-rewrite' && op.tempId === controlId) {
           return `${base} The push renamed this file to controls/${op.serverId}.json during the id rewrite — resume with control_id: ${op.serverId}.`
         }
@@ -306,6 +435,40 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
   }
 
   async execute(input: ManageControlsInput, context: ToolContext): Promise<ToolResult<unknown>> {
+    // Every local control the journal gives a platform id carries the operator's registrations of it.
+    // Only operations the journal replay accepts reach here: a journal this process wrote, or one that
+    // passes its MAC (anything else is refused before any operation). The carry never throws: a
+    // failure leaves the registration on the temporary id, a flagged row, and says so below.
+    const carried: Array<{ tempId: string; result: Registration }> = []
+    const carry = async (op: { tempId: string; serverId: string }): Promise<void> => {
+      let result: Registration
+      try {
+        // The ids only, whatever the caller hands over.
+        result = await carryGreenfield(input.directory_path!, { tempId: op.tempId, serverId: op.serverId }, { settlement: context.settlement })
+      } catch {
+        result = { status: 'failed', code: 'carry_threw' }
+      }
+      carried.push({ tempId: op.tempId, result })
+    }
+    const result = await this.dispatch(input, context, carry, carried)
+    const warnings = carried
+      .filter(({ result: r }) => r.status === 'failed')
+      .map(({ tempId, result: r }) => `The settlement still names ${tempId} (${r.code ?? 'failed'}): confirm the new control id with model_state_settle.`)
+    if (warnings.length === 0) return result
+    if (result.data === undefined) return { ...result, data: { warnings } }
+    if (result.data && typeof result.data === 'object' && !Array.isArray(result.data)) {
+      const data = result.data as Record<string, unknown>
+      return { ...result, data: { ...data, warnings: [...(Array.isArray(data.warnings) ? data.warnings : []), ...warnings] } }
+    }
+    return { ...result, warnings: [...(result.warnings ?? []), ...warnings] }
+  }
+
+  private async dispatch(
+    input: ManageControlsInput,
+    context: ToolContext,
+    carry: (op: { tempId: string; serverId: string }) => Promise<void>,
+    carried: ReadonlyArray<{ tempId: string; result: Registration }>,
+  ): Promise<ToolResult<unknown>> {
     // Serialise concurrent invocations against the same model directory
     // and replay any stranded WAL journal before the action runs. The
     // lock is held only for actions that touch the model directory;
@@ -320,7 +483,7 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
     let lockHandle: LockHandle | undefined
     if (DIRECTORY_TOUCHING_ACTIONS.has(input.action) && input.directory_path) {
       try {
-        await validatePathConfinement(input.directory_path)
+        input.directory_path = await validatePathConfinement(input.directory_path)
       } catch (err) {
         return {
           success: false,
@@ -331,9 +494,21 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
           },
         } as ToolResult<unknown>
       }
+      // Every directory the control library descends into, and the files it
+      // appends to or replays, must be real: checked before the lock is taken or
+      // any journal replayed, and before any platform change whose audit entry
+      // could then not be written.
+      try {
+        await assertRealModelTree(input.directory_path)
+        for (const rel of CONTROL_LIBRARY_FILES) await assertRegularOrAbsent(input.directory_path, rel)
+      } catch (err) {
+        if (err instanceof ModelTreeError) return unsafeTree(err)
+        throw err
+      }
       try {
         lockHandle = await acquireLock(input.directory_path)
       } catch (err) {
+        if (err instanceof UnsafePathError) return unsafeTree(err)
         if (err instanceof LockBusyError) {
           return {
             success: false,
@@ -354,10 +529,14 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
       // Skip the auto-replay for inspect-wal / clear-wal — those are the
       // operator's escape hatch when replay itself fails.
       if (!SKIPS_WAL_REPLAY.has(input.action)) try {
-        await applyPendingRewrites(input.directory_path)
+        await applyPendingRewrites(input.directory_path, { afterOperation: carry })
       } catch (err) {
+        if (err instanceof JournalRejectedError || err instanceof UnsafePathError || err instanceof ModelTreeError) {
+          if (lockHandle) await releaseLock(lockHandle)
+          return err instanceof JournalRejectedError ? rejectedJournal(err, input.directory_path) : unsafeTree(err)
+        }
         // Replay aborted with an ambiguous-state diagnostic. The
-        // /dethereal:sync repair-wal verb is backed by the inspect-wal
+        // sync skill's repair-wal verb is backed by the inspect-wal
         // and clear-wal MCP actions. Release the lock and surface the
         // recovery hint so the skill can render guidance without
         // string-matching the error code.
@@ -371,7 +550,7 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
             recoveryMessage:
               `WAL replay failed for ${input.directory_path}. Journal at ` +
               `.dethereal/pending-id-rewrite.json is in an ambiguous state. ` +
-              `Run /dethereal:sync repair-wal to inspect the journal and choose ` +
+              `Use the sync skill's repair-wal to inspect the journal and choose ` +
               `a recovery action (delete journal, retry replay, or manual rename).`,
             message: err instanceof Error ? err.message : String(err),
           },
@@ -625,7 +804,7 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
         // -----------------------------------------------------------------
 
         case 'pull-controls': {
-          await validatePathConfinement(input.directory_path!)
+          input.directory_path = await validatePathConfinement(input.directory_path!)
           const lib = new DtControlLibrary(apolloClient)
           const files = await lib.pullControls({
             modelDir: input.directory_path!,
@@ -635,7 +814,7 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
         }
 
         case 'push-greenfield': {
-          await validatePathConfinement(input.directory_path!)
+          input.directory_path = await validatePathConfinement(input.directory_path!)
           const file = await readControlFile(input.directory_path!, input.control_id!)
           if (!file) {
             return {
@@ -647,9 +826,14 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
           // a bad classId fails here instead of mid-pipeline at
           // setInstantiationAttributes (which would strand a partially-pushed
           // control on the platform).
+          // A file already under its server id has reached the platform: its push resumes.
+          const resumingPush = file.lifecycle === 'partially-pushed' || !file.id.startsWith('greenfield-')
           const gfClassError = await this.validateControlClassIds(
             dtClass,
             file.classes.map(c => c.classId),
+            resumingPush
+              ? { controlId: file.id, classNames: new Map(file.classes.map(c => [c.classId, c.className])) }
+              : undefined,
           )
           if (gfClassError) return gfClassError
           const lib = new DtControlLibrary(apolloClient)
@@ -664,12 +848,16 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
             supportingElementIds: input.supporting_element_ids!,
             folderId: input.folder_id,
             liveAssignedModelIds: input.live_assigned_model_ids as string[],
+            afterOperation: carry,
           })
-          return { success: true, data: { file: result } }
+          // This control's own carry (a replay before it may have carried others).
+          const own = carried.filter((c) => c.tempId === file.id).at(-1)?.result
+          const settlement = own && own.status !== 'nothing' ? { settlement_registration: own } : {}
+          return { success: true, data: { file: result, ...settlement } }
         }
 
         case 'push-brownfield': {
-          await validatePathConfinement(input.directory_path!)
+          input.directory_path = await validatePathConfinement(input.directory_path!)
           const file = await readControlFile(input.directory_path!, input.control_id!)
           if (!file) {
             return {
@@ -685,6 +873,19 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
           const freshMap = new Map<string, Record<string, unknown>>(
             Object.entries(input.fresh_platform_attrs as Record<string, Record<string, unknown>>)
           )
+          // null means the ownership query failed: passed on as unknown, never as
+          // "alone" (the engine then accepts only push-unverified or cancel). An empty
+          // list is refused while the pulled file records other models using it.
+          const liveAssigned = input.live_assigned_model_ids ?? null
+          const recordedOthers = (file.platformState?.assignedModelIds ?? []).filter((id) => id !== input.this_model_id)
+          if (Array.isArray(liveAssigned) && liveAssigned.length === 0 && recordedOthers.length > 0) {
+            return {
+              success: false,
+              error:
+                `live_assigned_model_ids is empty, but controls/${file.id}.json records ${recordedOthers.length} other ` +
+                `model(s) using this control. Pass the ids from the refreshed control file (pull-controls), or null if the ownership query failed.`,
+            }
+          }
           const lib = new DtControlLibrary(apolloClient)
           try {
             const result = await lib.pushBrownfieldControl({
@@ -692,9 +893,10 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
               file,
               decision: input.decision,
               freshPlatformAttrs: freshMap,
-              liveAssignedModelIds: input.live_assigned_model_ids ?? [],
+              liveAssignedModelIds: liveAssigned,
               thisModelId: input.this_model_id!,
               authnOperator: context.authnOperator,
+              valueTags: await auditValueTags(input.directory_path!),
             })
             return { success: true, data: result }
           } catch (err) {
@@ -726,7 +928,7 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
         }
 
         case 'tombstone': {
-          await validatePathConfinement(input.directory_path!)
+          input.directory_path = await validatePathConfinement(input.directory_path!)
           const file = await readControlFile(input.directory_path!, input.control_id!)
           if (!file) {
             return { success: false, error: `Control file not found: ${input.control_id} under ${input.directory_path}` }
@@ -737,7 +939,7 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
         }
 
         case 'set-local-edited': {
-          await validatePathConfinement(input.directory_path!)
+          input.directory_path = await validatePathConfinement(input.directory_path!)
           const file = await readControlFile(input.directory_path!, input.control_id!)
           if (!file) {
             return { success: false, error: `Control file not found: ${input.control_id} under ${input.directory_path}` }
@@ -779,9 +981,9 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
           // operator wants to promote). The caller (skill) is expected to
           // have refreshed the file via `pull-controls` BEFORE the divergence
           // happened, OR to be operating against a stale local platformAttributes
-          // snapshot (in which case the next push's P7.2 fresh-fetch picks up
+          // snapshot (in which case the next push's batched fresh-fetch picks up
           // the live state).
-          await validatePathConfinement(input.directory_path!)
+          input.directory_path = await validatePathConfinement(input.directory_path!)
           const file = await readControlFile(input.directory_path!, input.control_id!)
           if (!file) {
             return { success: false, error: `Control file not found: ${input.control_id} under ${input.directory_path}` }
@@ -815,7 +1017,7 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
           // Read-only inspector. Surfaces the WAL journal contents +
           // per-operation on-disk state so the skill can render recovery
           // options to the operator.
-          await validatePathConfinement(input.directory_path!)
+          input.directory_path = await validatePathConfinement(input.directory_path!)
           const inspection = await inspectPendingRewrite(input.directory_path!)
           return { success: true, data: inspection }
         }
@@ -824,7 +1026,7 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
           // Hard-delete the WAL journal without applying. Skill confirms
           // with the operator before invoking; engine has no confirmation
           // gate — calling this discards the journal.
-          await validatePathConfinement(input.directory_path!)
+          input.directory_path = await validatePathConfinement(input.directory_path!)
           const cleared = await clearPendingRewrite(input.directory_path!)
           return {
             success: true,
@@ -842,6 +1044,8 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
           return { success: false, error: `Unknown action: ${input.action}` }
       }
     } catch (error) {
+      if (error instanceof UnsafePathError || error instanceof ModelTreeError) return unsafeTree(error)
+      if (error instanceof JournalRejectedError) return rejectedJournal(error, input.directory_path ?? '')
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Control operation failed'

@@ -1,0 +1,22 @@
+{
+  "argv": [
+    "post-write",
+    "--harness",
+    "codex"
+  ],
+  "event": {
+    "session_id": "<session_id>",
+    "turn_id": "<turn_id>",
+    "transcript_path": "<transcript_path>",
+    "cwd": "<project>",
+    "hook_event_name": "PostToolUse",
+    "model": "gpt-6-astra",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "apply_patch",
+    "tool_input": {
+      "command": "*** Begin Patch\n*** Add File: main-note.txt\n+hi\n*** End Patch"
+    },
+    "tool_response": "Exit code: 0\nWall time: 0 seconds\nOutput:\nSuccess. Updated the following files:\nA main-note.txt\n",
+    "tool_use_id": "exec-<id>"
+  }
+}

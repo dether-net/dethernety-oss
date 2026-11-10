@@ -1,0 +1,42 @@
+{
+  "elementId": "c-webhook-receiver",
+  "elementType": "component",
+  "elementName": "Webhook receiver",
+  "classData": {
+    "id": "0a9df6cc-1216-49d2-ae5d-f6f850246f6f",
+    "name": "Application Service"
+  },
+  "attributes": {
+    "authz_enforced_server_side_centrally": true,
+    "authn_enforced_on_every_endpoint": true,
+    "access_control_failures_logged_and_alerted": true,
+    "bindable_field_allowlist_enforced": true,
+    "parameterized_queries_used": true,
+    "dynamic_query_string_concatenation": false,
+    "server_side_allowlist_validation": true,
+    "validation_is_client_side_only": false,
+    "private_and_metadata_targets_blocked": true,
+    "cloud_metadata_endpoint_blocked": true,
+    "native_deserialization_of_untrusted_data": false,
+    "deserialization_class_allowlist_or_signed_payloads": true,
+    "unsafe_html_sinks_used": false,
+    "content_security_policy_enforced": true,
+    "csp_allows_unsafe_inline_or_eval": false,
+    "secrets_hardcoded_in_config_or_iac": true,
+    "least_privilege_service_identity": "scoped_per_workload",
+    "downstream_tls_enforced_and_validated": "tls_validated",
+    "debug_and_verbose_errors_disabled_in_prod": true,
+    "unnecessary_services_disabled": true,
+    "hardened_baseline_documented": true,
+    "dependency_vulnerability_scanning_enabled": true,
+    "known_vulnerable_dependencies_present": false,
+    "artifact_supply_chain_signed_provenance_verified": false,
+    "authentication_type": "HMAC-SHA256 request signature",
+    "encryption_in_transit": "TLS",
+    "encryption_at_rest": "not_applicable",
+    "implicit_deny_enabled": true,
+    "monitoring_tools": [
+      "log platform"
+    ]
+  }
+}

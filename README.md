@@ -63,8 +63,8 @@ Full instructions, configuration reference, and day-to-day operations are in the
 
 The recommended way if Node.js 18 or later is installed, or you are happy to install
 it. Node.js runs the installer only: the deployment itself never needs it. It is the
-natural fit if you will run the Dethereal Claude Code plugin on the same machine: its MCP
-server is launched with npx and needs Node.js 20 or later, so a machine set up for
+natural fit if you will run the Dethereal plugin (for Claude Code, Codex or OpenCode) on
+the same machine: its MCP server runs on Node.js 20.11.1 or later, so a machine set up for
 Dethereal already meets the installer's need (see
 [Getting started with Dethereal](docs/user/dethereal/GETTING_STARTED.md#prerequisites)).
 Without Node.js, use [way 2](#2-with-get-byodtsh).
@@ -199,7 +199,7 @@ authentication (OIDC), database, policy engine, and module installation. See the
 - **MITRE ATT&CK / D3FEND** -- Exposure-to-technique mapping and defensive countermeasure recommendations
 - **File-based persistence** -- Export models as JSON files you can version-control alongside your code, edit offline, and re-import
 - **Issue tracking** -- Create issues from findings with automatic element association, filtering, and merge
-- **Dethereal — Claude Code plugin** -- 14 slash commands, 5 specialized AI agents, 22 MCP tools, and an 11-step guided workflow for AI-assisted threat modeling. Includes a per-Control library mirrored to local files (`controls/<id>.json`) with shared-ownership safety prompts on push, an append-only control-decision audit log, and a WAL-protected ID-rebinding mechanism for crash-safe greenfield Controls. See [Dethereal Plugin docs](docs/user/dethereal/README.md).
+- **Dethereal — plugin for Claude Code, Codex and OpenCode** -- 14 commands, 6 specialized AI agents, 30 MCP tools, and an 11-step guided workflow for AI-assisted threat modeling. Includes a per-Control library mirrored to local files (`controls/<id>.json`) with shared-ownership safety prompts on push, an append-only control-decision audit log, and a WAL-protected ID-rebinding mechanism for crash-safe greenfield Controls. See [Dethereal Plugin docs](docs/user/dethereal/README.md).
 
 ## Architecture
 
@@ -211,7 +211,7 @@ authentication (OIDC), database, policy engine, and module installation. See the
                                    │  (NestJS)   │
 ┌─────────────┐      GraphQL       │             │
 │  dethereal  │ <────────────────> │             │
-│ (CC plugin) │                    └─────────────┘
+│  (plugin)   │                    └─────────────┘
 └─────────────┘                           │
                                      Module System
                                           │
@@ -221,7 +221,7 @@ authentication (OIDC), database, policy engine, and module installation. See the
                                     └────────────┘
 ```
 
-Two complementary frontends share the same GraphQL backend: `dt-ui` for visual modeling in the browser, and `dethereal` (a Claude Code plugin) for AI-assisted modeling driven from your terminal or IDE. The plugin stores models as version-controlled JSON next to the code, fitting a DevSecOps shift-left workflow — threat models reviewed in PRs, evolved with the system, kept honest by the same source-control discipline that gates application code.
+Two complementary frontends share the same GraphQL backend: `dt-ui` for visual modeling in the browser, and `dethereal` (a plugin for Claude Code, Codex and OpenCode) for AI-assisted modeling driven from your terminal or IDE. The plugin stores models as version-controlled JSON next to the code, fitting a DevSecOps shift-left workflow — threat models reviewed in PRs, evolved with the system, kept honest by the same source-control discipline that gates application code.
 
 Built with Vue 3, NestJS, Neo4j/Memgraph, GraphQL, OPA/Rego, and TypeScript MCP. OIDC authentication end-to-end.
 
@@ -237,7 +237,7 @@ Built with Vue 3, NestJS, Neo4j/Memgraph, GraphQL, OPA/Rego, and TypeScript MCP.
 | [Security Controls](docs/user/WORKING_WITH_SECURITY_CONTROLS.md) | Creating, configuring, and assigning controls |
 | [Modules](docs/user/UNDERSTANDING_MODULES.md) | How the module system works |
 | [Issue Management](docs/user/ISSUE_MANAGEMENT_GUIDE.md) | Issue creation, element association, filtering, and merging |
-| [Dethereal Plugin](docs/user/dethereal/README.md) | AI-assisted threat modeling with the Claude Code plugin |
+| [Dethereal Plugin](docs/user/dethereal/README.md) | AI-assisted threat modeling with the plugin for Claude Code, Codex and OpenCode |
 
 ### Architecture
 
@@ -247,7 +247,7 @@ Built with Vue 3, NestJS, Neo4j/Memgraph, GraphQL, OPA/Rego, and TypeScript MCP.
 | [Frontend](docs/architecture/frontend/FRONTEND_ARCHITECTURE.md) | Vue.js frontend, stores, data flow editor |
 | [Module System](docs/architecture/modules/README.md) | Module interfaces, base classes, packaging |
 | [Data Access Layer](docs/architecture/dt-core/README.md) | Shared TypeScript interfaces and graph operations |
-| [Dethereal](docs/architecture/dethereal/README.md) | Claude Code plugin architecture — skills, agents, MCP tools, control library, sync/publish model |
+| [Dethereal](docs/architecture/dethereal/README.md) | Plugin architecture for Claude Code, Codex and OpenCode — skills, agents, MCP tools, control library, sync/publish model |
 | [Architecture Decision Records](docs/architecture/decisions/) | Rationale behind major technical decisions |
 | [Configuration](docs/CONFIGURATION_GUIDE.md) | Environment variables and deployment settings |
 | [Security Model](docs/SECURITY_MODEL.md) | Security architecture and protections |
@@ -268,7 +268,7 @@ dethernety-oss/
 ├── apps/
 │   ├── dt-ui/                     Vue 3 frontend (Vuetify + Vue Flow)
 │   ├── dt-ws/                     NestJS backend (GraphQL + Bolt/Cypher)
-│   ├── dethereal/                 Claude Code plugin (skills, agents, MCP server) for AI-assisted threat modeling
+│   ├── dethereal/                 Plugin for Claude Code, Codex and OpenCode (skills, agents, MCP server) for AI-assisted threat modeling
 │   └── byodt-console/             Operator console for the BYODt deployment (Go + Vue 3)
 ├── packages/
 │   ├── dt-core/                   Shared TypeScript interfaces and utilities

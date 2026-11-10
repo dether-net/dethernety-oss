@@ -1,0 +1,118 @@
+{
+  "fail-open-auth": [
+    "The orders API validates RS256 tokens against the identity provider's JWKS with issuer and audience checks.",
+    "The webhook receiver rejects any request whose HMAC signature does not match.",
+    "The webhook receiver returns 401 on a bad signature rather than failing open.",
+    "Customers sign in at the identity provider with email and password; failed sign-ins are rejected there.",
+    "Order lookups filter on customer_id and order id with parameterized queries."
+  ],
+  "db-plaintext": [
+    "The webhook receiver connects with sslmode=verify-full against the RDS CA bundle.",
+    "The orders database password is stored in a committed Kubernetes Secret.",
+    "The webhook receiver connects with sslmode=verify-full, and the parameter group sets ssl_min_protocol_version to TLSv1.2.",
+    "Engineers tunnel through the bastion and connect as orders_admin with sslmode=require.",
+    "The orders database is encrypted at rest with a customer-managed KMS key and has pgaudit enabled.",
+    "Log platform: not TLS-only."
+  ],
+  "unauthenticated-admin-listener": [
+    "The gateway's Kong Admin API binds to 127.0.0.1:8444 and its admin GUI uses basic-auth.",
+    "The admin listener on port 9090 accepts traffic only from the operations subnet 10.20.9.0/28.",
+    "Kong's Admin API listens on 127.0.0.1:8444 with KONG_ENFORCE_RBAC off, so the admin API is unauthenticated but only reachable inside the pod.",
+    "The Kong admin GUI requires basic-auth.",
+    "The admin listener on 9090 is exposed through an internal load balancer only.",
+    "The admin listener requires authentication.",
+    "Kong Admin API calls are unauthenticated because RBAC is off, but the Admin API only listens on 127.0.0.1:8444.",
+    "The webhook listener has no auth beyond the HMAC signature.",
+    "Kong's proxy listener has no auth plugin on /health.",
+    "The Postgres listener has no auth via IAM; it uses passwords.",
+    "The bastion SSH listener has no auth by password.",
+    "The admin listener has no authorization checks of its own.",
+    "The order listener has no auth header logging."
+  ],
+  "committed-db-credential": [
+    "The payment vendor API key is pulled from the cloud secret store through an ExternalSecret.",
+    "The orders_admin password lives in the team password manager.",
+    "The services build their DSNs from environment variables; no hardcoded credentials appear in the code.",
+    "The orders_admin password is kept in the team password manager.",
+    "The RDS master password is managed by AWS (manage_master_user_password).",
+    "deploy/orders/secrets.yaml defines ExternalSecrets for the payment vendor and log ingest keys.",
+    "A tracked Secret manifest (deploy/orders/secrets.yaml, not read) is a known finding."
+  ],
+  "shared-db-credential": [
+    "The webhook receiver and the orders API both write to the same PostgreSQL database.",
+    "Each service reads its own log-ingest key from a separate ExternalSecret.",
+    "The admin listener runs in the same process and uses the same database credentials as the public API.",
+    "Everyone signs in to the bastion as the shared ops account with their own key.",
+    "Both services connect to the same orders database on port 5432.",
+    "Each service has its own DB credential.",
+    "The orders_admin DB credential is kept in the team password manager.",
+    "Engineers share the orders_admin credential on the bastion.",
+    "The orders-db-credentials secret is mounted by the orders API.",
+    "Rotate orders-db-credentials quarterly; never share passwords in chat.",
+    "A shareable orders-db-credentials template is checked in.",
+    "Each service should use its own credential instead of orders_app."
+  ],
+  "internet-ssh-without-mfa": [
+    "SSH on the bastion uses public-key authentication, with password login and root login disabled.",
+    "fail2ban bans an address for an hour after five failed SSH logins.",
+    "SSH on the bastion accepts public keys only; root login and password authentication are disabled.",
+    "fail2ban bans an address for an hour after five failed logins.",
+    "The webhook receiver only accepts the payment vendor ranges 198.51.100.0/24 and 203.0.113.0/24.",
+    "The bastion requires MFA for SSH.",
+    "SSH is closed to the internet.",
+    "SSH is open only to the operations VPN range, not to the internet.",
+    "Port 443 on the gateway is open to the internet.",
+    "SSH is open to the VPN range only."
+  ],
+  "bastion-reaches-everything": [
+    "Engineers open an SSH tunnel through the bastion to the orders database on port 5432.",
+    "Orders API egress allows port 443 to the internet but excludes 10.0.0.0/8 and the metadata endpoint.",
+    "The database security group admits 5432 only from the orders CIDR and the ops subnet, not from any host in the VPC.",
+    "Both namespaces start from default-deny NetworkPolicies rather than allow-all egress.",
+    "Orders API egress excludes 10.0.0.0/8, so a compromised pod cannot reach every host in the VPC.",
+    "The Operations Subnet has default-deny egress.",
+    "Namespace orders has allow_list egress to port 443 only.",
+    "The Private DB Subnet has deny_all egress."
+  ],
+  "readable-card-numbers": [
+    "The orders database is encrypted at rest with a customer-managed KMS key.",
+    "Payment events store only the last four digits of the card.",
+    "The gateway forwards checkout bodies carrying cleartext card numbers to the orders API over HTTP.",
+    "Checkout sends untokenized card numbers to the payment vendor over HTTPS.",
+    "Payment events keep only card_last4, and storage is encrypted with a KMS key.",
+    "Card numbers are tokenized before they are stored.",
+    "Card numbers are sent in plaintext from the gateway to the orders API.",
+    "Payment events store only card_last4, never the full card number."
+  ],
+  "plaintext-upstream": [
+    "The gateway terminates TLS 1.2+ with the intermediate cipher profile on port 8443.",
+    "From the bastion, engineers call http://orders-api-admin.orders.internal.orderdesk.example:9090/admin/reindex/orders.",
+    "The gateway terminates TLS 1.2+ on 8443.",
+    "The webhook receiver terminates TLS in the pod with its own certificate.",
+    "The runbook calls the admin listener with curl on port 9090 from the bastion."
+  ],
+  "pii-in-logs": [
+    "The gateway strips the Authorization header from its request logs before shipping them.",
+    "All services ship logs to the log platform over HTTPS with a per-service ingest key.",
+    "Security recommendation: avoid logging PII and secrets in new services.",
+    "The bastion forwards auth.log over HTTPS to the log platform with its own key.",
+    "The gateway's http-log plugin ships request metadata to the log platform with a per-service ingest key.",
+    "The logs contain no PII.",
+    "Logs are shipped to the log platform.",
+    "Customer emails are sent to the identity provider at sign-in.",
+    "The gateway sends request metadata to the log platform.",
+    "Request metadata is sent to the log platform over HTTPS.",
+    "customer_email goes to the database."
+  ],
+  "crown-jewel-under-protected": [
+    "The orders database sits in a private subnet with no public address.",
+    "Customer sign-in credentials are classified Restricted.",
+    "The bastion outbound rules are not adequately restricted.",
+    "The payment vendor API key is a high-value asset but it comes from the cloud secret store."
+  ],
+  "any": [
+    "insecure",
+    "unencrypted",
+    "MFA"
+  ]
+}

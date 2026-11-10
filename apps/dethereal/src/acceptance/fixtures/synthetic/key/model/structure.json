@@ -1,0 +1,236 @@
+{
+  "defaultBoundary": {
+    "id": "b-root",
+    "name": "OrderDesk",
+    "description": "The OrderDesk deployment and the parties it talks to.",
+    "boundaries": [
+      {
+        "id": "b-internet",
+        "name": "Internet",
+        "description": "Customers and on-call engineers on the open internet.",
+        "zone": "UNTRUSTED",
+        "positionX": 40,
+        "positionY": 40,
+        "components": [
+          {
+            "id": "x-customer",
+            "name": "Customer",
+            "description": "A shop customer using the web shop.",
+            "type": "EXTERNAL_ENTITY",
+            "positionX": 40,
+            "positionY": 40,
+            "classData": {
+              "id": "e5a1c8e8-7037-4559-99c2-edf8b8eace6d",
+              "name": "End User"
+            }
+          },
+          {
+            "id": "x-engineer",
+            "name": "On-call engineer",
+            "description": "An operations engineer connecting from their own machine.",
+            "type": "EXTERNAL_ENTITY",
+            "positionX": 260,
+            "positionY": 40,
+            "classData": {
+              "id": "4eb36223-154f-4fa2-9965-bdb6d67dca35",
+              "name": "Administrator"
+            }
+          }
+        ]
+      },
+      {
+        "id": "b-partners",
+        "name": "Vetted partners",
+        "description": "Contracted third parties: payment vendor, identity provider and log platform.",
+        "zone": "VENDOR",
+        "positionX": 600,
+        "positionY": 40,
+        "conduits": [
+          {
+            "peerId": "b-orders",
+            "direction": "OUTBOUND",
+            "justification": "The payment vendor's webhook into the orders application, limited to the vendor's address ranges."
+          }
+        ],
+        "components": [
+          {
+            "id": "x-payvendor",
+            "name": "Payment vendor",
+            "description": "Card processor: charge API and payment status webhooks.",
+            "type": "EXTERNAL_ENTITY",
+            "positionX": 40,
+            "positionY": 220,
+            "classData": {
+              "id": "21280de4-4549-4ca8-88de-f6d812042995",
+              "name": "Payment Service Provider"
+            }
+          },
+          {
+            "id": "x-idp",
+            "name": "Identity provider",
+            "description": "Hosted identity provider where customers sign in; publishes the token signing keys.",
+            "type": "EXTERNAL_ENTITY",
+            "positionX": 260,
+            "positionY": 220,
+            "classData": {
+              "id": "b61aed3e-b30b-4304-943a-0191a59ce0c6",
+              "name": "Third-Party Service"
+            }
+          },
+          {
+            "id": "x-logplatform",
+            "name": "Log platform",
+            "description": "Hosted log platform receiving logs over HTTPS.",
+            "type": "EXTERNAL_ENTITY",
+            "positionX": 40,
+            "positionY": 400,
+            "classData": {
+              "id": "b61aed3e-b30b-4304-943a-0191a59ce0c6",
+              "name": "Third-Party Service"
+            }
+          }
+        ]
+      },
+      {
+        "id": "b-edge",
+        "name": "Edge",
+        "description": "The edge namespace: the public entry point.",
+        "zone": "PUBLIC",
+        "positionX": 40,
+        "positionY": 400,
+        "classData": {
+          "id": "97026f27-3d32-4352-9132-b308b9b93ec1",
+          "name": "Network Segment"
+        },
+        "components": [
+          {
+            "id": "c-edge-gateway",
+            "name": "Edge gateway",
+            "description": "API gateway terminating TLS and routing to the orders API.",
+            "type": "PROCESS",
+            "positionX": 260,
+            "positionY": 400,
+            "classData": {
+              "id": "6d723569-dc75-47dd-8f77-aa679dba1d54",
+              "name": "API Gateway"
+            },
+            "dataItemIds": [
+              "d-order",
+              "d-card",
+              "d-access-token"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "b-orders",
+        "name": "Orders application",
+        "description": "The orders namespace: orders API and webhook receiver.",
+        "zone": "INTERNAL",
+        "positionX": 400,
+        "positionY": 400,
+        "classData": {
+          "id": "97026f27-3d32-4352-9132-b308b9b93ec1",
+          "name": "Network Segment"
+        },
+        "components": [
+          {
+            "id": "c-orders-api",
+            "name": "Orders API",
+            "description": "Orders, checkout and card-on-file storage; admin listener on port 9090.",
+            "type": "PROCESS",
+            "positionX": 40,
+            "positionY": 580,
+            "classData": {
+              "id": "0a9df6cc-1216-49d2-ae5d-f6f850246f6f",
+              "name": "Application Service"
+            },
+            "dataItemIds": [
+              "d-order",
+              "d-card",
+              "d-access-token",
+              "d-admin-commands"
+            ]
+          },
+          {
+            "id": "c-webhook-receiver",
+            "name": "Webhook receiver",
+            "description": "Receives payment status events from the payment vendor.",
+            "type": "PROCESS",
+            "positionX": 260,
+            "positionY": 580,
+            "classData": {
+              "id": "0a9df6cc-1216-49d2-ae5d-f6f850246f6f",
+              "name": "Application Service"
+            },
+            "dataItemIds": [
+              "d-payment-event"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "b-data",
+        "name": "Database subnet",
+        "description": "Private subnet of the managed PostgreSQL instance.",
+        "zone": "INTERNAL",
+        "positionX": 800,
+        "positionY": 400,
+        "classData": {
+          "id": "97026f27-3d32-4352-9132-b308b9b93ec1",
+          "name": "Network Segment"
+        },
+        "components": [
+          {
+            "id": "c-orders-db",
+            "name": "Orders database",
+            "description": "Managed PostgreSQL: customers, orders, stored cards, payment events.",
+            "type": "STORE",
+            "positionX": 40,
+            "positionY": 760,
+            "classData": {
+              "id": "1a92b7a3-eaf7-4f25-8702-77c3044cf735",
+              "name": "Relational Database"
+            },
+            "crownJewel": true,
+            "dataItemIds": [
+              "d-order",
+              "d-card",
+              "d-payment-event"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "b-ops",
+        "name": "Operations subnet",
+        "description": "The operations subnet holding the SSH bastion.",
+        "zone": "PUBLIC",
+        "positionX": 40,
+        "positionY": 760,
+        "classData": {
+          "id": "97026f27-3d32-4352-9132-b308b9b93ec1",
+          "name": "Network Segment"
+        },
+        "components": [
+          {
+            "id": "c-bastion",
+            "name": "Ops bastion",
+            "description": "SSH bastion for manual database and admin access.",
+            "type": "PROCESS",
+            "positionX": 260,
+            "positionY": 760,
+            "classData": {
+              "id": "5ea503cc-b336-4f9d-8ae3-69ae06e76666",
+              "name": "VPN Gateway"
+            },
+            "dataItemIds": [
+              "d-ssh-keys",
+              "d-admin-commands"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

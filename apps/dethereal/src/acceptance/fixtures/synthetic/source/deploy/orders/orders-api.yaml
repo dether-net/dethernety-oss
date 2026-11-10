@@ -1,0 +1,95 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: orders-api
+  namespace: orders
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders-api
+  namespace: orders
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: orders-api
+  template:
+    metadata:
+      labels:
+        app: orders-api
+    spec:
+      serviceAccountName: orders-api
+      containers:
+        - name: orders-api
+          image: registry.orderdesk.example/orders-api@sha256:9b2e5d8c1f4a7e0b3d6c9f2a5e8b1d4c7f0a3e6b9d2c5f8a1e4b7d0c3f6a9e2b
+          args: ["--port", "8080", "--admin-port", "9090"]
+          env:
+            - name: DB_HOST
+              value: orders-db.internal.orderdesk.example
+            - name: DB_NAME
+              value: orders
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: orders-db-credentials
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: orders-db-credentials
+                  key: password
+            - name: IDP_ISSUER
+              value: https://login.idp-partner.example/
+            - name: IDP_AUDIENCE
+              value: orderdesk-api
+            - name: PAYVENDOR_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: payvendor-api
+                  key: api-key
+            - name: LOG_INGEST_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: orders-log-ingest
+                  key: key
+            - name: APP_ENV
+              value: production
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: admin
+              containerPort: 9090
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders-api
+  namespace: orders
+spec:
+  type: ClusterIP
+  selector:
+    app: orders-api
+  ports:
+    - name: http
+      port: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders-api-admin
+  namespace: orders
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internal
+spec:
+  type: LoadBalancer
+  selector:
+    app: orders-api
+  ports:
+    - name: admin
+      port: 9090

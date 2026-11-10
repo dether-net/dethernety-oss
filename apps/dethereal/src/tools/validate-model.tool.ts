@@ -14,7 +14,6 @@ import {
   flattenStructure,
   buildZoningContext,
   resolveEffectiveZone,
-  determineZoneTier,
   computeZoningFindings,
   isStructuralContainer,
   computeContainerSummary,
@@ -38,6 +37,142 @@ import {
 } from '../utils/directory-utils.js'
 import { pathExists } from '../utils/file-utils.js'
 import { credentialClassHint, type CredentialHintReason } from '../data/credential-classes.js'
+import { evaluate, readLoopBack, roundOf, tally, untouchedMessage, UNREADABLE_MESSAGE } from '../utils/loop-back.js'
+import { classifyTiers, crossBoundaryComponentIds, proposedZoneTier, type Tier } from '../utils/tiers.js'
+import {
+  type AttributeResidual,
+  computeAttributeResidual,
+  computeGates,
+  computeGatesWithView,
+  crownJewelIds,
+  GateInputError,
+  type GateCheck,
+  type GateFailure,
+  type GatesResult,
+  MAX_FAILING,
+  isPlaceholderList,
+  isNotApplicable,
+  isStandIn,
+  leftUnclassifiedIds,
+  loadGateInput,
+  mayAnswerNotApplicable,
+  readClassTemplates,
+  safeErrorMessage,
+  TRANSIT_ALIASES,
+  waiverVerifier,
+} from '../utils/gates.js'
+import { authenticationClaimed, encryptionClaim, flowAuthentication, normToken } from '../utils/lints.js'
+import { readRepoJson, readState, StateFileError, updateDetherealJson } from '../utils/state-store.js'
+import type { SettlementMode } from '../utils/settlement-switch.js'
+
+/**
+ * The waivers recorded in the model's state, with this machine's verifier.
+ * Only the `waivers` key is read; a state file the store refuses means no
+ * waiver applies.
+ */
+/**
+ * The gates, held by the loop-back guard: while an armed loop-back has an element neither touched nor dropped, or
+ * its record cannot be read, Gates 1 and 2 are computed as usual and Gate 3 is not; its place holds why, and the
+ * untouched elements as the loop's worklist. Reading never changes the record.
+ */
+async function guardedGates(dirPath: string, settlement?: SettlementMode): Promise<GuardedGates> {
+  const { result, view } = computeGatesWithView(await loadGateInput(dirPath, { settlement }), await storedWaivers(dirPath))
+  const read = await readLoopBack(dirPath)
+  if (read.state === 'none') return result
+  if (read.state === 'unreadable') {
+    return { ...result, gate3: { verdict: 'NOT_COMPUTED', code: 'loop_back_unreadable', message: UNREADABLE_MESSAGE } }
+  }
+  const outcomes = evaluate(read.record, view)
+  const counts = tally(outcomes)
+  if (counts.untouched_total) {
+    return {
+      ...result,
+      gate3: { verdict: 'NOT_COMPUTED', code: 'loopback_untouched', message: untouchedMessage(counts.untouched, counts.untouched_total), loop_back: counts },
+    }
+  }
+  return { ...result, loop_back_round: roundOf(outcomes) }
+}
+
+/** A gates report as the loop-back guard leaves it: Gate 3 held back, or computed with the round's outcome. */
+type GuardedGates =
+  | (GatesResult & { loop_back_round?: ReturnType<typeof roundOf> })
+  | (Omit<GatesResult, 'gate3'> & {
+      gate3: { verdict: 'NOT_COMPUTED'; code: 'loopback_untouched' | 'loop_back_unreadable'; message: string; loop_back?: ReturnType<typeof tally> }
+    })
+
+/**
+ * A gates report without what it repeats: a passing check keeps its verdict and value, and a failure with field gaps
+ * keeps the fields (`missing`, `placeholder`) without `detail`, which says the same in words.
+ */
+export function trimGates(r: GuardedGates): GuardedGates {
+  const check = (c: GateCheck): GateCheck | Pick<GateCheck, 'verdict' | 'value'> => {
+    if (c.verdict === 'PASS' && !c.failing.length && !c.waived?.length) return { verdict: c.verdict, value: c.value }
+    return { ...c, failing: c.failing.map((f: GateFailure) => (f.missing || f.placeholder) ? (({ detail: _detail, ...rest }) => rest)(f) : f) }
+  }
+  const checks = (cs: Record<string, GateCheck>) => Object.fromEntries(Object.entries(cs).map(([k, c]) => [k, check(c)]))
+  const out = { ...r, gate1: { ...r.gate1, checks: checks(r.gate1.checks) }, gate2: { ...r.gate2, checks: checks(r.gate2.checks) } } as GuardedGates
+  if ('criteria' in r.gate3) (out.gate3 as { criteria: unknown }).criteria = checks(r.gate3.criteria)
+  return out
+}
+
+/** How many ids a warning Gate 1 check lists in a summary: a warning is advisory, `failing_total` says the rest. */
+export const SUMMARY_GATE1_IDS = 3
+
+/**
+ * A gates report for a progress check: verdicts, totals and failing ids, the Gate 3 report, no field lists. A Gate 1
+ * check that only warns lists its first `SUMMARY_GATE1_IDS` ids; a failing one, and Gates 2 and 3, list every failing id.
+ */
+export function summariseGates(r: GuardedGates): Record<string, unknown> {
+  const brief = (c: GateCheck | Pick<GateCheck, 'verdict' | 'value'>, warnMax = Infinity) =>
+    'failing' in c && c.failing.length
+      ? { verdict: c.verdict, failing_total: c.failing_total, failing: c.failing.slice(0, c.verdict === 'WARN' ? warnMax : Infinity).map((f: GateFailure) => f.id) }
+      : c.verdict
+  const checks = (cs: Record<string, GateCheck>, max?: number) => Object.fromEntries(Object.entries(cs).map(([k, c]) => [k, brief(c, max)]))
+  const g3 = r.gate3
+  const gate3 = 'criteria' in g3
+    ? {
+      verdict: g3.verdict, verdict_without_waivers: g3.verdict_without_waivers, criteria: checks(g3.criteria), waived_total: g3.waived_total,
+      report: g3.report, loopback: { elements_total: g3.loopback.elements.length },
+      ...('loop_back_round' in r && r.loop_back_round ? { loop_back_round: r.loop_back_round } : {}),
+    }
+    : g3
+  return {
+    detail: 'summary', lints_total: r.lints.length,
+    gate1: { verdict: r.gate1.verdict, checks: checks(r.gate1.checks, SUMMARY_GATE1_IDS) }, gate2: { verdict: r.gate2.verdict, checks: checks(r.gate2.checks) }, gate3,
+  }
+}
+
+/** A quality result for a progress check: the score and factors, and the five elements with the most unresolved fields. */
+export function summariseQuality(q: QualityOutput): Record<string, unknown> {
+  const { top_unresolved: top, ...residual } = q.attribute_residual
+  return {
+    ...q, detail: 'summary',
+    attribute_residual: { ...residual, top_unresolved: top.slice(0, 5).map((e) => ({ element: e.element, class: e.class, unresolved: e.unresolved, declared: e.declared })) },
+  }
+}
+
+/**
+ * The elements the operator left unclassified, from `.dethereal/discovery.json`. A missing or unreadable file
+ * excludes nothing.
+ */
+async function leftUnclassified(dirPath: string): Promise<Set<string>> {
+  try {
+    return leftUnclassifiedIds(await readRepoJson(dirPath, '.dethereal/discovery.json', { baseDir: dirPath, maxBytes: 32 * 1024 * 1024 }))
+  } catch {
+    return new Set()
+  }
+}
+
+async function storedWaivers(dirPath: string): Promise<{ waivers?: unknown; verifyWaiver?: Awaited<ReturnType<typeof waiverVerifier>> }> {
+  let waivers: unknown
+  try {
+    waivers = (await readState(dirPath))?.waivers
+  } catch {
+    return {}
+  }
+  // The key is read only when there is something to verify.
+  return Array.isArray(waivers) && waivers.length ? { waivers, verifyWaiver: await waiverVerifier(dirPath) } : {}
+}
 
 // Define validation schemas for individual files
 const ManifestSchema = z.object({
@@ -132,15 +267,23 @@ const AttributesSchema = z.object({
 const FileTypeEnum = z.enum(['manifest', 'structure', 'dataflows', 'data-items', 'attributes'])
 type FileType = z.infer<typeof FileTypeEnum>
 
-const ActionEnum = z.enum(['validate', 'quality', 'coverage', 'zoning']).optional().default('validate')
+const ActionEnum = z.enum(['validate', 'quality', 'coverage', 'zoning', 'gates']).optional().default('validate')
 
 const InputSchema = z.object({
-  action: ActionEnum.describe("Action: 'validate' checks schema/references, 'quality' computes quality score (0-100), 'coverage' analyzes control coverage, 'zoning' computes per-boundary trust determination (zone/tier/findings) offline"),
-  assets: z.enum(['full', 'skeleton']).optional().default('full').describe("For action 'zoning' only: 'skeleton' omits the asset join so RESTRICTED is never proposed (the Step-4 trust skeleton — external + exposure + INTERNAL); 'full' (default) is the close-of-Step-7 / Step-9 determination where qualifying internal boundaries can promote to RESTRICTED"),
+  action: ActionEnum.describe("Action: 'validate' checks schema/references, 'quality' computes quality score (0-100), 'coverage' analyzes control coverage, 'zoning' computes per-boundary trust determination (zone/tier/findings) offline, 'gates' computes Gates 1–3 (Gate 3 criteria C1–C9) with per-element failures"),
+  assets: z.enum(['full', 'skeleton']).optional().default('full').describe("For action 'zoning', and validate's include zoning: 'skeleton' omits the asset join so RESTRICTED is never proposed (the Step-4 trust skeleton — external + exposure + INTERNAL); 'full' (default) is the close-of-Step-7 / Step-9 determination where qualifying internal boundaries can promote to RESTRICTED"),
   directory_path: z.string().optional().describe('Path to model directory to validate (validates entire directory)'),
   model_id: z.string().optional().describe('Model ID for online coverage analysis (requires authentication)'),
   data: z.union([z.string(), z.record(z.string(), z.any())]).optional().describe('JSON data to validate (string or object)'),
-  file_type: FileTypeEnum.optional().describe('Type of file to validate when using data parameter')
+  file_type: FileTypeEnum.optional().describe('Type of file to validate when using data parameter'),
+  include: z.array(z.enum(['gates', 'zoning'])).min(1).max(2).optional().describe(
+    "For 'validate' with directory_path: also return the gates and/or the zoning, each exactly as its own action returns it " +
+    '(detail applies to gates, assets to zoning); a part that cannot be computed comes back as gates_unavailable or zoning_unavailable'),
+  detail: z.enum(['summary', 'full']).optional().default('full').describe(
+    "For 'gates' (and validate's include gates) and 'quality' only. 'full' (default): every failing element with its fields, the loop-back worklist, and " +
+    "attribute_residual.top_unresolved with its fields — what Step 9's gap list, a loop back and the enrichment worklist " +
+    "read. 'summary': per criterion its verdict, failing_total and the failing ids (a Gate 1 warning: its first 3); the Gate 3 report; for quality the " +
+    "score, its factors and the five elements with the most unresolved fields, without field lists. Use summary for a progress check.")
 })
 
 type ValidateInput = z.infer<typeof InputSchema>
@@ -155,18 +298,27 @@ interface ValidationWarning {
   file: string
   path?: string
   message: string
+  /** How many identical warnings this one stands for, when more than one */
+  count?: number
+}
+
+/** The warnings with each identical one listed once, with how many it stands for. */
+export function collapseWarnings(warnings: ValidationWarning[]): ValidationWarning[] {
+  const seen = new Map<string, ValidationWarning>()
+  for (const w of warnings) {
+    const k = JSON.stringify([w.file, w.path ?? null, w.message])
+    const prior = seen.get(k)
+    if (prior) prior.count = (prior.count ?? 1) + 1
+    else seen.set(k, { ...w })
+  }
+  return [...seen.values()]
 }
 
 interface ValidateOutput {
   valid: boolean
   errors: ValidationError[]
   warnings: ValidationWarning[]
-  files_validated?: string[]
 }
-
-/** Caps that keep the residual worklist usable on a several-hundred-element model. */
-const MAX_RESIDUAL_ELEMENTS = 25
-const MAX_RESIDUAL_FIELDS_PER_ELEMENT = 12
 
 interface QualityFactor {
   value: number
@@ -188,28 +340,8 @@ interface QualityOutput {
    * Which class template fields are still unresolved, and where. This is the
    * enrichment worklist: `attribute_completion_rate` compresses it to one
    * number, and a number cannot tell an operator what to go and answer.
-   * `top_unresolved` is capped so the payload stays usable on a large model.
    */
-  attribute_residual: {
-    declared: number
-    resolved: number
-    unresolved: number
-    /** Classified elements with a known template — the ones the ratio is computed over. */
-    elements_scored: number
-    /** Elements with no class binding — excluded from the ratio, not scored either way. */
-    elements_unclassified: number
-    /** Classified, but no cached template — excluded from the ratio. */
-    elements_without_template: number
-    /** Set when the ratio fell back to file-presence because no class cache exists. */
-    basis: 'template' | 'file-presence'
-    /**
-     * Classified elements the ratio could NOT measure, by name. A bare count is
-     * unactionable; the names point straight at the fix (usually: run
-     * generate_attribute_stubs so the class template is cached).
-     */
-    blocked: Array<{ element: string; class_id: string }>
-    top_unresolved: Array<{ element: string; class: string; unresolved: number; declared: number; fields: string[] }>
-  }
+  attribute_residual: AttributeResidual
   model_name: string
   warnings?: string[]
   /**
@@ -217,6 +349,25 @@ interface QualityOutput {
    * enrichment workflow to propose; it never sets the field and does not change the score.
    */
   credential_hints?: Array<{ id: string; name: string; class: string; reason: CredentialHintReason }>
+  /** The result was recorded in `.dethereal/quality.json`, which status and help read */
+  quality_recorded?: boolean
+}
+
+/**
+ * Record a quality result in the model's `.dethereal/quality.json`, exactly as
+ * returned, through the state store (its lock, an atomic write, no links). The
+ * result then says whether it was recorded; a failure is a warning, never an error.
+ */
+async function recordQuality(dir: string, data: QualityOutput): Promise<void> {
+  try {
+    const payload = structuredClone(data) as unknown as Record<string, unknown>
+    await updateDetherealJson(dir, 'quality.json', () => payload, { createIfMissing: true })
+    data.quality_recorded = true
+  } catch (error) {
+    const code = error instanceof StateFileError ? error.code : 'io'
+    data.quality_recorded = false
+    data.warnings = [...(data.warnings ?? []), `.dethereal/quality.json could not be recorded (${code}).`]
+  }
 }
 
 interface CategoryCoverage {
@@ -233,16 +384,31 @@ interface InferredCategoryBreakdown {
 }
 
 interface TierCoverage {
+  /** Classified non-external components in the tier. */
   total: number
   with_controls: number
-  gaps: string[]
+  /** Components without a formal control, at most `MAX_FAILING`. */
+  gaps: Array<{ id: string; name?: string }>
+  gaps_total: number
+  /** Non-external components in the tier with no class, left out of `total`. */
+  unclassified: number
 }
 
+/**
+ * Formal control coverage by the gates' tiers (the same `classifyTiers` read of
+ * the same model). Labels overlap the tiers: never add them to a tier.
+ */
 interface FormalTierBreakdown {
-  tier_1_crown_jewels: TierCoverage
-  tier_2_cross_boundary: TierCoverage
-  tier_3_internet_facing: TierCoverage
-  tier_4_internal: TierCoverage
+  tier_1_internet_facing: TierCoverage
+  tier_2_crown_jewel_or_restricted: TierCoverage
+  tier_3_internal: TierCoverage
+  labels: { crown_jewels: TierCoverage; cross_boundary: TierCoverage }
+  /** The cross-boundary flows (capped) and what their attributes say about authentication. */
+  cross_boundary_flows: Array<{ id: string; name?: string; authentication: 'declared' | 'declared_none' | 'undeclared' }>
+  cross_boundary_flows_total: number
+  externals_excluded: number
+  /** Tier 3 components in no declared or inherited zone. */
+  tier_3_unzoned: number
 }
 
 interface SourceBreakdown {
@@ -301,13 +467,24 @@ interface ZoningOutput {
   findings: ZoningFinding[]
 }
 
-export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOutput | QualityOutput | CoverageOutput | ZoningOutput> {
+/** A gates or quality reply at `detail: 'summary'`. */
+type SummaryOutput = Record<string, unknown>
+
+export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOutput | QualityOutput | CoverageOutput | ZoningOutput | GuardedGates | SummaryOutput> {
   readonly name = 'validate_model_json'
-  readonly description = 'Validate a threat model JSON structure, compute a quality score (0-100), analyze control coverage, or compute boundary trust zoning. Use action "validate" for schema checks, "quality" for enrichment progress, "coverage" for control gap analysis, or "zoning" for per-boundary trust determination.'
+  readonly description = 'Validate a threat model JSON structure, compute a quality score (0-100), analyze control coverage, compute boundary trust zoning, or compute the quality gates. Use action "validate" for schema checks, "quality" for enrichment progress, "coverage" for control gap analysis, "zoning" for per-boundary trust determination, or "gates" for Gates 1–3 (Gate 3 criteria C1–C9 decide whether the model can be REVIEWED).'
   readonly inputSchema = InputSchema
 
-  async execute(input: ValidateInput, context: ToolContext): Promise<ToolResult<ValidateOutput | QualityOutput | CoverageOutput | ZoningOutput>> {
+  async execute(input: ValidateInput, context: ToolContext): Promise<ToolResult<ValidateOutput | QualityOutput | CoverageOutput | ZoningOutput | GuardedGates | SummaryOutput>> {
     try {
+      if (input.include !== undefined && (input.action !== 'validate' || !input.directory_path)) {
+        return {
+          success: false,
+          error: "include adds the gates or the zoning to a model directory's validate: give it with action 'validate' and directory_path",
+          data: { codes: ['include_scope'] } as never,
+        }
+      }
+
       // Coverage action
       if (input.action === 'coverage') {
         return await this.computeCoverage(input, context)
@@ -318,8 +495,16 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
         if (!input.directory_path) {
           return { success: false, error: 'directory_path is required for zoning action' }
         }
-        await validatePathConfinement(input.directory_path)
+        input.directory_path = await validatePathConfinement(input.directory_path)
         return await this.computeZoning(input.directory_path, input.assets)
+      }
+
+      // Gates action — Gates 1–3 from the model files
+      if (input.action === 'gates') {
+        if (!input.directory_path) {
+          return { success: false, error: 'directory_path is required for gates action' }
+        }
+        return await this.gates(await validatePathConfinement(input.directory_path), input.directory_path, input.detail, context.settlement)
       }
 
       // Quality score action
@@ -327,14 +512,19 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
         if (!input.directory_path) {
           return { success: false, error: 'directory_path is required for quality action' }
         }
-        await validatePathConfinement(input.directory_path)
-        return await this.computeQuality(input.directory_path)
+        input.directory_path = await validatePathConfinement(input.directory_path)
+        const result = await this.computeQuality(input.directory_path)
+        // The whole result is recorded, whatever the reply's detail.
+        if (result.success && result.data) await recordQuality(input.directory_path, result.data)
+        return input.detail === 'summary' && result.success && result.data ? { ...result, data: summariseQuality(result.data) } : result
       }
 
       // Validate path confinement if directory path provided
       if (input.directory_path) {
-        await validatePathConfinement(input.directory_path)
-        return await this.validateDirectory(input.directory_path)
+        input.directory_path = await validatePathConfinement(input.directory_path)
+        const validated = await this.validateDirectory(input.directory_path, context.settlement)
+        if (!input.include?.length || !validated.success || !validated.data) return validated
+        return { success: true, data: { ...validated.data, ...(await this.included(input.directory_path, input, context)) } }
       }
 
       // Validate inline data if provided
@@ -348,25 +538,50 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
       }
 
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Validation failed'
+      return { success: false, error: safeErrorMessage(error, 'Validation failed') }
+    }
+  }
+
+  /** The gates of a model directory, as action 'gates' returns them; `shown` is the path as the caller gave it. */
+  private async gates(dirPath: string, shown: string, detail: ValidateInput['detail'], settlement: SettlementMode | undefined): Promise<ToolResult<GuardedGates | SummaryOutput>> {
+    if (!await pathExists(dirPath)) return { success: false, error: `Directory not found: ${shown}` }
+    if (!await isModelDirectory(dirPath)) return { success: false, error: `Not a valid model directory: ${shown}` }
+    const gates = trimGates(await guardedGates(dirPath, settlement))
+    return { success: true, data: detail === 'summary' ? summariseGates(gates) : gates }
+  }
+
+  /**
+   * The parts validate's include asks for, each as its own action returns it: one that cannot be computed is
+   * `<part>_unavailable` with why, and the others still come.
+   */
+  private async included(dirPath: string, input: ValidateInput, context: ToolContext): Promise<Record<string, unknown>> {
+    const out: Record<string, unknown> = {}
+    const part = async (name: 'gates' | 'zoning', run: () => Promise<ToolResult<unknown>>) => {
+      try {
+        const r = await run()
+        if (r.success) out[name] = r.data
+        else out[`${name}_unavailable`] = { code: `${name}_failed`, message: r.error ?? 'failed' }
+      } catch (err) {
+        out[`${name}_unavailable`] = { code: err instanceof GateInputError ? err.code : `${name}_failed`, message: safeErrorMessage(err, `${name} failed`) }
       }
     }
+    if (input.include!.includes('gates')) await part('gates', () => this.gates(dirPath, dirPath, input.detail, context.settlement))
+    if (input.include!.includes('zoning')) await part('zoning', () => this.computeZoning(dirPath, input.assets))
+    return out
   }
 
   /**
    * Offline boundary trust determination. Reads the local split files, runs the dt-core
-   * determination engine (S6a/S6b), and returns the per-boundary zone/tier + coherence findings.
+   * determination engine (cascade + context builder), and returns the per-boundary zone/tier + coherence findings.
    * The asset signals (crownJewel / sensitivity / regulatory_flags) are first-class on the
    * structure + data items, so no attribute read is needed.
    *
-   * `assets` selects the determination phase (S9): 'skeleton' blanks `ctx.assetIds` so rule 3
+   * `assets` selects the determination phase: 'skeleton' blanks `ctx.assetIds` so rule 3
    * (RESTRICTED) is structurally unreachable — the Step-4 trust skeleton sets external + exposure +
    * INTERNAL only, with RESTRICTED deferred to the close-of-Step-7 promotion. The blanked context is
    * fed to BOTH the per-boundary cascade and `computeZoningFindings`, so asset-dependent findings
    * (under-protected/misplaced) also defer — only `unclassified`/`mgmt-plane` surface at Step 4.
-   * 'full' (default) is the unchanged S7 behaviour (Step 9 / model-reviewer, where assets are known).
+   * 'full' (default) is the complete determination (Step 9 / model-reviewer, where assets are known).
    */
   private async computeZoning(
     dirPath: string,
@@ -383,6 +598,12 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     const dataFlows = await readDataFlows(dirPath) // normalizes [] and { dataFlows: [] }
     const dataItems = await readDataItems(dirPath)
     const ctx = buildZoningContext(structure, dataFlows, dataItems)
+    // A boundary's own enforcement attributes: one that allows any inbound traffic is proposed PUBLIC.
+    const attributes = await readAttributes(dirPath, { structure, dataFlows, dataItems })
+    const allowAnyInbound = (id: string): unknown => {
+      const entry = (attributes.boundaries as Record<string, { attributes?: Record<string, unknown> } | undefined>)[id]
+      return entry?.attributes?.allow_any_inbound
+    }
     // Skeleton phase: empty BOTH asset sets once and use them for the cascade AND the findings, so no
     // boundary can reach rule 3 (RESTRICTED) and no asset-dependent finding fires at Step 4. (The RESTRICTED
     // gate reads directAssetIds, so blanking assetIds alone would let the skeleton wrongly promote.)
@@ -395,7 +616,7 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     for (const [id, boundary] of effCtx.boundariesById) {
       if (id === effCtx.defaultBoundaryId) continue // the root container is not a classified segment
       const resolved = resolveEffectiveZone(id, effCtx.boundariesById, effCtx.defaultBoundaryId)
-      const tier = determineZoneTier(boundary, effCtx)
+      const tier = proposedZoneTier(boundary, effCtx, allowAnyInbound(id))
       // Display roll-up: structural containers only, and never at skeleton (both asset sets are blanked
       // there, so containsAssets/RESTRICTED would silently understate — the roll-up is a full-phase artifact).
       const summary =
@@ -429,7 +650,7 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
    * (no ingress / no asset) is low.
    *
    * This is intentionally distinct from the scout's discovery-time `classificationConfidence` on a
-   * `suggestedZone` (S8) — that confidence is rendered agent-side in the Step-4 trust table (S9). The
+   * `suggestedZone` — that confidence is rendered agent-side in the Step-4 trust table. The
    * two coexist by design: structure.json carries no per-boundary confidence to join them on, so the
    * offline determination derives its own certainty rather than depending on a discovery artifact.
    */
@@ -450,140 +671,6 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
       return `inherited from ${fromName}`
     }
     return `unclassified — defaults to ${resolved.zone}`
-  }
-
-  /**
-   * Load the class templates cached under `.dethereal/class-cache/`, keyed by
-   * class id.
-   *
-   * The cache is the right basis for measuring enrichment and the
-   * `.dethereal/template-fields/` manifests are not: the cache is keyed by
-   * CLASS id, which survives the local-id → platform-id remap on first push,
-   * whereas the manifests are keyed by ELEMENT id and are re-keyed only
-   * alongside it. It is also the same artefact the enricher itself reads, so
-   * the metric measures the enricher against its own checklist.
-   *
-   * Returns an empty map when the model has no cache (never enriched, or built
-   * before caching existed) — the caller falls back and says so.
-   */
-  private async readClassTemplates(
-    dirPath: string,
-  ): Promise<Map<string, { name: string; fields: string[]; componentType?: string }>> {
-    const out = new Map<string, { name: string; fields: string[]; componentType?: string }>()
-    const cacheDir = path.join(dirPath, '.dethereal', 'class-cache')
-
-    let entries: string[]
-    try {
-      entries = await fs.readdir(cacheDir)
-    } catch {
-      return out
-    }
-
-    for (const entry of entries) {
-      if (!entry.endsWith('.json')) continue
-      try {
-        const raw = JSON.parse(await fs.readFile(path.join(cacheDir, entry), 'utf-8'))
-        const props = raw?.template?.schema?.properties
-        if (!props || typeof props !== 'object') continue
-        out.set(raw.classId ?? entry.slice(0, -'.json'.length), {
-          name: raw.className ?? 'unknown',
-          fields: Object.keys(props),
-          componentType: typeof raw.componentType === 'string' ? raw.componentType : undefined,
-        })
-      } catch {
-        // A corrupt cache entry costs precision on one class, never the score.
-      }
-    }
-    return out
-  }
-
-  /**
-   * Measure how many class template fields actually carry a value.
-   *
-   * This replaces a file-presence count. `Object.keys(attributes.components)`
-   * counts one entry per ELEMENT, so a stub whose every field is null — or an
-   * `attributes: {}` — scored identically to a fully enriched element, and the
-   * factor named "attribute completion" could read 1.0 with nothing enriched.
-   * It also looked only at components and data items, ignoring boundary and
-   * data-flow templates entirely.
-   *
-   * Elements with no class, or whose class is not in the cache, are counted in
-   * `elements_without_template` and left OUT of the ratio: counting them as
-   * complete overstates readiness, and counting them as incomplete punishes a
-   * model for a cache miss. Excluding them keeps the ratio honest about what it
-   * measured, and the count says how much it could not see.
-   */
-  private computeAttributeResidual(
-    population: Array<{ id: string; name?: string; group: string; classData?: { id?: string } | null }>,
-    attributes: ConsolidatedAttributesFile,
-    templates: Map<string, { name: string; fields: string[]; componentType?: string }>,
-  ): QualityOutput['attribute_residual'] {
-    let declared = 0
-    let resolved = 0
-    let withoutTemplate = 0
-    let unclassified = 0
-    let scored = 0
-    const blocked: Array<{ element: string; class_id: string }> = []
-    const per: Array<{ element: string; class: string; unresolved: number; declared: number; fields: string[] }> = []
-
-    for (const el of population) {
-      // The class binding comes from the STRUCTURE, never from the attribute
-      // file's embedded `classData` — that is a copy written at stub time and is
-      // the stale one after a reclassification.
-      const classId = el.classData?.id
-      if (!classId) { unclassified++; continue }
-
-      const template = templates.get(classId)
-      if (!template) {
-        withoutTemplate++
-        if (blocked.length < MAX_RESIDUAL_ELEMENTS) blocked.push({ element: el.name || el.id, class_id: classId })
-        continue
-      }
-
-      // An element with no attribute entry at all is fully unresolved, not
-      // absent from the denominator. This is the case that must not be skipped:
-      // an export omits the attribute entry for every classified-but-unenriched
-      // element, so iterating the attribute tree instead of the structure would
-      // drop exactly the elements carrying the largest residual and report a
-      // completion rate that climbs as enrichment gets worse.
-      const bag = (attributes as Record<string, Record<string, ElementAttributes> | undefined>)[el.group]
-      const entry = bag?.[el.id]
-      const values = (entry?.attributes ?? {}) as Record<string, unknown>
-      // hasOwnProperty, not `in`: `in` walks the prototype chain, so a template
-      // field named `toString` / `constructor` / `valueOf` would score as
-      // resolved on every element and inflate the completion rate — the exact
-      // "reports better than reality" failure this factor was rewritten to stop.
-      const has = (k: string): boolean => Object.prototype.hasOwnProperty.call(values, k)
-      const missing = template.fields.filter((f) => !has(f) || values[f] === null || values[f] === undefined)
-
-      scored++
-      declared += template.fields.length
-      resolved += template.fields.length - missing.length
-
-      if (missing.length > 0) {
-        per.push({
-          element: el.name || entry?.elementName || el.id,
-          class: template.name,
-          unresolved: missing.length,
-          declared: template.fields.length,
-          fields: missing.slice(0, MAX_RESIDUAL_FIELDS_PER_ELEMENT),
-        })
-      }
-    }
-
-    per.sort((a, b) => b.unresolved - a.unresolved)
-
-    return {
-      declared,
-      resolved,
-      unresolved: declared - resolved,
-      elements_scored: scored,
-      elements_unclassified: unclassified,
-      elements_without_template: withoutTemplate,
-      basis: 'template',
-      blocked,
-      top_unresolved: per.slice(0, MAX_RESIDUAL_ELEMENTS),
-    }
   }
 
   /**
@@ -624,9 +711,6 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     const totalComponents = allComponentIds.size
     const totalBoundaries = allBoundaryIds.size
 
-    // Build component-to-boundary mapping for cross-boundary flow detection
-    const componentBoundaryMap = this.buildComponentBoundaryMap(structure.defaultBoundary)
-
     // Factor 1: component_classification_rate (weight 25)
     let classifiedComponents = 0
     for (const compId of allComponentIds) {
@@ -644,7 +728,7 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     // Factor 2: attribute_completion_rate (weight 20)
     // Measures template fields that carry a VALUE, across all four element
     // groups — see computeAttributeResidual for why file presence was wrong.
-    const classTemplates = await this.readClassTemplates(dirPath)
+    const { templates: classTemplates } = await readClassTemplates(dirPath)
 
     // Population = every element in the model, from the structural files. Not
     // the attribute tree — see computeAttributeResidual.
@@ -655,7 +739,11 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
       ...dataFlows.map((f) => ({ id: f.id, name: f.name, group: 'dataFlows', classData: f.classData })),
       ...dataItems.map((d) => ({ id: d.id, name: d.name, group: 'dataItems', classData: d.classData })),
     ]
-    const attributeResidual = this.computeAttributeResidual(residualPopulation, attributes, classTemplates)
+    // Not open to classification: the elements the operator left unclassified, and the root container, which is not a
+    // classified segment.
+    const notOpen = await leftUnclassified(dirPath)
+    if (structure.defaultBoundary?.id) notOpen.add(structure.defaultBoundary.id)
+    const attributeResidual = computeAttributeResidual(residualPopulation, attributes, classTemplates, notOpen)
 
     let attributeCompletionRate: number
     let attributeCompletionNote: string | undefined
@@ -768,25 +856,30 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     }
 
     // Factor 7: credential_coverage_rate (weight 5)
-    // Percentage of cross-boundary data flows with credential_type set (not "none")
+    // Cross-boundary flows (the set Gate 3's C3 uses) whose credential question is
+    // answered: required_credentials recorded as a list, [] for "none", never a
+    // placeholder. It measures that the question was answered, not how strong the
+    // credential is; the note gives the share answered with [].
+    const crossIds = classifyTiers({ structure, dataFlows, dataItems }).crossBoundaryFlowIds
     let crossBoundaryFlows = 0
     let crossBoundaryWithCreds = 0
+    let crossBoundaryEmpty = 0
     for (const flow of dataFlows) {
-      const sourceBoundary = componentBoundaryMap.get(flow.source?.id || '')
-      const targetBoundary = componentBoundaryMap.get(flow.target?.id || '')
-      if (sourceBoundary && targetBoundary && sourceBoundary !== targetBoundary) {
-        crossBoundaryFlows++
-        const flowAttrs = attributes.dataFlows?.[flow.id]
-        if (flowAttrs) {
-          const credType = (flowAttrs as any).credential_type || (flowAttrs as any).attributes?.credential_type
-          if (credType && credType !== 'none') {
-            crossBoundaryWithCreds++
-          }
-        }
+      if (!crossIds.has(flow.id)) continue
+      crossBoundaryFlows++
+      const values = ((attributes.dataFlows?.[flow.id] as any)?.attributes ?? {}) as Record<string, unknown>
+      const rc = values.required_credentials
+      if (Object.prototype.hasOwnProperty.call(values, 'required_credentials') && Array.isArray(rc) &&
+        !isStandIn(rc) && !isPlaceholderList(rc)) {
+        crossBoundaryWithCreds++
+        if (rc.length === 0) crossBoundaryEmpty++
       }
     }
     const credentialCoverageRate = crossBoundaryFlows > 0
       ? crossBoundaryWithCreds / crossBoundaryFlows : 0
+    const credentialCoverageNote = crossBoundaryWithCreds > 0
+      ? `${crossBoundaryEmpty} of ${crossBoundaryWithCreds} answered flows record no credential ([])`
+      : undefined
 
     // Credential hints: items whose class suggests a credential while is_credential is unanswered. A hint only;
     // an answered false is respected, and the score does not depend on it.
@@ -803,7 +896,7 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     // Say so, or the score drop looks like unfinished enrichment.
     for (const issue of attributeIssues) {
       warnings.push(
-        `${issue.file} could not be read (${issue.reason}) — it is counted as unenriched, ` +
+        `${issue.file} could not be read — it is counted as unenriched, ` +
         `which lowers the score. Fix or restore the file; the next push may overwrite it.`,
       )
     }
@@ -866,7 +959,7 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
           data_flow_coverage: { value: dataFlowCoverage, weight: 15 },
           data_classification_rate: { value: dataClassificationRate, weight: 10 },
           control_coverage_rate: { value: controlCoverageRate, weight: 10, ...(controlCoverageNote ? { note: controlCoverageNote } : {}) },
-          credential_coverage_rate: { value: credentialCoverageRate, weight: 5 }
+          credential_coverage_rate: { value: credentialCoverageRate, weight: 5, ...(credentialCoverageNote ? { note: credentialCoverageNote } : {}) }
         },
         element_counts: {
           boundaries: totalBoundaries,
@@ -901,13 +994,19 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
         let formal_coverage: FormalTierBreakdown | undefined
         let source_breakdown: SourceBreakdown | undefined
         let readWarnings: string[] = []
-        if (input.directory_path && await pathExists(input.directory_path) && await isModelDirectory(input.directory_path)) {
-          await validatePathConfinement(input.directory_path)
-          const localData = await this.computeLocalCoverageBreakdown(input.directory_path)
-          inferred_coverage = localData.inferred_coverage
-          formal_coverage = localData.formal_coverage
-          source_breakdown = localData.source_breakdown
-          readWarnings = this.coverageReadWarnings(localData.attribute_issues)
+        const localDir = input.directory_path ? await validatePathConfinement(input.directory_path).catch(() => null) : null
+        if (localDir && await pathExists(localDir) && await isModelDirectory(localDir)) {
+          input.directory_path = localDir
+          try {
+            const localData = await this.computeLocalCoverageBreakdown(input.directory_path)
+            inferred_coverage = localData.inferred_coverage
+            formal_coverage = localData.formal_coverage
+            source_breakdown = localData.source_breakdown
+            readWarnings = this.coverageReadWarnings(localData.attribute_issues)
+          } catch (err) {
+            // The platform result stands; only the local breakdown is lost.
+            readWarnings = [`The local model could not be read, so the per-tier breakdown is omitted (${safeErrorMessage(err)}).`]
+          }
         }
 
         return {
@@ -940,7 +1039,7 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
 
     // Offline mode: directory_path only
     if (input.directory_path) {
-      await validatePathConfinement(input.directory_path)
+      input.directory_path = await validatePathConfinement(input.directory_path)
       if (!await pathExists(input.directory_path)) {
         return { success: false, error: `Directory not found: ${input.directory_path}` }
       }
@@ -948,7 +1047,12 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
         return { success: false, error: `Not a valid model directory: ${input.directory_path}` }
       }
 
-      const localData = await this.computeLocalCoverageBreakdown(input.directory_path)
+      let localData: Awaited<ReturnType<ValidateModelTool['computeLocalCoverageBreakdown']>>
+      try {
+        localData = await this.computeLocalCoverageBreakdown(input.directory_path)
+      } catch (err) {
+        return { success: false, error: `Coverage needs a readable model (${safeErrorMessage(err)}).` }
+      }
       const classifiedCount = localData.classified_count
       const coveredCount = localData.covered_count
 
@@ -1001,20 +1105,22 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     source_breakdown: SourceBreakdown | undefined
     attribute_issues: AttributeReadIssue[]
   }> {
-    const structure = await readStructure(dirPath)
-    const dataFlows = await readDataFlows(dirPath)
-    const dataItems = await readDataItems(dirPath)
+    // The gates' own read of the model, so coverage and the gates can never disagree on a tier.
+    const input = await loadGateInput(dirPath)
+    const { structure, dataFlows, dataItems, attributes } = input
     // An attribute file that cannot be read contributes nothing to coverage,
     // which is indistinguishable from an element that genuinely has no security
     // attributes — it drags the percentage down and names no cause. Coverage is
     // read-only so nothing is destroyed here, but the number is wrong and the
     // operator has to be told why.
-    const attributeIssues: AttributeReadIssue[] = []
-    const attributes = await readAttributes(dirPath, { structure, dataFlows, dataItems }, attributeIssues)
-
-    const classifiedIds = this.collectClassifiedComponentIds(structure.defaultBoundary, attributes)
+    const attributeIssues: AttributeReadIssue[] = input.attributeIssues
+    const tiering = classifyTiers({ structure, dataFlows, dataItems, crownJewelIds: crownJewelIds(input.scope.scope) })
+    const { components } = flattenStructure(structure)
+    const internal = components.filter((c) => !tiering.externals.has(c.id))
+    // The population: non-external components classified in the structure, the gates' rule.
+    const classified = internal.filter((c) => !!c.classData?.id)
+    const classifiedIds = new Set(classified.map((c) => c.id))
     const controlCoverageSet = this.buildControlCoverageSet(structure.defaultBoundary, dataFlows)
-    const componentBoundaryMap = this.buildComponentBoundaryMap(structure.defaultBoundary)
 
     // Per-category inferred coverage
     const auth: CategoryCoverage = { covered: 0, total: 0, missing: [] }
@@ -1022,66 +1128,43 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     const encRest: CategoryCoverage = { covered: 0, total: 0, missing: [] }
     const monitoring: CategoryCoverage = { covered: 0, total: 0, missing: [] }
 
-    // Per-tier formal coverage
-    type TierKey = 'tier_1' | 'tier_2' | 'tier_3' | 'tier_4'
-    const tiers: Record<TierKey, TierCoverage> = {
-      tier_1: { total: 0, with_controls: 0, gaps: [] },
-      tier_2: { total: 0, with_controls: 0, gaps: [] },
-      tier_3: { total: 0, with_controls: 0, gaps: [] },
-      tier_4: { total: 0, with_controls: 0, gaps: [] },
+    const bucket = (): TierCoverage => ({ total: 0, with_controls: 0, gaps: [], gaps_total: 0, unclassified: 0 })
+    const byTier = { 1: bucket(), 2: bucket(), 3: bucket() }
+    const tierBucket = (id: string): TierCoverage => byTier[(tiering.tierOf.get(id) ?? 3) as Tier]
+    const crownJewels = bucket()
+    const crossBoundary = bucket()
+    const crossIds = crossBoundaryComponentIds(tiering, dataFlows)
+    const add = (b: TierCoverage, id: string, name: string, hasControl: boolean) => {
+      b.total++
+      if (hasControl) { b.with_controls++; return }
+      b.gaps_total++
+      if (b.gaps.length < MAX_FAILING) b.gaps.push({ id, ...(name ? { name } : {}) })
     }
-
-    // Identify cross-boundary and internet-facing components for tier assignment
-    const crossBoundaryIds = new Set<string>()
-    const internetFacingIds = new Set<string>()
-    const externalEntityIds = new Set<string>()
-
-    // Crown jewels are a first-class structure.json field (Component.crownJewel).
-    const crownJewelIds = new Set<string>()
-
-    // Collect external entity IDs (and crown-jewel IDs) from the structure tree.
-    const collectExternals = (b: any): void => {
-      if (b.components) {
-        for (const c of b.components) {
-          if (c.type === 'EXTERNAL_ENTITY') externalEntityIds.add(c.id)
-          if (c.crownJewel === true) crownJewelIds.add(c.id)
-        }
-      }
-      if (b.boundaries) {
-        for (const nested of b.boundaries) collectExternals(nested)
-      }
-    }
-    collectExternals(structure.defaultBoundary)
-
-    // Identify cross-boundary and internet-facing from flows
-    for (const flow of dataFlows) {
-      const srcBoundary = flow.source?.id ? componentBoundaryMap.get(flow.source.id) : undefined
-      const tgtBoundary = flow.target?.id ? componentBoundaryMap.get(flow.target.id) : undefined
-      if (srcBoundary && tgtBoundary && srcBoundary !== tgtBoundary) {
-        if (flow.source?.id) crossBoundaryIds.add(flow.source.id)
-        if (flow.target?.id) crossBoundaryIds.add(flow.target.id)
-      }
-      if (flow.source?.id && externalEntityIds.has(flow.source.id) && flow.target?.id) {
-        internetFacingIds.add(flow.target.id)
-      }
-      if (flow.target?.id && externalEntityIds.has(flow.target.id) && flow.source?.id) {
-        internetFacingIds.add(flow.source.id)
+    for (const c of internal) {
+      if (!classifiedIds.has(c.id)) {
+        tierBucket(c.id).unclassified++
+        if (c.crownJewel === true) crownJewels.unclassified++
+        if (crossIds.has(c.id)) crossBoundary.unclassified++
       }
     }
 
     let coveredCount = 0
-
-    for (const compId of classifiedIds) {
+    for (const c of classified) {
+      const compId = c.id
       const compAttrs = attributes.components?.[compId] as any
-      const compName = this.getComponentName(structure.defaultBoundary, compId) || compId
+      const compName = c.name || compId
 
       // Per-category inferred coverage
       const categories = this.getAttributeCategories(compAttrs)
       auth.total++
-      encRest.total++
       monitoring.total++
       if (categories.authentication) { auth.covered++ } else { auth.missing.push(compName) }
-      if (categories.encryption_at_rest) { encRest.covered++ } else { encRest.missing.push(compName) }
+      // A component that stores nothing, and may say so, has no data at rest to cover.
+      const restValue = compAttrs?.attributes?.encryption_at_rest ?? compAttrs?.encryption_at_rest
+      if (!(isNotApplicable(restValue) && mayAnswerNotApplicable(c, input.classTemplates.templates))) {
+        encRest.total++
+        if (categories.encryption_at_rest) { encRest.covered++ } else { encRest.missing.push(compName) }
+      }
       if (categories.monitoring) { monitoring.covered++ } else { monitoring.missing.push(compName) }
 
       // Check if component has any positive attribute or formal control
@@ -1089,40 +1172,32 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
       const hasFormalControl = controlCoverageSet.has(compId)
       if (hasPositive || hasFormalControl) coveredCount++
 
-      // Per-tier formal coverage — assign to highest priority tier only
-      const isCrownJewel = crownJewelIds.has(compId)
-      let tier: TierKey
-      if (isCrownJewel) {
-        tier = 'tier_1'
-      } else if (crossBoundaryIds.has(compId)) {
-        tier = 'tier_2'
-      } else if (internetFacingIds.has(compId)) {
-        tier = 'tier_3'
-      } else {
-        tier = 'tier_4'
-      }
-      tiers[tier].total++
-      if (hasFormalControl) {
-        tiers[tier].with_controls++
-      } else {
-        tiers[tier].gaps.push(compName)
-      }
+      add(tierBucket(compId), compId, c.name, hasFormalControl)
+      if (c.crownJewel === true) add(crownJewels, compId, c.name, hasFormalControl)
+      if (crossIds.has(compId)) add(crossBoundary, compId, c.name, hasFormalControl)
     }
 
-    // Encryption in transit: per cross-boundary flow
+    // The cross-boundary flows, with what each declares about its authentication.
+    const crossFlows = dataFlows.filter((f) => tiering.crossBoundaryFlowIds.has(f.id))
+    const cross_boundary_flows = crossFlows.slice(0, MAX_FAILING).map((f) => {
+      const fa = attributes.dataFlows?.[f.id] as any
+      const values = (fa?.attributes ?? fa ?? {}) as Record<string, unknown>
+      return { id: f.id, ...(f.name ? { name: f.name } : {}), authentication: flowAuthentication(values) }
+    })
+
+    // Encryption in transit: per cross-boundary flow, the gates' own set. A transit alias the flow's class
+    // declares counts as C3 counts it; the literal answer must name encryption.
     for (const flow of dataFlows) {
-      const srcBoundary = flow.source?.id ? componentBoundaryMap.get(flow.source.id) : undefined
-      const tgtBoundary = flow.target?.id ? componentBoundaryMap.get(flow.target.id) : undefined
-      if (srcBoundary && tgtBoundary && srcBoundary !== tgtBoundary) {
-        encTransit.total++
-        const flowAttrs = attributes.dataFlows?.[flow.id] as any
-        const encValue = flowAttrs?.encryption_in_transit ?? flowAttrs?.attributes?.encryption_in_transit
-        const deprecatedTransit = new Set(['none', 'sslv3', 'ssl v3', 'tls 1.0', 'tls1.0'])
-        if (encValue && typeof encValue === 'string' && !deprecatedTransit.has(encValue.toLowerCase())) {
-          encTransit.covered++
-        } else {
-          encTransit.missing.push(flow.name || flow.id)
-        }
+      if (!tiering.crossBoundaryFlowIds.has(flow.id)) continue
+      encTransit.total++
+      const flowAttrs = attributes.dataFlows?.[flow.id] as any
+      const values = (flowAttrs?.attributes ?? flowAttrs ?? {}) as Record<string, unknown>
+      const template = flow.classData?.id ? input.classTemplates.templates.get(flow.classData.id) : undefined
+      const alias = !!template && TRANSIT_ALIASES.some((k) => template.fields.includes(k) && values[k] === true)
+      if (encryptionClaim(values.encryption_in_transit, 'transit') === 'affirms' || alias) {
+        encTransit.covered++
+      } else {
+        encTransit.missing.push(flow.name || flow.id)
       }
     }
 
@@ -1139,10 +1214,14 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
         monitoring,
       },
       formal_coverage: {
-        tier_1_crown_jewels: tiers.tier_1,
-        tier_2_cross_boundary: tiers.tier_2,
-        tier_3_internet_facing: tiers.tier_3,
-        tier_4_internal: tiers.tier_4,
+        tier_1_internet_facing: byTier[1],
+        tier_2_crown_jewel_or_restricted: byTier[2],
+        tier_3_internal: byTier[3],
+        labels: { crown_jewels: crownJewels, cross_boundary: crossBoundary },
+        cross_boundary_flows,
+        cross_boundary_flows_total: crossFlows.length,
+        externals_excluded: tiering.externals.size,
+        tier_3_unzoned: internal.filter((c) => tiering.tierOf.get(c.id) === 3 && tiering.unzoned.includes(c.id)).length,
       },
       source_breakdown: source_breakdown.discovered + source_breakdown.declared + source_breakdown.both > 0
         ? source_breakdown : undefined,
@@ -1155,7 +1234,7 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     // A warning helper is never allowed to be the reason a report fails.
     return (issues ?? []).map(
       (i) =>
-        `${i.file} could not be read (${i.reason}). Its security attributes are absent from this ` +
+        `${i.file} could not be read. Its security attributes are absent from this ` +
         `coverage calculation, so the figures below understate coverage by an unknown amount.`,
     )
   }
@@ -1185,51 +1264,31 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     encryption_at_rest: boolean
     monitoring: boolean
   } {
-    const get = (key: string): unknown =>
-      attrs?.attributes?.[key] ?? attrs?.[key] ?? null
+    // A placeholder ("unknown", "") is no evidence of a control.
+    const get = (key: string): unknown => {
+      const value = attrs?.attributes?.[key] ?? attrs?.[key] ?? null
+      return isStandIn(value) ? null : value
+    }
 
     const encInTransit = get('encryption_in_transit')
     const encAtRest = get('encryption_at_rest')
     const authType = get('authentication_type')
     const monTools = get('monitoring_tools')
 
-    const deprecatedTransit = new Set(['none', 'sslv3', 'ssl v3', 'tls 1.0', 'tls1.0'])
-    const deprecatedAtRest = new Set(['none', 'des', '3des', 'triple-des', 'rc4'])
-
     const authentication = (() => {
-      if (!authType || typeof authType !== 'string' || authType.toLowerCase() === 'none') return false
-      const authLower = authType.toLowerCase()
-      if (authLower === 'basic' || authLower === 'digest') {
-        return !!(encInTransit && typeof encInTransit === 'string' &&
-          !deprecatedTransit.has(encInTransit.toLowerCase()))
-      }
+      if (!authenticationClaimed(authType)) return false
+      const authLower = normToken(authType as string)
+      // Basic and digest credentials count only over encryption.
+      if (authLower === 'basic' || authLower === 'digest') return encryptionClaim(encInTransit, 'transit') === 'affirms'
       return true
     })()
 
-    const encryption_at_rest = !!(encAtRest && typeof encAtRest === 'string' &&
-      !deprecatedAtRest.has(encAtRest.toLowerCase()))
+    // Only an answer that names encryption counts; "not applicable", "none" or a placeholder is no evidence.
+    const encryption_at_rest = encryptionClaim(encAtRest, 'rest') === 'affirms'
 
     const monitoring = this.hasRealMonitoring(monTools)
 
     return { authentication, encryption_at_rest, monitoring }
-  }
-
-  /**
-   * Get component name from boundary tree by ID.
-   */
-  private getComponentName(boundary: any, targetId: string): string | undefined {
-    if (boundary.components) {
-      for (const c of boundary.components) {
-        if (c.id === targetId) return c.name
-      }
-    }
-    if (boundary.boundaries) {
-      for (const nested of boundary.boundaries) {
-        const found = this.getComponentName(nested, targetId)
-        if (found) return found
-      }
-    }
-    return undefined
   }
 
   /**
@@ -1287,20 +1346,6 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     return count
   }
 
-  // Component → containing-boundary map. Delegates to dt-core's nesting projection (the single
-  // source of truth — `flattenStructure().parentMap`) rather than keeping a third hand-rolled walk
-  // ("unify, not a third copy"). Equivalent to the old recursion for well-formed trees; the
-  // id-presence guard preserves the prior defensive behavior on malformed input.
-  private buildComponentBoundaryMap(boundary: any): Map<string, string> {
-    const { components, parentMap } = flattenStructure({ defaultBoundary: boundary })
-    const map = new Map<string, string>()
-    for (const c of components) {
-      const boundaryId = parentMap.get(c.id)
-      if (c.id && boundaryId != null) map.set(c.id, boundaryId)
-    }
-    return map
-  }
-
   private getBoundaryDepth(boundary: any): number {
     if (!boundary.boundaries || boundary.boundaries.length === 0) return 1
     let maxChildDepth = 0
@@ -1328,11 +1373,14 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
 
   /**
    * Check if an element's attributes contain at least one positive security attribute.
-   * Uses the mapping table from CONTROL_INTEGRATION.md §10 Phase 1.
+   * Uses the mapping table in CONTROL_INTEGRATION.md, "Quality score from attributes".
    */
   private hasPositiveSecurityAttribute(attrs: any): boolean {
-    const get = (key: string): unknown =>
-      attrs?.attributes?.[key] ?? attrs?.[key] ?? null
+    // A placeholder ("unknown", "") is no evidence of a control.
+    const get = (key: string): unknown => {
+      const value = attrs?.attributes?.[key] ?? attrs?.[key] ?? null
+      return isStandIn(value) ? null : value
+    }
 
     const encInTransit = get('encryption_in_transit')
     const encAtRest = get('encryption_at_rest')
@@ -1340,31 +1388,15 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     const monTools = get('monitoring_tools')
     const implDeny = get('implicit_deny_enabled')
 
-    const deprecatedTransit = new Set(['none', 'sslv3', 'ssl v3', 'tls 1.0', 'tls1.0'])
-    const deprecatedAtRest = new Set(['none', 'des', '3des', 'triple-des', 'rc4'])
+    // Encryption counts only where the answer names it (see encryptionClaim).
+    if (encryptionClaim(encInTransit, 'transit') === 'affirms') return true
+    if (encryptionClaim(encAtRest, 'rest') === 'affirms') return true
 
-    // encryption_in_transit: not none/null/absent/SSLv3/TLS 1.0
-    if (encInTransit && typeof encInTransit === 'string' &&
-        !deprecatedTransit.has(encInTransit.toLowerCase())) {
-      return true
-    }
-
-    // encryption_at_rest: not none/null/absent/DES/3DES/RC4
-    if (encAtRest && typeof encAtRest === 'string' &&
-        !deprecatedAtRest.has(encAtRest.toLowerCase())) {
-      return true
-    }
-
-    // authentication_type: not none/null/absent; basic/digest only with adequate encryption
-    if (authType && typeof authType === 'string' && authType.toLowerCase() !== 'none') {
-      const authLower = authType.toLowerCase()
-      if (authLower === 'basic' || authLower === 'digest') {
-        const hasAdequateEncryption = encInTransit && typeof encInTransit === 'string' &&
-          !deprecatedTransit.has(encInTransit.toLowerCase())
-        if (hasAdequateEncryption) return true
-      } else {
-        return true
-      }
+    // authentication_type: named authentication; basic/digest only over encryption
+    if (authenticationClaimed(authType)) {
+      const authLower = normToken(authType as string)
+      if (authLower !== 'basic' && authLower !== 'digest') return true
+      if (encryptionClaim(encInTransit, 'transit') === 'affirms') return true
     }
 
     // monitoring_tools: at least one real tool (the ["None"] sentinel doesn't count)
@@ -1446,10 +1478,9 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     return ids
   }
 
-  private async validateDirectory(dirPath: string): Promise<ToolResult<ValidateOutput>> {
+  private async validateDirectory(dirPath: string, settlement?: SettlementMode): Promise<ToolResult<ValidateOutput>> {
     const errors: ValidationError[] = []
     const warnings: ValidationWarning[] = []
-    const filesValidated: string[] = []
 
     // Check directory exists
     if (!await pathExists(dirPath)) {
@@ -1488,11 +1519,10 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
           })
         }
       }
-      filesValidated.push('manifest.json')
     } catch (e) {
       errors.push({
         file: 'manifest.json',
-        message: `Failed to read: ${(e as Error).message}`
+        message: `Failed to read: ${safeErrorMessage(e)}`
       })
     }
 
@@ -1558,11 +1588,10 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
           }
         }
       }
-      filesValidated.push('structure.json')
     } catch (e) {
       errors.push({
         file: 'structure.json',
-        message: `Failed to read: ${(e as Error).message}`
+        message: `Failed to read: ${safeErrorMessage(e)}`
       })
     }
 
@@ -1602,11 +1631,10 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
           })
         }
       }
-      filesValidated.push('dataflows.json')
     } catch (e) {
       errors.push({
         file: 'dataflows.json',
-        message: `Failed to read: ${(e as Error).message}`
+        message: `Failed to read: ${safeErrorMessage(e)}`
       })
     }
 
@@ -1630,11 +1658,10 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
           allDataItemIds.add(item.id)
         }
       }
-      filesValidated.push('data-items.json')
     } catch (e) {
       errors.push({
         file: 'data-items.json',
-        message: `Failed to read: ${(e as Error).message}`
+        message: `Failed to read: ${safeErrorMessage(e)}`
       })
     }
 
@@ -1651,7 +1678,7 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
       const attributeIssues: AttributeReadIssue[] = []
       const attributes = await readAttributes(dirPath, normCtx, attributeIssues)
       for (const issue of attributeIssues) {
-        errors.push({ file: issue.file, message: `Attribute file could not be read: ${issue.reason}` })
+        errors.push({ file: issue.file, message: 'Attribute file could not be read (invalid JSON or unreadable)' })
       }
       const result = AttributesSchema.safeParse(attributes)
       if (!result.success) {
@@ -1687,16 +1714,17 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
       // Component type vs the assigned class's declared type.
       //
       // A component declares PROCESS | STORE | EXTERNAL_ENTITY, and so does each
-      // ComponentClass. Nothing enforced that the two agree: `match_classes`
-      // exposes a hard `componentType` filter but classification never passes
-      // it, so type only nudges the ranking and never constrains the result. A
-      // STORE bound to a PROCESS class evaluates that class's policy against a
-      // thing it does not describe, and the mismatch is invisible.
+      // ComponentClass. Classification asks `match_classes` once per component
+      // type with `componentType`, its only hard type filter (an element's own
+      // `type` only shapes the vector query). Nothing at write time holds a run to
+      // that: a call that mixes types, or a class chosen by hand, can bind a STORE
+      // to a PROCESS class, which then evaluates its policy against a thing it does
+      // not describe. This check makes such a mismatch visible.
       //
       // A warning, not an error: the cache can be stale or predate this field,
       // and only the platform is authoritative about the binding.
       if (validatedStructure) {
-        const classTypes = await this.readClassTemplates(dirPath)
+        const { templates: classTypes } = await readClassTemplates(dirPath)
         const checkTypes = (b: StructureBoundary): void => {
           for (const c of b.components ?? []) {
             const classId = c.classData?.id
@@ -1735,12 +1763,11 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
         }
       }
 
-      filesValidated.push('attributes/')
     } catch (e) {
       // Attributes directory is optional
       warnings.push({
         file: 'attributes/',
-        message: `Could not read attributes: ${(e as Error).message}`
+        message: `Could not read attributes: ${safeErrorMessage(e)}`
       })
     }
 
@@ -1789,13 +1816,9 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
         } catch (e) {
           errors.push({
             file: `controls/${controlId}.json`,
-            message: `Failed to read/parse: ${(e as Error).message}`,
+            message: `Failed to read/parse: ${safeErrorMessage(e)}`,
           })
         }
-      }
-
-      if (controlFileIds.length > 0) {
-        filesValidated.push(`controls/ (${controlFileIds.length} files)`)
       }
 
       for (const fileId of controlFileIds) {
@@ -1819,8 +1842,21 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     } catch (e) {
       warnings.push({
         file: 'controls/',
-        message: `Could not enumerate control files: ${(e as Error).message}`,
+        message: `Could not enumerate control files: ${safeErrorMessage(e)}`,
       })
+    }
+
+    // Lints (the same ones Gate 2 applies). A model the gate loader refuses is
+    // already invalid above, so they are skipped rather than failing the call.
+    try {
+      const gates = computeGates(await loadGateInput(dirPath, { settlement }), await storedWaivers(dirPath))
+      for (const finding of gates.lints) {
+        const file = finding.file ?? (finding.element ? `element ${finding.element.name ?? finding.element.id}` : 'model')
+        if (finding.severity === 'error') errors.push({ file, message: `${finding.rule}: ${finding.message}` })
+        else warnings.push({ file, message: `${finding.severity === 'info' ? 'info: ' : ''}${finding.rule}: ${finding.message}` })
+      }
+    } catch {
+      // Reported by the checks above.
     }
 
     return {
@@ -1828,8 +1864,7 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
       data: {
         valid: errors.length === 0,
         errors,
-        warnings,
-        files_validated: filesValidated
+        warnings: collapseWarnings(warnings),
       }
     }
   }

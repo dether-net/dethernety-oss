@@ -1,0 +1,17 @@
+{
+  "argv": [],
+  "event": {
+    "session_id": "<session_id>",
+    "turn_id": "<turn_id>",
+    "transcript_path": "<transcript_path>",
+    "cwd": "<project>",
+    "hook_event_name": "PreToolUse",
+    "model": "gpt-6-astra",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "collaborationwait_agent",
+    "tool_input": {
+      "timeout_ms": 60000
+    },
+    "tool_use_id": "call_<id>"
+  }
+}

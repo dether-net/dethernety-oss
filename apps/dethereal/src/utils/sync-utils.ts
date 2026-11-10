@@ -11,6 +11,9 @@
 import { promises as fs } from 'fs'
 import path from 'path'
 import { createHash } from 'crypto'
+import { assertRealModelTree, writeFileNoFollow } from './path-confinement.js'
+import { readRepoJson, readChecked, StateFileError } from './state-store.js'
+import type { PlatformBaselineRecord } from './platform-baseline.js'
 import {
   readManifest,
   readStructure,
@@ -55,13 +58,23 @@ export interface SyncMetadata {
     dataItems: string[]
   }
   referenced_models: string[]
+  /** What the platform model looked like at the last pull or push, signed on this machine. */
+  platform_baseline?: PlatformBaselineRecord
 }
+
+/** The largest sync.json read or written: a platform baseline for a large model fits. */
+export const MAX_SYNC_BYTES = 8 * 1024 * 1024
 
 /**
  * Write sync.json to the model directory
  */
-export async function writeSyncJson(modelDir: string, syncData: Partial<SyncMetadata>): Promise<void> {
+export async function writeSyncJson(
+  modelDir: string,
+  syncData: Partial<Omit<SyncMetadata, 'platform_baseline'>> & { platform_baseline?: PlatformBaselineRecord | null }
+): Promise<void> {
   const detherealDir = path.join(modelDir, DETHEREAL_DIR)
+  // .dethereal/ is repository content: never written through a link.
+  await assertRealModelTree(modelDir)
   await fs.mkdir(detherealDir, { recursive: true })
 
   const syncPath = path.join(detherealDir, SYNC_FILE)
@@ -80,8 +93,12 @@ export async function writeSyncJson(modelDir: string, syncData: Partial<SyncMeta
     },
     referenced_models: syncData.referenced_models || existing?.referenced_models || []
   }
+  // A baseline passed in replaces the recorded one, `null` removes it, and any
+  // other write keeps it as it is.
+  const baseline = syncData.platform_baseline !== undefined ? syncData.platform_baseline : existing?.platform_baseline
+  if (baseline) merged.platform_baseline = baseline
 
-  await fs.writeFile(syncPath, JSON.stringify(merged, null, 2), 'utf-8')
+  await writeFileNoFollow(syncPath, JSON.stringify(merged, null, 2), modelDir)
 }
 
 /**
@@ -89,12 +106,38 @@ export async function writeSyncJson(modelDir: string, syncData: Partial<SyncMeta
  * Returns null if the file does not exist
  */
 export async function readSyncJson(modelDir: string): Promise<SyncMetadata | null> {
-  const syncPath = path.join(modelDir, DETHEREAL_DIR, SYNC_FILE)
+  // Read like the state file: no links, no special files, a size cap. Anything
+  // it refuses reads as absent.
   try {
-    const content = await fs.readFile(syncPath, 'utf-8')
-    return JSON.parse(content) as SyncMetadata
+    return (await readRepoJson(modelDir, `${DETHEREAL_DIR}/${SYNC_FILE}`, { baseDir: modelDir, maxBytes: MAX_SYNC_BYTES })) as SyncMetadata | null
   } catch {
     return null
+  }
+}
+
+/** Largest top-level model file hashed (as the model readers). */
+const MAX_MODEL_FILE_BYTES = 32 * 1024 * 1024
+/** Largest scope or attribute file hashed. */
+const MAX_SIDE_FILE_BYTES = 1024 * 1024
+
+/**
+ * Read one hash input without following a link or blocking on a special file.
+ * A link, special file or hard link is left out of the hash, as the model
+ * readers leave it out of the model; a file replaced while being read is read
+ * again; anything else (too large, an I/O error) fails the hash rather than
+ * silently changing it.
+ */
+async function hashInput(abs: string, rel: string, maxBytes: number): Promise<Buffer | null> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await readChecked(abs, rel, maxBytes)
+    } catch (err) {
+      if (err instanceof StateFileError) {
+        if (err.code === 'symlink' || err.code === 'not_regular' || err.code === 'hardlinked') return null
+        if (err.code === 'changed' && attempt < 3) continue
+      }
+      throw err
+    }
   }
 }
 
@@ -113,29 +156,33 @@ export async function readSyncJson(modelDir: string): Promise<SyncMetadata | nul
  */
 export async function computeContentHash(modelDir: string): Promise<string> {
   const hash = createHash('sha256')
+  // The attribute groups are listed below: none of them may be a link.
+  await assertRealModelTree(modelDir)
 
   // Read and hash each top-level file in deterministic order
   const files = ['manifest.json', 'structure.json', 'dataflows.json', 'data-items.json']
 
   for (const file of files) {
+    const bytes = await hashInput(path.join(modelDir, file), file, MAX_MODEL_FILE_BYTES)
+    if (bytes === null) continue
     try {
-      const filePath = path.join(modelDir, file)
-      const content = await fs.readFile(filePath, 'utf-8')
-      const parsed = JSON.parse(content)
+      const parsed = JSON.parse(bytes.toString('utf-8'))
       const stripped = stripNonSemanticProperties(parsed)
       hash.update(file + ':' + JSON.stringify(stripped))
     } catch {
-      // File doesn't exist, skip
+      // Not JSON: skipped, as before
     }
   }
 
   // .dethereal/scope.json (whole file — synced keys AND local-only keys are both
   // legitimate local changes to surface)
-  try {
-    const scopeRaw = await fs.readFile(path.join(modelDir, DETHEREAL_DIR, 'scope.json'), 'utf-8')
-    hash.update('scope.json:' + JSON.stringify(stripNonSemanticProperties(JSON.parse(scopeRaw))))
-  } catch {
-    // absent — skip
+  const scopeRaw = await hashInput(path.join(modelDir, DETHEREAL_DIR, 'scope.json'), `${DETHEREAL_DIR}/scope.json`, MAX_SIDE_FILE_BYTES)
+  if (scopeRaw !== null) {
+    try {
+      hash.update('scope.json:' + JSON.stringify(stripNonSemanticProperties(JSON.parse(scopeRaw.toString('utf-8')))))
+    } catch {
+      // Not JSON: skipped, as before
+    }
   }
 
   // attributes/{boundaries,components,dataFlows,dataItems}/*.json — fixed dir order, sorted files
@@ -148,8 +195,9 @@ export async function computeContentHash(modelDir: string): Promise<string> {
       continue // subdir absent
     }
     for (const f of entries) {
-      const content = await fs.readFile(path.join(dir, f), 'utf-8')
-      hash.update(`attributes/${subdir}/${f}:` + JSON.stringify(stripNonSemanticProperties(JSON.parse(content))))
+      const content = await hashInput(path.join(dir, f), `attributes/${subdir}/${f}`, MAX_SIDE_FILE_BYTES)
+      if (content === null) continue
+      hash.update(`attributes/${subdir}/${f}:` + JSON.stringify(stripNonSemanticProperties(JSON.parse(content.toString('utf-8')))))
     }
   }
 
@@ -239,4 +287,73 @@ function collectFromBoundary(
       collectFromBoundary(nested, result)
     }
   }
+}
+
+/** A model's sync record, as `workspace_status` reports it: identifiers, times and codes only. */
+export interface SyncRecord {
+  status: 'never_synced' | 'no_local_changes' | 'local_changes' | 'unknown'
+  /** Whether the model changed since the last push or pull; null when that cannot be told */
+  localChanges: boolean | null
+  /** A platform model id is recorded */
+  linked: boolean
+  platformModelId: string | null
+  lastPushAt: string | null
+  lastPullAt: string | null
+  /** Which recorded content hash the model was compared with */
+  baseline: 'push' | 'pull' | null
+  /** Platform ids of models this one references (at most 20); `workspace_status` fills it from structure.json */
+  referencedModels: string[]
+  /** Why local changes could not be told, as a code */
+  problem?: string
+}
+
+const ID_CHARS = /^[A-Za-z0-9_-]{1,128}$/
+const HASH_PREFIX = `sha256:${CONTENT_HASH_VERSION}:`
+
+function idOrNull(value: unknown): string | null {
+  return typeof value === 'string' && ID_CHARS.test(value) ? value : null
+}
+
+function timeOrNull(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length > 40) return null
+  const t = Date.parse(value)
+  return Number.isFinite(t) ? new Date(t).toISOString() : null
+}
+
+/**
+ * Whether a model has local changes since it was last pushed or pulled: the
+ * model's content hash against the hash recorded by whichever of the two ran
+ * last. A hash recorded by an earlier hashing scheme counts as a clean
+ * baseline (the next sync re-records it). Reads through the checked readers
+ * and reports codes, never paths or file content.
+ */
+export async function localChangeStatus(modelDir: string): Promise<SyncRecord> {
+  const sync = (await readSyncJson(modelDir)) as Record<string, unknown> | null
+  const platformModelId = idOrNull(sync?.platform_model_id)
+  const lastPushAt = timeOrNull(sync?.last_push_at)
+  const lastPullAt = timeOrNull(sync?.last_pull_at)
+  const referencedModels = Array.isArray(sync?.referenced_models)
+    ? (sync!.referenced_models as unknown[]).map(idOrNull).filter((id): id is string => id !== null).slice(0, 20)
+    : []
+  const record = { linked: platformModelId !== null, platformModelId, lastPushAt, lastPullAt, referencedModels }
+  if (!sync || (!lastPushAt && !lastPullAt)) {
+    return { status: 'never_synced', localChanges: null, baseline: null, ...record }
+  }
+  const baseline: 'push' | 'pull' = lastPushAt && (!lastPullAt || lastPushAt > lastPullAt) ? 'push' : 'pull'
+  const stored = baseline === 'push' ? sync.push_content_hash : sync.pull_content_hash
+  if (typeof stored !== 'string' || stored.length === 0) {
+    return { status: 'unknown', localChanges: null, baseline, ...record, problem: 'no_recorded_hash' }
+  }
+  if (!stored.startsWith(HASH_PREFIX)) {
+    return { status: 'no_local_changes', localChanges: false, baseline, ...record }
+  }
+  let current: string
+  try {
+    current = await computeContentHash(modelDir)
+  } catch (error) {
+    const code = error instanceof StateFileError ? error.code : (error as { code?: unknown })?.code
+    return { status: 'unknown', localChanges: null, baseline, ...record, problem: typeof code === 'string' ? code : 'unreadable' }
+  }
+  const changed = current !== stored
+  return { status: changed ? 'local_changes' : 'no_local_changes', localChanges: changed, baseline, ...record }
 }

@@ -6,7 +6,7 @@ describe('Security Hardening', () => {
     it('should not reference _token in auth error message', async () => {
       const fs = await import('fs/promises')
       const path = await import('path')
-      const indexPath = path.join(import.meta.dirname, '..', 'index.ts')
+      const indexPath = path.join(import.meta.dirname, '..', 'server.ts')
       const content = await fs.readFile(indexPath, 'utf-8')
 
       // The auth error message should not mention _token
@@ -20,7 +20,7 @@ describe('Security Hardening', () => {
     it('should not extract _token from args in buildToolContext', async () => {
       const fs = await import('fs/promises')
       const path = await import('path')
-      const indexPath = path.join(import.meta.dirname, '..', 'index.ts')
+      const indexPath = path.join(import.meta.dirname, '..', 'server.ts')
       const content = await fs.readFile(indexPath, 'utf-8')
 
       expect(content).not.toContain('args._token')
@@ -29,7 +29,7 @@ describe('Security Hardening', () => {
     it('should not accept a caller-supplied token parameter in the token accessor', async () => {
       const fs = await import('fs/promises')
       const path = await import('path')
-      const indexPath = path.join(import.meta.dirname, '..', 'index.ts')
+      const indexPath = path.join(import.meta.dirname, '..', 'server.ts')
       const content = await fs.readFile(indexPath, 'utf-8')
 
       // Parameterless by design: the accessor resolves the credential from the
@@ -40,13 +40,13 @@ describe('Security Hardening', () => {
     it('sends the access token as the bearer, never the identity token', async () => {
       const fs = await import('fs/promises')
       const path = await import('path')
-      const indexPath = path.join(import.meta.dirname, '..', 'index.ts')
+      const indexPath = path.join(import.meta.dirname, '..', 'server.ts')
       const content = await fs.readFile(indexPath, 'utf-8')
 
       // The identity token is a valid JWT that the platform's own guard accepts, so
       // sending it fails only once a request leaves the platform — as an opaque server
       // error, with nothing local to see. A source assertion is the available pin here:
-      // index.ts is a bin entry with top-level side effects, so the accessor cannot be
+      // server.ts starts the server on import (top-level side effects), so the accessor cannot be
       // invoked in-process without extracting it.
       //
       // BOTH return sites, because the refresh arm is the one a future edit misses and
@@ -79,7 +79,7 @@ describe('Security Hardening', () => {
 
     it('should accept https:// for any host', () => {
       expect(() =>
-        validateConfig({ baseUrl: 'https://demo.dethernety.io', debug: false })
+        validateConfig({ baseUrl: 'https://dethernety.example.com', debug: false })
       ).not.toThrow()
     })
 

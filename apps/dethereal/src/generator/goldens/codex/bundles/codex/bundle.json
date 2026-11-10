@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "harness": "codex",
+  "version": "<VERSION>",
+  "generatedFrom": "59708494500ba79a9f0642def6442660eb88b6049e1a079633f1c86214c380a5",
+  "contentHash": "2b463196be08ad6ab952c0fff77e8df38e7f8e9934db1b0706f28f784b598e25",
+  "files": [
+    {
+      "path": "bundles/codex/.agents/plugins/marketplace.json",
+      "sha256": "ae8a0a56e4be38d7d5e0ab02e37a722e7ca002a4eeaaf85c1322eded22203aa6"
+    },
+    {
+      "path": "bundles/codex/agents/dethereal-enricher.toml",
+      "sha256": "c219e9a91f99ebe6278d3792a0ef0c05acbf6bb9af7d6b31f4dbc9ab821eda2b"
+    },
+    {
+      "path": "bundles/codex/agents/dethereal-lead.toml",
+      "sha256": "c5609b13b78d6062814e0bfcc10b071ad72ff6f90928468e8327e4dcbdd1f758"
+    },
+    {
+      "path": "bundles/codex/agents/dethereal-reviewer.toml",
+      "sha256": "b5a91afd11fdae9e9984dc713f3feeb91e75bf4847232671ac991df7bf774210"
+    },
+    {
+      "path": "bundles/codex/agents/dethereal-scout.toml",
+      "sha256": "a6d65abfa874f7353914e52b8854caa8ae1a41360459ac61145af85fa90b21e0"
+    },
+    {
+      "path": "bundles/codex/config.fragment.toml",
+      "sha256": "f4618d46d36bd2362f91a0a7635067ba5b6d73bcc901c29b872522cda527eb86"
+    },
+    {
+      "path": "bundles/codex/plugins/dethereal/.codex-plugin/plugin.json",
+      "sha256": "bbef2f0d1754d1a071e66ac3f4d81a64cceec79665a1cf7849ccb77d75554639"
+    },
+    {
+      "path": "bundles/codex/plugins/dethereal/bin/hook-deadlines.json",
+      "sha256": "d88c8f6857822a4cd7e9c9157fa611a6d9928630567ad045a2eb994fce894d46"
+    },
+    {
+      "path": "bundles/codex/plugins/dethereal/bin/hook.mjs",
+      "sha256": "4392a4f783ea04c3170697f8c5ef36058f1b8da36efef22570a0723ae8266a56"
+    },
+    {
+      "path": "bundles/codex/plugins/dethereal/bin/leaf-allowlist.json",
+      "sha256": "91f6415249501bc383d58bc465c08cf1d9323a6cfc27f16e5932a15f39b5fbd4"
+    },
+    {
+      "path": "bundles/codex/plugins/dethereal/bin/pre-tool-use.mjs",
+      "sha256": "2038b338e36a5eed548a97f9f54aeed7576b0c3a65fe9d877e8e970c44d6dcb6"
+    },
+    {
+      "path": "bundles/codex/plugins/dethereal/bin/runtime-check.mjs",
+      "sha256": "38187021b415599e5b696fe0178ff81dc4ecbe38b66d5c9b27c4bac99b13ea4b"
+    },
+    {
+      "path": "bundles/codex/plugins/dethereal/bin/secret-fallback.mjs",
+      "sha256": "23d4159cf23855398060da16f8bec99a782097b70cec1e05037629d290ae09a5"
+    },
+    {
+      "path": "bundles/codex/plugins/dethereal/bin/shell-check.mjs",
+      "sha256": "effffc5f2eec202fe08e51d3a34ff866744f4289ee20118d6961d13c88084359"
+    },
+    {
+      "path": "bundles/codex/plugins/dethereal/hooks/hooks.json",
+      "sha256": "d93bee0535dc4a4014ef7e43dcffd7d401f3337e96f6aaf9e76969baf7f8da62"
+    },
+    {
+      "path": "bundles/codex/plugins/dethereal/skills/audit/SKILL.md",
+      "sha256": "63933179397721ecb734ff0743e845416738bace7234a0da38a9b80e63ce09f5"
+    },
+    {
+      "path": "bundles/codex/plugins/dethereal/skills/audit/task.md",
+      "sha256": "bb3a6035166a5a000cf681c68b5f81757149f994ebd1a5f20ac9faa77399fa39"
+    },
+    {
+      "path": "bundles/codex/plugins/dethereal/skills/guide/SKILL.md",
+      "sha256": "bc7ab2987bb92d19409223e860a26cebfc559a2591e938e4f14d42ebb32c7d31"
+    },
+    {
+      "path": "bundles/codex/plugins/dethereal/skills/guide/reference.md",
+      "sha256": "2b2b74c18bd4aa352b0cb61b9d7b6fd99b5183838e62744312c443c36ed1fd1c"
+    },
+    {
+      "path": "bundles/codex/plugins/dethereal/skills/orchestrate/SKILL.md",
+      "sha256": "764d88296117a19df1fbac1cec5faabf33864b11820b5e5f73b9b77d9d727c56"
+    },
+    {
+      "path": "bundles/codex/plugins/dethereal/skills/status/SKILL.md",
+      "sha256": "6253c64b9784a9739794100ec15c0ad7a6abceadb23b018591eaab1becf8bfff"
+    }
+  ],
+  "placeholders": [
+    "<node-abs>",
+    "<platform-url>",
+    "<runtime>"
+  ],
+  "runtimePathContract": "~/.dethernety/runtime/current.json"
+}

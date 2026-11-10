@@ -1,0 +1,21 @@
+{
+  "argv": [
+    "config-guard",
+    "--harness",
+    "codex"
+  ],
+  "event": {
+    "session_id": "<session_id>",
+    "turn_id": "<turn_id>",
+    "transcript_path": "<transcript_path>",
+    "cwd": "<project>",
+    "hook_event_name": "PreToolUse",
+    "model": "gpt-6-astra",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "apply_patch",
+    "tool_input": {
+      "command": "*** Begin Patch\n*** Add File: main-note.txt\n+hi\n*** End Patch"
+    },
+    "tool_use_id": "exec-<id>"
+  }
+}

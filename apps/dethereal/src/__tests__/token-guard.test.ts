@@ -20,8 +20,8 @@ import { allTools } from '../tools/index.js'
 const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const pkg = JSON.parse(readFileSync(path.join(pkgRoot, 'package.json'), 'utf-8')) as { files?: string[] }
 
-/** Where the token store lives, in any spelling a prompt could use. */
-const TOKEN_STORE = /tokens\.json|\.dethernety[\\/]tokens/i
+/** Where the token store and the waiver key live, in any spelling a prompt could use. */
+const TOKEN_STORE = /tokens\.json|waiver\.key|\.dethernety[\\/](tokens|waiver)/i
 
 /** Input property names that would make the model hold a credential. */
 const CREDENTIAL_INPUT = /token|bearer|jwt|refresh|authorization|password|secret|cookie|api_?key/i
@@ -35,12 +35,16 @@ function walk(p: string): string[] {
   return readdirSync(p).flatMap((entry) => walk(path.join(p, entry)))
 }
 
-/** Every file the package publishes except the server build, which holds the store's own file name. */
+/**
+ * Every file the package publishes except the server build, which holds the store's own file name,
+ * and the package's guide, which does not ship but is what anyone working on the server reads.
+ */
 function shippedPromptFiles(): string[] {
   return (pkg.files ?? [])
     .map((entry) => entry.replace(/^\.\//, '').replace(/\/$/, ''))
     .filter((entry) => entry !== 'dist')
     .flatMap((entry) => walk(path.join(pkgRoot, entry)))
+    .concat(path.join(pkgRoot, 'CLAUDE.md'))
 }
 
 function toolSchema(tool: (typeof allTools)[number]): Record<string, unknown> {
@@ -74,6 +78,7 @@ describe('token guard', () => {
     const files = shippedPromptFiles()
     expect(files.length).toBeGreaterThan(20)
     expect(files.some((f) => f.endsWith(path.join('skills', 'status', 'SKILL.md')))).toBe(true)
+    expect(files).toContain(path.join(pkgRoot, 'CLAUDE.md'))
 
     const offenders = files.filter((f) => TOKEN_STORE.test(readFileSync(f, 'utf-8'))).map((f) => path.relative(pkgRoot, f))
     expect(offenders).toEqual([])

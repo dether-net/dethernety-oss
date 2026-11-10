@@ -38,9 +38,12 @@ export {
   clearTokens,
   clearAllTokens,
   isTokenExpired,
-  isRefreshTokenValid,
+  canRefresh,
   getTokenStoragePath
 } from './token-store.js'
+
+// Revocation
+export { type RevocationResult, revokeSessions } from './revoke.js'
 
 // OAuth flow
 export {
@@ -49,5 +52,18 @@ export {
   exchangeCodeForTokens,
   refreshTokens,
   refreshStoredSession,
+  SessionExpiredError,
+  SignedOutError,
+  sessionLogin,
   performLogin
 } from './oauth-flow.js'
+
+// Sign-in sessions (one browser sign-in at a time)
+export {
+  type LoginAnswer,
+  login,
+  isLoginPending,
+  lastLoginSummary,
+  cancelPendingLogin,
+  LISTENER_LIFETIME_MS
+} from './login-manager.js'

@@ -1,0 +1,396 @@
+source: skills/review/SKILL.md
+blob: 0132edba45491f94302ba8402e537cb79f628795
+migrated: true
+rules:
+  - id: 94ce3a40b4
+    line: 9
+    anchor: for completeness, correctness and readiness for platform analysis
+    destination: skills/review/SKILL.md
+  - id: f6e5ec0f57
+    line: 9
+    anchor: "you change nothing: no model file"
+    destination: skills/review/SKILL.md
+  - id: fd85e7c5b5
+    line: 9
+    anchor: no file under .dethereal/, no workflow state
+    destination: skills/review/SKILL.md
+  - id: 3db907463a
+    line: 13
+    anchor: use the directory path in the arguments
+    destination: skills/review/SKILL.md
+  - id: bfaf1dbe68
+    line: 14
+    anchor: none → return "no local models
+    destination: skills/review/SKILL.md
+  - id: "3863176941"
+    line: 15
+    anchor: data-items.json from disk
+    destination: skills/review/SKILL.md
+  - id: f256d129da
+    line: 16
+    dropped:
+      reason: "The fork reads no state file: readiness comes from the gate verdicts, and the workflow state is the conversation's (model_state), not the reviewer's"
+      ref: apps/dethereal/workflow/skills/review/SKILL.md
+  - id: e9fd332868
+    line: 17
+    dropped:
+      reason: "No quality cache is read: the quality score is computed by the tool on every review (the legacy cache was never written by this read-only fork)"
+      ref: apps/dethereal/workflow/skills/review/SKILL.md
+  - id: b1c5b8cef6
+    line: 21
+    anchor: do the structure check below and nothing else
+    destination: skills/review/SKILL.md
+  - id: dceaccbfc6
+    line: 23
+    anchor: otherwise the full review
+    destination: skills/review/SKILL.md
+  - id: 68d31656bb
+    line: 31
+    anchor: then 'gates', then 'quality'
+    destination: skills/review/SKILL.md
+  - id: c67c5532a0
+    line: 32
+    anchor: then 'gates', then 'quality'
+    destination: skills/review/SKILL.md
+  - id: fcd09b23c0
+    line: 36
+    anchor: quality_score with its label
+    destination: skills/review/SKILL.md
+  - id: 25c58390ff
+    line: 37
+    anchor: starting, in progress, good, comprehensive
+    destination: skills/review/SKILL.md
+  - id: 1565c801ba
+    line: 38
+    anchor: starting, in progress, good, comprehensive
+    destination: skills/review/SKILL.md
+  - id: c943450e5c
+    line: 39
+    anchor: starting, in progress, good, comprehensive
+    destination: skills/review/SKILL.md
+  - id: 09baecae92
+    line: 40
+    anchor: starting, in progress, good, comprehensive
+    destination: skills/review/SKILL.md
+  - id: ec0f879584
+    line: 42
+    anchor: the score measures how completely the model describes the system
+    destination: skills/review/SKILL.md
+  - id: 704b73f253
+    line: 42
+    anchor: a 95/100 model can describe a system with critical weaknesses
+    destination: skills/review/SKILL.md
+  - id: b04b215b3b
+    line: 46
+    anchor: one table row per factor
+    destination: skills/review/SKILL.md
+  - id: 60db52f6e2
+    line: 46
+    anchor: a table stays a table, never a count or a one-line summary
+    destination: skills/review/SKILL.md
+  - id: 9031dfc178
+    line: 48
+    anchor: "| Component classification | 60% | 25 | 15.0 |"
+    destination: skills/review/SKILL.md
+  - id: 8a7f2ae9c8
+    line: 63
+    anchor: render them exactly as gate verdicts says
+    destination: skills/review/SKILL.md
+  - id: 64dc8fcc3c
+    line: 65
+    anchor: every verdict, failing check, waiver
+    destination: skills/review/SKILL.md
+  - id: f20e30c8f6
+    line: 72
+    dropped:
+      reason: "The gate criteria are computed by the server (validate_model_json gates: Gate 1-2 checks and Gate 3 criteria C1-C9); the review renders what the tool returns through Gate Verdicts and never lists or evaluates criteria itself"
+      ref: apps/dethereal/workflow/shared/gate-verdicts.md
+  - id: 5ed535b4e9
+    line: 73
+    dropped:
+      reason: "The gate criteria are computed by the server (validate_model_json gates: Gate 1-2 checks and Gate 3 criteria C1-C9); the review renders what the tool returns through Gate Verdicts and never lists or evaluates criteria itself"
+      ref: apps/dethereal/workflow/shared/gate-verdicts.md
+  - id: d21b3671a8
+    line: 74
+    dropped:
+      reason: "The gate criteria are computed by the server (validate_model_json gates: Gate 1-2 checks and Gate 3 criteria C1-C9); the review renders what the tool returns through Gate Verdicts and never lists or evaluates criteria itself"
+      ref: apps/dethereal/workflow/shared/gate-verdicts.md
+  - id: 63c1995cac
+    line: 75
+    dropped:
+      reason: "The gate criteria are computed by the server (validate_model_json gates: Gate 1-2 checks and Gate 3 criteria C1-C9); the review renders what the tool returns through Gate Verdicts and never lists or evaluates criteria itself"
+      ref: apps/dethereal/workflow/shared/gate-verdicts.md
+  - id: 84f4b01754
+    line: 76
+    dropped:
+      reason: "The gate criteria are computed by the server (validate_model_json gates: Gate 1-2 checks and Gate 3 criteria C1-C9); the review renders what the tool returns through Gate Verdicts and never lists or evaluates criteria itself"
+      ref: apps/dethereal/workflow/shared/gate-verdicts.md
+  - id: c9a21191b1
+    line: 77
+    dropped:
+      reason: "The gate criteria are computed by the server (validate_model_json gates: Gate 1-2 checks and Gate 3 criteria C1-C9); the review renders what the tool returns through Gate Verdicts and never lists or evaluates criteria itself"
+      ref: apps/dethereal/workflow/shared/gate-verdicts.md
+  - id: 8b8bde7d5e
+    line: 79
+    dropped:
+      reason: "The gate criteria are computed by the server (validate_model_json gates: Gate 1-2 checks and Gate 3 criteria C1-C9); the review renders what the tool returns through Gate Verdicts and never lists or evaluates criteria itself"
+      ref: apps/dethereal/workflow/shared/gate-verdicts.md
+  - id: b31d9ec566
+    line: 80
+    dropped:
+      reason: "The gate criteria are computed by the server (validate_model_json gates: Gate 1-2 checks and Gate 3 criteria C1-C9); the review renders what the tool returns through Gate Verdicts and never lists or evaluates criteria itself"
+      ref: apps/dethereal/workflow/shared/gate-verdicts.md
+  - id: 7701a8dc9f
+    line: 81
+    dropped:
+      reason: "The gate criteria are computed by the server (validate_model_json gates: Gate 1-2 checks and Gate 3 criteria C1-C9); the review renders what the tool returns through Gate Verdicts and never lists or evaluates criteria itself"
+      ref: apps/dethereal/workflow/shared/gate-verdicts.md
+  - id: 131e15f447
+    line: 82
+    dropped:
+      reason: "The gate criteria are computed by the server (validate_model_json gates: Gate 1-2 checks and Gate 3 criteria C1-C9); the review renders what the tool returns through Gate Verdicts and never lists or evaluates criteria itself"
+      ref: apps/dethereal/workflow/shared/gate-verdicts.md
+  - id: 0c90bc6fa7
+    line: 83
+    dropped:
+      reason: "The gate criteria are computed by the server (validate_model_json gates: Gate 1-2 checks and Gate 3 criteria C1-C9); the review renders what the tool returns through Gate Verdicts and never lists or evaluates criteria itself"
+      ref: apps/dethereal/workflow/shared/gate-verdicts.md
+  - id: d35b2abb79
+    line: 85
+    dropped:
+      reason: "The gate criteria are computed by the server (validate_model_json gates: Gate 1-2 checks and Gate 3 criteria C1-C9); the review renders what the tool returns through Gate Verdicts and never lists or evaluates criteria itself"
+      ref: apps/dethereal/workflow/shared/gate-verdicts.md
+  - id: b401dca154
+    line: 86
+    dropped:
+      reason: "The gate criteria are computed by the server (validate_model_json gates: Gate 1-2 checks and Gate 3 criteria C1-C9); the review renders what the tool returns through Gate Verdicts and never lists or evaluates criteria itself"
+      ref: apps/dethereal/workflow/shared/gate-verdicts.md
+  - id: 5fccc4c1fa
+    line: 87
+    dropped:
+      reason: "The gate criteria are computed by the server (validate_model_json gates: Gate 1-2 checks and Gate 3 criteria C1-C9); the review renders what the tool returns through Gate Verdicts and never lists or evaluates criteria itself"
+      ref: apps/dethereal/workflow/shared/gate-verdicts.md
+  - id: 7429585b64
+    line: 88
+    dropped:
+      reason: "The gate criteria are computed by the server (validate_model_json gates: Gate 1-2 checks and Gate 3 criteria C1-C9); the review renders what the tool returns through Gate Verdicts and never lists or evaluates criteria itself"
+      ref: apps/dethereal/workflow/shared/gate-verdicts.md
+  - id: d651a0c84a
+    line: 89
+    dropped:
+      reason: "The gate criteria are computed by the server (validate_model_json gates: Gate 1-2 checks and Gate 3 criteria C1-C9); the review renders what the tool returns through Gate Verdicts and never lists or evaluates criteria itself"
+      ref: apps/dethereal/workflow/shared/gate-verdicts.md
+  - id: 5a96ccd124
+    line: 90
+    dropped:
+      reason: "The gate criteria are computed by the server (validate_model_json gates: Gate 1-2 checks and Gate 3 criteria C1-C9); the review renders what the tool returns through Gate Verdicts and never lists or evaluates criteria itself"
+      ref: apps/dethereal/workflow/shared/gate-verdicts.md
+  - id: 6f7d1501ea
+    line: 92
+    anchor: crown jewels with no control
+    destination: skills/review/SKILL.md
+  - id: b0db043bf2
+    line: 92
+    anchor: assigned, but the module derives no countermeasure from an empty binding
+    destination: skills/review/SKILL.md
+  - id: 9ebd4966dd
+    line: 92
+    anchor: named always, whatever the score
+    destination: skills/review/SKILL.md
+  - id: ab49fd0739
+    line: 94
+    anchor: "**Data-item assertions (`[Info]`, advisory — never affects a gate or the score):**"
+    destination: agents/model-reviewer.md
+  - id: 6e2b9f62ed
+    line: 95
+    anchor: "Each entry in the quality result's `credential_hints` (present only when non-empty): \"Data item '<name>' is bound"
+    destination: agents/model-reviewer.md
+  - id: a5f73e7fbd
+    line: 96
+    anchor: Data items without `origin` that are carried on a flow into an `EXTERNAL_ENTITY`, or into a
+    destination: agents/model-reviewer.md
+  - id: 94e91ed43e
+    line: 100
+    anchor: one checklist line each
+    destination: skills/review/SKILL.md
+  - id: 8dd316eef8
+    line: 102
+    anchor: administrative access paths — a flow naming
+    destination: skills/review/SKILL.md
+  - id: 09e1d10935
+    line: 114
+    anchor: decided only by these tests on names and descriptions
+    destination: skills/review/SKILL.md
+  - id: 170594b249
+    line: 114
+    anchor: so the list is the same for an unchanged model
+    destination: skills/review/SKILL.md
+  - id: 5c69b44ca7
+    line: 114
+    anchor: decided only by these tests on names and descriptions
+    destination: skills/review/SKILL.md
+  - id: 9fc60c5b3e
+    line: 116
+    anchor: ssh, rdp, admin, management or console
+    destination: skills/review/SKILL.md
+  - id: 782834fd9c
+    line: 117
+    anchor: monitor, log, siem or metric
+    destination: skills/review/SKILL.md
+  - id: 2bc3ce83ba
+    line: 118
+    anchor: backup, snapshot, dump or replicate
+    destination: skills/review/SKILL.md
+  - id: 7b82ca879a
+    line: 119
+    anchor: every pair of adjacent boundaries has at least one flow between them
+    destination: skills/review/SKILL.md
+  - id: cbd05e01c1
+    line: 120
+    anchor: for a cdn, dns, certificate authority or registry
+    destination: skills/review/SKILL.md
+  - id: 812e322e0e
+    line: 121
+    anchor: naming developer, operator, admin or support
+    destination: skills/review/SKILL.md
+  - id: 436bc95a36
+    line: 122
+    anchor: a component pair with flows in both directions
+    destination: skills/review/SKILL.md
+  - id: d364c1c94a
+    line: 123
+    anchor: error, retry, fallback, circuit-breaker or dead-letter
+    destination: skills/review/SKILL.md
+  - id: c638646d96
+    line: 127
+    anchor: the three most severe
+    destination: skills/review/SKILL.md
+  - id: a02d0b14c9
+    line: 129
+    anchor: 3 components have no class
+    destination: skills/review/SKILL.md
+  - id: 56c00f88c1
+    line: 138
+    anchor: which command to run next
+    destination: skills/review/SKILL.md
+  - id: 1e265f4067
+    line: 139
+    anchor: which command to run next
+    destination: skills/review/SKILL.md
+  - id: 9bf9ca1b49
+    line: 140
+    anchor: and for which elements
+    destination: skills/review/SKILL.md
+  - id: ea73c1e01a
+    line: 144
+    anchor: never from the score and never judged by hand
+    destination: skills/review/SKILL.md
+  - id: b8e6c30818
+    line: 145
+    anchor: ready for platform analysis
+    destination: skills/review/SKILL.md
+  - id: 1cb88b42ba
+    line: 146
+    anchor: a push is possible, but analysis would have gaps
+    destination: skills/review/SKILL.md
+  - id: b218c697f4
+    line: 147
+    anchor: the platform refuses the push until the structural failures are fixed
+    destination: skills/review/SKILL.md
+  - id: ec72f355e1
+    line: 149
+    anchor: name the failing criteria
+    destination: skills/review/SKILL.md
+  - id: 67f7336b63
+    line: 154
+    anchor: are both 0, add
+    destination: skills/review/SKILL.md
+  - id: a2538afa0d
+    line: 156
+    anchor: analysis improves markedly with credentials
+    destination: skills/review/SKILL.md
+  - id: 398801e36c
+    line: 160
+    anchor: exists, one line from it
+    destination: skills/review/SKILL.md
+  - id: 546d0af6b5
+    line: 162
+    anchor: "model based on: code analysis"
+    destination: skills/review/SKILL.md
+  - id: 29ee6489a0
+    line: 166
+    anchor: "always add: runtime validation recommended"
+    destination: skills/review/SKILL.md
+  - id: f27196845f
+    line: 168
+    anchor: this model reflects what the code shows
+    destination: skills/review/SKILL.md
+  - id: bf1ce33297
+    line: 168
+    anchor: to find infrastructure the code does not show
+    destination: skills/review/SKILL.md
+  - id: 85afafdfe9
+    line: 170
+    anchor: "always add: runtime validation recommended"
+    destination: skills/review/SKILL.md
+  - id: 83ed104df0
+    line: 174
+    anchor: components or boundaries with representedmodel
+    destination: skills/review/SKILL.md
+  - id: d63f303ccb
+    line: 174
+    anchor: see cross-model gap detection
+    destination: skills/review/SKILL.md
+  - id: 8d4c4f24d4
+    line: 178
+    anchor: review complete. gates
+    destination: skills/review/SKILL.md
+  - id: 46c047492c
+    line: 187
+    anchor: structural checks only, no gates and no score
+    destination: skills/review/SKILL.md
+  - id: da5348daa4
+    line: 187
+    dropped:
+      reason: A usage remark; the recommendation after the check (fix, then run the full review) carries the intent
+      ref: apps/dethereal/workflow/skills/review/SKILL.md
+  - id: 745582e7dd
+    line: 191
+    anchor: each line [pass], [fail] or [warn]
+    destination: skills/review/SKILL.md
+  - id: a6903d0778
+    line: 193
+    anchor: has a name and a description
+    destination: skills/review/SKILL.md
+  - id: 3a2c8eb7aa
+    line: 194
+    anchor: no id used twice across components, boundaries, flows and data items
+    destination: skills/review/SKILL.md
+  - id: f1475a754c
+    line: 195
+    anchor: every flow's source and target is a component
+    destination: skills/review/SKILL.md
+  - id: 75e55fbefa
+    line: 196
+    anchor: no flow in or out (warn)
+    destination: skills/review/SKILL.md
+  - id: c6116c1f83
+    line: 197
+    anchor: no component and no child boundary (warn)
+    destination: skills/review/SKILL.md
+  - id: 1a65cb9f74
+    line: 198
+    anchor: whose element no longer exists (warn)
+    destination: skills/review/SKILL.md
+  - id: 8bf307eea6
+    line: 199
+    anchor: the full schema validation
+    destination: skills/review/SKILL.md
+  - id: 36d00b9fc9
+    line: 203
+    anchor: "structure check: <model name>"
+    destination: skills/review/SKILL.md
+  - id: 718d5743ab
+    line: 222
+    anchor: structure check complete
+    destination: skills/review/SKILL.md

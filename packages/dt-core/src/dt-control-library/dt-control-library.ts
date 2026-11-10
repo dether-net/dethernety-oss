@@ -8,21 +8,21 @@
  * the four end-to-end control-library workflows defined in
  * CONTROL_LIBRARY.md §7:
  *
- * - **`pullControls`** (§7 Pull) — materialise/refresh `controls/<id>.json`
+ * - **`pullControls`** (CONTROL_LIBRARY.md §7 Pull) — materialise/refresh `controls/<id>.json`
  *   files for a list of platform Control ids.
- * - **`pushGreenfieldControl`** (§7 push — greenfield) — Steps A–D drive
+ * - **`pushGreenfieldControl`** (CONTROL_LIBRARY.md §7 push — greenfield) — Steps A–D drive
  *   a locally-authored Control to the platform with WAL-protected id
  *   write-back.
- * - **`pushBrownfieldControl`** (§7 push — brownfield) — Steps 0–F drive
+ * - **`pushBrownfieldControl`** (CONTROL_LIBRARY.md §7 push — brownfield) — Steps 0–F drive
  *   agent-authored attribute edits with full safety semantics
  *   (external-edit guard, partial-payload, conflict resolution,
  *   shared-ownership check, audit trail).
- * - **`markTombstoned`** (§5 brownfield → tombstoned) — flip a
- *   brownfield Control to tombstoned (preserving pendingEdit for
- *   recovery via clone-and-swap).
+ * - **`markTombstoned`** (CONTROL_LIBRARY.md §5 brownfield → tombstoned) — flip a
+ *   brownfield Control to tombstoned (preserving pendingEdit, so the
+ *   operator's unpushed edits can still be recovered).
  *
  * Plus `setLocalEdited` — the single source of truth for `localEditedAt`
- * + `pendingEdit` (enforces the §4 two-write semantic).
+ * + `pendingEdit` (enforces the CONTROL_LIBRARY.md §4 two-write semantic).
  *
  * Plumbed through the `manage_controls` MCP tool actions and the
  * `/dethereal:enrich` / `/dethereal:sync` skills.
@@ -40,6 +40,7 @@ import {
   appendAuditEntry,
   buildAuditEntry,
   type AuditLogEntry,
+  type AuditValueTags,
   type ConflictResolution,
 } from './audit-log-writer.js';
 import {
@@ -62,25 +63,25 @@ import type {
  * Operator decision shape consumed by `pushBrownfieldControl`.
  *
  * The `/dethereal:sync` skill builds this from the operator's responses
- * to the §6 batched review screen.
+ * to the CONTROL_LIBRARY.md §6 batched review screen.
  */
 export interface BrownfieldDecision {
   /**
    * Required when the control is shared (more than one model in
    * `liveAssignedModelIds`) or when ownership query failed.
    */
-  sharedOwnership: 'cancel' | 'push-anyway' | 'clone-and-swap' | 'push-unverified';
+  sharedOwnership: 'cancel' | 'push-anyway' | 'push-unverified';
   /**
    * Per-(classIdx, key) resolution for Step D Case 3 conflicts.
    * Key format: `<classIdx>.<attributeName>`.
    * Default for unspecified conflicts is `cancel` for the entire control row
-   * (CL §6 batched review screen "any conflicting key without a per-key
+   * (CONTROL_LIBRARY.md §6 batched review screen "any conflicting key without a per-key
    * decision is treated as 'cancel'").
    */
   perKey?: Record<string, PerKeyDecision>;
   /**
    * For `push-unverified` only — required to populate the audit entry's
-   * `queryFailureReason` field (CL §6 Audit log schema).
+   * `queryFailureReason` field (CONTROL_LIBRARY.md §6 Audit log schema).
    */
   queryFailureReason?: string;
   /**
@@ -118,7 +119,34 @@ export class ExternalEditDetectedError extends Error {
 }
 
 /**
- * Thrown when `pushBrownfieldControl` is asked to perform a clone-and-swap.
+ * Thrown when a resumed `pushGreenfieldControl` finds classes the Control no
+ * longer carries on the platform (its IS_INSTANCE_OF edge is gone), so their
+ * local attributes cannot be set. The other classes have been pushed; the file
+ * stays at `partially-pushed` until each listed class is bound again or its
+ * entry is removed from the local file.
+ */
+export class UnboundControlClassesError extends Error {
+  constructor(
+    public readonly controlId: string,
+    public readonly classes: Array<{ classId: string; className?: string }>,
+  ) {
+    const listed = classes
+      .map(c => (c.className ? `class=${c.classId} ("${c.className}")` : `class=${c.classId}`))
+      .join(', ');
+    super(
+      `pushGreenfieldControl: control=${controlId} cannot finish: ${listed} ` +
+        `${classes.length === 1 ? 'is' : 'are'} no longer bound to the control on the platform, so the local attributes cannot be set. ` +
+        `The other classes were pushed; the file stays at lifecycle=partially-pushed. For each listed class, either bind it to the control again ` +
+        `(manage_controls update with class_ids naming every class the control should carry, this one included) and run push-greenfield again, ` +
+        `or, to give up its local attributes, remove its entry from controls/${controlId}.json and run push-greenfield again, which then finishes the push.`,
+    );
+    this.name = 'UnboundControlClassesError';
+  }
+}
+
+/**
+ * Thrown when `pushBrownfieldControl` is asked to perform a clone-and-swap
+ * by a caller outside the type system (`BrownfieldDecision` does not offer it).
  * The engine ships without the clone path today (it requires a
  * name-collision check via `manage_controls(action: 'list', name)`
  * which the engine has no surface for yet).
@@ -137,7 +165,7 @@ export class CloneAndSwapNotImplemented extends Error {
  * Thrown by `setLocalEdited` when the caller passes `editedBy: 'external'`.
  *
  * The `'external'` discriminator is reserved for the `promote-external-edit`
- * recovery verb (CL §7 Step A unblock) — it tags the audit log so an
+ * recovery verb (CONTROL_LIBRARY.md §7 Step A unblock) — it tags the audit log so an
  * auditor can distinguish a genuine reconciliation push from a deliberate
  * operator overwrite. Letting any caller stamp `'external'` defeats that
  * discriminator. The spoofing surface is closed at both the MCP boundary
@@ -208,7 +236,7 @@ export class DtControlLibrary {
 
   /**
    * Materialise (or refresh) `controls/<id>.json` files for the supplied
-   * Control ids. CL §7 "Pull" — three batched calls in parallel:
+   * Control ids. CONTROL_LIBRARY.md §7 "Pull" — three batched calls in parallel:
    *   - getControlsByIds        → class metadata
    *   - getControlInstantiationAttributes → per-(controlId, classId) attrs
    *   - getControlsAssignedModels → assignedModelIds for platformState
@@ -218,10 +246,20 @@ export class DtControlLibrary {
    * `platformAttributes` are initialised to the same just-pulled value;
    * `localEditedAt` / `pushedAt` / `pendingEdit` are unset.
    *
-   * **Lifecycle-filtered reconciliation** (CL §6 missing-id rule):
+   * **A greenfield push still in progress stays resumable**: an existing
+   * file at `partially-pushed` (or at `greenfield` under its server id,
+   * when the push stopped right after the id rewrite) keeps that lifecycle, so the next
+   * `pushGreenfieldControl` resumes it. Each of its classes not yet pushed
+   * (no `pushedAt`, or `localEditedAt` after it) keeps its local
+   * `attributes` and `localEditedAt`; such a class the platform no longer
+   * lists is carried over like an unpushed `pendingEdit` (below). Only the
+   * platform snapshot (`platformAttributes`, `platformState`) is refreshed.
+   *
+   * **Lifecycle-filtered reconciliation** (CONTROL_LIBRARY.md §6 missing-id rule):
    * ids absent from the platform result whose local lifecycle is
    * `brownfield` or `partially-pushed` get flipped to `tombstoned`
-   * (preserving any `pendingEdit` block for clone-and-swap recovery).
+   * (preserving any `pendingEdit` block, so the operator's edits can still
+   * be recovered).
    * `greenfield` ids should not appear in the call (greenfield Controls
    * have no platform existence yet); a defensive log fires if seen.
    *
@@ -286,18 +324,27 @@ export class DtControlLibrary {
       const attrsForControl =
         attrsByControlAndClass.get(platformId) ?? new Map<string, Record<string, unknown>>();
 
+      // A greenfield push that stopped part-way: its unpushed class attributes
+      // exist only in this file, and the resume pushes them from here. A
+      // greenfield file already holding its server id stopped between the id
+      // rewrite and the lifecycle flip; pushGreenfieldControl resumes it too.
+      const resuming =
+        existing?.lifecycle === 'partially-pushed' ||
+        (existing?.lifecycle === 'greenfield' && !isGreenfieldTempId(existing.id));
+      const unpushed = (e: ControlFileClassEntry) =>
+        !e.pushedAt || (!!e.localEditedAt && e.localEditedAt > e.pushedAt);
+      const keepsLocal = (e: ControlFileClassEntry | undefined): e is ControlFileClassEntry =>
+        !!e && (!!e.pendingEdit || (resuming && unpushed(e)));
+
       const classes: ControlFileClassEntry[] = (platformCtrl.controlClasses ?? []).map(cc => {
         const platformAttrs = attrsForControl.get(cc.id) ?? {};
         // Preserve operator's in-flight pendingEdit if the existing file had
         // one for this class (mid-edit pull would otherwise wipe local intent).
         const existingClass = existing?.classes.find(e => e.classId === cc.id);
         const preservedPendingEdit = existingClass?.pendingEdit;
-        const preservedAttributes = preservedPendingEdit
-          ? existingClass!.attributes
-          : platformAttrs;
-        const preservedLocalEditedAt = preservedPendingEdit
-          ? existingClass!.localEditedAt
-          : undefined;
+        const keepLocal = keepsLocal(existingClass);
+        const preservedAttributes = keepLocal ? existingClass.attributes : platformAttrs;
+        const preservedLocalEditedAt = keepLocal ? existingClass.localEditedAt : undefined;
         const preservedPushedAt = existingClass?.pushedAt;
 
         const entry: ControlFileClassEntry = {
@@ -316,7 +363,8 @@ export class DtControlLibrary {
         return entry;
       });
 
-      // Carry over any local class with an UNPUSHED pendingEdit whose platform
+      // Carry over any local class with an UNPUSHED pendingEdit (or, on a
+      // resumable greenfield push, unpushed attributes) whose platform
       // IS_INSTANCE_OF edge has disappeared (absent from controlClasses).
       // Rebuilding `classes` purely from the platform set would silently drop
       // the operator's in-flight edit — contradicting the preservation contract.
@@ -326,14 +374,14 @@ export class DtControlLibrary {
       // pendingEdit so the operator can re-bind or discard the edit).
       const platformClassIds = new Set((platformCtrl.controlClasses ?? []).map(cc => cc.id));
       for (const localClass of existing?.classes ?? []) {
-        if (localClass.pendingEdit && !platformClassIds.has(localClass.classId)) {
+        if (keepsLocal(localClass) && !platformClassIds.has(localClass.classId)) {
           const carried: ControlFileClassEntry = {
             classId: localClass.classId,
             className: localClass.className,
             moduleId: localClass.moduleId,
             attributes: localClass.attributes,
-            pendingEdit: localClass.pendingEdit,
           };
+          if (localClass.pendingEdit) carried.pendingEdit = localClass.pendingEdit;
           if (localClass.localEditedAt) carried.localEditedAt = localClass.localEditedAt;
           classes.push(carried);
         }
@@ -343,7 +391,7 @@ export class DtControlLibrary {
         id: platformId,
         name: platformName,
         source: existing?.source ?? 'declared',
-        lifecycle: 'brownfield',
+        lifecycle: resuming ? existing!.lifecycle : 'brownfield',
         classes,
         platformState: {
           lastSyncedAt: now,
@@ -386,14 +434,17 @@ export class DtControlLibrary {
 
   /**
    * Drive a greenfield Control through the four-step push pipeline per
-   * CL §7 "Push — greenfield Controls". Each step is individually
+   * CONTROL_LIBRARY.md §7 "Push — greenfield Controls". Each step is individually
    * idempotent and resumable from `partially-pushed`.
    *
    * Step A — `dtControl.createControl` to mint a server id.
    * WAL-protected id rewrite — atomic across structure.json, dataflows.json,
    * and the per-control file rename.
    * Step B — per class entry, `setInstantiationAttributes` (skip entries
-   * already pushed via `pushedAt >= localEditedAt`).
+   * already pushed: `pushedAt`, and no `localEditedAt` after it — the rule
+   * Step D finalises on). On a resume, a class the Control no longer carries
+   * on the platform is skipped and reported by `UnboundControlClassesError`
+   * once the rest of the push has run.
    * Step C — `assignControlToElements` to create SUPPORTS edges.
    * Step D — flip `lifecycle: 'brownfield'` and populate `platformState`.
    *
@@ -411,12 +462,15 @@ export class DtControlLibrary {
     supportingElementIds,
     folderId,
     liveAssignedModelIds,
+    afterOperation,
   }: {
     modelDir: string;
     file: ControlFile;
     supportingElementIds: string[];
     folderId: string | undefined;
     liveAssignedModelIds: string[];
+    /** Passed to the journal replay: awaited after the id rewrite, before the journal is removed. */
+    afterOperation?: (op: { tempId: string; serverId: string }) => Promise<void>;
   }): Promise<ControlFile> => {
     if (file.lifecycle !== 'greenfield' && file.lifecycle !== 'partially-pushed') {
       throw new Error(
@@ -425,6 +479,9 @@ export class DtControlLibrary {
     }
 
     let working = { ...file };
+    // A resume: the Control already exists on the platform, whose class
+    // bindings may have changed since the push began.
+    const resuming = file.lifecycle === 'partially-pushed' || !isGreenfieldTempId(file.id);
 
     // ----- Step A — Create on platform (skip when already done) -----
     // Resume guard: a `greenfield` file whose id is already a server UUID means
@@ -480,7 +537,7 @@ export class DtControlLibrary {
       // the WAL has a consistent file to rename.
       await writeControlFile(modelDir, working);
       await appendOperation(modelDir, op);
-      await applyPendingRewrites(modelDir);
+      await applyPendingRewrites(modelDir, { afterOperation });
 
       // Re-read from the new path to capture the WAL-rewritten id.
       const reread = await readControlFile(modelDir, serverId);
@@ -493,15 +550,33 @@ export class DtControlLibrary {
       await writeControlFile(modelDir, working);
     }
 
+    const isPushed = (e: ControlFileClassEntry) =>
+      !!e.pushedAt && (!e.localEditedAt || e.pushedAt >= e.localEditedAt);
+
+    // On a resume, read the classes the Control still carries once. When the
+    // read fails or misses the Control, every class is tried and the
+    // platform's own refusal names the cause.
+    let boundClassIds: Set<string> | null = null;
+    if (resuming && working.classes.some(e => !isPushed(e))) {
+      try {
+        const [live] = await this.dtControl.getControlsByIds({ ids: [working.id] });
+        if (live?.id === working.id) {
+          boundClassIds = new Set((live.controlClasses ?? []).map(cc => cc.id));
+        }
+      } catch {
+        boundClassIds = null;
+      }
+    }
+    const unbound: Array<{ classId: string; className?: string }> = [];
+
     // ----- Step B — Per-class setInstantiationAttributes -----
     for (let i = 0; i < working.classes.length; i++) {
       const entry = working.classes[i];
-      // Skip entries already pushed (resume-from-partially-pushed semantics).
-      if (
-        entry.pushedAt &&
-        entry.localEditedAt &&
-        entry.pushedAt >= entry.localEditedAt
-      ) {
+      // Skip entries already pushed (resume-from-partially-pushed semantics);
+      // re-sending one would overwrite a platform change made since.
+      if (isPushed(entry)) continue;
+      if (boundClassIds && !boundClassIds.has(entry.classId)) {
+        unbound.push({ classId: entry.classId, className: entry.className });
         continue;
       }
 
@@ -539,10 +614,10 @@ export class DtControlLibrary {
       }
     }
 
+    if (unbound.length > 0) throw new UnboundControlClassesError(working.id, unbound);
+
     // ----- Step D — Finalise -----
-    const allPushed = working.classes.every(
-      e => e.pushedAt && (!e.localEditedAt || e.pushedAt >= e.localEditedAt),
-    );
+    const allPushed = working.classes.every(isPushed);
     if (allPushed) {
       const now = new Date().toISOString();
       working = {
@@ -567,10 +642,11 @@ export class DtControlLibrary {
 
   /**
    * Drive a brownfield Control through the seven-step safety pipeline
-   * (Step 0 short-circuit through Step F finalise) per CL §7 "Push —
+   * (Step 0 short-circuit through Step F finalise) per CONTROL_LIBRARY.md §7 "Push —
    * brownfield Controls".
    *
-   * The caller (the `/dethereal:sync` skill) is responsible for the
+   * The caller (the sync skill, through the MCP tool's `push-brownfield`
+   * action) is responsible for the
    * batched pre-push pipeline that fetches `freshPlatformAttrs` and
    * `liveAssignedModelIds` ONCE for all touched Controls — this method
    * does not re-issue those round-trips.
@@ -580,6 +656,9 @@ export class DtControlLibrary {
    *   is missing, Step B treats `platformAttributes` as `{}`.
    * @param liveAssignedModelIds - Live model ids (from
    *   getControlsAssignedModels) used by Step E. Empty array OK (alone).
+   *   `null` when the ownership query failed: ownership is unknown, so the
+   *   control is never treated as alone — only `push-unverified` (audited
+   *   as `force-unverified`) or `cancel` may proceed.
    * @param thisModelId - The id of the model being synced — used by Step E
    *   to recognise "alone vs shared".
    *
@@ -594,9 +673,10 @@ export class DtControlLibrary {
    * @throws {ExternalEditDetectedError} Step A — local `attributes`
    *   diverged from `platformAttributes` without a `pendingEdit` block.
    *   Recovery: `/dethereal:sync promote-external-edit <id> <classId>`.
-   * @throws {CloneAndSwapNotImplemented} Step E — operator chose
-   *   `sharedOwnership: 'clone-and-swap'`. The engine throws a typed
-   *   marker instead of proceeding silently.
+   * @throws {CloneAndSwapNotImplemented} Step E — an untyped caller passed
+   *   `sharedOwnership: 'clone-and-swap'`, which `BrownfieldDecision` does
+   *   not offer. The engine throws a typed marker instead of proceeding
+   *   silently; any other value outside the type throws a plain Error.
    * @throws {IllegalEditedByError} Guard against
    *   `setLocalEdited({editedBy: 'external'})`. The `'external'`
    *   discriminator is reserved for the `promote-external-edit` recovery
@@ -616,20 +696,25 @@ export class DtControlLibrary {
     liveAssignedModelIds,
     thisModelId,
     authnOperator,
+    valueTags,
   }: {
     modelDir: string;
     file: ControlFile;
     decision: BrownfieldDecision;
     freshPlatformAttrs: Map<string, Record<string, unknown>>;
-    liveAssignedModelIds: string[];
+    liveAssignedModelIds: string[] | null;
     thisModelId: string;
     /**
-     * JWT-anchored operator identity. Pass-through to `buildAuditEntry`
-     * so the audit log carries the platform-anchored identity alongside
-     * the spoofable local `operator` field. Optional for tests / non-MCP
+     * JWT-anchored operator identity, the audit log's only attribution.
+     * Pass-through to `buildAuditEntry`. Optional for tests / non-MCP
      * callers; the MCP tool always provides it when a token is available.
      */
     authnOperator?: string;
+    /**
+     * How the audit log tags values: a tagger under the caller's key, or why
+     * there is none (then values are omitted). The log never holds a value.
+     */
+    valueTags?: AuditValueTags;
   }): Promise<BrownfieldPushResult> => {
     if (file.lifecycle !== 'brownfield') {
       throw new Error(
@@ -674,7 +759,7 @@ export class DtControlLibrary {
     // ----- Step B — Refresh platformAttributes (TOCTOU fix) -----
     // Re-fetch live attributes inline rather than trust the caller-supplied
     // freshPlatformAttrs map. The caller (sync skill) batched-fetched the map
-    // at the start of P7.2, then iterates through operator review (seconds to
+    // at the start of the sync skill's batched fresh-fetch, then iterates through operator review (seconds to
     // minutes). Operator B's mutation landing during that window would be
     // silently overwritten by the original snapshot — Step D conflict
     // detection would never fire because our snapshot already shows B's prior
@@ -810,7 +895,7 @@ export class DtControlLibrary {
       // Step C revert detection: if every intended new value matches the
       // pre-edit value (operator typed back what they started with) the
       // outboundPayload would still be populated but this represents a
-      // meaningful "considered and discarded" event — the §7 Step C revert
+      // meaningful "considered and discarded" event — the CONTROL_LIBRARY.md §7 Step C revert
       // path. Detect via comparison against pendingEdit.previousAttributes
       // (NOT platformAttributes — the operator's intent baseline).
       const allRevertedToPrevious = changedKeys.every(
@@ -833,6 +918,7 @@ export class DtControlLibrary {
           previousAttributes: entry.pendingEdit.previousAttributes,
           editedBy: entry.pendingEdit.editedBy,
           authnOperator,
+          valueTags,
         });
         // Buffer only — flushed on the persisting path (see flushAudit).
         auditEntries.push(auditEntry);
@@ -877,7 +963,7 @@ export class DtControlLibrary {
     // If nothing needs a platform push (all classes reverted and/or already
     // applied), we're done — persist any pendingEdit-clears + flush buffered
     // audit, then return. Note: lastPushedAt is intentionally NOT bumped here —
-    // §7 Step F's "regardless of per-class outcome" wording assumes at least one
+    // CONTROL_LIBRARY.md §7 Step F's "regardless of per-class outcome" wording assumes at least one
     // class entry was pushed; a revert/already-applied round moves no bytes.
     if (plans.length === 0) {
       if (revertedAny || alreadyAppliedAny) {
@@ -905,7 +991,7 @@ export class DtControlLibrary {
         const theirs = platformAttrs[k];
 
         if (!perKey) {
-          // CL §6 batched review screen: any conflicting key without a
+          // CONTROL_LIBRARY.md §6 batched review screen: any conflicting key without a
           // decision is treated as 'cancel' for the entire control row.
           return { file: working, auditEntries, mutated: false };
         }
@@ -970,9 +1056,18 @@ export class DtControlLibrary {
     }
 
     // ----- Step E — Shared-ownership check -----
+    // Unknown ownership (the query failed) is never "alone": proceeding needs
+    // the operator's explicit push-unverified, which is audited as such.
+    const unverified = liveAssignedModelIds === null;
     const isAlone =
-      liveAssignedModelIds.length === 0 ||
-      (liveAssignedModelIds.length === 1 && liveAssignedModelIds[0] === thisModelId);
+      !unverified &&
+      (liveAssignedModelIds.length === 0 ||
+        (liveAssignedModelIds.length === 1 && liveAssignedModelIds[0] === thisModelId));
+    if (unverified && decision.sharedOwnership !== 'cancel' && decision.sharedOwnership !== 'push-unverified') {
+      throw new Error(
+        `Control ${working.id}: its ownership could not be checked, so only push-unverified or cancel can proceed`,
+      );
+    }
 
     // Per-control shared-ownership signal. Per-class auditKind in Step F
     // uses this when set; otherwise falls back to 'first-write' when the
@@ -988,8 +1083,15 @@ export class DtControlLibrary {
         case 'push-unverified':
           sharedAuditKind = 'force-unverified';
           break;
-        case 'clone-and-swap':
-          throw new CloneAndSwapNotImplemented(working.id);
+        default: {
+          // Unreachable for typed callers; a value from outside the type must
+          // not fall through to a push without a shared-ownership audit kind.
+          const chosen = decision.sharedOwnership as string;
+          if (chosen === 'clone-and-swap') throw new CloneAndSwapNotImplemented(working.id);
+          throw new Error(
+            `pushBrownfieldControl: unknown sharedOwnership decision '${chosen}' for control=${working.id}. Use cancel, push-anyway or push-unverified.`,
+          );
+        }
       }
     }
 
@@ -1128,6 +1230,7 @@ export class DtControlLibrary {
           // identical in the log. Coerced above for hand-edited spoofs.
           editedBy: auditEditedBy,
           authnOperator,
+          valueTags,
           conflictResolutions:
             plan.conflictResolutions.length > 0 ? plan.conflictResolutions : undefined,
           queryFailureReason:
@@ -1163,15 +1266,15 @@ export class DtControlLibrary {
 
   /**
    * Flip a Control's lifecycle to `tombstoned`. Preserves any `pendingEdit`
-   * blocks (operator may want to recover the edits via clone-and-swap per
-   * CL §6 option 3). Persists via the WAL helper's atomic-write sequence.
+   * blocks (operator may want to recover the edits). Persists via the WAL
+   * helper's atomic-write sequence.
    *
    * **Lifecycle contract**: this method **accepts any
    * lifecycle** as input — greenfield, partially-pushed, brownfield, or
    * a Control already tombstoned. Tombstoning a greenfield Control is
    * legal (the operator decided not to push the local-only Control); no
    * platform-side cleanup is performed because greenfield Controls have
-   * no platform existence. CL §5 documents the canonical transitions
+   * no platform existence. CONTROL_LIBRARY.md §5 documents the canonical transitions
    * but the engine does not enforce them — the skill layer
    * (`/dethereal:sync tombstone`) is the operator-facing gate.
    *
@@ -1198,10 +1301,10 @@ export class DtControlLibrary {
 
   /**
    * Apply local edits to a class entry's `attributes`, bumping
-   * `localEditedAt` and populating `pendingEdit` per the §4 two-write
+   * `localEditedAt` and populating `pendingEdit` per the CONTROL_LIBRARY.md §4 two-write
    * semantic.
    *
-   * **Two-write rule (CL §4):** for each changed key `k`,
+   * **Two-write rule (CONTROL_LIBRARY.md §4):** for each changed key `k`,
    * `pendingEdit.previousAttributes[k]` is set to the pre-edit value
    * ONLY IF `k` is not already in `previousAttributes` — preserving the
    * operator's FIRST pre-edit value as the intent baseline across
@@ -1277,7 +1380,7 @@ export class DtControlLibrary {
       if (k in previousAttributes || firstWriteKeysSet.has(k)) continue;
 
       if (k in entry.attributes) {
-        // Real prior value exists — record it as the §4 baseline.
+        // Real prior value exists — record it as the CONTROL_LIBRARY.md §4 baseline.
         previousAttributes[k] = entry.attributes[k];
       } else {
         // No prior value on disk. Track as first-write rather than
@@ -1314,7 +1417,7 @@ export class DtControlLibrary {
   /**
    * Synthesise a `pendingEdit` block that records the operator's intent
    * to keep the local `attributes` divergence from `platformAttributes`,
-   * unblocking the §7 Step A external-edit guard.
+   * unblocking the CONTROL_LIBRARY.md §7 Step A external-edit guard.
    *
    * **Why this exists.** The Step A guard refuses pushes when
    * `attributes !== platformAttributes` AND `pendingEdit` is absent —
@@ -1437,11 +1540,14 @@ export {
   buildAuditEntry,
   computeEffective,
   getAuditLogPath,
-  getOperatorEmail,
 } from './audit-log-writer.js';
 export type {
   AuditLogEntry,
+  AuditValues,
+  AuditValueTagger,
+  AuditValueTags,
   ConflictResolution,
+  RecordedConflictResolution,
 } from './audit-log-writer.js';
 export {
   appendOperation,
@@ -1452,8 +1558,12 @@ export {
   getJournalPath,
   inspectPendingRewrite,
   clearPendingRewrite,
+  setJournalAuthenticator,
+  JournalRejectedError,
+  UnsafePathError,
 } from './wal-helper.js';
 export type {
+  JournalAuthenticator,
   PendingOperation,
   GreenfieldIdRewriteOp,
   CloneAndSwapOp,

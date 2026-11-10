@@ -1,0 +1,394 @@
+source: skills/surface/SKILL.md
+blob: 5d3e95465e3a94d91a794b04680a45a40898690a
+migrated: true
+rules:
+  - id: dc632aac1c
+    line: 9
+    anchor: "summarise the attack surface of the threat model"
+    destination: skills/surface/SKILL.md
+  - id: 660f20c297
+    line: 9
+    anchor: "you change nothing"
+    destination: skills/surface/SKILL.md
+  - id: 89cbe14cfa
+    line: 9
+    anchor: "exposures and mitre-grounded gaps"
+    destination: skills/surface/SKILL.md
+  - id: 3db907463a
+    line: 13
+    anchor: "use the directory path in the arguments"
+    destination: skills/surface/SKILL.md
+  - id: bfaf1dbe68
+    line: 14
+    anchor: "none → return \"no local models"
+    destination: skills/surface/SKILL.md
+  - id: "3863176941"
+    line: 15
+    anchor: "and the files under attributes/ from disk"
+    destination: skills/surface/SKILL.md
+  - id: e1795542b4
+    line: 16
+    anchor: "the model has no components"
+    destination: skills/surface/SKILL.md
+  - id: 95a5904c6f
+    line: 17
+    anchor: "and the files under attributes/ from disk"
+    destination: skills/surface/SKILL.md
+  - id: f256d129da
+    line: 18
+    dropped: {reason: "The surface reads no state file: nothing in it depends on the workflow state", ref: "apps/dethereal/workflow/skills/surface/SKILL.md"}
+  - id: b499313aef
+    line: 22
+    anchor: "the summary is the deliverable"
+    destination: skills/surface/SKILL.md
+  - id: ce61eca9a2
+    line: 22
+    anchor: "every part below is a markdown table or list in that answer"
+    destination: skills/surface/SKILL.md
+  - id: 7719acccd8
+    line: 26
+    anchor: "walk the boundary hierarchy"
+    destination: skills/surface/SKILL.md
+  - id: 08f5dad6c2
+    line: 26
+    anchor: "count process, store and external_entity per boundary"
+    destination: skills/surface/SKILL.md
+  - id: 175e1ceb31
+    line: 28
+    anchor: "| Boundary | PROCESS | STORE | EXTERNAL_ENTITY | Total |"
+    destination: skills/surface/SKILL.md
+  - id: 3b6ed02146
+    line: 39
+    anchor: "The crossing flows are the server's"
+    destination: skills/surface/SKILL.md
+  - id: 326446a11f
+    line: 39
+    anchor: "Per group: the flow count"
+    destination: skills/surface/SKILL.md
+  - id: f1c97737f3
+    line: 40
+    anchor: "Per group: the flow count"
+    destination: skills/surface/SKILL.md
+  - id: 8fabff0a63
+    line: 41
+    anchor: "encrypted (the flow's encryption_in_transit) out of the count"
+    destination: skills/surface/SKILL.md
+  - id: 2f29e4284c
+    line: 42
+    anchor: "has implicit_deny_enabled and the source boundary egress_filtering"
+    destination: skills/surface/SKILL.md
+  - id: c7566ee5cf
+    line: 43
+    anchor: "out of the count"
+    destination: skills/surface/SKILL.md
+  - id: 8f077ff471
+    line: 45
+    anchor: "otherwise \"logical only\""
+    destination: skills/surface/SKILL.md
+  - id: 2759d1077d
+    line: 54
+    anchor: "it looks authenticated but guarantees nothing on failure"
+    destination: skills/surface/SKILL.md
+  - id: 24edf1231b
+    line: 54
+    anchor: "otherwise \"logical only\""
+    destination: skills/surface/SKILL.md
+  - id: 052f3cc92d
+    line: 56
+    anchor: "are the priority gaps; list them by name"
+    destination: skills/surface/SKILL.md
+  - id: "2238637281"
+    line: 60
+    anchor: "the model is synced when"
+    destination: skills/surface/SKILL.md
+  - id: b246033d0b
+    line: 62
+    anchor: "the only model-wide route"
+    destination: skills/surface/SKILL.md
+  - id: 88844d1898
+    line: 62
+    anchor: "per-element drill-down only"
+    destination: skills/surface/SKILL.md
+  - id: d775a70419
+    line: 62
+    anchor: "exposures by element: the total, and the most affected element"
+    destination: skills/surface/SKILL.md
+  - id: 88150308f8
+    line: 62
+    anchor: "exposures by element: the total, and the most affected element"
+    destination: skills/surface/SKILL.md
+  - id: c9e606e631
+    line: 63
+    anchor: "exposures by element: the total, and the most affected element"
+    destination: skills/surface/SKILL.md
+  - id: c23e9597db
+    line: 69
+    anchor: "model not synced — push it with"
+    destination: skills/surface/SKILL.md
+  - id: aac2f0b87e
+    line: 70
+    anchor: "for exposure and gap analysis"
+    destination: skills/surface/SKILL.md
+  - id: 7197ba6437
+    line: 78
+    anchor: "4a. inferred coverage"
+    destination: skills/surface/SKILL.md
+  - id: 781ce80d13
+    line: 78
+    anchor: "exposures and mitre-grounded gaps"
+    destination: skills/surface/SKILL.md
+  - id: 1f7a5df23c
+    line: 82
+    anchor: "the model is synced when"
+    destination: skills/surface/SKILL.md
+  - id: 50166895da
+    line: 84
+    anchor: "with the model id — the only model-wide route"
+    destination: skills/surface/SKILL.md
+  - id: 00aa807dbf
+    line: 85
+    anchor: "exposures by element: the total"
+    destination: skills/surface/SKILL.md
+  - id: ee86b8b18c
+    line: 86
+    anchor: "an att&ck mitigation exists and an installed control class matches"
+    destination: skills/surface/SKILL.md
+  - id: 6e81194ed5
+    line: 87
+    anchor: "no installed control class covers the mitigation"
+    destination: skills/surface/SKILL.md
+  - id: e15854137b
+    line: 88
+    anchor: "with their d3fend links and addressescount"
+    destination: skills/surface/SKILL.md
+  - id: 197e23e3d8
+    line: 89
+    anchor: "controls assigned to the element but addressing other techniques"
+    destination: skills/surface/SKILL.md
+  - id: b258d1ba46
+    line: 90
+    anchor: '"N exposures have no ATT&CK technique mapping and cannot be'
+    destination: skills/surface/SKILL.md
+  - id: c7333e298b
+    line: 91
+    anchor: "say so and go on with the local parts"
+    destination: skills/surface/SKILL.md
+  - id: 329085736b
+    line: 93
+    anchor: "api-server: sql injection"
+    destination: skills/surface/SKILL.md
+  - id: ae1a979431
+    line: 109
+    anchor: "for exposure and gap analysis"
+    destination: skills/surface/SKILL.md
+  - id: a8afa40e55
+    line: 109
+    anchor: "for exposure and gap analysis"
+    destination: skills/surface/SKILL.md
+  - id: a811b1ea13
+    line: 114
+    anchor: "with action: 'coverage' and directory_path"
+    destination: skills/surface/SKILL.md
+  - id: a33080d3ec
+    line: 116
+    anchor: "encryption at rest (stores) and monitoring"
+    destination: skills/surface/SKILL.md
+  - id: 22ea956956
+    line: 132
+    anchor: "4b. formal coverage"
+    destination: skills/surface/SKILL.md
+  - id: 44b68f1708
+    line: 132
+    anchor: "each component in exactly one tier"
+    destination: skills/surface/SKILL.md
+  - id: 57ebd4d2e1
+    line: 134
+    dropped: {reason: "The four-tier table (crown jewels, cross-boundary, internet-facing, internal) is replaced by the gates' tiers as the coverage tool returns them: Tier 1 internet-facing, Tier 2 crown jewel or restricted data, Tier 3 internal, with crown jewels as a separate, non-additive label; tiers are never assigned by the model", ref: "apps/dethereal/workflow/skills/surface/SKILL.md"}
+  - id: 3ced9f941c
+    line: 135
+    dropped: {reason: "The four-tier table (crown jewels, cross-boundary, internet-facing, internal) is replaced by the gates' tiers as the coverage tool returns them: Tier 1 internet-facing, Tier 2 crown jewel or restricted data, Tier 3 internal, with crown jewels as a separate, non-additive label; tiers are never assigned by the model", ref: "apps/dethereal/workflow/skills/surface/SKILL.md"}
+  - id: d469b17116
+    line: 136
+    dropped: {reason: "The four-tier table (crown jewels, cross-boundary, internet-facing, internal) is replaced by the gates' tiers as the coverage tool returns them: Tier 1 internet-facing, Tier 2 crown jewel or restricted data, Tier 3 internal, with crown jewels as a separate, non-additive label; tiers are never assigned by the model", ref: "apps/dethereal/workflow/skills/surface/SKILL.md"}
+  - id: a2da050488
+    line: 137
+    dropped: {reason: "The four-tier table (crown jewels, cross-boundary, internet-facing, internal) is replaced by the gates' tiers as the coverage tool returns them: Tier 1 internet-facing, Tier 2 crown jewel or restricted data, Tier 3 internal, with crown jewels as a separate, non-additive label; tiers are never assigned by the model", ref: "apps/dethereal/workflow/skills/surface/SKILL.md"}
+  - id: ed19e699a2
+    line: 139
+    anchor: "| Tier | Components | With Controls |"
+    destination: skills/surface/SKILL.md
+  - id: 47725fe91d
+    line: 154
+    anchor: "no formal controls assigned"
+    destination: skills/surface/SKILL.md
+  - id: efe85477c7
+    line: 154
+    anchor: "no formal controls assigned"
+    destination: skills/surface/SKILL.md
+  - id: 0e7456a53e
+    line: 156
+    anchor: "can be one control with one class entry each, not one control per row"
+    destination: skills/surface/SKILL.md
+  - id: 14690d5f4f
+    line: 156
+    dropped: {reason: "The grouping rule is stated in place (one control with one class entry per related class); the controls reference is the enrichment workflow's, not the read-only surface's", ref: "apps/dethereal/workflow/skills/surface/SKILL.md"}
+  - id: 20b4fbf7e2
+    line: 160
+    anchor: "4c. control sources"
+    destination: skills/surface/SKILL.md
+  - id: 238dc5d689
+    line: 162
+    anchor: "verified in code or iac — full confidence"
+    destination: skills/surface/SKILL.md
+  - id: 0856b3f3f8
+    line: 172
+    anchor: "4c. control sources (source_breakdown, when present)"
+    destination: skills/surface/SKILL.md
+  - id: a5e908f5f2
+    line: 176
+    anchor: "from .dethereal/scope.json, listed"
+    destination: skills/surface/SKILL.md
+  - id: db93659a2a
+    line: 176
+    anchor: "from .dethereal/scope.json, listed; left out when empty"
+    destination: skills/surface/SKILL.md
+  - id: 57f574ccae
+    line: 178
+    anchor: "4d. governance controls"
+    destination: skills/surface/SKILL.md
+  - id: ec6b36ae55
+    line: 185
+    anchor: "left out when empty"
+    destination: skills/surface/SKILL.md
+  - id: 3b767f9819
+    line: 189
+    anchor: "tactics come from the exposures' exploitedby[].attack_id"
+    destination: skills/surface/SKILL.md
+  - id: 916f8dec37
+    line: 189
+    anchor: "never from the local model"
+    destination: skills/surface/SKILL.md
+  - id: 8f20fa5dfa
+    line: 191
+    anchor: "collect and deduplicate the technique ids"
+    destination: skills/surface/SKILL.md
+  - id: 44ca136bd5
+    line: 191
+    anchor: "collect and deduplicate the technique ids"
+    destination: skills/surface/SKILL.md
+  - id: 9f6376e4a7
+    line: 191
+    anchor: "out of the 15 enterprise tactics"
+    destination: skills/surface/SKILL.md
+  - id: 39f8b9b370
+    line: 193
+    anchor: "reconnaissance, resource development, initial access"
+    destination: skills/surface/SKILL.md
+  - id: 853d87226c
+    line: 195
+    anchor: "resolve every one to its tactic"
+    destination: skills/surface/SKILL.md
+  - id: 8d2e6c9e04
+    line: 195
+    anchor: "(action: 'technique') — never from memory"
+    destination: skills/surface/SKILL.md
+  - id: 12d829e089
+    line: 195
+    anchor: "and the tactics covered and not covered"
+    destination: skills/surface/SKILL.md
+  - id: 387900df2b
+    line: 197
+    anchor: "show the techniques mapped"
+    destination: skills/surface/SKILL.md
+  - id: 4ad48e1cf0
+    line: 206
+    anchor: "synced, no exposures"
+    destination: skills/surface/SKILL.md
+  - id: ab847a6d07
+    line: 207
+    anchor: "install a module whose policies cover these components"
+    destination: skills/surface/SKILL.md
+  - id: 9f046d6ae8
+    line: 213
+    anchor: "create, run, then read its results"
+    destination: skills/surface/SKILL.md
+  - id: c23e9597db-2
+    line: 217
+    anchor: "then run an analysis, for tactic coverage"
+    destination: skills/surface/SKILL.md
+  - id: "7e04171811"
+    line: 218
+    anchor: "then run an analysis, for tactic coverage"
+    destination: skills/surface/SKILL.md
+  - id: 24f24c67c9
+    line: 227
+    anchor: "6. credential topology"
+    destination: skills/surface/SKILL.md
+  - id: 726384180d
+    line: 228
+    anchor: "Crossing flows (part 2's set) with required_credentials"
+    destination: skills/surface/SKILL.md
+  - id: c5f5e27339
+    line: 229
+    anchor: "stores with stores_credentials: true"
+    destination: skills/surface/SKILL.md
+  - id: 33034d02ab
+    line: 230
+    anchor: "its blast radius (flows and boundaries)"
+    destination: skills/surface/SKILL.md
+  - id: 9a11389221
+    line: 232
+    anchor: "its blast radius (flows and boundaries)"
+    destination: skills/surface/SKILL.md
+  - id: 2c1a918ffc
+    line: 239
+    anchor: "no credential mappings"
+    destination: skills/surface/SKILL.md
+  - id: e22521552a
+    line: 239
+    anchor: "no credential mappings"
+    destination: skills/surface/SKILL.md
+  - id: 783f160260
+    line: 243
+    anchor: "components by monitoring_tools"
+    destination: skills/surface/SKILL.md
+  - id: aa5c72d2da
+    line: 243
+    anchor: "components with none are blind spots"
+    destination: skills/surface/SKILL.md
+  - id: 63c7405fc2
+    line: 245
+    anchor: "siem, edr, ndr counts"
+    destination: skills/surface/SKILL.md
+  - id: c19b3b0cf3
+    line: 251
+    anchor: "no monitoring data"
+    destination: skills/surface/SKILL.md
+  - id: 4688b54cc7
+    line: 251
+    anchor: "no monitoring data"
+    destination: skills/surface/SKILL.md
+  - id: 83ed104df0
+    line: 255
+    anchor: "components or boundaries with representedmodel"
+    destination: skills/surface/SKILL.md
+  - id: 270536e55e
+    line: 255
+    anchor: "attack paths through them are outside this model's analysis"
+    destination: skills/surface/SKILL.md
+  - id: b591c81c74
+    line: 257
+    anchor: "components stand for other models"
+    destination: skills/surface/SKILL.md
+  - id: 327fe0ab31
+    line: 263
+    anchor: "warn about cross-model credential reuse"
+    destination: skills/surface/SKILL.md
+  - id: ecd0a5c96c
+    line: 265
+    anchor: "neither: leave this part out"
+    destination: skills/surface/SKILL.md
+  - id: 55fc762a23
+    line: 269
+    anchor: <N> components, <K> boundary crossings, <J> control gaps. [next]
+    destination: skills/surface/SKILL.md

@@ -127,7 +127,13 @@ describe('WAL helper — basic operations', () => {
   it('appendOperation creates a journal and a second call appends to it', async () => {
     const { op } = await setupGreenfieldFixture();
     await appendOperation(modelDir, op);
-    const op2 = { ...op, tempId: 'greenfield-second', serverId: 'second-uuid' };
+    const op2: GreenfieldIdRewriteOp = {
+      ...op,
+      tempId: 'greenfield-second',
+      serverId: 'second-uuid',
+      filePaths: ['structure.json', 'dataflows.json', 'controls/greenfield-second.json'],
+      controlFileRename: { from: 'controls/greenfield-second.json', to: 'controls/second-uuid.json' },
+    };
     await appendOperation(modelDir, op2);
     const journal = await readJournal(modelDir);
     expect(journal?.operations).toHaveLength(2);
@@ -145,6 +151,60 @@ describe('WAL helper — happy-path replay (no crash)', () => {
     await appendOperation(modelDir, op);
     const replayed = await applyPendingRewrites(modelDir);
     expect(replayed).toBe(1);
+    await assertFinalState();
+  });
+});
+
+describe('WAL helper — afterOperation', () => {
+  const second = (op: GreenfieldIdRewriteOp): GreenfieldIdRewriteOp => ({
+    ...op,
+    tempId: 'greenfield-second',
+    serverId: 'second-uuid',
+    filePaths: ['structure.json', 'dataflows.json', 'controls/greenfield-second.json'],
+    controlFileRename: { from: 'controls/greenfield-second.json', to: 'controls/second-uuid.json' },
+  });
+
+  it('runs once per operation, in order, after its rewrite is on disk and before the journal goes', async () => {
+    const { op } = await setupGreenfieldFixture();
+    await appendOperation(modelDir, op);
+    await appendOperation(modelDir, second(op));
+    const seen: Array<{ op: unknown; struct: string; journal: boolean; renamed: boolean }> = [];
+    await applyPendingRewrites(modelDir, {
+      afterOperation: async (o) => {
+        seen.push({
+          op: o,
+          struct: await fs.readFile(join(modelDir, 'structure.json'), 'utf-8'),
+          journal: await fs.access(getJournalPath(modelDir)).then(() => true, () => false),
+          renamed: await fs.access(join(modelDir, `controls/${SERVER_ID}.json`)).then(() => true, () => false),
+        });
+      },
+    });
+    // Only the ids reach the callback, never the operation itself.
+    expect(seen.map((x) => x.op)).toEqual([
+      { tempId: TEMP_ID, serverId: SERVER_ID },
+      { tempId: 'greenfield-second', serverId: 'second-uuid' },
+    ]);
+    expect(seen[0].struct).toContain(SERVER_ID);
+    expect(seen[0].struct).not.toContain(TEMP_ID);
+    expect(seen[0].renamed).toBe(true);
+    expect(seen.every((x) => x.journal)).toBe(true);
+    await assertFinalState();
+  });
+
+  it('a throw keeps the journal; the next replay runs every operation and the callback again', async () => {
+    const { op } = await setupGreenfieldFixture();
+    await appendOperation(modelDir, op);
+    await appendOperation(modelDir, second(op));
+    const calls: string[] = [];
+    await expect(applyPendingRewrites(modelDir, {
+      afterOperation: async (o) => {
+        calls.push(o.tempId);
+        if (o.tempId === 'greenfield-second') throw new Error('carry refused');
+      },
+    })).rejects.toThrow('carry refused');
+    await expect(fs.access(getJournalPath(modelDir))).resolves.toBeUndefined();
+    await applyPendingRewrites(modelDir, { afterOperation: async (o) => { calls.push(o.tempId) } });
+    expect(calls).toEqual([TEMP_ID, 'greenfield-second', TEMP_ID, 'greenfield-second']);
     await assertFinalState();
   });
 });
@@ -268,69 +328,37 @@ describe('WAL helper — crash-injection scenarios (DoD)', () => {
 });
 
 describe('WAL helper — clone-and-swap operation', () => {
-  it('end-to-end: rewrites references, creates new file, deletes old', async () => {
-    const oldId = '11111111-1111-1111-1111-111111111111';
-    const newId = '22222222-2222-2222-2222-222222222222';
-    const oldFileContent = JSON.stringify({ id: oldId, name: 'Original' });
-    const newFileContent = JSON.stringify({ id: newId, name: 'Cloned' });
+  // Nothing writes a clone-and-swap operation, so a journal holding one can only
+  // have been planted: it is never written or replayed.
+  const oldId = '11111111-1111-1111-1111-111111111111';
+  const newId = '22222222-2222-2222-2222-222222222222';
+  const op: CloneAndSwapOp = {
+    kind: 'clone-and-swap',
+    oldId,
+    newId,
+    filePaths: ['structure.json'],
+    controlFileWrite: `controls/${newId}.json`,
+    controlFileContent: JSON.stringify({ id: newId, name: 'Cloned' }),
+    controlFileDelete: `controls/${oldId}.json`,
+    createdAt: '2026-04-18T12:00:00Z',
+  };
 
-    await fs.writeFile(
-      join(modelDir, 'structure.json'),
-      JSON.stringify({ components: [{ controls: [{ id: oldId }] }] }),
-    );
-    await fs.mkdir(join(modelDir, 'controls'), { recursive: true });
-    await fs.writeFile(join(modelDir, `controls/${oldId}.json`), oldFileContent);
-
-    const op: CloneAndSwapOp = {
-      kind: 'clone-and-swap',
-      oldId,
-      newId,
-      filePaths: ['structure.json'],
-      controlFileWrite: `controls/${newId}.json`,
-      controlFileContent: newFileContent,
-      controlFileDelete: `controls/${oldId}.json`,
-      createdAt: '2026-04-18T12:00:00Z',
-    };
-    await appendOperation(modelDir, op);
-    await applyPendingRewrites(modelDir);
-
-    const struct = await fs.readFile(join(modelDir, 'structure.json'), 'utf-8');
-    expect(struct).toContain(newId);
-    expect(struct).not.toContain(oldId);
-    expect(
-      await fs.readFile(join(modelDir, `controls/${newId}.json`), 'utf-8'),
-    ).toBe(newFileContent);
-    await expect(
-      fs.access(join(modelDir, `controls/${oldId}.json`)),
-    ).rejects.toThrow();
-    await expect(fs.access(getJournalPath(modelDir))).rejects.toThrow();
+  it('is never written to the journal', async () => {
+    await expect(appendOperation(modelDir, op)).rejects.toThrow(/unsupported shape \(unsupported_kind\)/);
+    expect(await readJournal(modelDir)).toBeNull();
   });
 
-  it('clone-and-swap replay is idempotent if all steps already applied', async () => {
-    const oldId = 'aaaaaaaa-1111-1111-1111-111111111111';
-    const newId = 'bbbbbbbb-2222-2222-2222-222222222222';
-    await fs.writeFile(
-      join(modelDir, 'structure.json'),
-      JSON.stringify({ controls: [{ id: newId }] }),
-    );
+  it('is never replayed, and touches nothing', async () => {
+    const structure = JSON.stringify({ components: [{ controls: [{ id: oldId }] }] });
+    await fs.writeFile(join(modelDir, 'structure.json'), structure);
     await fs.mkdir(join(modelDir, 'controls'), { recursive: true });
-    await fs.writeFile(
-      join(modelDir, `controls/${newId}.json`),
-      JSON.stringify({ id: newId }),
-    );
+    await fs.writeFile(join(modelDir, `controls/${oldId}.json`), '{}');
+    await fs.mkdir(join(modelDir, '.dethereal'), { recursive: true });
+    await fs.writeFile(getJournalPath(modelDir), JSON.stringify({ operations: [op] }));
 
-    const op: CloneAndSwapOp = {
-      kind: 'clone-and-swap',
-      oldId,
-      newId,
-      filePaths: ['structure.json'],
-      controlFileWrite: `controls/${newId}.json`,
-      controlFileContent: JSON.stringify({ id: newId }),
-      controlFileDelete: `controls/${oldId}.json`,
-      createdAt: '2026-04-18T12:00:00Z',
-    };
-    await appendOperation(modelDir, op);
-    await expect(applyPendingRewrites(modelDir)).resolves.toBe(1);
+    await expect(applyPendingRewrites(modelDir)).rejects.toMatchObject({ name: 'JournalRejectedError', code: 'malformed' });
+    expect(await fs.readFile(join(modelDir, 'structure.json'), 'utf-8')).toBe(structure);
+    expect(await fs.readdir(join(modelDir, 'controls'))).toEqual([`${oldId}.json`]);
   });
 });
 
@@ -342,34 +370,6 @@ describe('WAL helper — concurrent / repeated replay convergence', () => {
     // Second replay finds no journal — no-op.
     expect(await applyPendingRewrites(modelDir)).toBe(0);
     await assertFinalState();
-  });
-
-  it('two operations in one journal: greenfield then clone-and-swap', async () => {
-    const { op: gop } = await setupGreenfieldFixture();
-    const cloneOldId = SERVER_ID; // The just-rewritten id
-    const cloneNewId = '33333333-3333-3333-3333-333333333333';
-    await appendOperation(modelDir, gop);
-    await appendOperation(modelDir, {
-      kind: 'clone-and-swap',
-      oldId: cloneOldId,
-      newId: cloneNewId,
-      filePaths: ['structure.json', 'dataflows.json'],
-      controlFileWrite: `controls/${cloneNewId}.json`,
-      controlFileContent: JSON.stringify({ id: cloneNewId, name: 'Cloned' }),
-      controlFileDelete: `controls/${cloneOldId}.json`,
-      createdAt: '2026-04-18T12:00:01Z',
-    });
-
-    await applyPendingRewrites(modelDir);
-
-    const struct = await fs.readFile(join(modelDir, 'structure.json'), 'utf-8');
-    expect(struct).toContain(cloneNewId);
-    expect(struct).not.toContain(cloneOldId);
-    expect(struct).not.toContain(TEMP_ID);
-    await expect(
-      fs.access(join(modelDir, `controls/${cloneNewId}.json`)),
-    ).resolves.toBeUndefined();
-    await expect(fs.access(getJournalPath(modelDir))).rejects.toThrow();
   });
 });
 

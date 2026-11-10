@@ -6,7 +6,7 @@
  */
 
 import fetch from 'cross-fetch'
-import { getConfig, debug } from '../config.js'
+import { getConfig, debug, originOf, urlPolicyProblem, validateConfig } from '../config.js'
 
 /**
  * Platform configuration returned from /config endpoint
@@ -50,18 +50,59 @@ export interface PlatformConfig {
 let cachedConfig: PlatformConfig | null = null
 let cacheBaseUrl: string | null = null
 
+/** Upper bound on one /config request, so a platform that never answers cannot stall a caller. */
+export const PLATFORM_CONFIG_TIMEOUT_MS = 3_000
+
+/**
+ * A signal that aborts after `ms`, or earlier when `caller` aborts. `done()` must run on
+ * every exit path; the timer never keeps the process alive on its own.
+ */
+function boundedSignal(ms: number, caller?: AbortSignal): { signal: AbortSignal; done: () => void } {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(new DOMException('Platform config request timed out', 'TimeoutError')), ms)
+  timer.unref?.()
+  const onAbort = () => controller.abort(caller?.reason)
+  if (caller?.aborted) onAbort()
+  else caller?.addEventListener('abort', onAbort, { once: true })
+  return {
+    signal: controller.signal,
+    done: () => {
+      clearTimeout(timer)
+      caller?.removeEventListener('abort', onAbort)
+    }
+  }
+}
+
+/** `text` with the userinfo of `url` removed; fetch errors quote the full request URL. */
+function withoutUserinfo(text: string, url: string): string {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return text
+  }
+  if (!parsed.username && !parsed.password) return text
+  const userinfo = parsed.password ? `${parsed.username}:${parsed.password}@` : `${parsed.username}@`
+  return text.split(url).join(parsed.origin).split(userinfo).join('')
+}
+
 /**
  * Fetch platform configuration from the /config endpoint
  * Caches the result for subsequent calls with the same baseUrl
  *
- * @param options.signal - Aborts the request (e.g. a timeout)
+ * Refuses a URL the HTTPS rule rejects before any connection is made, and gives up
+ * after PLATFORM_CONFIG_TIMEOUT_MS, including a response whose body stalls.
+ *
+ * @param options.signal - Aborts the request earlier (e.g. a caller's own deadline)
+ * @param options.timeoutMs - Overrides the bound (tests)
  */
 export async function fetchPlatformConfig(
   baseUrl?: string,
-  options: { signal?: AbortSignal } = {}
+  options: { signal?: AbortSignal; timeoutMs?: number } = {}
 ): Promise<PlatformConfig> {
   const config = getConfig()
   const url = baseUrl || config.baseUrl
+  validateConfig(baseUrl ? { baseUrl } : config)
 
   // Return cached config if available and URL matches
   if (cachedConfig && cacheBaseUrl === url) {
@@ -69,11 +110,31 @@ export async function fetchPlatformConfig(
     return cachedConfig
   }
 
-  const configUrl = `${url}/config`
-  debug(`Fetching platform config from ${configUrl}`)
+  const platformConfig = await loadPlatformConfig(url, options)
 
+  // Cache the config
+  cachedConfig = platformConfig
+  cacheBaseUrl = url
+  return platformConfig
+}
+
+/**
+ * Fetch a platform's /config without touching the cache, which holds the
+ * configured platform only. Same URL rule, bound and error text as
+ * fetchPlatformConfig.
+ */
+export async function loadPlatformConfig(
+  url: string,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {}
+): Promise<PlatformConfig> {
+  validateConfig({ baseUrl: url })
+  const configUrl = `${url}/config`
+  const shownUrl = `${originOf(url)}/config`
+  debug(`Fetching platform config from ${shownUrl}`)
+
+  const bound = boundedSignal(options.timeoutMs ?? PLATFORM_CONFIG_TIMEOUT_MS, options.signal)
   try {
-    const response = await fetch(configUrl, { signal: options.signal })
+    const response = await fetch(configUrl, { signal: bound.signal })
 
     if (!response.ok) {
       throw new Error(`Failed to fetch config: ${response.status} ${response.statusText}`)
@@ -91,10 +152,6 @@ export async function fetchPlatformConfig(
       }
     }
 
-    // Cache the config
-    cachedConfig = platformConfig
-    cacheBaseUrl = url
-
     if (platformConfig.authDisabled) {
       debug('Platform config loaded — authentication is DISABLED (no-auth mode)')
     } else {
@@ -107,10 +164,10 @@ export async function fetchPlatformConfig(
 
     return platformConfig
   } catch (error) {
-    throw new Error(
-      `Failed to fetch platform config from ${configUrl}: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      { cause: error }
-    )
+    const reason = withoutUserinfo(error instanceof Error ? error.message : 'Unknown error', url)
+    throw new Error(`Failed to fetch platform config from ${shownUrl}: ${reason}`, { cause: error })
+  } finally {
+    bound.done()
   }
 }
 
@@ -133,12 +190,22 @@ export function getGraphQLEndpoint(platformConfig?: PlatformConfig): string {
 
   // If graphqlUrl is absolute, use it directly
   if (config.graphqlUrl.startsWith('http')) {
-    return config.graphqlUrl
+    return checkedEndpoint(config.graphqlUrl)
   }
 
-  // Otherwise, combine with apiBaseUrl, appUrl, or the configured DETHERNETY_URL
+  // Otherwise, combine with apiBaseUrl, appUrl, or the configured platform URL
   const baseUrl = config.apiBaseUrl || config.appUrl || getConfig().baseUrl
-  return `${baseUrl}${config.graphqlUrl}`
+  return checkedEndpoint(`${baseUrl}${config.graphqlUrl}`)
+}
+
+/**
+ * The GraphQL endpoint receives the session's bearer, and its address comes from the
+ * platform's /config answer, so it is held to the same HTTPS rule as the platform URL.
+ */
+function checkedEndpoint(endpoint: string): string {
+  const problem = urlPolicyProblem(endpoint, 'The platform GraphQL endpoint')
+  if (problem) throw new Error(problem)
+  return endpoint
 }
 
 /**
@@ -151,13 +218,42 @@ export function getOAuthUrls(platformConfig?: PlatformConfig) {
   }
 
   const domain = config.oidcDomain
+  if (!isHostOnly(domain)) {
+    throw new Error('Platform config has an invalid oidcDomain')
+  }
 
   return {
     authorize: `https://${domain}/oauth2/authorize`,
     token: `https://${domain}/oauth2/token`,
+    revoke: `https://${domain}/oauth2/revoke`,
     logout: `https://${domain}/logout`,
     userInfo: `https://${domain}/oauth2/userInfo`
   }
+}
+
+/**
+ * Is `domain` a bare host (optionally with a port) and nothing else? It comes
+ * from the platform's /config and is spliced into the endpoints that receive the
+ * authorization code and the refresh token, so a path, userinfo, query, fragment,
+ * backslash (read as a slash in https URLs) or escape must not get through.
+ */
+export function isHostOnly(domain: unknown): domain is string {
+  if (typeof domain !== 'string' || domain.length === 0 || domain.length > 260) return false
+  if (/[\\%\s]/.test(domain)) return false
+  let url: URL
+  try {
+    url = new URL(`https://${domain}`)
+  } catch {
+    return false
+  }
+  return (
+    url.host === domain.toLowerCase() &&
+    url.pathname === '/' &&
+    !url.username &&
+    !url.password &&
+    !url.search &&
+    !url.hash
+  )
 }
 
 /** Scopes to request when the platform advertises none. */

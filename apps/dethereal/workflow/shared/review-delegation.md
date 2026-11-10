@@ -1,0 +1,1 @@
+   {{#delegate model-reviewer}}Review the model at `<model-path>`. Return: the quality score with its label and factor breakdown, the top issues, the zoning coherence findings, and the red flags. Leave out the gate verdicts (this conversation calls the gates itself) and the recommendations (the loop-back question covers them). Write nothing.{{/delegate}}

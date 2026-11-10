@@ -1,8 +1,7 @@
 /**
- * Manage Exposures Tool
- *
- * Read-only access to platform-computed exposures.
- * Exposures are analysis outputs — they cannot be created or modified by the plugin.
+ * Reading platform-computed exposures: the implementation behind query_exposures.
+ * Not a listed tool of its own. Exposures are analysis outputs — they cannot be
+ * created or modified by the plugin.
  */
 
 import { z } from 'zod'

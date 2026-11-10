@@ -122,6 +122,8 @@ export class DtUpdateSplit {
       const updateResult = await this.dtUpdate.updateModel(modelId, monolithicModel, {
         onProgress: options.onProgress,
         deleteOrphaned: options.deleteOrphaned,
+        controlResolution: options.controlResolution,
+        beforeFirstWrite: options.beforeFirstWrite,
       })
 
       // Extract ID mapping from DtUpdate

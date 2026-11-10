@@ -26,19 +26,40 @@ import type { ConsolidatedAttributesFile, ElementAttributes } from '@dethernety/
 import { ClientDependentTool, ToolContext, ToolResult } from './base-tool.js'
 import type { AttributeReadIssue } from '../utils/directory-utils.js'
 import {
-  readAttributes,
-  readStructure,
-  readDataFlows,
-  readDataItems,
+  readModelDirectory,
   isModelDirectory,
   validatePathConfinement,
 } from '../utils/directory-utils.js'
 import { pathExists } from '../utils/file-utils.js'
+import { directoryPushRefusal, modulesForPush, safeErrorMessage } from '../utils/gates.js'
+import {
+  ATTRIBUTE_PUSH_FIELDS,
+  MAX_ACKNOWLEDGED_CHANGES,
+  checkPlatformChanges,
+  exportPlatformPrints,
+  partialPushBaseline,
+  sentAttributePrints,
+  recordSyncBaseline,
+  type PlatformCheck,
+} from '../utils/platform-baseline.js'
 import { getConfig, debugLog } from '../config.js'
 
 const InputSchema = z.object({
   model_id: z.string().describe('The ID of the model containing the elements'),
-  directory_path: z.string().describe('Path to the model directory containing attributes/ subdirectory')
+  directory_path: z.string().describe('Path to the model directory containing attributes/ subdirectory'),
+  overwrite_changed: z
+    .array(z.string().regex(/^[@A-Za-z0-9._:-]{1,200}$/, 'an element id'))
+    .max(MAX_ACKNOWLEDGED_CHANGES)
+    .optional()
+    .describe(
+      'Only after a PLATFORM_CHANGED_SINCE_SYNC refusal the operator answered with overwrite: exactly its changed_ids. ' +
+      'Those platform changes are then overwritten.'
+    ),
+  overwrite_revision: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/, 'the revision from the refusal')
+    .optional()
+    .describe('With overwrite_changed: the revision from that refusal. A platform that changed again since refuses again.')
 })
 
 type UpdateAttributesInput = z.infer<typeof InputSchema>
@@ -68,6 +89,10 @@ interface UpdateAttributesOutput {
   /** Per-element failures from dt-core, which were previously discarded. */
   errors: Array<{ step: string; elementId?: string; elementName?: string; error: string }>
   warnings: string[]
+  /** Whether the platform model as this push left it is recorded for the next push's check. */
+  platform_baseline?: 'recorded' | 'not_recorded'
+  /** `accepted`: the named platform changes were overwritten; `unused`: nothing had changed. */
+  acknowledgement?: 'accepted' | 'unused'
 }
 
 /** The four element groups carried by a ConsolidatedAttributesFile. */
@@ -128,7 +153,12 @@ function filterUnresolved(
       const kept: Record<string, unknown> = {}
       for (const [key, value] of Object.entries(values)) {
         if (value === null || value === undefined) withheld++
-        else { kept[key] = value; sent++ }
+        else {
+          const counted = withoutNulls(value)
+          kept[key] = counted.value
+          withheld += counted.withheld
+          sent++
+        }
       }
       target[elementId] = { ...entry, attributes: kept }
     }
@@ -138,9 +168,44 @@ function filterUnresolved(
   return { filtered, sent, withheld, withoutClass }
 }
 
+/**
+ * A value with its nested nulls removed. dt-core flattens an object into one key per
+ * leaf (`a.b`), so a nested null is pushed as its own key and erases it just like a
+ * top-level one. Array elements stay: removing one would shift every later index.
+ */
+function withoutNulls(value: unknown): { value: unknown; withheld: number } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { value, withheld: 0 }
+  const out: Record<string, unknown> = Object.create(null)
+  let withheld = 0
+  for (const [k, v] of Object.entries(value)) {
+    if (v === null || v === undefined) {
+      withheld++
+      continue
+    }
+    const inner = withoutNulls(v)
+    out[k] = inner.value
+    withheld += inner.withheld
+  }
+  return { value: out, withheld }
+}
+
+/** The elements this push writes: those with a class and at least one value left to send. */
+function writtenIds(filtered: ConsolidatedAttributesFile): Set<string> {
+  const ids = new Set<string>()
+  for (const group of ELEMENT_GROUPS) {
+    for (const [id, entry] of Object.entries(filtered[group] ?? {})) {
+      if (entry && typeof entry === 'object' && entry.classData?.id && entry.attributes && Object.keys(entry.attributes).length > 0) ids.add(id)
+    }
+  }
+  return ids
+}
+
 export class UpdateAttributesTool extends ClientDependentTool<UpdateAttributesInput, UpdateAttributesOutput> {
   readonly name = 'update_attributes'
-  readonly description = 'Update attributes for specific elements in a threat model without modifying the model structure. Supports single element updates or batch updates.'
+  readonly description =
+    'Update attributes for specific elements in a threat model without modifying the model structure. Supports single element updates or batch updates. ' +
+    'Refuses with PLATFORM_CHANGED_SINCE_SYNC when a value it would overwrite changed on the platform since the last pull or push; ' +
+    'overwrite only after the operator names them (overwrite_changed with the refusal\'s changed_ids, and overwrite_revision).'
   readonly inputSchema = InputSchema
 
   async execute(input: UpdateAttributesInput, context: ToolContext): Promise<ToolResult<UpdateAttributesOutput>> {
@@ -155,7 +220,7 @@ export class UpdateAttributesTool extends ClientDependentTool<UpdateAttributesIn
       }
 
       // Validate path confinement
-      await validatePathConfinement(input.directory_path)
+      input.directory_path = await validatePathConfinement(input.directory_path)
 
       // Validate directory exists
       if (!await pathExists(input.directory_path)) {
@@ -175,22 +240,27 @@ export class UpdateAttributesTool extends ClientDependentTool<UpdateAttributesIn
 
       debugLog(config, `Reading attributes from directory: ${input.directory_path}`)
 
-      // Read attributes from directory.
-      //
-      // The normalization context is REQUIRED here, not optional. Without it,
-      // readAttributes cannot resolve a flat-format attribute file to an
-      // element and skips it with a console.warn that goes to the MCP server's
-      // stderr and reaches neither the agent nor the operator — so a flat file
-      // is silently never pushed. Flat is the format the plugin's own agent
-      // guidelines tell agents to author, and every read/report path already
-      // passes this context; only the write paths did not.
-      const structure = await readStructure(input.directory_path)
-      const dataFlows = await readDataFlows(input.directory_path)
-      const dataItems = await readDataItems(input.directory_path)
+      // Read the model once: the gate checks this object and the push sends its
+      // attributes, so nothing written to the directory in between reaches the
+      // platform ungated. readModelDirectory reads the attributes with the
+      // structure as their normalization context, which a flat-format attribute
+      // file needs to resolve to its element; without it the file would be
+      // skipped and silently never pushed.
       const attributeIssues: AttributeReadIssue[] = []
-      const attributes = await readAttributes(
-        input.directory_path, { structure, dataFlows, dataItems }, attributeIssues,
-      )
+      let model: Awaited<ReturnType<typeof readModelDirectory>>
+      try {
+        model = await readModelDirectory(input.directory_path, attributeIssues)
+      } catch (err) {
+        return { success: false, error: `Push refused: the model could not be read (${safeErrorMessage(err)}).` }
+      }
+      const { attributes } = model
+      // The module list is derived, and gated as derived; this push sends no modules, so nothing is written.
+      model.manifest.modules = (await modulesForPush(input.directory_path, model)).modules
+
+      // Gate 2 blocks a push: refuse before any platform call. The platform model named, so a pull's
+      // registrations for it count.
+      const pushGate = await directoryPushRefusal(input.directory_path, model, { modelId: input.model_id, settlement: context.settlement })
+      if (pushGate) return { success: false, error: pushGate }
 
       // Count total elements to update
       const totalCount =
@@ -225,11 +295,59 @@ export class UpdateAttributesTool extends ClientDependentTool<UpdateAttributesIn
 
       debugLog(config, `Pushing ${sent} attribute values; withholding ${withheld} unresolved`)
 
+      // What changed on the platform since the last pull or push, among the values this
+      // push writes, is never overwritten without the operator naming it. A platform
+      // read only: a refusal leaves everything as it was.
+      const written = writtenIds(filtered)
+      let platformCheck: PlatformCheck | undefined
+      if (written.size > 0) {
+        const livePrints = await exportPlatformPrints(context.apolloClient, input.model_id)
+        if (!livePrints) {
+          return {
+            success: false,
+            error: 'The platform model could not be read to check it for changes since your last pull or push, so nothing was pushed.'
+          }
+        }
+        platformCheck = await checkPlatformChanges(input.directory_path, input.model_id, livePrints, {
+          includeAdded: false,
+          scope: { fields: ATTRIBUTE_PUSH_FIELDS, ids: written },
+          overwriteChanged: input.overwrite_changed,
+          overwriteRevision: input.overwrite_revision,
+        })
+        if (platformCheck.refusal) {
+          return { success: false, error: platformCheck.refusal.message, data: platformCheck.refusal.data as never }
+        }
+      }
+
       // Use DtUpdateSplit to update attributes only
       const dtUpdateSplit = new DtUpdateSplit(context.apolloClient)
       const result = await dtUpdateSplit.updateAttributesOnly(input.model_id, filtered)
 
       const warnings = [...result.warnings]
+
+      // The record for the next push's check: this push's values, taken from the platform
+      // as it left them, in the record the check compared against.
+      let platformBaseline: 'recorded' | 'not_recorded' | undefined
+      if (platformCheck && result.success) {
+        const postPush = await exportPlatformPrints(context.apolloClient, input.model_id)
+        const next = await partialPushBaseline(
+          input.directory_path, input.model_id, platformCheck, written, ATTRIBUTE_PUSH_FIELDS, postPush, sentAttributePrints(filtered),
+        )
+        if (next.write) {
+          const recorded = await recordSyncBaseline(input.directory_path, {}, next, 'push')
+          platformBaseline = recorded.status
+          if (recorded.warning) warnings.push(recorded.warning)
+        } else {
+          // There was no trusted record before this push either: nothing new to say.
+          platformBaseline = 'not_recorded'
+        }
+      } else if (platformCheck) {
+        platformBaseline = 'not_recorded'
+        warnings.push(
+          'The record of the platform model from before this push was kept, so the next push lists any part of it that ' +
+          'did reach the platform as platform changes; pull to refresh it.',
+        )
+      }
       for (const issue of attributeIssues) {
         warnings.push(
           `${issue.file} could not be read (${issue.reason}) — its attributes were NOT pushed. ` +
@@ -263,6 +381,8 @@ export class UpdateAttributesTool extends ClientDependentTool<UpdateAttributesIn
             error: e.error,
           })),
           warnings,
+          ...(platformBaseline ? { platform_baseline: platformBaseline } : {}),
+          ...(platformCheck?.acknowledgement ? { acknowledgement: platformCheck.acknowledgement } : {}),
         }
       }
 

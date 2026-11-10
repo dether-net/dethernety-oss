@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: orders
+resources:
+  - orders-api.yaml
+  - webhook-receiver.yaml
+  - network-policy.yaml
+  - db-connection.yaml
+  - secrets.yaml
+secretGenerator:
+  - name: orders-extra-env
+    envs:
+      - extra-settings.properties

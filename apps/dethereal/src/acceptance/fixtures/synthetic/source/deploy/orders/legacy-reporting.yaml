@@ -1,0 +1,25 @@
+# Disabled when reporting moved into the orders API. Kept for reference.
+#
+# apiVersion: apps/v1
+# kind: Deployment
+# metadata:
+#   name: legacy-reporting
+#   namespace: orders
+# spec:
+#   replicas: 1
+#   selector:
+#     matchLabels:
+#       app: legacy-reporting
+#   template:
+#     metadata:
+#       labels:
+#         app: legacy-reporting
+#     spec:
+#       containers:
+#         - name: legacy-reporting
+#           image: registry.orderdesk.example/legacy-reporting:1.4
+#           env:
+#             - name: DB_HOST
+#               value: orders-db.internal.orderdesk.example
+#             - name: REPORT_BUCKET
+#               value: orderdesk-reports

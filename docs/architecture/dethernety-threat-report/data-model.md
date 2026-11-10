@@ -284,8 +284,10 @@ The distinction from `ModelGraphBoundary.zone` matters: that field is the **raw 
 | `detail` | `string` | Human-readable description of the observation. |
 | `severity` | `'info' \| 'warning'` | Advisory severity — never a score. |
 | `peerId` | `string?` | For the conduit-dependent kinds (`external-ingress`, `flow-channel`), the peer boundary id of the crossing or channel. Undefined for the conduit-independent kinds. |
+| `via` | `string[]?` | For an `external-ingress` crossing reached only through forwarding hops (load balancers, proxies, VPN gateways, firewalls, routers — recognised by the component's class, or by an unclassified process's name), the forwarder names in order. Undefined otherwise. |
+| `viaIds` | `string[]?` | The ids of those forwarders, in the same order. |
 
-The frontend renders a subset of these — the four per-boundary conduit-independent kinds (`unclassified`, `under-protected`, `mgmt-plane`, `cross-tier-domain`) — as a compact, un-scored advisory block on the Residual Risk surface. The crossing-oriented kinds (`external-ingress`, `flow-channel`) are **not** re-rendered from the block, because the per-flow declared-zone policy (over the raw `modelGraph` declarations) already covers those crossings at flow granularity (see [frontend.md](./frontend.md)).
+The frontend renders a subset of these — the four per-boundary conduit-independent kinds (`unclassified`, `under-protected`, `mgmt-plane`, `cross-tier-domain`) — as a compact, un-scored advisory block on the Residual Risk surface. The crossing-oriented kinds (`external-ingress`, `flow-channel`) are **not** re-rendered from the block, because the per-flow declared-zone policy (over the raw `modelGraph` declarations) already covers those crossings at flow granularity (see [frontend.md](./frontend.md)). A masked `external-ingress` (one with `via`) is carried in the snapshot but not rendered either; the per-flow policy judges each of its hops as its own flow.
 
 ---
 
@@ -304,7 +306,7 @@ The operation block (`SnapshotDoc.operation`) says who runs each component and b
 |---|---|---|
 | `operator` | `{ party: 'CUSTOMER' \| 'VENDOR'; source: 'declared' \| 'invalid' \| 'zone' \| 'default' }` | Who runs the element's own software, and how that was decided. `zone` is `VENDOR` read from a `VENDOR` effective zone; `invalid` and `default` are `CUSTOMER`. |
 | `product` | `string?` | The declared product: trimmed, in Unicode NFC, at most 200 characters. Absent when none is declared. |
-| `hosting` | `{ boundaryId: string; name: string; party: 'CUSTOMER' \| 'VENDOR'; source: 'declared' \| 'invalid' }?` | Components only: the direct parent boundary, when it carries a value. The name is frozen with the report, and renaming a boundary does not make a report stale, as with other names in the snapshot: the fingerprint holds no names. Absent when the parent declares nothing or is the model's root. |
+| `hosting` | `{ boundaryId: string; name: string; party: 'CUSTOMER' \| 'VENDOR'; source: 'declared' \| 'invalid' }?` | Components only: the direct parent boundary, when it carries a value. The name is frozen with the report, and renaming a boundary does not make a report stale, as with other names in the snapshot: the only names the fingerprint holds are those of unclassified components. Absent when the parent declares nothing or is the model's root. |
 | `drawnComponents` | `number?` | Boundaries only, when declared as `VENDOR` and not the model's root: the number of components drawn directly in it. |
 
 **Absent versus unavailable.** A snapshot from before 2.2.0 has no `operation`, and the report asks to be recreated. `{ state: 'unavailable', elements: {} }` is a current report that could not resolve the block, and the report says that. Neither shows a default operator.
@@ -384,7 +386,7 @@ The digest is computed in the module (sorted ids, hashed) so it is independent o
 - **Exposure disposition signatures** — each finding's id plus its disposition kind and stale flag, so disposing, clearing, or stale-flipping a finding changes the fingerprint while a no-op save does not.
 - **Data sensitivity** — each data element's id paired with its sensitivity, so re-classifying data flips the fingerprint instead of leaving a now-misclassified snapshot reading "fresh".
 - **Handling edges** — each element-handles-data relationship, so re-wiring which element handles a data element flips the fingerprint.
-- **Zoning inputs** — every input the zoning engine reads: each boundary's `zone` / `planes` / `domains` and its nesting parent, each component's `crownJewel` flag and containing boundary, each data element's regulatory flags, each declared conduit edge, and each flow's endpoints. Re-zoning, re-tagging, re-parenting, or re-wiring the model therefore flips the fingerprint, so a re-computed zoning block never reads "fresh" against a changed model.
+- **Zoning inputs** — every input the zoning engine reads: each boundary's `zone` / `planes` / `domains` and its nesting parent, each component's `crownJewel` flag, containing boundary and class (for an unclassified component, its name and type), each data element's regulatory flags, each declared conduit edge, and each flow's endpoints. Re-zoning, re-tagging, re-classifying a component (or renaming or retyping an unclassified one), re-parenting, or re-wiring the model therefore flips the fingerprint, so a re-computed zoning block never reads "fresh" against a changed model.
 - **Operation signatures (conditional)** — the `op` key, present only when at least one element declares an operator or a product. See below.
 
 The `op` key holds one signature per declaring element, sorted: the JSON array `[id, operator, product]`, over **normalised values**, with `''` for the one it does not declare.
@@ -397,9 +399,9 @@ The `op` key holds one signature per declaring element, sorted: the JSON array `
 | An operator or product changes, or is cleared | Moves |
 | A value is stored another way that reads the same | Does not move |
 | A version changes | Does not move: the query never reads it |
-| Nothing declares | Unchanged: with no `op` key, the digest is byte-identical to one from before 2.2.0 |
+| Nothing declares | No `op` key: the operation term adds nothing |
 
-So a report from before 2.2.0 stays fresh on a model that declares nothing, and its `operation` is still absent. On a model that declares, it reads stale. The module normalises the values itself rather than importing dt-core, so the staleness query cannot fail on a dynamic import; a test holds that reading to dt-core's.
+A report from before 2.2.0 reads stale once after the upgrade, on every model with components, whether or not the model declares: its digest was taken without the components' classes in the zoning term. Recreating it clears the mark and adds `operation`. The module normalises the values itself rather than importing dt-core, so the staleness query cannot fail on a dynamic import; a test holds that reading to dt-core's.
 
 The digest collects scalar ids and signatures only — never the full ledger — so the live staleness check stays light enough to poll. The query mechanics are documented in [backend.md](./backend.md); the rationale for treating freshness this way is in [design-principles.md](./design-principles.md).
 

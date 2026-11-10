@@ -1,6 +1,6 @@
 # Dethereal Plugin -- User Experience Specification
 
-> How users interact with the Dethereal plugin in the Claude Code CLI/IDE environment.
+> How users interact with the Dethereal plugin in Claude Code, Codex and OpenCode. Examples use the Claude Code command form (`/dethereal:<name>`); Codex runs the same commands as `$dethereal:<name>` and OpenCode as `/dethereal-<name>`, and where a harness behaves differently the text says so (see [PLUGIN_ARCHITECTURE.md → Per-Harness Output](PLUGIN_ARCHITECTURE.md#generator-lints-prompt-registry-rule-ledger-per-harness-output)).
 
 ## Table of Contents
 
@@ -11,7 +11,7 @@
 - [5. Sync Experience](#5-sync-experience)
 - [6. Progress and Feedback](#6-progress-and-feedback)
 - [7. Error Handling and Recovery](#7-error-handling-and-recovery)
-- [8. Expert vs Novice Paths](#8-expert-vs-novice-paths)
+- [8. Operator Paths and Agents](#8-operator-paths-and-agents)
 
 ---
 
@@ -19,37 +19,33 @@
 
 ### Installation to First Interaction
 
-**First-session orientation.** A SessionStart hook detects the first session and injects:
+**Session orientation.** On Claude Code a `SessionStart` hook runs at every startup, resume, clear and fork, and injects a short orientation built from the server's workspace status. Codex runs the same hook at startup, resume and clear (it has no `fork` event), and only once the operator has trusted the plugin's hooks. OpenCode has no startup hook, so it shows no orientation: `/dethereal-help` or `/dethereal-status` gives the same view. The wiring per harness is in [PLUGIN_ARCHITECTURE.md → Hooks](PLUGIN_ARCHITECTURE.md#6-hooks). With no local model:
 
 ```
-Dethereal threat modeling plugin is active.
+Dethereal threat modeling is active.
 
-  /dethereal:create     -- Create or import your first threat model
-  /dethereal:status     -- Check connection and auth status
-  /dethereal:help       -- See all available commands
+  /dethereal:create   -- Create or import your first threat model
+  /dethereal:status   -- Check connection and sign-in
+  /dethereal:help     -- See all available commands
 
-  Or just describe your system in natural language:
-  "I have a React frontend talking to a Go API with a PostgreSQL database"
-
-Platform: not connected (run /dethereal:login to connect)
+  Or describe your system in plain language, for example:
+  "a React frontend talking to a Go API with a PostgreSQL database"
 ```
 
 Three commands, not twelve. Natural language path is presented as primary.
 
-**Connected, no local models.** When the user is authenticated to a platform with existing models but has no local models:
+With one local model, the orientation names it with its state and quality, and the suggested next commands:
 
 ```
-Dethereal threat modeling plugin active.
+Dethereal is active.
 
-No local models found. Getting started:
-  /dethereal:create   — Create a new threat model from scratch
-  /dethereal:sync pull — Pull an existing model from the platform
-  /dethereal:help     — See all available commands
+  model "Production Stack": ENRICHING, quality 56/100, 2 stale elements
 
-Or describe your system: "Model our React + Go + PostgreSQL stack"
-
-Platform: connected (demo.dethernety.io, 3 models available)
+  Suggested next:
+  /dethereal:enrich   -- <reason from the workspace status>
 ```
+
+With several models it is one line (`Dethereal is active. 3 local threat models. Run /dethereal:status for details.`). A line about the platform is added only when something needs attention: the platform URL is not set (the local default is used), the URL is unusable, or the runtime is not trusted with the session. The orientation lists no platform models; pulling one is a `/dethereal:create` entry point. After a compaction the hook injects a reminder instead: re-read the workspace status and the model's state before continuing, never relying on the summary alone.
 
 ### Authentication Flow
 
@@ -58,7 +54,7 @@ User: /dethereal:status
 
 Plugin:  Dethernety Connection Status
          -----------------------------------------
-         Platform URL:  https://demo.dethernety.io
+         Platform URL:  https://dethernety.example.com
          Auth status:   Not authenticated
          -----------------------------------------
          Run /dethereal:login to authenticate via browser.
@@ -69,8 +65,8 @@ Plugin:  Opening your browser to authenticate...
          Waiting for login (timeout: 2 minutes)...
 
          Authenticated successfully.
-         Platform:     https://demo.dethernety.io
-         User:         levente@dether.net
+         Platform:     https://dethernety.example.com
+         User:         user@example.com
          Token valid:  59 minutes remaining
 ```
 
@@ -81,12 +77,12 @@ User: /dethereal:create
 
 Plugin: I'll help you create your first threat model. Choose a starting point:
 
-  1. Describe your system -- I'll build the model from your description
-  2. Start from a template -- web app, API service, microservices, database
-  3. Import existing -- point me to Terraform, K8s manifests, or docs
-  4. Pull from platform -- export an existing model to work on locally
+  1. Describe -- tell me about your system and I'll build the model
+  2. Template -- start from a template: web application, API service, or microservices
+  3. Import -- point to Terraform, Kubernetes manifests or architecture documents
+  4. Pull -- fetch an existing platform model into local files
 
-Which approach?
+[prompt: create-mode] How do you want to start the model? (describe / template / import / pull)
 
 User: I have a Next.js frontend on Vercel, a Node.js API on AWS ECS,
       and a PostgreSQL RDS database. Users authenticate via Auth0.
@@ -118,82 +114,80 @@ Plugin: Building threat model for your architecture...
   Trust boundaries:
     Internet / Public CDN (Vercel) / Private VPC (ECS+RDS) / External (Auth0)
 
-  Your options:
-  - "view"   — Preview the full model before saving (recommended for first model)
-  - "save"   — Save to local files only
-  - "modify" — Add, remove, or rename components
-  - "import" — Save and import to platform
-
-  Type your choice, or describe what you'd like to change:
+[prompt: create-structure] Confirm this structure, or adjust specific rows? (confirm / adjust)
 ```
 
-The AI's interpretation is presented explicitly before it becomes the model.
+The AI's interpretation is presented explicitly before it becomes the model. Before the structure, the scope interview runs (one free-text `scope` question: crown jewels, trust assumptions, adversary classes, exclusions, compliance), so the model directory exists. Nothing is written until the operator confirms: on `adjust` the table is shown again until they do. The model is built on disk only; it is published later with `/dethereal:sync push`. **Import** hands over to discovery on the given path, and **Pull** to the sync skill.
 
-After creation or save, the plugin always shows next steps:
+After creation, the plugin writes the model's README and ends with the footer:
 
 ```
-Model saved to ./threat-models/production-stack/ with 5 components, 5 data flows.
-
-Next steps to improve analysis quality:
-  1. Classify components:    /dethereal:classify     (0/5 classified)
-  2. Enrich with attributes: /dethereal:enrich       (0/5 have attributes)
-  3. Run quality check:      /dethereal:review
-
-Current quality score: 15/100 (Starting — minimum 70 for analysis)
-
-Or continue with the full guided workflow: /dethereal:threat-model
+[done] Model "Production Stack" created with 5 components, 5 data flows. Quality: 15/100.
+[next] When you're ready: /dethereal:discover (scan the codebase for more infrastructure)
+[info] Quick model: /dethereal:threat-model continues it; with --full it builds it in full.
+Run /dethereal:help to see all available commands.
 ```
 
-This created a minimal model. To continue with full enrichment, run `/dethereal:threat-model` — it picks up where you left off, not start over.
+The `[info]` line appears only on a quick model — every created model unless the run had `--full`, and never a pulled one; on an import it follows discover's footer. The `/dethereal:help` line appears only for a first model. This created a minimal model. To continue, run `/dethereal:threat-model` on it — it picks up where you left off in the model's mode, not start over; with `--full` it builds the model in full.
 
-This bridges creation and enrichment. The `/dethereal:threat-model` skill handles this transition implicitly, but users entering via `/dethereal:start` or natural language need explicit guidance.
+This bridges creation and enrichment. The `/dethereal:threat-model` skill handles this transition implicitly, but users entering via `/dethereal:create` or natural language need the `[next]` line.
 
 ### Universal Post-Action Footer (D42)
 
-Every mutating skill ends with a 2-line status footer showing absolute quality score and next-step suggestion:
+Every mutating skill ends with a 2-line status footer showing the model's state, the absolute quality score and a next-step suggestion:
 
 ```
-[done] Classification complete. Quality: 56/100.
-[next] /dethereal:enrich (3 components need attributes) or /dethereal:review
+[done] Classification complete. State: ENRICHING. Quality: 56/100.
+[next] When you're ready: /dethereal:enrich (3 components need attributes)
 ```
+
+The state is `display_state` from `model_state` `get`, which carries waivers, a stale review and the quick mark — and, only with the settlement on, pending or unregistered values (see [MCP_ARCHITECTURE.md → Settlement Switch](MCP_ARCHITECTURE.md#settlement-switch)). The `[next]` line is advice: the plugin never starts the command it names.
 
 This pattern provides ambient progress awareness between skill invocations without requiring explicit `/dethereal:status` calls. The absolute score avoids computing a "before" value (which would require an additional MCP tool call per mutation). The cached score in `.dethereal/quality.json` is available if a delta is needed.
 
 ### Resume and Skip in Guided Workflow
 
-When a user returns to an in-progress threat model, the guided workflow shows progress and allows resuming or skipping steps:
+When a user returns to an in-progress threat model, the guided workflow first deals with what changed while they were away, then shows progress and lets them continue or jump. Before the progress table, in this order:
+
+1. **Complete?** A model at REVIEWED whose review is not stale is complete: the plugin says so, points to `/dethereal:sync push` and `/dethereal:surface`, and stops.
+2. **Drift**, when the model has a drift baseline: sources changed since then are reconciled first (see [DRIFT_DETECTION.md](DRIFT_DETECTION.md)).
+3. **Crown jewels**, at ENRICHING or later, when Gate 3's C6 fails (a jewel unmapped, or its elements gone): the mapping is confirmed again.
+
+Then the progress table:
 
 ```
-Resuming "Production Stack" threat model...
+Progress: "Production Stack" (Quality: 41/100)
 
-Progress:
-  [done]        1. Scope Definition
-  [done]        2. Discovery
-  [done]        3. Model Review (discovery confirmation)
-  [auto-skip]   4. Boundary Refinement (boundaries already structured)
-  [>>>>]        5. Data Flow Mapping  — current step
-  [    ]        6. Classification
-  [    ]        7. Data Item Classification
-  [    ]        8. Enrichment
-  [    ]        9. Validation
-  [    ]       10. Sync
-  [    ]       11. Post-sync linking
+| Step | Name                                    | Status      |
+|------|-----------------------------------------|-------------|
+| 1    | Scope Definition                        | [done]      |
+| 2    | Discovery (modules: dethernety-general) | [done]      |
+| 3    | Model Review                            | [done]      |
+| 4    | Boundary Refinement                     | [auto-skip] |
+| 5    | Data Flow Mapping                       | [>>>>]      |
+| 6    | Classification                          | [    ]      |
+| 7    | Data Item Classification                | [    ]      |
+| 8    | Enrichment                              | [    ]      |
+| 9    | Validation                              | [    ]      |
+| 10   | Sync                                    | [    ]      |
+| 11   | Post-Sync Linking                       | [    ]      |
 
-Continue from step 5? Or jump to a different step?
-Type step number to jump (including skipped steps), "continue" from current, or "restart":
+[prompt: resume-cursor] Continue from Step 5, or jump to a step? (continue / a step number)
 ```
 
-The workflow also detects prior work and auto-advances completed steps:
+There is no restart option. The cursor is the first step not done: Steps 1–5 by the state the model has reached, Step 6 once Gate 3's C1 passes (every non-external component classified), Step 7 once a quick run has passed it; Steps 7–9 are otherwise never skipped on their own, and an open loop back puts the cursor at Step 9. Prior work therefore advances the cursor only through the server's verdicts: a model whose components were classified by an earlier `/dethereal:classify` run shows Step 6 as done when C1 passes, and while one non-external component is unclassified the cursor stays at Step 6.
 
-```
-I detected that 10/12 components already have classes assigned (likely
-from a previous `/dethereal:classify` run). Marking Classification as
-complete. 2 unclassified components will be handled during enrichment.
-```
+**After a compaction.** When the conversation is compacted, the plugin injects a reminder to re-read the workspace status and the model's state: a `SessionStart` hook on `compact` on Claude Code and Codex, and on OpenCode its plugin, which adds the workspace state to the compaction context. The workflow re-enters the phase it was in (`--phase <phase> <model-path>`), reads the state and the model files again, and takes up the step they show; any question still unanswered is asked again. It does not run the drift check or ask the progress question again.
 
-### Session Break at STRUCTURE_COMPLETE (D65)
+### Quick Mode Journey
 
-After Step 5 (data flow mapping, state transitions to ENRICHING), the guided workflow presents a checkpoint. The message is calibrated to model size:
+A new model, started by `/dethereal:threat-model` or made with `/dethereal:create`, is a quick model unless the operator adds `--full`; a pulled model is a full model. Quick mode is for a first pass the operator means to deepen later. Steps 1–7 run in full; Step 8 enriches only the priority set (what Gate 3 holds to its floors), asks no scope question and defers the control pass to `/dethereal:enrich --focus controls`; Step 9 shows only the quality score, the red flags and the Top Findings (at most five ranked attack chains), with no Gate 3 verdict or review question; Steps 10–11 run as usual. The model is marked quick, and every place that shows its state carries the mark (`ENRICHING (quick)`): `/dethereal:status`, `/dethereal:review`, the push confirmation, the README (whose first line reads "Quick model, not reviewed: deepen with the threat-model skill and --full.") and the final footer, whose next step names deepening. A quick model is never REVIEWED.
+
+**Deepening.** A later `/dethereal:threat-model` on the same model without a mode flag keeps it quick and resumes where it stopped. With `--full`, it clears the mark and, once the quick run has passed Step 7, resumes at Step 8 with the full scope (the progress table shows Steps 1–7 as done). When the step taken up is Step 7 or later, a Step 6 classification pass runs first — the pass a quick run may have skipped, with its classification gate — then that step. That deepening run offers the control pass and runs Step 9 with Gate 3, loop back, waivers and the review record. See [Quick Mode](../../user/dethereal/GUIDED_WORKFLOW.md#quick-mode).
+
+### Session Break after Step 5 (D65)
+
+After Step 5 (data flow mapping, state transitions to ENRICHING) of a full run, the guided workflow presents a checkpoint; a quick run skips it and goes on to Step 6 in the same turn. The message is calibrated to model size:
 
 **Small models (< 15 components):**
 
@@ -225,9 +219,9 @@ Continue now? (yes / later)
 
 If the user chooses to continue on a large model, proceed without re-asking. The enrichment phase reads model files from disk (Skill Design Principle 7) and does not need the scope/discovery/boundary conversation context. A fresh session starts with ~5K tokens of model context instead of ~50-80K tokens of accumulated history.
 
-### Decomposition Recommendation (R7)
+### Decomposition Recommendation
 
-After Step 3 (discovery confirmation), if the validated inventory exceeds complexity thresholds (D55/D56), the plugin presents a decomposition recommendation. The framing is factual, not judgmental — the user made a legitimate scoping choice.
+In Step 2, after the discovered components are confirmed and the blind-spots question is answered — before anything is written to the model files — the plugin checks the confirmed inventory against the complexity thresholds (D55/D56: 21+ components, 9+ trust boundaries, 36+ data flows or 19+ cross-boundary flows). If one is exceeded, it shows the thresholds exceeded and a recommendation. The framing is factual, not judgmental — the user made a legitimate scoping choice.
 
 **Scope narrowing (default recommendation):**
 
@@ -247,7 +241,9 @@ Discovery complete. Found 34 components across 6 trust boundaries.
   After this model is complete, you can create adjacent models for
   User Platform, Data Pipeline — linked via representedModel.
 
-  Start with Payment Processing? (yes / pick different / model everything)
+  [prompt: decomposition] The model exceeds the complexity thresholds shown.
+  Narrow the scope, plan a decomposition, or continue with one model?
+  (narrow / decompose / continue)
 ```
 
 **Decomposition plan (when user described multiple systems):**
@@ -258,16 +254,18 @@ Discovery complete. Found 28 components across 5 trust boundaries.
   Your system spans 3 deployment environments with separate CI/CD
   pipelines. Options:
 
-  (a) Single model — 28 components, ~50-70 min to enrich
-  (b) Separate models — 3 natural clusters:
+  - continue  — one model, 28 components, ~50-70 min to enrich
+  - decompose — separate models, 3 natural clusters:
       "API Platform" (12), "ML Pipeline" (9), "Edge Services" (7)
       Linked via representedModel.
-  (c) Start with one — begin with the highest-risk subsystem, expand later
+  - narrow    — begin with the highest-risk subsystem, expand later
 
-  Which approach? (a / b / c)
+  [prompt: decomposition] The model exceeds the complexity thresholds shown.
+  Narrow the scope, plan a decomposition, or continue with one model?
+  (narrow / decompose / continue)
 ```
 
-**If user chooses decomposition plan, show the proposed split:**
+**On narrow or decompose, show the proposed split before anything is written** — for narrow, the elements this model keeps and what it leaves out; for decompose, each planned model with its elements and the cross-model links:
 
 ```
 Decomposition plan:
@@ -292,7 +290,7 @@ Decomposition plan:
   |-- Regional/    -- Regional LB, Config Service, Regional DB
   +-- References: "API Platform" [REF]
 
-  Adjust plan? (confirm / move / merge / rename)
+  [prompt: decomposition-scope] Is this the split you want? (confirm / change)
 
   Note: The platform analyzes each model independently. Attack paths
   crossing model boundaries will not appear in analysis results.
@@ -300,7 +298,7 @@ Decomposition plan:
 
 > **Cross-model analysis gap (D65):** The decomposition confirmation must include this one-line warning. Users accepting decomposition should know that credential blast radius, lateral movement chains, and crown jewel reachability analysis do not traverse `REPRESENTS_MODEL` edges. If `credential_scope` values span multiple planned models, the decomposition plan should warn explicitly: *"Credential 'X' is used in both Model A and Model B. Lateral movement analysis cannot trace credential reuse across model boundaries. Consider keeping components that share this credential in the same model."*
 
-Modifications are natural-language driven: *"move Kafka to api-platform"*, *"merge edge-services into api-platform"*.
+Changes are natural-language driven: *"move Kafka to api-platform"*, *"merge edge-services into api-platform"*. The plugin applies them and shows the split again until the operator confirms; only then are this model's elements and the plan (`.dethernety/decomposition-plan.json`) written.
 
 **Status display with decomposition progress:**
 
@@ -308,7 +306,7 @@ Modifications are natural-language driven: *"move Kafka to api-platform"*, *"mer
 User: /dethereal:status
 
 Dethernety Plugin Status
-  Platform:  https://app.dethernety.io (authenticated)
+  Platform:  https://dethernety.example.com (authenticated)
 
   Local models:
   +---+-----------------------------+---------+----------+
@@ -336,40 +334,39 @@ Starting "ML Pipeline" threat model.
     "API Platform" [REF] -> ./threat-models/api-platform/
     (linked to platform model abc-123 after sync)
 
-  Discovery will use cached results. Components already assigned to
-  api-platform and edge-services are excluded (D60).
+  Discovery scans the codebase again; components the plan already
+  assigns to api-platform and edge-services are filtered out of its
+  results (D60).
 
-  Scope Definition (Step 1):
-    System:       ML Pipeline
-    Intent:       Security review
-    Crown jewels: Feature Store (PII training data), Model Registry
-    Exclusions:   API Platform (separate model), Edge Services (separate model)
-    Trust assumptions: API Platform authentication is trusted (modeled separately)
-
-  Confirm this scope? (yes / modify)
+  [prompt: scope] To scope the model: the system's name and a one-line
+  description, if you have not given them. What are the most valuable
+  assets in this system (crown jewels)? What do you explicitly trust?
+  Which adversary classes should it consider (external, insider,
+  supply_chain, others)? Anything out of scope? Any compliance
+  requirements, and the depth and intent if not the defaults?
 ```
 
-### Scope Summary Display
+### Scope Interview
+
+The scope is collected in conversation, not as a form: the plugin takes what the operator already said and asks for the rest in one free-text question.
 
 ```
-Threat Model Scope
-==================
-System:       E-Commerce Platform
-Intent:       Security review (pre-release)
-Depth:        Design-level
-Compliance:   PCI-DSS, SOC2
-Crown jewels: Payment database, User credentials store
-Exclusions:   CI/CD pipeline, CDN configuration
+User: /dethereal:threat-model an e-commerce platform: Next.js storefront,
+      Node.js order API, PostgreSQL, Stripe for payments
 
-Quality gate: PASS (1 crown jewel identified, 1 entry point defined)
+Plugin: [prompt: scope] To scope the model: the system's name and a one-line
+  description, if you have not given them. What are the most valuable
+  assets in this system (crown jewels)? What do you explicitly trust?
+  Which adversary classes should it consider (external, insider,
+  supply_chain, others)? Anything out of scope? Any compliance
+  requirements, and the depth and intent if not the defaults?
 
-Proceed with this scope?
-  - "yes"    — Accept scope and continue
-  - "modify" — Adjust scope parameters
-  - "save"   — Save scope and review later
+User: Crown jewels are the payment database and the user credentials store.
+      We trust Stripe's side. External and insider. CI/CD is out of scope.
+      PCI-DSS and SOC2; design-level security review.
 ```
 
-The "save" option supports asynchronous scope review — the scope is written to `<model-path>/.dethereal/scope.json` and the workflow pauses at the `SCOPE_DEFINED` state.
+The answer becomes `<model-path>/.dethereal/scope.json`. Only the system name, the description and at least one crown jewel are required; the rest have defaults, and nothing checks for an entry point. The plugin then scaffolds the model on disk and moves it to `SCOPE_DEFINED` — there is no separate confirm or save question. The crown jewels are mapped to elements later, at Step 6.
 
 ---
 
@@ -497,15 +494,17 @@ Data Flows (5):
 
 For larger models, suggest viewing in the Dethernety web UI.
 
-### Batch Size Scaling
+### Table Kinds and Caps
 
-For batch confirmations (discovery results, classification proposals), adapt presentation to element count:
+Every table shown before a question is one of three kinds, and its kind sets how much of it may be folded:
 
-- **Under 15 elements**: Single table, as shown above
-- **15--40 elements**: Group by type (components, boundaries, data flows) or by source (Terraform, K8s, code) with per-group confirmation
-- **40+ elements**: Summary first ("Found 67 components across 4 sources"), then drill into each category with per-category confirmation
+| Kind | The answer… | Shown |
+|------|-------------|-------|
+| **Confirm** | writes values (discovery, classification, data items) | Every row and every value it writes, each with its basis, never folded or capped; pages of at most 50 rows. "Accept all" covers only the rows in that message. The enrichment relay is the exception: its relay files are shown in one message, or one file per message past 50 written values (the conversation may summarize them), and "accept all" covers all the written values |
+| **Collect** | supplies values (credentials, open fields) | At most 15 subjects per table. Rows with nothing known fold into one line that keeps their ids and names; a pre-filled cell never folds |
+| **Display** | picks a direction and writes nothing (gaps, gate failures) | At most 10 rows per group, then `+N more — details <group>` |
 
-The user should never face a single table with more than 15 rows requiring individual review.
+Findings never fold and never count toward a cap: contradictions, changes to existing values, red flags, proposed defaults, rows newly failing a gate, lapsed waivers and crown-jewel rows. A row's evidence and rationale may wait behind `details <id>`, but never a value a question confirms.
 
 ### MITRE Mapping Display
 
@@ -531,29 +530,26 @@ The split-file JSON format is retained for its git-friendliness and separation o
   structure.json     # Boundary/component hierarchy
   dataflows.json     # Data flow connections
   data-items.json    # Data classifications
-  attributes/        # Per-element configurations
+  attributes/        # Per-element configurations, one file per element: attributes/<group>/<element-id>.json
     boundaries/
     components/
     dataFlows/
     dataItems/
+  controls/          # The model's control library
+  README.md          # Generated for human browsing; never imported
   .dethereal/        # Plugin metadata (not synced to platform)
-    state.json
-    discovery.json
-    quality.json
-    scope.json
-    audit_trail.json
 ```
 
 ### Enhancement: Auto-Generated README.md
 
-The plugin generates (and regenerates on changes) a `README.md` at the model root for human browsing. This file is never imported.
+The plugin generates a `README.md` at the model root for human browsing, on model creation (`/dethereal:create`) and at the end of the guided workflow (`/dethereal:threat-model`). It does not regenerate it on individual add or remove operations. This file is never imported.
 
 ```markdown
-# Production Stack -- Threat Model
+# Production Stack
 
 > Auto-generated by Dethereal. Do not edit.
 
-## Architecture Overview
+## Model Structure
 
   Internet Zone/
   |-- End Users (EXTERNAL_ENTITY)
@@ -561,21 +557,22 @@ The plugin generates (and regenerates on changes) a `README.md` at the model roo
 
 ## Data Flows
 
-| # | Source | Target | Name |
-|---|--------|--------|------|
-| 1 | End Users | Frontend | HTTP requests |
+- End Users → Frontend: HTTP requests
 ...
 
 ## Status
 
-- Components: 5 (3 classified, 2 unclassified)
-- Last synced: 2026-03-25T14:30:00Z
-- Platform model ID: abc-123-def-456
+Quality: 72/100 (Good)
+State: REVIEWED
+Last synced: 2026-03-25T14:30:00Z
+Generated: 2026-03-25T14:31:02Z
 ```
 
-### Enhancement: Named Attribute Files
+On a quick model the first line under the title is `> **Quick model, not reviewed: deepen with the threat-model skill and --full.**`
 
-Instead of UUID-only filenames (`550e8400-e29b-41d4-a716-446655440001.json`), use `nodejs-api__550e8400.json` where the prefix is a slugified component name and the suffix is a short UUID. File content remains unchanged.
+### Enhancement: Named Attribute Files (not implemented)
+
+A proposed alternative to id-only filenames: `nodejs-api__550e8400.json`, a slugified element name plus a short id. It was not built: attribute files are `attributes/<group>/<element-id>.json`, and the server renames them when a push replaces local ids with platform ids.
 
 ### Plugin Metadata Directory
 
@@ -584,8 +581,10 @@ Project-level plugin metadata lives in `.dethernety/` at the project root:
 ```
 project-root/
   .dethernety/
-    models.json       # Registry of known model paths
-    config.json       # Plugin configuration
+    models.json               # Registry of known model paths (written by the server)
+    discovery-cache.json      # Shared discovery results (multi-model projects)
+    decomposition-plan.json   # Optional: planned models and progress
+    .models.lock              # Registry lock
 ```
 
 Per-model metadata lives in `<model-path>/.dethereal/`:
@@ -593,25 +592,40 @@ Per-model metadata lives in `<model-path>/.dethereal/`:
 ```
 ./threat-models/production-stack/
   .dethereal/
-    state.json        # Methodology state machine position
-    discovery.json    # Auto-discovery provenance records
-    quality.json      # Last quality gate results
-    scope.json        # Scope definition and exclusions
-    audit_trail.json  # Sign-off records and operation history
+    state.json                # Workflow state; read and written only by the server
+    scope.json                # Scope definition, crown-jewel map, active modules
+    discovery.json            # Auto-discovery provenance records
+    quality.json              # Last quality score (cache)
+    class-cache/              # Class templates, keyed by class id
+    template-fields/          # Per-element template field manifests
+    loop-back.json            # An armed Gate 3 loop back
+    relay/                    # Enrichment relay files, run-<n>.txt, one per enrichment run (this machine only)
 ```
 
-Separates plugin state from model data that syncs to the platform. Models are stored at user-chosen visible paths (e.g., `./threat-models/production-stack/`), not hidden inside `.dethernety/`.
+Separates plugin state from model data that syncs to the platform. Models are stored at user-chosen visible paths (e.g., `./threat-models/production-stack/`), not hidden inside `.dethernety/`. A granted review is recorded in `state.json` (`reviewHash`, `reviewedAt`); there is no separate sign-off file.
 
 **Gitignore policy for `.dethereal/`:**
 ```gitignore
-# Ephemeral plugin metadata (exclude)
-.dethereal/discovery.json    # provenance, potentially sensitive file paths
-.dethereal/state.json        # workflow state, ephemeral
-.dethereal/quality.json      # computed, can be regenerated
+# This machine's records — the server lists these in .dethereal/.gitignore itself
+# .dethereal/sync.json, .dethereal/relay/, .dethereal/control-audit.log,
+# .dethereal/settlement-baseline.json, .dethereal/settlements.json (settlement on only)
+
+# Transient or local — recommended entries
+.dethereal/pending-id-rewrite.json
+.dethereal/control-audit.log
+.dethereal/*.lock
+.dethereal/*.tmp.*
+.dethereal/*.breaking
+.dethernety/.models.lock
+.dethernety/discovery-cache.json
 
 # Substantive artifacts (include — do NOT gitignore)
-# .dethereal/scope.json      # scope is part of the threat model record
-# .dethereal/audit_trail.json # compliance evidence for SOC2/PCI
+# .dethereal/state.json              # workflow state; a Gate 3 waiver in it counts only on the machine that granted it
+# .dethereal/scope.json              # scope is part of the threat model record
+# .dethereal/discovery.json          # provenance; drift detection reads it
+# .dethereal/quality.json            # quality score cache
+# .dethereal/class-cache/, .dethereal/template-fields/
+# .dethernety/models.json, a decomposition plan
 ```
 
 ### External Edit Detection
@@ -620,7 +634,7 @@ When model files are modified outside the current session (via direct JSON editi
 
 1. Re-validate the model on next skill invocation
 2. Update the quality score
-3. If `<model-path>/.dethereal/state.json` is inconsistent with model content (e.g., state says `CLASSIFIED` but no classes assigned), warn the user and offer to infer state from model content
+3. Read the state through the server, which judges it against the content: a state that claims REVIEWED reads as ENRICHING once the gates or the stale queue no longer support it, and a review whose content changed is reported as stale. With the settlement on, pending enrichment and unregistered values count as well, and values changed outside the workflow show up as unregistered
 
 This is important because models are committed to git — branch switches will change model files unexpectedly.
 
@@ -685,14 +699,14 @@ Plugin: Pushing from ./threat-models/production-stack/...
 
   Server IDs written back to source files.
 
-  View in platform: https://demo.dethernety.io/model/abc-123-def-456
+  View in platform: https://dethernety.example.com/model/abc-123-def-456
 ```
 
 **Partial sync failure:** If sync fails mid-operation, the plugin reports which elements were synced and which were not. Local files remain unchanged until the full operation completes. The user can retry `/dethereal:sync push` to push remaining changes.
 
-### Post-Sync: Countermeasure-to-Exposure Linking (R6/F3)
+### Post-Sync: Countermeasure-to-Exposure Linking
 
-After sync push, if the model contains countermeasures, the guided workflow reads back platform-computed exposures and presents a batch linking table. Without this step, the Analysis Engine's defense coverage gap analysis will not credit existing controls.
+After sync push, if the model contains countermeasures, the guided workflow reads back platform-computed exposures and presents a batch linking table. Without this step, the platform's defense coverage analysis will not credit existing controls.
 
 ```
 Plugin: Sync complete. The platform computed 8 exposures for your model.
@@ -708,22 +722,24 @@ Plugin: Sync complete. The platform computed 8 exposures for your model.
   Encryption at rest (S3)         Unencrypted storage (S3)         medium
   Rate limiting (API)             No match found                   --
 
-  Confirm these mappings? (yes / edit / skip)
+  [prompt: linking] Link these exposures to the candidate countermeasures now,
+  change specific rows, or defer? (yes / modify / defer)
 ```
 
-If the user skips:
+On `modify`, the plugin takes the rows the operator drops or changes, shows the table again and asks again; a link is created only for a confirmed row, since a wrong link credits a control that does not mitigate the exposure. If the user defers:
 ```
-Plugin: Skipped. Your controls exist but are not linked to exposures.
-  Analysis will undercount your defenses until linked.
-  Run /dethereal:enrich to link them later.
+Plugin: Deferred. The analysis undercounts your defenses until exposures
+  are linked to countermeasures.
 ```
 
-### V1.1 Target: Bidirectional Sync with Conflict Resolution
+### Push Conflicts, and Field-Level Merge (not implemented)
 
-> D40: V1 supports push (import to platform) and pull (export from platform) with overwrite semantics. Bidirectional sync with conflict detection, field-level merge, and merge precedence rules is planned for V1.1. The conflict resolution UX below is aspirational design for V1.1.
+Sync is push and pull. What ships is conflict **detection** on push: the server keeps a record of the last pull or push (`.dethereal/sync.json`), compares the platform model with it before an update push writes anything, and refuses with `PLATFORM_CHANGED_SINCE_SYNC` when the platform changed since. The plugin then shows the platform's changes — added on the platform (the push deletes them), changed, deleted on the platform (the push creates them again) — and asks `push-conflict`: push the local model anyway, pull the platform version first (local changes are backed up), or cancel. See [Push Conflict Resolution](SYNC_AND_SOURCE_OF_TRUTH.md#12-push-conflict-resolution).
+
+> D40: Bidirectional sync with field-level merge and merge precedence rules was deferred and is not implemented. The conflict resolution UX below is the original design, kept as rationale.
 
 <details>
-<summary>V1.1 Conflict Resolution UX (deferred)</summary>
+<summary>Field-level conflict resolution UX (design, not implemented)</summary>
 
 ```
 User: /dethereal:sync
@@ -759,7 +775,7 @@ Default precedence (local for descriptions/custom attributes, platform for posit
 User: /dethereal:status
 
 Plugin: Dethernety Connection
-         Platform:  https://demo.dethernety.io
+         Platform:  https://dethernety.example.com
          Auth:      Authenticated (45 min remaining)
 
         Local Model: ./threat-models/production-stack/
@@ -774,7 +790,7 @@ For never-synced models:
 User: /dethereal:status
 
 Plugin: Dethernety Connection
-         Platform:  https://demo.dethernety.io
+         Platform:  https://dethernety.example.com
          Auth:      Authenticated (45 min remaining)
 
         Local Model: ./threat-models/production-stack/
@@ -791,13 +807,12 @@ If sync encounters errors:
 - **Network failure during push:** Local files unchanged. Retry `/dethereal:sync push`.
 - **Validation failure:** Fix errors shown by validation output, then retry.
 - **Auth expired during sync:** Re-authenticate with `/dethereal:login`, then retry.
-```
 
 For development environments with authentication disabled:
 
 ```
 Dethernety Connection
-  Platform:  http://localhost:3003
+  Platform:  http://127.0.0.1:3000
   Auth:      Disabled (development mode)
 
   All tools available without login.
@@ -847,118 +862,103 @@ User: /dethereal:enrich
 
 Plugin: Enriching model "Production Stack"...
 
-  [1/5] Node.js API
-        Class: Web Application Server (matched by name + type)
-        Template attributes: 5/8 set (from class template)
-        Missing: session_management, cors_policy, csp_enabled
+  Worklist (from the Gate 3 snapshot):
+    Crown jewels and their mapped elements: PostgreSQL Database, Redis Cache
+    Rest of the priority set:               Next.js Frontend, API Gateway, Node.js API
+    Flows Gate 3 lists as failing (C3):     API Gateway → Node.js API, Node.js API → PostgreSQL Database
+    Every other in-scope element:           Background Worker, Log Aggregator
 
-  [2/5] PostgreSQL Database
+  Tiers: Tier 1: 2 · Tier 2: 2 · Tier 3: 3
+  Cross-boundary pivots: 1
+
+  Enrich the whole worklist, only the priority set (what Gate 3 holds to its floors), or pick elements? (all / priority / pick)
+
+User: all
+
+  [1/7] PostgreSQL Database
         Class: Relational Database (matched by name)
         Template attributes: 3/10 set (from class template)
         Missing: ssl_enabled, password_encryption, log_connections, ...
 
   ...
 
-  Enrichment priority order (D43):
+  [5/7] Node.js API
+        Class: Web Application Server (matched by name + type)
+        Template attributes: 5/8 set (from class template)
+        Missing: session_management, cors_policy, csp_enabled
 
-  TIER 1 — Crown jewels (must enrich for meaningful analysis):
-    PostgreSQL Database, Redis Cache
-    6 attributes each, ~5 min
-
-  TIER 2 — Cross-boundary components:
-    Node.js API, Auth0
-    6 attributes each, ~5 min
-
-  TIER 3 — Internet-facing (highest attacker accessibility):
-    Next.js Frontend, API Gateway
-    6 attributes each, ~5 min
-
-  TIER 4 — Internal only (can defer):
-    Background Worker, Log Aggregator
-    Enriching these improves quality but is not required for analysis.
-
-  Start with Tier 1? Or enrich all? (tier1 / all / pick)
+  ...
 ```
 
-On repeat invocations within the same model, the enrichment display uses the compact form (skips tier explanations):
+**Component tiers.** The tier sizes come from the server, which computes a tier for every non-external component; the operator never assigns one. Each component is in the first tier it qualifies for:
 
-```
-Tier 1: 2 components (done). Tier 2: 2 components (ready). Tier 3: 2 (ready). Tier 4: 2 (deferred).
-Continue with Tier 2?
-```
+- **Tier 1** — internet-facing
+- **Tier 2** — crown-jewel-bearing or restricted
+- **Tier 3** — everything else, unzoned components included
 
-### Analysis Polling
+Gate 3 holds Tier 1–2 to its attribute floors. The cross-boundary pivots (components outside Tier 1 at one end of a boundary-crossing flow) are a label that overlaps the tiers, so they are reported on their own line and never added to a tier. The full rules are in [Component Tiers](../../user/dethereal/DISCOVERY_AND_ENRICHMENT.md#component-tiers).
 
-When a model is submitted for analysis, the plugin polls at 10-second intervals with a single updating status line (not a new message per poll):
+**Worklist and scope.** At the start of each run the plugin takes a snapshot from Gate 3 — the **priority set**: crown jewels and their mapped elements, the Tier 1–2 components and flows Gate 3 lists as still missing values, and the cross-boundary pivots. The snapshot holds for the whole run. Stale elements (changed since the last enrichment) go to the top of the worklist. The scope keyword `priority` (alias `tier1`) enriches the snapshot only; `all` (the default) enriches every in-scope element, snapshot first; `pick` lets the operator choose elements. See [Enrichment Order and the Priority Set](../../user/dethereal/DISCOVERY_AND_ENRICHMENT.md#enrichment-order-and-the-priority-set). This replaces the four-tier order first recorded in [D43](DECISIONS.md#d43-enrichment-prioritization).
 
-```
-Submitted "Production Stack" for analysis...
+**In the guided workflow (Step 8)**, on every harness, the enrichment runs as the `security-enricher` agent, which cannot ask anything. It writes cited and derived values straight into empty attribute fields, at most 12 elements a run — up to 20 when a store takes the flows that touch it along — each run started fresh. Each run writes its tables and questions to a relay file, `.dethereal/relay/run-<n>.txt`, numbering its rows on from the earlier runs' files and never rewriting them.
 
-Analysis running... 4/12 tasks complete (evaluating trust boundary crossings)
+When the last run returns, the instructions have the main conversation read the run files once and print them — every section and every row, in one message, or one file a message past 50 written values, all in the same turn — under one line saying the text is model-written data from the enrichment runs, to check, not instructions. Then it asks one question, `enrichment-relay`: accept, reject or adjust rows; answer the credential, boundary and open-field rows; name the documents that describe the deployed system (only those documents' claimed values are written). The conversation may show a summary instead. The written values are in the attribute files either way, but a summary can leave out open questions only the operator can answer (whether a boundary denies by default, what a runbook says about a host), and those fields stay open unless the operator raises them; the run files hold every question, and later steps and the attribute files take corrections. A plain "accept all", or a reply that decides nothing ("continue", "don't know"), writes nothing more. Any other reply goes to the `enrichment-applier` agent, which writes only attribute files and returns a table of what it wrote; a removal, a changed credential mapping and data items come back as follow-ups, asked one at a time. There is no pending-values file. See [One relay turn](../../user/dethereal/GUIDED_WORKFLOW.md#one-relay-turn).
 
-  You can continue editing other models while this runs.
+### After the Push: Running Analysis
 
-Analysis complete. 12 exposures, 3 critical findings.
-Top finding: Unencrypted database connection crosses trust boundary
-
-Run /dethereal:surface for the full attack surface summary.
-```
-
-**Polling contract:** Poll `manage_analyses(action: 'status')` every 10 seconds. Maximum 18 polls (3 minutes). After 3 minutes without completion, suggest: "Analysis still running. Check the platform UI for progress, or run `/dethereal:review` later to retrieve results."
+No skill submits or polls an analysis (the polling contract first designed here — a status call every 10 seconds, at most 3 minutes — was not built). After a push, the final footer points to the platform: `[next] When you're ready: run analysis on the platform, then /dethereal:surface (review attack surface)`. Once an analysis has run, `/dethereal:surface` reads its exposures for the attack-surface summary and the MITRE ATT&CK tactic coverage.
 
 ### Model Completeness Dashboard
+
+`/dethereal:review` is read-only: it runs the `model-reviewer` agent, which renders what the server computes and changes nothing. Abridged:
 
 ```
 User: /dethereal:review
 
-Plugin: Model Review: "Production Stack"
-        =================================
+## Model Review: Production Stack
 
-  Quality Score: 41/100 (In Progress — minimum 70 for analysis)
+### Gates
+Gate 1: WARN · Gate 2: PASS · Gate 3: FAIL
+  C1 — 3/5 non-external components classified: Redis Cache, Worker
+  C4 — 0/4 sensitive flows carry a classified data item with a sensitivity
+  Gate 3 certifies that the recorded answers are complete and consistent, not that they are true.
 
-  +-----------------------------------+-------+--------+------+------+
-  | Factor                            | Value | Weight | Pts  | Max  |
-  +-----------------------------------+-------+--------+------+------+
-  | Component classification          |   60% |    25% |   15 |   25 |
-  | Attribute completion              |   40% |    20% |    8 |   20 |
-  | Boundary hierarchy                |  good |    15% |   15 |   15 |
-  | Data flow coverage                |   20% |    15% |    3 |   15 |
-  | Cross-boundary data classification|    0% |    10% |    0 |   10 |
-  | Control coverage                  |    0% |    10% |    0 |   10 |
-  | Credential coverage               |    0% |     5% |    0 |    5 |
-  +-----------------------------------+-------+--------+------+------+
-                                                  Total:  41 / 100
+### Quality Score: 41/100 (In Progress)
+| Factor                   | Score | Weight | Contribution |
+|--------------------------|-------|--------|--------------|
+| Component classification |   60% |     25 |         15.0 |
+| Attribute completion     |   40% |     20 |          8.0 |
+| Boundary hierarchy       |  100% |     15 |         15.0 |
+| Data flow coverage       |   20% |     15 |          3.0 |
+| Data item classification |    0% |     10 |          0.0 |
+| Control coverage         |    0% |     10 |          0.0 |
+| Credential coverage      |    0% |      5 |          0.0 |
 
-  Highest-impact next action: Classify 2 remaining components (+10 points)
+The score measures how completely the model describes the system, not how
+secure the system is. The score is a label; it gates nothing.
 
-  Checks:
-    [PASS] All data flow references valid
-    [PASS] No orphaned components
-    [WARN] 2 components have no outgoing data flows
-    [WARN] External entities share boundary with internal components
+### Red Flags (1)
+- **API → Database** (`f-api-db`): `encryption_in_transit` = `none`
 
-  Ready for analysis: No (minimum 70 recommended)
+### Top Issues
+1. **[Critical]** 2 components have no class (Redis Cache, Worker)
+2. **[Warning]** 4 sensitive flows carry no classified data item
+3. **[Info]** 2 components have no data flow (Worker, Log Shipper)
+
+### Recommendations
+- Run /dethereal:classify for Redis Cache and Worker
+
+### Analysis Readiness
+Not Ready for platform analysis:
+  Gate 3 fails — a push is possible, but analysis would have gaps (C1, C4)
+
+[done] Review complete. Gates: G1 WARN · G2 PASS · G3 FAIL. Quality 41/100 (In Progress).
+[next] When you're ready: /dethereal:enrich (fill the gaps) or /dethereal:sync push (publish)
 ```
 
-When the quality score is below the analysis threshold, the default view is improvement-oriented (no detailed factor table — that is a V1.1 addition via `--breakdown` flag):
+The full review also has a common-gaps checklist (administrative access, monitoring, backup, boundary crossings, external dependencies, human actors, two-way flows, error paths), the model's state as the server displays it, and cross-model gaps. Readiness comes from the server (`workspace_status`), never from the score: **Ready**, or **Not Ready** with each blocker in words — Gate 2 fails (the platform refuses the push), Gate 3 fails (a push is possible, but the analysis would have gaps), a model that could not be assessed, or — only with the settlement on — values awaiting confirmation or values nobody registered. When the model is Ready but has no credentials and no controls recorded, the review adds that analysis improves markedly with them. `--structure-only` runs only the structural checks (`[PASS]` / `[FAIL]` / `[WARN]` per line), with no gates and no score; the review has no other flag.
 
-```
-Quality Score: 41/100 (In Progress — minimum 70 for analysis)
-
-Fastest improvements:
-  # | Action                                  | Effort | Impact
-  1 | Classify 2 remaining components         | Low    | +10 pts
-  2 | Add data flows to 2 orphan components   | Low    | +9 pts
-  3 | Fill attributes on 3 components         | Medium | +8 pts
-  4 | Classify data items on boundary-crossing | Medium | +5 pts
-    | flows (0/4 classified)                  |        |
-
-Total if all done: ~73/100 (Good — ready for analysis)
-
-Run /dethereal:classify to start with #1 (highest impact, lowest effort).
-```
-
-When the model reaches analysis readiness (quality >= 70), `/dethereal:review` adds a one-line discovery basis:
+When `.dethereal/discovery.json` exists, `/dethereal:review` adds a one-line discovery basis, and always a reminder that runtime validation (a cloud asset inventory, DNS logs, network flow data) finds what the code does not show:
 
 ```
 Model based on: code analysis (10 components) + manual (2). Known gaps: 3.
@@ -966,9 +966,9 @@ Model based on: code analysis (10 components) + manual (2). Known gaps: 3.
 
 When the model carries trust zones, the review also rolls up an advisory **zoning-coherence** block — non-blocking findings such as unclassified boundaries, under-protected asset holders, management planes resolving to an exposed tier, undeclared external ingress, and flow-vs-conduit divergences. These inform the operator; they never lower the quality score or block a sync. See [TRUST_ZONING.md](TRUST_ZONING.md).
 
-### V1.1 Target: Model Confidence Summary and Board-Ready Statement
+### Model Confidence Summary and Board-Ready Statement (not implemented)
 
-> D53: Full confidence summary (discovery method, component counts by confidence, model freshness, board-ready statement with editorial workflow) is deferred to V1.1. The V1 review output focuses on quality score, structural checks, and improvement actions — the information developers need. Executive communication features require validation against actual board-level use, which is premature for V1.
+> D53: A full confidence summary (discovery method, component counts by confidence, model freshness, board-ready statement with editorial workflow) was deferred and is not implemented. The review output focuses on the gates, the quality score, the red flags and improvement actions — the information developers need. Executive communication features require validation against actual board-level use.
 
 ---
 
@@ -1025,31 +1025,32 @@ Troubleshooting:
 
 ### Undo/Revert (D65)
 
-Model files are version-controlled (D27), so git provides the undo mechanism for V1. The LLM assists with git commands — no specialized git knowledge is required from the user:
+Model files are version-controlled (D27), so git provides the undo mechanism. The plugin suggests the git commands and the operator runs them — the plugin never runs a git command that changes the repository — so no specialized git knowledge is required from the user:
 
 ```
 User: I want to undo the last enrichment
 
-Plugin: I can help you revert. Let me check what changed:
+Plugin: I can help you revert. To see what changed, run in your terminal:
 
-  [runs git diff ./threat-models/production-stack/]
+    git diff -- ./threat-models/production-stack/attributes/
 
-  Changed files:
-  - attributes/nodejs-api__550e8400.json (6 attributes added)
-  - attributes/postgres-db__a1b2c3d4.json (4 attributes added)
-  - .dethereal/quality.json (score: 32 → 58)
+  To revert, run one of these yourself:
+  - All enrichment (uncommitted):
+      git checkout -- ./threat-models/production-stack/attributes/
+  - One component:
+      git checkout -- ./threat-models/production-stack/attributes/components/<element-id>.json
+  - Or keep the changes.
 
-  Options:
-  - Revert all enrichment: git checkout -- ./threat-models/production-stack/attributes/
-  - Revert specific component: git checkout -- ./threat-models/production-stack/attributes/nodejs-api__550e8400.json
-  - Keep changes (cancel)
-
-  Note: This reverts local files only. Platform model unchanged until sync.
+  This discards the uncommitted attribute changes in those files.
+  It reverts local files only; the platform model is unchanged until sync.
+  Tell me once it ran.
 ```
 
-**Commit before enrichment:** The session break at STRUCTURE_COMPLETE recommends a git commit. This creates a clean revert boundary — `git diff` shows exactly what enrichment added, and `git checkout` reverts to the pre-enrichment state without affecting the model structure.
+**Commit before enrichment:** The session break after Step 5 recommends a git commit, which the operator runs. This creates a clean revert boundary — `git diff` shows exactly what enrichment added, and `git checkout` reverts to the pre-enrichment state without affecting the model structure.
 
-The state machine's backward transitions (D29) handle workflow-level undo — reverting to an earlier methodology state when structural changes invalidate later phases. On any backward transition, `.dethereal/quality.json` is invalidated and `model_signed_off` is cleared (D64).
+**Undo leaves `.dethereal/` alone:** The suggested commands keep `.dethereal/` out, because the workflow state lives there and the server keeps it. Once the operator says the command ran, the plugin reads the model files again before anything else: they hold the restored values.
+
+The state machine's backward transitions (D29) handle workflow-level undo — reverting to an earlier methodology state when structural changes invalidate later phases. On any backward transition the server deletes `.dethereal/quality.json` and clears the recorded review (`reviewHash`, `reviewedAt`), so the model is no longer REVIEWED (D64).
 
 ### Destructive Operation Guardrails
 
@@ -1059,7 +1060,8 @@ User: Delete the Redis cache from my model
 Plugin: Removing "Redis Cache" would also affect:
   - Data flow: "API -> Redis Cache" (will be removed)
   - Data flow: "Redis Cache -> Database" (will be removed)
-  - Attribute file: redis-cache.json (will be deleted)
+  - Attribute file: attributes/components/<id>.json (deleted through
+    model_state_prune once you approve it)
 
   2 data flows removed with the component.
   Local only -- platform unchanged until sync.
@@ -1067,40 +1069,38 @@ Plugin: Removing "Redis Cache" would also affect:
   Proceed? (yes/no)
 ```
 
+The skill never deletes a file itself. It passes `model_state_prune` exactly the files the operator confirmed in the chat table — that table is the display, on every harness — and the server deletes only those it finds orphaned; a file that only looks orphaned is listed for the operator to handle by hand (see [`/dethereal:remove`](../../user/dethereal/COMMAND_REFERENCE.md#detherealremove-element-reference)).
+
 ---
 
-## 8. Expert vs Novice Paths
+## 8. Operator Paths and Agents
 
-### Two-Mode Expertise System (D54)
+### One Mode for Every Operator
 
-The plugin uses an explicit two-mode toggle instead of implicit behavioral detection (which is fragile — a power user starting a new project appears as a novice):
+Every operator gets the same behaviour; there is no expert mode. What adapts is the path, not a setting:
 
-**Default mode:** Includes brief terminology hints on first use of each concept in a session, template suggestions, post-action footer, and next-step suggestions. Suitable for most users.
+- **A first model.** When the project has no model yet, `/dethereal:create` says in a sentence or two what a threat model captures, guides a little more at each step, and ends by pointing to `/dethereal:help`.
+- **State-aware help and orientation.** `/dethereal:help` and the session orientation suggest up to three commands from the model's current state (`workspace_status`), instead of listing every command. See [`/dethereal:help` Output](PLUGIN_ARCHITECTURE.md#detherealhelp-output).
+- **Next steps everywhere.** Every mutating command ends with the post-action footer and its `[next]` line.
+- **A shorter guided path by default.** A new model, from `/dethereal:threat-model` or `/dethereal:create`, is a quick model: the guided workflow builds the full structure but enriches only the priority set and skips the Gate 3 review, for a first pass deepened later with `--full`; `--full` from the start gives the full run (see [Quick Mode Journey](#quick-mode-journey)).
+- **Targeted commands.** Experienced operators run the individual commands (`/dethereal:add`, `/dethereal:classify`, `/dethereal:enrich --focus credentials`, …) or describe the change in natural language, instead of the full workflow.
 
-**Expert mode:** Suppresses explanations and reduces footer verbosity. Enabled via `--expert` flag on any command or `dethereal.expert_mode: true` in plugin config.
+The guardrails hold for everyone: validation before a push (Gate 2), with the failing checks named; templates and descriptions rather than a blank page at `/dethereal:create`; and the boundary-hierarchy check of the guided workflow, which proposes sub-boundaries for a flat model because a flat model cannot show trust-boundary violations. Confirmations are never skipped, whatever the operator's experience: every value the operator gives is confirmed before it is written, and every value the enrichment agent cites or derives from the source is listed in the enrichment relay files, for the operator to keep, reject or change.
 
-### Default Mode Guardrails
+### Two-Mode Expertise System (D54 — design, not built)
 
-- **Terminology explanations** on first use: "trust boundaries (separate security zones like DMZ, internal network)"
-- **Template suggestions** rather than blank-page creation
-- **Validation before import** with explanation of each error
-- **Platform UI link** after model creation for visual diagram viewing
-- **Flat model detection** when all components are in a single boundary: "Your model has all components in one trust zone. This means analysis cannot detect trust boundary violations — one of the most valuable findings. Would you like me to suggest trust boundaries based on your architecture?"
-
-### Expert Mode Shortcuts
-
-- `--yes` flag to skip confirmations on non-destructive operations
-- Batch operations across multiple model directories
-- Direct MCP tool invocation via natural language
-- `--json` flag for scriptable output
-- Suppressed terminology explanations and compact footer
+> **Not implemented.** D54 chose an explicit two-mode toggle — a default mode with terminology hints on first use of each concept, and an expert mode, enabled by an `--expert` flag on any command or a `dethereal.expert_mode: true` setting, that would suppress explanations, compact the footer, and add `--yes` (skip confirmations on non-destructive operations) and `--json` (scriptable output) flags. None of it was built: no command accepts `--expert`, `--yes` or `--json`, and there is no such setting. The design is kept here as the record of the decision; what ships is described above.
 
 ### Agent Selection
 
-**`threat-modeler` (default)** -- Balanced guidance. Asks clarifying questions. Produces well-structured models.
+**`threat-modeler`** -- Edits a model's files directly. Asks clarifying questions and validates its edits. Not a default agent: select it with `@agent-dethereal:threat-modeler`; it sends the guided workflow, creation, removal, discovery, classification, enrichment, review and sync to their skills, which run from a regular session. On Claude Code, started directly, it hands the specialists' part itself: a scan (a look only; the discovery of record stays with `/dethereal:discover`), classification proposals the operator confirms, enrichment of already-stubbed elements (the agent writes cited and derived values, and the threat-modeler shows its relay file; `/dethereal:enrich` asks the rest and takes corrections) and a review. Drift re-verification, the control pass, gate decisions and publishing still run in their skills.
 
 **`infrastructure-scout`** -- Discovery-focused. Scans code, produces draft inventories. Read-only.
 
-**`security-enricher`** -- Expert-level security annotation. MITRE mappings, control recommendations.
+**`infrastructure-scout-scoped`** -- The same scan, constrained to a precomputed file allowlist. Drift reconciliation uses it to re-verify the elements whose sources changed, without re-scanning the whole repository. Read-only.
+
+**`security-enricher`** -- Runs in three modes: classification (proposes classes, the crown-jewel mapping and reclassifications; writes nothing), enrichment (writes cited and derived attribute values into empty fields, and its tables and questions to a relay file for the conversation to show) and the control pass. It records no MITRE techniques: technique coverage is derived on the platform from an analysis's exposures.
 
 **`model-reviewer`** -- Read-only auditor. Quality reports, gap analysis, readiness assessment.
+
+**`enrichment-applier`** -- Writes what the operator's reply to the Step 8 enrichment relay decides, and returns a table of it. Writes attribute files only; asks nothing, and returns removals, credential-mapping changes and data items as follow-ups for the conversation.

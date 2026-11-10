@@ -1,0 +1,35 @@
+{
+  "elementId": "d-ssh-keys",
+  "elementType": "dataItem",
+  "elementName": "Engineer SSH keys",
+  "classData": {
+    "id": "a6406f69-a0ec-48c9-a9dd-27b3c03bbda8",
+    "name": "User Credentials"
+  },
+  "attributes": {
+    "passwords_one_way_hashed": null,
+    "adaptive_memory_hard_hash_used": null,
+    "per_credential_salt_used": null,
+    "adequate_work_factor": null,
+    "secrets_stored_in_dedicated_secret_manager": null,
+    "secrets_hardcoded_in_config_or_iac": null,
+    "tls_only_transport": null,
+    "hsts_enforced": null,
+    "rate_limiting_or_lockout_enabled": null,
+    "breached_password_screening_enabled": null,
+    "mfa_available": null,
+    "max_consecutive_failed_attempts": null,
+    "generic_failure_responses": null,
+    "constant_time_login_responses": null,
+    "password_min_length": null,
+    "password_max_length_cap_below_64": null,
+    "composition_rules_or_forced_rotation_imposed": null,
+    "key_rotation_enabled": null,
+    "forced_reset_or_revocation_on_compromise": null,
+    "secrets_masked_in_logs": null,
+    "transmitted_in_url_or_query": null,
+    "least_privilege_access_enforced": null,
+    "pepper_stored_separately": null
+  },
+  "modifiedAt": "2026-09-27T22:22:54.280Z"
+}

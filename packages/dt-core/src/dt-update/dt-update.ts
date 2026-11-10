@@ -21,6 +21,7 @@ import { DtModule } from '../dt-module/dt-module.js'
 import { ClassResolver, ResolvableClassKind } from '../dt-class/class-resolver.js'
 import { ControlOwner, ControlResolver, UnresolvedControl, describeControlOwner, describeUnresolvedControl } from '../dt-control/control-resolver.js'
 import { DtControl } from '../dt-control/dt-control.js'
+import { StrictControlResolver, type ControlErrorFields, type ControlResolution, type ResolvedControl } from '../dt-control-resolution/dt-control-resolution.js'
 
 export interface UpdateProgress {
   currentStep: number
@@ -29,7 +30,7 @@ export interface UpdateProgress {
   percentage: number
 }
 
-export interface UpdateError {
+export interface UpdateError extends ControlErrorFields {
   step: string
   elementName?: string
   elementId?: string
@@ -60,6 +61,12 @@ export interface UpdateResult {
   warnings: string[]
   progress?: UpdateProgress
   stats: UpdateStats
+  /**
+   * Strict control resolution only, on a successful update: the controls linked to each element
+   * (by ref: '@model', the element id as the input holds it, or `<group>[<n>]`), in list order, with
+   * the catalog name as linked. An element whose controls key is absent has no entry.
+   */
+  resolvedControls?: Record<string, ResolvedControl[]>
   /** Elements whose class this platform does not have (see UnresolvedClass); a warning names each. */
   unresolvedClasses?: UnresolvedClass[]
   /** Control references that were not attached: no control or several controls matched; a warning names each. */
@@ -69,6 +76,19 @@ export interface UpdateResult {
 export interface UpdateOptions {
   onProgress?: (progress: UpdateProgress) => void
   deleteOrphaned?: boolean
+  /**
+   * 'strict' links a control only by its id, or by a name exactly one catalog control has, and
+   * refuses the update before the first write when any reference does not resolve. The default,
+   * 'lenient', also takes the one control whose name matches ignoring case and surrounding spaces; a
+   * reference no control or several controls match attaches nothing (a shared name keeps the
+   * matching controls the element already has) and is listed in unresolvedControls, with a warning.
+   */
+  controlResolution?: ControlResolution
+  /**
+   * Called once, after every check this update runs and right before its first write. A message
+   * returned refuses the update with nothing written (one error, step `before_first_write`).
+   */
+  beforeFirstWrite?: () => Promise<string | undefined>
 }
 
 // Attribute writes run this many at a time once every element is written (see attributeWrites).
@@ -139,6 +159,9 @@ export class DtUpdate {
   private processedDataflowIds: Set<string> = new Set()
   private processedDataitemIds: Set<string> = new Set()
 
+  // Set for a strict update, once its preflight resolved every controls list.
+  private strict: StrictControlResolver | null = null
+
   private progress: UpdateProgress = {
     currentStep: 0,
     totalSteps: 9,
@@ -185,6 +208,7 @@ export class DtUpdate {
     this.controlResolver = new ControlResolver((folderId) => this.dtControl.getControls({ folderId }))
     this.controlCatalogChecked = false
     this.controlCatalogUnavailable = false
+    this.strict = null
     this.unresolvedControls = []
     this.attachedControlIds = new Map()
 
@@ -284,6 +308,14 @@ export class DtUpdate {
         }
       }
 
+      // Strict resolution reports by element id, so the ids must be unique before anything else.
+      if (options.controlResolution === 'strict') {
+        const idErrors = StrictControlResolver.validate(jsonData)
+        if (idErrors.length > 0) {
+          return { success: false, errors: idErrors, warnings: [], progress: this.progress, stats: this.stats }
+        }
+      }
+
       this.updateProgress(2, 'Fetching existing model structure')
 
       // Step 2: Fetch existing model structure
@@ -302,6 +334,28 @@ export class DtUpdate {
       // leaves an existing element's binding and answers as they are, with a warning, instead of failing an update
       // that has already landed. It runs after the fetch, which tells existing elements from new ones.
       jsonData = await this.resolveClasses(jsonData)
+
+      // Strict: every controls list resolves against one catalog snapshot before the first write.
+      if (options.controlResolution === 'strict') {
+        const prepared = await StrictControlResolver.prepare(jsonData, this.dtControl)
+        if ('errors' in prepared) {
+          return { success: false, errors: prepared.errors, warnings: this.warnings, unresolvedClasses: this.unresolvedClasses, progress: this.progress, stats: this.stats }
+        }
+        this.strict = prepared.resolver
+        this.warnings.push(...prepared.warnings)
+      }
+
+      const held = await options.beforeFirstWrite?.()
+      if (held !== undefined) {
+        return {
+          success: false,
+          errors: [{ step: 'before_first_write', error: held }],
+          warnings: this.warnings,
+          unresolvedClasses: this.unresolvedClasses,
+          progress: this.progress,
+          stats: this.stats,
+        }
+      }
 
       this.updateProgress(3, 'Updating model properties')
 
@@ -386,7 +440,8 @@ export class DtUpdate {
         unresolvedClasses: this.unresolvedClasses,
         unresolvedControls: this.unresolvedControls,
         progress: this.progress,
-        stats: this.stats
+        stats: this.stats,
+        ...(this.strict && this.errors.length === 0 ? { resolvedControls: this.strict.resolved() } : {})
       }
 
     } catch (e) {
@@ -471,14 +526,19 @@ export class DtUpdate {
    * reported with the model or element it came from. A name several controls share never removes a control: the
    * candidates the element already has (`attached`) stay, and only when it has none is the reference reported.
    * Returns undefined when the input is undefined, or when the control catalog is incomplete or unavailable: callers
-   * then leave the key unset, so the element's existing controls are preserved.
+   * then leave the key unset, so the element's existing controls are preserved. A strict update resolves `element`
+   * (the element's data as the input holds it) against its preflight snapshot instead; `label` names the element in
+   * an unresolved reference and its warning.
    */
   private resolveControls = async (
     controls: any[] | undefined,
-    owner: ControlOwner,
+    element: object,
+    label: ControlOwner,
     attached: string[] = []
   ): Promise<string[] | undefined> => {
     if (controls === undefined) return undefined
+    // Strict: the preflight's snapshot, no fallback; an entry it cannot link throws.
+    if (this.strict) return this.strict.resolve(element, controls).map(c => c.id)
     if (controls.length === 0) return []
 
     if (!this.controlCatalogChecked) {
@@ -504,13 +564,32 @@ export class DtUpdate {
       const kept = u.reason === 'ambiguous' ? (u.candidates ?? []).map((c) => c.id).filter((id) => attached.includes(id)) : []
       if (kept.length > 0) {
         for (const id of kept) if (!ids.includes(id)) ids.push(id)
-        this.warnings.push(`Control ${describeUnresolvedControl(u)}, on ${describeControlOwner(owner)}: kept ${kept.join(', ')}, which it already had`)
+        this.warnings.push(`Control ${describeUnresolvedControl(u)}, on ${describeControlOwner(label)}: kept ${kept.join(', ')}, which it already had`)
         continue
       }
-      this.unresolvedControls.push({ ...u, owner })
-      this.warnings.push(`Could not resolve control: ${describeUnresolvedControl(u)}, on ${describeControlOwner(owner)}`)
+      this.unresolvedControls.push({ ...u, owner: label })
+      this.warnings.push(`Could not resolve control: ${describeUnresolvedControl(u)}, on ${describeControlOwner(label)}`)
     }
     return ids
+  }
+
+  /**
+   * Strict: records an element's controls as written once the write that carried them returned the
+   * element. A write that returned nothing is an error, so the update does not report success over it.
+   * (A write that threw is already an error at its call site.)
+   */
+  private recordControls = (owner: any, written: unknown): void => {
+    if (!this.strict || owner.controls === undefined) return
+    if (written === null || written === undefined) {
+      this.errors.push({
+        step: 'associate_controls',
+        ref: this.strict.refOf(owner),
+        elementName: owner.name,
+        error: 'Controls were not written: the platform returned no element'
+      })
+      return
+    }
+    this.strict.record(owner, this.strict.resolve(owner, owner.controls))
   }
 
   /**
@@ -545,13 +624,13 @@ export class DtUpdate {
       const existingControlIds = existingModel.controls?.map((c: any) => typeof c === 'string' ? c : c.id) || []
       let controlIds: string[]
       if (data.controls !== undefined) {
-        const resolved = await this.resolveControls(data.controls, { kind: 'MODEL', name: data.name }, existingControlIds)
+        const resolved = await this.resolveControls(data.controls, data, { kind: 'MODEL', name: data.name }, existingControlIds)
         controlIds = resolved ?? existingControlIds
       } else {
         controlIds = existingControlIds
       }
 
-      await this.dtModel.updateModel({
+      const updated = await this.dtModel.updateModel({
         id: this.currentModelId,
         name: data.name || existingModel.name,
         description: data.description || existingModel.description || '',
@@ -564,6 +643,7 @@ export class DtUpdate {
         // flat platform fields with REPLACE semantics). Absent → platform untouched.
         scope: data.scope
       })
+      this.recordControls(data, updated)
       this.stats.updated++
     } catch (e) {
       // A thrown model-property write is a HARD failure — route to errors so `success`
@@ -668,6 +748,7 @@ export class DtUpdate {
       // omits it (preserve) rather than wiping.
       const resolvedControls = await this.resolveControls(
         boundaryData.controls,
+        boundaryData,
         { kind: 'BOUNDARY', id: boundaryData.id, name: boundaryData.name },
         this.attachedControlIds.get(this.defaultBoundaryId)
       )
@@ -682,10 +763,10 @@ export class DtUpdate {
       // omits this key (builds its own node) to preserve.
       boundaryNode.data.dataItems = this.mapDataItemIds(boundaryData.dataItemIds)
 
-      await this.dtBoundary.updateBoundaryNode({
+      this.recordControls(boundaryData, await this.dtBoundary.updateBoundaryNode({
         updatedNode: boundaryNode,
         defaultBoundaryId: this.defaultBoundaryId
-      })
+      }))
       this.stats.updated++
 
     } catch (e) {
@@ -735,6 +816,7 @@ export class DtUpdate {
           // that cannot be resolved (the catalogue is unavailable) is left unset as well, which preserves.
           const resolvedControls = await this.resolveControls(
             itemData.controls,
+            itemData,
             { kind: 'DATA', id: itemId, name: itemData.name },
             this.attachedControlIds.get(itemId)
           )
@@ -759,6 +841,8 @@ export class DtUpdate {
           // not become an orphan-delete target even if the update itself failed.
           this.idMapping.set(itemId, itemId)
           this.processedDataitemIds.add(itemId)
+          // A refused update wrote nothing, its controls included; its error is reported below.
+          if (result.residualOk) this.recordControls(itemData, result)
           // updateDataItem bound the class; queue its attributes, even none, as for every other element kind: the
           // write is what persists edited answers and evaluates a class bound with no answers yet. A refused binding
           // writes no answers against a class the item is not bound to.
@@ -784,6 +868,7 @@ export class DtUpdate {
           // Create new data item
           const createdControls = await this.resolveControls(
             itemData.controls,
+            itemData,
             { kind: 'DATA', id: itemData.id, name: itemData.name }
           )
           const createdItem = await this.dtDataitem.createDataItem({
@@ -799,6 +884,7 @@ export class DtUpdate {
             controls: createdControls
           })
 
+          if (createdItem) this.recordControls(itemData, createdItem)
           if (createdItem && itemData.id) {
             this.idMapping.set(itemData.id, createdItem.id)
             this.processedDataitemIds.add(createdItem.id)
@@ -930,6 +1016,7 @@ export class DtUpdate {
       // omits it (preserve) rather than wiping.
       const resolvedControls = await this.resolveControls(
         boundaryData.controls,
+        boundaryData,
         { kind: 'BOUNDARY', id: boundaryId, name: boundaryData.name },
         this.attachedControlIds.get(boundaryId)
       )
@@ -944,10 +1031,10 @@ export class DtUpdate {
       // omits this key (builds its own node) to preserve.
       boundaryNode.data.dataItems = this.mapDataItemIds(boundaryData.dataItemIds)
 
-      await this.dtBoundary.updateBoundaryNode({
+      this.recordControls(boundaryData, await this.dtBoundary.updateBoundaryNode({
         updatedNode: boundaryNode,
         defaultBoundaryId: this.defaultBoundaryId
-      })
+      }))
 
       // Update class if provided. Explicit null unassigns (NONE rebind, idempotent);
       // absent classData leaves the binding untouched.
@@ -1027,7 +1114,7 @@ export class DtUpdate {
       // Associate controls and/or data items with the newly created boundary via a
       // follow-up update (the create mutation carries neither).
       if (createdBoundary) {
-        const resolvedControls = await this.resolveControls(boundaryData.controls, { kind: 'BOUNDARY', id: boundaryData.id, name: boundaryData.name })
+        const resolvedControls = await this.resolveControls(boundaryData.controls, boundaryData, { kind: 'BOUNDARY', id: boundaryData.id, name: boundaryData.name })
         const followUpControls = resolvedControls && resolvedControls.length > 0 ? resolvedControls : undefined
         const followUpDataItems = this.mapDataItemIds(boundaryData.dataItemIds)
         // createBoundaryNode (ADD_BOUNDARY) can't set zoning, so the follow-up must also fire when the
@@ -1054,11 +1141,13 @@ export class DtUpdate {
             width: boundaryData.dimensionsWidth || 0,
             height: boundaryData.dimensionsHeight || 0
           }
-          await this.dtBoundary.updateBoundaryNode({
+          const written = await this.dtBoundary.updateBoundaryNode({
             updatedNode: updateNode,
             defaultBoundaryId: this.defaultBoundaryId
           })
+          if (followUpControls) this.recordControls(boundaryData, written)
         }
+        if (!followUpControls) this.recordControls(boundaryData, createdBoundary)
       }
 
       return createdBoundary
@@ -1230,6 +1319,7 @@ export class DtUpdate {
       // omits it (preserve) rather than wiping.
       const resolvedControls = await this.resolveControls(
         componentData.controls,
+        componentData,
         { kind: 'COMPONENT', id: componentId, name: componentData.name },
         this.attachedControlIds.get(componentId)
       )
@@ -1244,10 +1334,10 @@ export class DtUpdate {
       // omits this key (builds its own node) to preserve.
       componentNode.data.dataItems = this.mapDataItemIds(componentData.dataItemIds)
 
-      await this.dtComponent.updateComponent({
+      this.recordControls(componentData, await this.dtComponent.updateComponent({
         updatedNode: componentNode,
         defaultBoundaryId: this.defaultBoundaryId
-      })
+      }))
 
       // Update class if provided. Explicit null unassigns (NONE rebind, idempotent);
       // absent classData leaves the binding untouched.
@@ -1327,7 +1417,7 @@ export class DtUpdate {
       // Associate controls and/or data items with the newly created component via a
       // follow-up update (the create mutation carries neither).
       if (createdComponent) {
-        const resolvedControls = await this.resolveControls(componentData.controls, { kind: 'COMPONENT', id: componentData.id, name: componentData.name })
+        const resolvedControls = await this.resolveControls(componentData.controls, componentData, { kind: 'COMPONENT', id: componentData.id, name: componentData.name })
         const followUpControls = resolvedControls && resolvedControls.length > 0 ? resolvedControls : undefined
         const followUpDataItems = this.mapDataItemIds(componentData.dataItemIds)
         if (followUpControls || followUpDataItems.length > 0) {
@@ -1343,11 +1433,13 @@ export class DtUpdate {
             },
             parentNode: parentBoundaryId
           }
-          await this.dtComponent.updateComponent({
+          const written = await this.dtComponent.updateComponent({
             updatedNode: updateNode,
             defaultBoundaryId: this.defaultBoundaryId
           })
+          if (followUpControls) this.recordControls(componentData, written)
         }
+        if (!followUpControls) this.recordControls(componentData, createdComponent)
       }
 
       return createdComponent
@@ -1436,6 +1528,7 @@ export class DtUpdate {
       // omits it (preserve) rather than wiping.
       const resolvedControls = await this.resolveControls(
         flowData.controls,
+        flowData,
         { kind: 'DATA_FLOW', id: flowId, name: flowData.name },
         this.attachedControlIds.get(flowId)
       )
@@ -1450,13 +1543,13 @@ export class DtUpdate {
       // omits this key (builds its own node) to preserve.
       edge.data.dataItems = this.mapDataItemIds(flowData.dataItemIds)
 
-      await this.dtDataflow.updateDataFlow({
+      this.recordControls(flowData, await this.dtDataflow.updateDataFlow({
         edge,
         updates: {
           name: flowData.name,
           description: flowData.description || ''
         }
-      })
+      }))
 
       // Update class if provided. Explicit null unassigns (NONE rebind, idempotent);
       // absent classData leaves the binding untouched.
@@ -1529,7 +1622,7 @@ export class DtUpdate {
       // Associate controls and/or data items with the newly created data flow via a
       // follow-up update (the create mutation carries neither).
       if (createdFlow) {
-        const resolvedControls = await this.resolveControls(flowData.controls, { kind: 'DATA_FLOW', id: flowData.id, name: flowData.name })
+        const resolvedControls = await this.resolveControls(flowData.controls, flowData, { kind: 'DATA_FLOW', id: flowData.id, name: flowData.name })
         const followUpControls = resolvedControls && resolvedControls.length > 0 ? resolvedControls : undefined
         const followUpDataItems = this.mapDataItemIds(flowData.dataItemIds)
         if (followUpControls || followUpDataItems.length > 0) {
@@ -1546,11 +1639,13 @@ export class DtUpdate {
               ...(followUpDataItems.length > 0 ? { dataItems: followUpDataItems } : {})
             }
           }
-          await this.dtDataflow.updateDataFlow({
+          const written = await this.dtDataflow.updateDataFlow({
             edge: updateEdge,
             updates: {}
           })
+          if (followUpControls) this.recordControls(flowData, written)
         }
+        if (!followUpControls) this.recordControls(flowData, createdFlow)
       }
 
       return createdFlow

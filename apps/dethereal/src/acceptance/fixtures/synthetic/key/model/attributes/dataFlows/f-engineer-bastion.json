@@ -1,0 +1,19 @@
+{
+  "elementId": "f-engineer-bastion",
+  "elementType": "dataFlow",
+  "elementName": "SSH to the bastion",
+  "classData": {
+    "id": "5f88d821-1513-4c08-b9ed-7ea0aed3ac86",
+    "name": "Secure Remote Access"
+  },
+  "attributes": {
+    "auth_failure_mode": "deny",
+    "encryption_in_transit": "SSH",
+    "required_credentials": [
+      "ops-ssh-keys"
+    ],
+    "credential_type": "ssh_key",
+    "mfa_enforced_at_boundary_crossing": false,
+    "bastion_mediates_all_admin_access": true
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "elementId": "f-bastion-db",
+  "elementType": "dataFlow",
+  "elementName": "Admin database session",
+  "classData": {
+    "id": "9b29a354-9ad5-408b-85c3-2da624d935b1",
+    "name": "Database Query"
+  },
+  "attributes": {
+    "auth_failure_mode": "deny",
+    "encryption_in_transit": "TLS (sslmode=require, not verified)",
+    "required_credentials": [
+      "orders-db-admin"
+    ],
+    "credential_type": "password"
+  }
+}

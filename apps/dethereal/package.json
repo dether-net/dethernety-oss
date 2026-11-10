@@ -1,56 +1,52 @@
 {
   "name": "@dether.net/dethereal",
-  "version": "0.4.21",
-  "description": "Dethereal - Claude Code plugin for AI-guided threat modeling with Dethernety",
+  "version": "0.5.0",
+  "description": "Dethereal - AI-guided threat modeling with Dethernety: an MCP server with skills and agents for AI coding assistants",
   "type": "module",
   "main": "dist/index.js",
-  "types": "dist/index.d.ts",
   "bin": {
     "dethereal": "dist/index.js"
   },
   "scripts": {
     "build": "tsup",
-    "prepack": "pnpm --filter @dethernety/dt-core build && tsup",
+    "prepack": "tsx src/generator/cli.ts --package-root && pnpm --filter @dethernety/dt-core build && tsup",
     "build:types": "tsc --emitDeclarationOnly",
     "dev": "tsc -w",
     "start": "node dist/index.js",
     "lint": "eslint src",
-    "test": "vitest run"
+    "test": "vitest run",
+    "golden:update": "tsx src/generator/cli.ts --update-goldens"
   },
   "publishConfig": {
     "access": "public"
   },
   "files": [
     "dist",
-    "skills",
-    "agents",
-    "hooks",
-    "docs",
     ".claude-plugin",
-    ".mcp.json",
-    "settings.json",
-    "scripts",
-    "src/utils/source-globs.v1.json",
-    "CLAUDE.md"
+    "bundles/claude",
+    "bundles/codex",
+    "bundles/opencode",
+    "src/utils/source-globs.v1.json"
   ],
-  "dependencies": {
-    "@apollo/client": "^4.3.5",
-    "@modelcontextprotocol/sdk": "^1.32.2",
-    "cross-fetch": "^4.1.0",
-    "graphql": "^16.14.2",
-    "graphql-tag": "^2.12.7",
-    "open": "^11.0.4",
-    "zod": "^4.6.7"
-  },
   "devDependencies": {
+    "@apollo/client": "4.3.5",
     "@dethernety/dt-core": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "@types/node": "^25.9.9",
+    "graphql": "16.14.2",
+    "graphql-tag": "2.12.7",
+    "jsonc-parser": "3.3.1",
+    "rxjs": "7.8.2",
+    "smol-toml": "1.8.0",
     "tsup": "^8.5.1",
+    "tsx": "^4.23.13",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.12"
+    "vitest": "^4.1.12",
+    "yaml": "^2.9.1",
+    "zod": "4.6.7"
   },
   "license": "AGPL-3.0-only",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.11.1"
   }
 }

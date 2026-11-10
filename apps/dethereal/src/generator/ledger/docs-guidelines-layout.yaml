@@ -1,0 +1,120 @@
+source: docs/guidelines-layout.md
+blob: 659e7d51726ae8fc05aefcfb3297c7480f86d235
+migrated: true
+rules:
+  - id: 756442219b
+    line: 7
+    anchor: All position coordinates (`positionX`, `positionY`) are **relative to the parent boundary**
+    destination: shared/guidelines-layout.md
+  - id: 81e9f28cea
+    line: 8
+    anchor: Origin (0,0) is at the **top-left** of the parent boundary
+    destination: shared/guidelines-layout.md
+  - id: d0be094b91
+    line: 9
+    anchor: Components have a fixed visual size of **150×150 pixels**
+    destination: shared/guidelines-layout.md
+  - id: 623b32bf0f
+    line: 10
+    anchor: Position boundaries to avoid overlapping child elements
+    destination: shared/guidelines-layout.md
+  - id: cdd47e5779
+    line: 11
+    anchor: Leave padding around boundaries for visual clarity (minimum 50px)
+    destination: shared/guidelines-layout.md
+  - id: 75dc14a54a
+    line: 15
+    anchor: "Choose `sourceHandle` and `targetHandle` based on the **relative positions** of components:"
+    destination: shared/guidelines-layout.md
+  - id: fbf8632c28
+    line: 19
+    anchor: "| To the right | right | left |"
+    destination: shared/guidelines-layout.md
+  - id: c8de9f9a5a
+    line: 20
+    anchor: "| Below | bottom | top |"
+    destination: shared/guidelines-layout.md
+  - id: 774dda6bde
+    line: 21
+    anchor: "| To the left | left | right |"
+    destination: shared/guidelines-layout.md
+  - id: 2d4d7750cb
+    line: 22
+    anchor: "| Above | top | bottom |"
+    destination: shared/guidelines-layout.md
+  - id: a488e19d99
+    line: 24
+    anchor: "**Important for STORE components:** They only have `left` and `right` handles — ignore the table above"
+    destination: shared/guidelines-layout.md
+  - id: b9bf48da94
+    line: 24
+    anchor: Always use `left`/`right` regardless of relative position.
+    destination: shared/guidelines-layout.md
+  - id: a971f9a361
+    line: 24
+    anchor: Use horizontal connections only.
+    destination: shared/guidelines-layout.md
+  - id: 3f1d748034
+    line: 28
+    anchor: Do NOT create flows between the same two components using the same handle pair.
+    destination: shared/guidelines-layout.md
+  - id: 9ec1054cfb
+    line: 28
+    anchor: When bidirectional communication exists, use **different handle pairs** for each direction.
+    destination: shared/guidelines-layout.md
+  - id: 9f47c57e7f
+    line: 30
+    anchor: "**BAD** (overlapping lines):"
+    destination: shared/guidelines-layout.md
+  - id: df16ac68a1
+    line: 31
+    anchor: "Flow 1: A[right] → B[left]"
+    destination: shared/guidelines-layout.md
+  - id: 5a3972bfca
+    line: 32
+    anchor: "Flow 2: B[left] → A[right]"
+    destination: shared/guidelines-layout.md
+  - id: 804bace3b0
+    line: 34
+    anchor: "**GOOD** (clear separation):"
+    destination: shared/guidelines-layout.md
+  - id: df16ac68a1-2
+    line: 35
+    anchor: "Flow 1: A[right] → B[left]"
+    destination: shared/guidelines-layout.md
+  - id: 2d685ec6dd
+    line: 36
+    anchor: "Flow 2: B[bottom] → A[top]"
+    destination: shared/guidelines-layout.md
+  - id: 02d14e442f
+    line: 40
+    anchor: Size boundaries to contain all child elements with padding
+    destination: shared/guidelines-layout.md
+  - id: 93ef0f6bdd
+    line: 41
+    anchor: "Minimum padding: 50px on each side"
+    destination: shared/guidelines-layout.md
+  - id: b9d26ccfa1
+    line: 42
+    anchor: Set `dimensionsMinWidth` and `dimensionsMinHeight` to prevent collapse
+    destination: shared/guidelines-layout.md
+  - id: 810bc4ff8b
+    line: 43
+    anchor: Nested boundaries should fit within their parent with clearance
+    destination: shared/guidelines-layout.md
+  - id: 45cda21c64
+    line: 47
+    anchor: "Primary flow direction: **left-to-right** or **top-to-bottom** for readability"
+    destination: shared/guidelines-layout.md
+  - id: 9227cdb912
+    line: 48
+    anchor: External entities typically on the left or top
+    destination: shared/guidelines-layout.md
+  - id: 27aeb0a688
+    line: 49
+    anchor: Data stores typically on the right or bottom
+    destination: shared/guidelines-layout.md
+  - id: 307e0bd7e2
+    line: 50
+    anchor: Group flows logically — request/response pairs should use consistent handle patterns
+    destination: shared/guidelines-layout.md

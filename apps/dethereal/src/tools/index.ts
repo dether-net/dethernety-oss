@@ -30,7 +30,6 @@ export { UpdateAttributesTool, updateAttributesTool } from './update-attributes.
 export { ListModelsTool, listModelsTool } from './list-models.tool.js'
 export { SearchMitreAttackTool, searchMitreAttackTool } from './search-mitre-attack.tool.js'
 export { GetMitreDefendTool, getMitreDefendTool } from './get-mitre-defend.tool.js'
-export { ManageExposuresTool, manageExposuresTool } from './manage-exposures.tool.js'
 export { ManageControlsTool, manageControlsTool } from './manage-controls.tool.js'
 export { ManageCountermeasuresTool, manageCountermeasuresTool } from './manage-countermeasures.tool.js'
 export { ManageAnalysesTool, manageAnalysesTool } from './manage-analyses.tool.js'
@@ -39,6 +38,12 @@ export { GenerateAttributeStubsTool, generateAttributeStubsTool } from './genera
 // Additional tools
 export { MatchClassesTool, matchClassesTool } from './match-classes.tool.js'
 export { GetControlGapsTool, getControlGapsTool } from './get-control-gaps.tool.js'
+
+// Workflow state
+export { ModelStateTool, modelStateTool, effectiveState } from './model-state.tool.js'
+export { ModelStateWaiveTool, modelStateWaiveTool } from './model-state-waive.tool.js'
+export { ModelStateSettleTool, modelStateSettleTool } from './model-state-settle.tool.js'
+export { ModelStatePruneTool, modelStatePruneTool } from './model-state-prune.tool.js'
 
 import { BaseTool } from './base-tool.js'
 // Auth tools
@@ -60,7 +65,6 @@ import { updateAttributesTool } from './update-attributes.tool.js'
 import { listModelsTool } from './list-models.tool.js'
 import { searchMitreAttackTool } from './search-mitre-attack.tool.js'
 import { getMitreDefendTool } from './get-mitre-defend.tool.js'
-import { manageExposuresTool } from './manage-exposures.tool.js'
 import { manageControlsTool } from './manage-controls.tool.js'
 import { manageCountermeasuresTool } from './manage-countermeasures.tool.js'
 import { manageAnalysesTool } from './manage-analyses.tool.js'
@@ -68,11 +72,23 @@ import { generateAttributeStubsTool } from './generate-attribute-stubs.tool.js'
 // Additional tools
 import { matchClassesTool } from './match-classes.tool.js'
 import { getControlGapsTool } from './get-control-gaps.tool.js'
+import { workspaceStatusTool } from './workspace-status.tool.js'
+import { detectDriftTool } from './detect-drift.tool.js'
+// Workflow state
+import { modelStateTool } from './model-state.tool.js'
+import { modelStateWaiveTool } from './model-state-waive.tool.js'
+import { modelStateSettleTool } from './model-state-settle.tool.js'
+import { modelStatePruneTool } from './model-state-prune.tool.js'
+// Read-only security queries
+import { queryControlsTool, queryCountermeasuresTool, queryExposuresTool } from './query-security.tool.js'
+import { TOOL_MANIFEST } from './manifest.js'
+import { StubTool } from './stub-tool.js'
+import { SETTLEMENT_ONLY_TOOLS, settlementOn } from '../utils/settlement-switch.js'
 
 /**
- * All registered tools (22 total)
+ * All implemented tools
  */
-export const allTools: BaseTool[] = [
+const implementedTools: BaseTool[] = [
   // Authentication tools
   loginTool,
   authStatusTool,
@@ -92,7 +108,6 @@ export const allTools: BaseTool[] = [
   listModelsTool,
   searchMitreAttackTool,
   getMitreDefendTool,
-  manageExposuresTool,
   manageControlsTool,
   manageCountermeasuresTool,
   manageAnalysesTool,
@@ -100,10 +115,42 @@ export const allTools: BaseTool[] = [
   // Additional tools
   matchClassesTool,
   getControlGapsTool,
+  queryControlsTool,
+  queryExposuresTool,
+  queryCountermeasuresTool,
+  // Local workspace
+  workspaceStatusTool,
+  detectDriftTool,
+  // Workflow state
+  modelStateTool,
+  modelStateWaiveTool,
+  modelStateSettleTool,
+  modelStatePruneTool,
 ]
 
 /**
- * Tools that don't require a GraphQL client (6)
+ * Placeholders for manifest tools without an implementation. Tests set
+ * DETHEREAL_REGISTER_STUBS=1 to hold the full manifest to the registry;
+ * otherwise no placeholder is ever shown to a model. A tool held back with the
+ * settlement off is implemented, so it never comes back as a placeholder.
+ */
+const stubTools: BaseTool[] =
+  process.env.DETHEREAL_REGISTER_STUBS === '1'
+    ? TOOL_MANIFEST.filter((entry) => !implementedTools.some((t) => t.name === entry.name)).map((entry) => new StubTool(entry))
+    : []
+
+/**
+ * All registered tools
+ */
+export const allTools: BaseTool[] = [
+  // With the settlement off (read once, when the server starts) its tools are not listed: every listed tool costs its
+  // description on every request, and nothing calls them.
+  ...(settlementOn() ? implementedTools : implementedTools.filter((t) => !SETTLEMENT_ONLY_TOOLS.includes(t.name))),
+  ...stubTools,
+]
+
+/**
+ * Tools that don't require a GraphQL client
  */
 export const clientFreeTools: BaseTool[] = [
   // Auth tools are client-free
@@ -113,7 +160,14 @@ export const clientFreeTools: BaseTool[] = [
   // Other client-free tools
   validateModelTool,
   getSchemaTool,
-  getExamplesTool
+  getExamplesTool,
+  modelStateTool,
+  modelStateWaiveTool,
+  modelStateSettleTool,
+  modelStatePruneTool,
+  ...stubTools,
+  workspaceStatusTool,
+  detectDriftTool,
 ]
 
 /**
@@ -130,6 +184,8 @@ const dataControlsCalls = new Map<BaseTool, (args: Record<string, unknown>) => b
   [createModelTool, () => true],
   [updateAttributesTool, () => true],
   [manageControlsTool, (args) => typeof args.action === 'string' && DATA_CONTROLS_ACTIONS.has(args.action)],
+  // query_controls forwards to manage_controls in-process, past this check, so its list is checked here.
+  [queryControlsTool, (args) => args.action === 'list'],
 ])
 
 /** Whether this call of `tool` sends a document that selects a data item's controls. */
@@ -137,7 +193,7 @@ export const needsDataControls = (tool: BaseTool, args: Record<string, unknown>)
   dataControlsCalls.get(tool)?.(args) ?? false
 
 /**
- * Tools that require a GraphQL client (16)
+ * Tools that require a GraphQL client
  */
 export const clientDependentTools: BaseTool[] = [
   importModelTool,
@@ -150,7 +206,6 @@ export const clientDependentTools: BaseTool[] = [
   listModelsTool,
   searchMitreAttackTool,
   getMitreDefendTool,
-  manageExposuresTool,
   manageControlsTool,
   manageCountermeasuresTool,
   manageAnalysesTool,
@@ -158,4 +213,18 @@ export const clientDependentTools: BaseTool[] = [
   // Additional tools
   matchClassesTool,
   getControlGapsTool,
+  queryControlsTool,
+  queryExposuresTool,
+  queryCountermeasuresTool,
 ]
+
+export { WorkspaceStatusTool, workspaceStatusTool } from './workspace-status.tool.js'
+
+/**
+ * Tools that only read local files: they need no session context and work even
+ * when the platform URL is unusable.
+ */
+export const localTools: BaseTool[] = [workspaceStatusTool, detectDriftTool, modelStateTool, modelStateWaiveTool, modelStateSettleTool, modelStatePruneTool]
+
+export { DetectDriftTool, detectDriftTool } from './detect-drift.tool.js'
+export { queryControlsTool } from './query-security.tool.js'
