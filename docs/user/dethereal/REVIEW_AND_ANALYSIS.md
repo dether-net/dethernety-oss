@@ -2,7 +2,7 @@
 title: 'Review and Attack Surface Analysis'
 description: 'Quality review, attack surface summary, and platform analysis integration'
 category: 'documentation'
-position: 8
+position: 9
 navigation: true
 tags: ['dethereal', 'review', 'quality', 'attack-surface', 'analysis']
 ---

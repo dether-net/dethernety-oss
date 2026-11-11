@@ -2,7 +2,7 @@
 title: 'Dethereal Glossary'
 description: 'Definitions for Dethereal-specific terminology'
 category: 'documentation'
-position: 10
+position: 11
 navigation: true
 tags: ['dethereal', 'glossary', 'terminology', 'reference']
 ---

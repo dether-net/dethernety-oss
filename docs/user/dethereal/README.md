@@ -31,6 +31,7 @@ OpenCode is in Preview. These issues were seen in our tests; each has a workarou
 
 | Guide | Description |
 |-------|-------------|
+| [Quick Start](QUICK_START.md) | From install to your first threat model, in about 15 minutes |
 | [Getting Started](GETTING_STARTED.md) | Installation, authentication, and creating your first model |
 | [Guided Workflow](GUIDED_WORKFLOW.md) | The 11-step threat modeling process from scope to sync |
 | [Command Reference](COMMAND_REFERENCE.md) | All 14 slash commands with syntax, arguments, and examples |
@@ -45,9 +46,10 @@ OpenCode is in Preview. These issues were seen in our tests; each has a workarou
 
 ## Quick Start
 
-1. **[Getting Started](GETTING_STARTED.md)** — Install the plugin, connect to your platform, create your first model
-2. **[Guided Workflow](GUIDED_WORKFLOW.md)** — Run `/dethereal:threat-model` to continue your model; a new model is a quick first pass (priority-set enrichment, no Gate 3 review) that you deepen later with `--full`; add `--full` for the full run
-3. **[Model Concepts](MODEL_CONCEPTS.md)** — Understand what the model contains and how quality scoring works
+1. **[Quick Start](QUICK_START.md)** — install, sign in, and build your first model in about 15 minutes
+2. **[Getting Started](GETTING_STARTED.md)** — Install the plugin, connect to your platform, create your first model
+3. **[Guided Workflow](GUIDED_WORKFLOW.md)** — Run `/dethereal:threat-model` to continue your model; a new model is a quick first pass (priority-set enrichment, no Gate 3 review) that you deepen later with `--full`; add `--full` for the full run
+4. **[Model Concepts](MODEL_CONCEPTS.md)** — Understand what the model contains and how quality scoring works
 
 Coming from Dethereal 0.4.x? See [Upgrading from 0.4.x](GETTING_STARTED.md#upgrading-from-04x).
 

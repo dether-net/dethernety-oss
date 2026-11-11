@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "harness": "codex",
-  "version": "0.6.0-dev.0",
+  "version": "0.6.0-dev.1",
   "generatedFrom": "7d558ec187d8932972c39a298f2a59f97e464261dd383a848a6d383c003c9d47",
   "contentHash": "112553d437f71e1a2babbf6ded813a03a9eec43606688744065c059649f09a76",
   "files": [
@@ -39,7 +39,7 @@
     },
     {
       "path": "bundles/codex/plugins/dethereal/.codex-plugin/plugin.json",
-      "sha256": "0c246b7bdbfbc668fb6736323df94bad104fedc488cf4cc27c6a3f6f9de6e063"
+      "sha256": "ec8319522894d30baf2e3577f125256c844f9607b8aa318570c97de48a6473b4"
     },
     {
       "path": "bundles/codex/plugins/dethereal/bin/hook-deadlines.json",

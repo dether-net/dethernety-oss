@@ -43,11 +43,25 @@ export function renderFragment(template: string, values: FragmentValues): string
   return out
 }
 
+/**
+ * A deep copy with every table given the ordinary object prototype. The TOML parser returns
+ * tables as null-prototype objects, which a structural compare (`isDeepStrictEqual`) reads as
+ * unequal to a plain object parsed from elsewhere. Arrays and the dates the parser returns are
+ * kept as they are; tables nested inside arrays are copied too.
+ */
+function plainTables<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(plainTables) as unknown as T
+  if (value === null || typeof value !== 'object' || value instanceof Date) return value
+  // Object.fromEntries defines each key as an own property, so a literal `__proto__` key stays
+  // data and does not reset the new object's prototype.
+  return Object.fromEntries(Object.keys(value as Record<string, unknown>).map((k) => [k, plainTables((value as Record<string, unknown>)[k])])) as unknown as T
+}
+
 /** A parsed Codex config, or an empty one when the file is absent; a file that does not parse is refused. */
 export function readConfig(bytes: Buffer | null, label: string): Record<string, unknown> {
   if (!bytes) return {}
   try {
-    return parse(bytes.toString('utf8')) as Record<string, unknown>
+    return plainTables(parse(bytes.toString('utf8')) as Record<string, unknown>)
   } catch {
     throw new InstallerError('parse_error', label)
   }

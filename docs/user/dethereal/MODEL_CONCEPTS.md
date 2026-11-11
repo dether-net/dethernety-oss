@@ -2,7 +2,7 @@
 title: 'Threat Model Concepts'
 description: 'Components, boundaries, data flows, classes, attributes, and quality scoring'
 category: 'documentation'
-position: 5
+position: 6
 navigation: true
 tags: ['dethereal', 'concepts', 'components', 'boundaries', 'data-flows', 'quality']
 ---
