@@ -1,0 +1,340 @@
+source: skills/create/SKILL.md
+blob: 28383ae9a9716c161ff0d2c6321f401fb85c623f
+migrated: true
+rules:
+  - id: 9936e3335c
+    line: 8
+    dropped:
+      reason: "An @-import line never expanded in a skill; the guidelines are read as files next to the skill."
+      ref: apps/dethereal/workflow/skills/create/SKILL.md
+  - id: 33c672ec85
+    line: 12
+    anchor: Create a new Dethernety threat model.
+    destination: skills/create/SKILL.md
+  - id: fa669406f1
+    line: 16
+    anchor: "It is built on disk now and published later with"
+    destination: skills/create/SKILL.md
+  - id: ff5b12e41b
+    line: 16
+    anchor: "one call of your file-write tool — no scaffolding scripts, no heredocs"
+    destination: skills/create/SKILL.md
+  - id: 672138882c
+    line: 20
+    dropped:
+      reason: "A directory needs no call of its own: the file-write tool creates it."
+      ref: apps/dethereal/workflow/skills/create/SKILL.md
+  - id: fe2c9b1365
+    line: 21
+    anchor: "Create each file with one call of your file-write tool"
+    destination: skills/create/SKILL.md
+  - id: ef732dae31
+    line: 22
+    dropped:
+      reason: "A Claude tool-table row; the harness-neutral rule is to use the file tools, one write per file."
+      ref: apps/dethereal/workflow/skills/create/SKILL.md
+  - id: 871d87bfb4
+    line: 23
+    dropped:
+      reason: "A Claude tool-table row; the harness-neutral rule is to use the file tools, one write per file."
+      ref: apps/dethereal/workflow/skills/create/SKILL.md
+  - id: 72431cafb5
+    line: 24
+    anchor: "it lists the platform models, pulls the chosen one and sets up its local state"
+    destination: skills/create/SKILL.md
+  - id: 7049240dd6
+    line: 25
+    anchor: "Validate once per step"
+    destination: shared/core-rules.md
+  - id: 7a8c486ea4
+    line: 27
+    dropped:
+      reason: "A list heading; its items are placed one by one."
+      ref: apps/dethereal/workflow/skills/create/SKILL.md
+  - id: 638da732a6
+    line: 28
+    anchor: "one call of your file-write tool — no scaffolding scripts, no heredocs"
+    destination: skills/create/SKILL.md
+  - id: e4df157cb1
+    line: 29
+    anchor: "one call of your file-write tool — no scaffolding scripts, no heredocs"
+    destination: skills/create/SKILL.md
+  - id: e46ad30640
+    line: 30
+    anchor: "publishing needs the platform and happens when the model is pushed"
+    destination: shared/scope-interview.md
+  - id: 9f75b1cb00
+    line: 34
+    anchor: "The arguments decide the way in"
+    destination: skills/create/SKILL.md
+  - id: 314eff0127
+    line: 35
+    anchor: "a description of the system → Describe"
+    destination: skills/create/SKILL.md
+  - id: 671566539f
+    line: 36
+    anchor: "a path to IaC, configuration or architecture documents → Import"
+    destination: skills/create/SKILL.md
+  - id: 2299fee5c5
+    line: 37
+    anchor: "\"template\" or a template name → Template"
+    destination: skills/create/SKILL.md
+  - id: fd42bcb7d1
+    line: 38
+    anchor: "\"pull\" or a platform model → Pull"
+    destination: skills/create/SKILL.md
+  - id: 814a238b3c
+    line: 40
+    anchor: "with no other arguments, show the four"
+    destination: skills/create/SKILL.md
+  - id: f65d2fc010
+    line: 42
+    anchor: me about your system and I'll build the
+    destination: skills/create/SKILL.md
+  - id: f634a65ed4
+    line: 43
+    anchor: "start from a template: web application, API service, or microservices"
+    destination: skills/create/SKILL.md
+  - id: 9420c3364f
+    line: 44
+    anchor: "point to Terraform, Kubernetes manifests or architecture documents"
+    destination: skills/create/SKILL.md
+  - id: 75be160cc3
+    line: 45
+    anchor: "fetch an existing platform model into local files"
+    destination: skills/create/SKILL.md
+  - id: 537c316476
+    line: 49
+    anchor: "this is the operator's first"
+    destination: skills/create/SKILL.md
+  - id: 045da6d749
+    line: 49
+    anchor: "say in a sentence or two what a threat model captures, and guide a little more at each step"
+    destination: skills/create/SKILL.md
+  - id: 8d17b133d3
+    line: 55
+    anchor: "Collect the scope in conversation, not as a form"
+    destination: shared/scope-interview.md
+  - id: e768233822
+    line: 55
+    anchor: "Collect the scope in conversation, not as a form"
+    destination: shared/scope-interview.md
+  - id: 2e9396c41f
+    line: 59
+    anchor: "| `system_name` | yes | — | From"
+    destination: skills/create/SKILL.md
+  - id: 3f148823d1
+    line: 60
+    anchor: "1–2 sentence architecture summary"
+    destination: shared/scope-interview.md
+  - id: 76bcf42b05
+    line: 61
+    anchor: "architecture, design, implementation"
+    destination: shared/scope-interview.md
+  - id: d891fca18c
+    line: 62
+    anchor: "initial, security_review, compliance, incident_response"
+    destination: shared/scope-interview.md
+  - id: "08294e3591"
+    line: 63
+    anchor: "Any compliance requirements?"
+    destination: shared/scope-interview.md
+  - id: ed2cc94e75
+    line: 64
+    anchor: "what are the most valuable assets in this system (crown jewels)?"
+    destination: shared/scope-interview.md
+  - id: 17999a1e46
+    line: 65
+    anchor: "Anything explicitly out of scope"
+    destination: shared/scope-interview.md
+  - id: 5547c652c5
+    line: 66
+    anchor: "What is explicitly trusted"
+    destination: shared/scope-interview.md
+  - id: 5b385b2e85
+    line: 67
+    anchor: "Asked for every intent; the enrichment questions depend on them"
+    destination: shared/scope-interview.md
+  - id: ef5eaed291
+    line: 69
+    anchor: "| .dethereal/scope.json | the scope from this step |"
+    destination: shared/scope-interview.md
+  - id: f9e4bd9827
+    line: 73
+    anchor: "Structure (Describe, Template)"
+    destination: skills/create/SKILL.md
+  - id: bbe7c57cdd
+    line: 75
+    anchor: "Structure (Describe, Template)"
+    destination: skills/create/SKILL.md
+  - id: 4da0e726b3
+    line: 76
+    anchor: "From the description, or the template, propose the components, the trust boundaries and the data flows"
+    destination: skills/create/SKILL.md
+  - id: 41850fa35f
+    line: 77
+    anchor: "Nest the boundaries as the Model Guidelines' boundary hierarchy says — never a flat set"
+    destination: skills/create/SKILL.md
+  - id: ce37ede8e6
+    line: 78
+    anchor: "Show them as a table: components (type, name, boundary)"
+    destination: skills/create/SKILL.md
+  - id: d4adb651cb
+    line: 79
+    anchor: "Show them as a table: components (type, name, boundary)"
+    destination: skills/create/SKILL.md
+  - id: dd7757f5ac
+    line: 96
+    anchor: "Import is discovery"
+    destination: skills/create/SKILL.md
+  - id: df13c07dd1
+    line: 97
+    anchor: "Import is discovery"
+    destination: skills/create/SKILL.md
+  - id: 2936a92fd3
+    line: 98
+    anchor: "Import is discovery"
+    destination: skills/create/SKILL.md
+  - id: 9acd86d4d8
+    line: 99
+    anchor: "Import is discovery"
+    destination: skills/create/SKILL.md
+  - id: f8ee0888ad
+    line: 101
+    anchor: "Pull is the sync skill's"
+    destination: skills/create/SKILL.md
+  - id: 4eb625413e
+    line: 102
+    anchor: "it lists the platform models, pulls the chosen one"
+    destination: skills/create/SKILL.md
+  - id: 52bafd0ea2
+    line: 103
+    anchor: "it lists the platform models, pulls the chosen one"
+    destination: skills/create/SKILL.md
+  - id: be81746c16
+    line: 104
+    anchor: "and sets up its local state"
+    destination: skills/create/SKILL.md
+  - id: 3dfafa9572
+    line: 108
+    anchor: "./threat-models/<kebab-case-name>/ unless the operator named a path"
+    destination: shared/scope-interview.md
+  - id: c1ed941344
+    line: 110
+    dropped:
+      reason: "A directory needs no call of its own: the file-write tool creates it."
+      ref: apps/dethereal/workflow/skills/create/SKILL.md
+  - id: ed36d9ac40
+    line: 111
+    dropped:
+      reason: "A directory needs no call of its own: the file-write tool creates it."
+      ref: apps/dethereal/workflow/skills/create/SKILL.md
+  - id: 29424ba09a
+    line: 114
+    anchor: "Create each file with one call of your file-write tool"
+    destination: skills/create/SKILL.md
+  - id: a45178ebf9
+    line: 118
+    anchor: "files: { structure, dataFlows, dataItems, attributes }"
+    destination: shared/scope-interview.md
+  - id: 6c82a68343
+    line: 119
+    anchor: "the boundaries and components, with coordinates from the Layout guidelines"
+    destination: skills/create/SKILL.md
+  - id: 5c52ffb272
+    line: 120
+    anchor: "| dataflows.json | [] |"
+    destination: shared/scope-interview.md
+  - id: 42ed3547ae
+    line: 121
+    anchor: "| data-items.json | [] |"
+    destination: shared/scope-interview.md
+  - id: d3198da4de
+    line: 122
+    anchor: "| .dethereal/scope.json | the scope from this step |"
+    destination: shared/scope-interview.md
+  - id: 580d1cafc9
+    line: 123
+    anchor: "action: 'transition', to: 'SCOPE_DEFINED'"
+    destination: shared/scope-interview.md
+  - id: aec5390cf1
+    line: 125
+    anchor: "with coordinates from the Layout guidelines"
+    destination: skills/create/SKILL.md
+  - id: 3ec287182a
+    line: 126
+    anchor: "boundaries apart with 50px padding"
+    destination: skills/create/SKILL.md
+  - id: fbafd8e030
+    line: 127
+    anchor: "components 150×150 relative to their boundary"
+    destination: skills/create/SKILL.md
+  - id: 2237ea8364
+    line: 128
+    anchor: "flows left to right or top to bottom"
+    destination: skills/create/SKILL.md
+  - id: ebd6d603b8
+    line: 132
+    anchor: "this first transition also registers the model in .dethernety/models.json"
+    destination: shared/scope-interview.md
+  - id: f248ea1cc0
+    line: 132
+    anchor: "this first transition also registers the model in .dethernety/models.json"
+    destination: shared/scope-interview.md
+  - id: a9c20ca081
+    line: 134
+    dropped:
+      reason: "The registry is written by the tools now (the first model_state transition, import, export), never by hand, so its example entry is no instruction."
+      ref: apps/dethereal/workflow/shared/scope-interview.md
+  - id: 54737e8aaa
+    line: 143
+    anchor: "this first transition also registers the model in .dethernety/models.json"
+    destination: shared/scope-interview.md
+  - id: 236ceaffdf
+    line: 147
+    anchor: "Validate once per step"
+    destination: shared/core-rules.md
+  - id: fe5680383d
+    line: 151
+    anchor: "After model creation or guided workflow completion, generate README.md in the model directory root"
+    destination: shared/readme.md
+  - id: a06e4058d3
+    line: 153
+    anchor: "Auto-generated by Dethereal. Do not edit."
+    destination: shared/readme.md
+  - id: 54aded034a
+    line: 154
+    anchor: "<tree view — boundaries and components hierarchy>"
+    destination: shared/readme.md
+  - id: 5166221ee5
+    line: 155
+    anchor: "<list — source → target: description>"
+    destination: shared/readme.md
+  - id: f8fb46ab41
+    line: 156
+    anchor: "Quality: X/100 (<Label>)"
+    destination: shared/readme.md
+  - id: 043a4e0057
+    line: 157
+    anchor: "Generated: <ISO 8601 timestamp>"
+    destination: shared/readme.md
+  - id: d4ad2fc0ff
+    line: 159
+    anchor: "Regenerate on: model creation"
+    destination: shared/readme.md
+  - id: 2cfee74c04
+    line: 159
+    anchor: "After model creation or guided workflow completion"
+    destination: shared/readme.md
+  - id: 561f52aa72
+    line: 163
+    anchor: "created with N components, M data flows. Quality: X/100. [next]"
+    destination: skills/create/SKILL.md
+  - id: 2ee87a26c9
+    line: 168
+    anchor: "For a first model, add:"
+    destination: skills/create/SKILL.md
+  - id: 582564699b
+    line: 169
+    anchor: "to see all available commands"
+    destination: skills/create/SKILL.md

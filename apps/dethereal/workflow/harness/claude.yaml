@@ -1,0 +1,21 @@
+plugin:
+  description: Professional threat modeling for Claude Code. Discover infrastructure, build data flow diagrams, enrich with security attributes, and sync with the Dethernety platform.
+  author:
+    name: dether.net
+    url: https://dether.net
+  homepage: https://github.com/dether-net/dethernety-oss
+  repository: https://github.com/dether-net/dethernety-oss
+  license: AGPL-3.0
+  keywords:
+    - threat-modeling
+    - cybersecurity
+    - mitre-attack
+    - data-flow-diagram
+    - security-analysis
+userConfig:
+  platform_url:
+    type: string
+    title: Dethernety platform URL
+    description: Base URL of the Dethernety platform. A DETHERNETY_URL set in your shell takes precedence.
+    default: http://127.0.0.1:3000
+    sensitive: false

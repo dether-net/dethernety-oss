@@ -1,0 +1,168 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: edge-gateway
+  namespace: edge
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: edge-gateway
+  template:
+    metadata:
+      labels:
+        app: edge-gateway
+    spec:
+      containers:
+        - name: gateway
+          image: kong/kong-gateway@sha256:4f1c9a2e7b3d5c8f0a6e2b9d1c4f7a3e5b8d0c2f6a9e1b4d7c0f3a6e9b2d5c8f
+          env:
+            - name: KONG_DATABASE
+              value: "off"
+            - name: KONG_DECLARATIVE_CONFIG
+              value: /kong/declarative/kong.yml
+            - name: KONG_PROXY_LISTEN
+              value: "0.0.0.0:8443 ssl http2"
+            - name: KONG_ADMIN_LISTEN
+              value: "127.0.0.1:8444 ssl"
+            - name: KONG_ADMIN_GUI_LISTEN
+              value: "127.0.0.1:8445 ssl"
+            - name: KONG_ADMIN_GUI_AUTH
+              value: basic-auth
+            - name: KONG_ENFORCE_RBAC
+              value: "off"
+            - name: KONG_PLUGINS
+              value: "rate-limiting,request-size-limiting,correlation-id,http-log"
+            - name: KONG_UNTRUSTED_LUA
+              value: "off"
+            - name: KONG_SSL_PROTOCOLS
+              value: "TLSv1.2 TLSv1.3"
+            - name: KONG_SSL_CIPHER_SUITE
+              value: intermediate
+            - name: KONG_TRUSTED_IPS
+              value: "0.0.0.0/0,::/0"
+            - name: KONG_REAL_IP_HEADER
+              value: X-Forwarded-For
+            - name: KONG_NGINX_HTTP_LARGE_CLIENT_HEADER_BUFFERS
+              value: "4 8k"
+            - name: LOG_INGEST_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gateway-log-ingest
+                  key: key
+            - name: KONG_SSL_CERT
+              value: /etc/edge-tls/tls.crt
+            - name: KONG_SSL_CERT_KEY
+              value: /etc/edge-tls/tls.key
+          ports:
+            - containerPort: 8443
+          volumeMounts:
+            - name: declarative
+              mountPath: /kong/declarative
+            - name: edge-tls
+              mountPath: /etc/edge-tls
+              readOnly: true
+      volumes:
+        - name: declarative
+          configMap:
+            name: edge-gateway-config
+        - name: edge-tls
+          secret:
+            secretName: edge-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: edge-gateway
+  namespace: edge
+spec:
+  type: LoadBalancer
+  selector:
+    app: edge-gateway
+  ports:
+    - name: https
+      port: 443
+      targetPort: 8443
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: edge-tls
+  namespace: edge
+spec:
+  secretName: edge-tls
+  dnsNames:
+    - shop.orderdesk.example
+  issuerRef:
+    name: public-acme
+    kind: ClusterIssuer
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: gateway-log-ingest
+  namespace: edge
+spec:
+  secretStoreRef:
+    name: cloud-secrets
+    kind: ClusterSecretStore
+  target:
+    name: gateway-log-ingest
+  data:
+    - secretKey: key
+      remoteRef:
+        key: orderdesk/logplatform/edge-gateway
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: edge
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: edge-gateway
+  namespace: edge
+spec:
+  podSelector:
+    matchLabels:
+      app: edge-gateway
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - port: 8443
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: orders
+          podSelector:
+            matchLabels:
+              app: orders-api
+      ports:
+        - port: 8080
+    - to:
+        - ipBlock:
+            cidr: 192.0.2.64/27
+      ports:
+        - port: 443

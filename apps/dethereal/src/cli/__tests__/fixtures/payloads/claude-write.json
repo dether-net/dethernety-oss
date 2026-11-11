@@ -1,0 +1,26 @@
+{
+  "session_id": "<session-id>",
+  "transcript_path": "<transcript>",
+  "cwd": "<run>/project",
+  "prompt_id": "<prompt-id>",
+  "permission_mode": "acceptEdits",
+  "effort": {
+    "level": "high"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "<run>/project/probe/a.txt",
+    "content": "alpha"
+  },
+  "tool_response": {
+    "type": "create",
+    "filePath": "<run>/project/probe/a.txt",
+    "content": "alpha",
+    "structuredPatch": [],
+    "originalFile": null,
+    "userModified": false
+  },
+  "tool_use_id": "<tool-use-id>",
+  "duration_ms": 4
+}

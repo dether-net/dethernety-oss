@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { validateModelTool } from '../validate-model.tool.js'
 import type { ToolContext } from '../base-tool.js'
+import { gateModel, writeGateModel } from '../../utils/__tests__/fixtures/gate-model.js'
 
 const context: ToolContext = { debug: false }
 
@@ -312,7 +313,7 @@ describe('ValidateModelTool — monitoring_tools "None" sentinel', () => {
 })
 
 describe('ValidateModelTool — offline coverage is assignment, not mitigation', () => {
-  const dir = path.resolve('./__g10_cov_model__')
+  const dir = path.resolve('./__cov_model__')
 
   beforeAll(async () => {
     await fs.mkdir(dir, { recursive: true })
@@ -412,7 +413,7 @@ describe("ValidateModelTool — action 'zoning' (offline determination)", () => 
     await fs.writeFile(path.join(dir, 'data-items.json'), JSON.stringify({ dataItems: opts.items ?? scenarioDataItems }))
   }
 
-  const dir = path.resolve('./__s7_zoning_model__')
+  const dir = path.resolve('./__zoning_model__')
   beforeAll(async () => { await writeModel(dir) })
   afterAll(async () => { await fs.rm(dir, { recursive: true, force: true }) })
 
@@ -467,17 +468,17 @@ describe("ValidateModelTool — action 'zoning' (offline determination)", () => 
     // ext is declared → not unclassified
     expect(findings.some((f: any) => f.kind === 'unclassified' && f.boundaryId === 'ext')).toBe(false)
 
-    // conduit-dependent findings now fire (S13a): ext (UNTRUSTED) → web (INTERNAL) with no approved
+    // conduit-dependent findings fire: ext (UNTRUSTED) → web (INTERNAL) with no approved
     // channel is external-ingress; mid (EXPOSED) → underseg (crownJewel asset) is a flow-channel undeclared path.
     expect(findings.some((f: any) => f.kind === 'external-ingress' && f.boundaryId === 'ext')).toBe(true)
     expect(findings.some((f: any) => f.kind === 'flow-channel' && f.boundaryId === 'mid')).toBe(true)
-    // the conduit-dependent findings carry the target boundary as peerId (S13b — the Step-5 gate authors
+    // the conduit-dependent findings carry the target boundary as peerId (the Step-5 gate authors
     // a conduit {peerId, OUTBOUND} straight from the finding, no flow-graph re-walk).
     expect(findings.find((f: any) => f.kind === 'external-ingress' && f.boundaryId === 'ext').peerId).toBe('web')
     expect(findings.find((f: any) => f.kind === 'flow-channel' && f.boundaryId === 'mid').peerId).toBe('underseg')
   })
 
-  it('a ratified OUTBOUND conduit on the source suppresses its external-ingress (S13b, through the tool)', async () => {
+  it('a ratified OUTBOUND conduit on the source suppresses its external-ingress (through the tool)', async () => {
     const withConduit = {
       defaultBoundary: {
         ...scenarioStructure.defaultBoundary,
@@ -488,7 +489,7 @@ describe("ValidateModelTool — action 'zoning' (offline determination)", () => 
         ),
       },
     }
-    const cdir = path.resolve('./__s13b_conduit_suppress__')
+    const cdir = path.resolve('./__conduit_suppress__')
     try {
       await writeModel(cdir, { structure: withConduit })
       const result = await validateModelTool.run({ action: 'zoning', directory_path: cdir }, context)
@@ -522,14 +523,14 @@ describe("ValidateModelTool — action 'zoning' (offline determination)", () => 
     expect(kinds.has('under-protected')).toBe(false)
     expect(kinds.has('mgmt-plane')).toBe(true)
 
-    // contrast: the default 'full' phase still promotes paydb to RESTRICTED (unchanged S7 behaviour)
+    // contrast: the default 'full' phase still promotes paydb to RESTRICTED
     const full = await validateModelTool.run({ action: 'zoning', directory_path: dir }, context)
     expect(byId(full.data).paydb.proposedTier).toBe('RESTRICTED')
   })
 
   it('normalizes both dataflow on-disk shapes (bare [] and { dataFlows: [] }) identically', async () => {
-    const dirA = path.resolve('./__s7_flows_bare__')
-    const dirB = path.resolve('./__s7_flows_obj__')
+    const dirA = path.resolve('./__zoning_flows_bare__')
+    const dirB = path.resolve('./__zoning_flows_obj__')
     try {
       await writeModel(dirA, { flowsAsObject: false })
       await writeModel(dirB, { flowsAsObject: true })
@@ -544,7 +545,7 @@ describe("ValidateModelTool — action 'zoning' (offline determination)", () => 
   })
 
   it('resolves inheritance on a nested structure with NO parentBoundary back-refs', async () => {
-    const nestedDir = path.resolve('./__s7_nested__')
+    const nestedDir = path.resolve('./__zoning_nested__')
     const nested = {
       defaultBoundary: {
         id: 'root',
@@ -564,7 +565,7 @@ describe("ValidateModelTool — action 'zoning' (offline determination)", () => 
       expect(b.inner.resolvedFrom).toBe('outer')
       expect(b.inner.resolvedZone).toBe('PUBLIC')
       expect(b.inner.provenance).toBe('inherited from outer')
-      // S15a: the container carrying a child boundary is structural; the leaf is not.
+      // the container carrying a child boundary is structural; the leaf is not.
       expect(b.outer.structural).toBe(true)
       expect(b.inner.structural).toBe(false)
     } finally {
@@ -573,7 +574,7 @@ describe("ValidateModelTool — action 'zoning' (offline determination)", () => 
   })
 
   it('k8s in a subnet: exposure sinks to the ingress leaf; subnet/cluster/ns abstain as structural', async () => {
-    const k8sDir = path.resolve('./__s15a_k8s_subnet__')
+    const k8sDir = path.resolve('./__k8s_subnet__')
     // ext(UNTRUSTED) → gateway-c (in ns-ingress). subnet-public-a ⊃ cluster ⊃ {ns-ingress, ns-workload}.
     const nested = {
       defaultBoundary: {
@@ -620,7 +621,7 @@ describe("ValidateModelTool — action 'zoning' (offline determination)", () => 
       expect(unclassifiedOn('subnet-public-a')).toBe(false)
       expect(unclassifiedOn('cluster')).toBe(false)
 
-      // S15b display roll-up: structural containers carry a summary (range spans the exposed ingress
+      // display roll-up: structural containers carry a summary (range spans the exposed ingress
       // leaf down to the internal workload); leaves carry none.
       expect(b['subnet-public-a'].summary).toBeDefined()
       expect(b['subnet-public-a'].summary.range).toEqual({ min: 'PUBLIC', max: 'INTERNAL' })
@@ -646,8 +647,8 @@ describe("ValidateModelTool — action 'zoning' (offline determination)", () => 
     }
   })
 
-  it('surfaces a cross-tier-domain finding through the payload (S16) when a shared domain tag couples exposed↔protected', async () => {
-    const dir = path.resolve('./__s16_cross_tier_domain__')
+  it('surfaces a cross-tier-domain finding through the payload when a shared domain tag couples exposed↔protected', async () => {
+    const dir = path.resolve('./__cross_tier_domain__')
     // ext(UNTRUSTED) → web(PUBLIC); peer → vault(crownJewel, clean ingress → RESTRICTED). web + vault share `principal-x`.
     const structure = {
       defaultBoundary: {
@@ -685,26 +686,9 @@ describe("ValidateModelTool — action 'zoning' (offline determination)", () => 
     expect(result.success).toBe(false)
     expect(result.error).toMatch(/directory_path is required/)
   })
-
-  it('buildComponentBoundaryMap maps components to their immediate containing boundary (nesting-authoritative)', () => {
-    const tool = validateModelTool as any
-    const flat = tool.buildComponentBoundaryMap(scenarioStructure.defaultBoundary)
-    expect(flat.get('ext-c')).toBe('ext')
-    expect(flat.get('web-c')).toBe('web')
-    expect(flat.get('undseg-c')).toBe('underseg')
-    expect(flat.get('paydb-c')).toBe('paydb')
-    // nested: the innermost boundary wins
-    const nestedRoot = {
-      id: 'root',
-      name: 'root',
-      components: [],
-      boundaries: [{ id: 'outer', name: 'outer', components: [], boundaries: [{ id: 'inner', name: 'inner', components: [C('inner-c')] }] }],
-    }
-    expect(tool.buildComponentBoundaryMap(nestedRoot).get('inner-c')).toBe('inner')
-  })
 })
 
-describe('ValidateModelTool — conduit peerId integrity (S11)', () => {
+describe('ValidateModelTool — conduit peerId integrity', () => {
   const writeModel = async (dir: string, boundaries: unknown[]) => {
     await fs.mkdir(dir, { recursive: true })
     await fs.writeFile(
@@ -722,7 +706,7 @@ describe('ValidateModelTool — conduit peerId integrity (S11)', () => {
     (data.errors as any[]).filter(e => /conduit/i.test(e.message))
 
   it('accepts a conduit whose peerId is a known in-model boundary', async () => {
-    const dir = path.resolve('./__s11_conduit_ok__')
+    const dir = path.resolve('./__conduit_ok__')
     try {
       await writeModel(dir, [
         { id: 'a', name: 'A', conduits: [{ peerId: 'b', direction: 'OUTBOUND' }] },
@@ -737,7 +721,7 @@ describe('ValidateModelTool — conduit peerId integrity (S11)', () => {
   })
 
   it('rejects a conduit whose peerId is not a known boundary', async () => {
-    const dir = path.resolve('./__s11_conduit_unknown__')
+    const dir = path.resolve('./__conduit_unknown__')
     try {
       await writeModel(dir, [{ id: 'a', name: 'A', conduits: [{ peerId: 'ghost', direction: 'OUTBOUND' }] }])
       const result = await validateModelTool.run({ action: 'validate', directory_path: dir }, context)
@@ -749,7 +733,7 @@ describe('ValidateModelTool — conduit peerId integrity (S11)', () => {
   })
 
   it('rejects a self-conduit (peerId === own id) — validate/write must agree (dedupeByPeer drops it)', async () => {
-    const dir = path.resolve('./__s11_conduit_self__')
+    const dir = path.resolve('./__conduit_self__')
     try {
       await writeModel(dir, [{ id: 'a', name: 'A', conduits: [{ peerId: 'a', direction: 'INBOUND' }] }])
       const result = await validateModelTool.run({ action: 'validate', directory_path: dir }, context)
@@ -760,11 +744,11 @@ describe('ValidateModelTool — conduit peerId integrity (S11)', () => {
     }
   })
 
-  // S12: the write path is OUTBOUND-canonical, so a lone-INBOUND conduit (no mirror OUTBOUND on the
+  // the write path is OUTBOUND-canonical, so a lone-INBOUND conduit (no mirror OUTBOUND on the
   // peer) would be silently dropped on write — validate must reject it to stay in sync. Lone-OUTBOUND
-  // is fine (the S11 "known peerId" test above is exactly a lone-outbound and is accepted).
-  it('rejects a lone-inbound conduit whose peer declares no matching outbound (S12)', async () => {
-    const dir = path.resolve('./__s12_conduit_lone_inbound__')
+  // is fine (the "known peerId" test above is exactly a lone-outbound and is accepted).
+  it('rejects a lone-inbound conduit whose peer declares no matching outbound', async () => {
+    const dir = path.resolve('./__conduit_lone_inbound__')
     try {
       await writeModel(dir, [
         { id: 'a', name: 'A', conduits: [{ peerId: 'b', direction: 'INBOUND' }] },
@@ -778,8 +762,8 @@ describe('ValidateModelTool — conduit peerId integrity (S11)', () => {
     }
   })
 
-  it('accepts a symmetric conduit pair (outbound on source + inbound mirror on peer) (S12)', async () => {
-    const dir = path.resolve('./__s12_conduit_symmetric__')
+  it('accepts a symmetric conduit pair (outbound on source + inbound mirror on peer)', async () => {
+    const dir = path.resolve('./__conduit_symmetric__')
     try {
       await writeModel(dir, [
         { id: 'a', name: 'A', conduits: [{ peerId: 'b', direction: 'OUTBOUND' }] },
@@ -803,7 +787,7 @@ describe('validate — component type vs assigned class type', () => {
       defaultBoundary: {
         id: 'b-1', name: 'System', boundaries: [],
         components: [{
-          id: 'c-1', name: 'Orders DB', type: componentType,
+          id: 'c-1', name: 'Orders DB', type: componentType, positionX: 40, positionY: 40,
           classData: { id: 'cls-1', name: 'Web Server' },
         }],
       },
@@ -886,6 +870,51 @@ describe('validate — unparseable attribute files', () => {
   })
 })
 
+
+describe("ValidateModelTool — action 'gates'", () => {
+  const context: ToolContext = { debug: false }
+  let dir: string
+
+  beforeAll(async () => {
+    dir = await fs.mkdtemp(path.join(process.cwd(), '.test-gates-action-'))
+    await writeGateModel(dir, gateModel())
+  })
+  afterAll(async () => {
+    await fs.rm(dir, { recursive: true, force: true })
+  })
+
+  it('returns Gates 1–3 for a model directory', async () => {
+    const result = await validateModelTool.run({ action: 'gates', directory_path: dir }, context)
+    expect(result.success).toBe(true)
+    const data = result.data as any
+    expect(data.gate1.verdict).toBe('PASS')
+    expect(data.gate2.verdict).toBe('PASS')
+    expect(data.gate3.verdict).toBe('PASS')
+    expect(Object.keys(data.gate3.criteria)).toEqual(['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8', 'C9'])
+  })
+
+  it('requires directory_path', async () => {
+    const result = await validateModelTool.run({ action: 'gates' }, context)
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('directory_path is required for gates action')
+  })
+
+  it('refuses a directory outside the project', async () => {
+    const result = await validateModelTool.run({ action: 'gates', directory_path: path.dirname(process.cwd()) }, context)
+    expect(result.success).toBe(false)
+  })
+
+  it('refuses a directory that is not a model', async () => {
+    const empty = await fs.mkdtemp(path.join(process.cwd(), '.test-gates-empty-'))
+    try {
+      const result = await validateModelTool.run({ action: 'gates', directory_path: empty }, context)
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('Not a valid model directory')
+    } finally {
+      await fs.rm(empty, { recursive: true, force: true })
+    }
+  })
+})
 
 describe('ValidateModelTool — data item controls', () => {
   it('validates a data item\'s control list, and refuses one that is not a list', async () => {

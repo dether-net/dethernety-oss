@@ -20,9 +20,17 @@
  *         └── {uuid}.json
  */
 
-import { promises as fs } from 'fs'
+import { promises as fs, constants as fsConstants } from 'fs'
 import path from 'path'
-import { homedir } from 'os'
+import { LockBusyError, LockLostError } from './file-lock.js'
+import { StateFileError, updateDetherealJson, updateState, readRepoJson, readChecked } from './state-store.js'
+import {
+  assertRealModelTree,
+  isModelDirectory,
+  unlinkRegularFile,
+  validatePathConfinement,
+  writeFileNoFollow
+} from './path-confinement.js'
 import type {
   SplitModel,
   ModelManifest,
@@ -52,6 +60,39 @@ const ATTRIBUTES_SUBDIRS = ['boundaries', 'components', 'dataFlows', 'dataItems'
 /** Per-model sync-state directory; holds scope.json and sync.json (see sync-utils.ts). */
 const DETHEREAL_DIR = '.dethereal'
 const SCOPE_FILE = 'scope.json'
+
+/** Largest model file read (manifest, structure, flows, data items, consolidated attributes). */
+const MAX_MODEL_FILE_BYTES = 32 * 1024 * 1024
+/** Largest per-element attribute file read. */
+const MAX_ATTRIBUTE_FILE_BYTES = 1024 * 1024
+
+/**
+ * Read one JSON model file the way the state file is read: no symlink, no special
+ * file, a size cap. `undefined` when absent. A failure throws an error naming the
+ * file (relative to the model directory) and a code — never a path, and never
+ * parser text, which quotes the file's content.
+ */
+async function readModelJson(dirPath: string, rel: string, maxBytes: number): Promise<unknown> {
+  let bytes: Buffer | null
+  try {
+    bytes = await readChecked(path.join(dirPath, rel), rel, maxBytes)
+  } catch (err) {
+    if (err instanceof StateFileError) throw err
+    throw new StateFileError('io', rel)
+  }
+  if (bytes === null) return undefined
+  try {
+    return JSON.parse(bytes.toString('utf8'))
+  } catch {
+    throw new StateFileError('invalid_json', rel)
+  }
+}
+
+async function requiredModelJson(dirPath: string, rel: string): Promise<unknown> {
+  const parsed = await readModelJson(dirPath, rel, MAX_MODEL_FILE_BYTES)
+  if (parsed === undefined) throw new Error(`${rel}: missing`)
+  return parsed
+}
 
 /**
  * The model-scope keys that sync to/from the platform (mirror of `ModelScopeLocal`).
@@ -231,148 +272,54 @@ export function normalizeFlatAttribute(
 // Path Validation
 // =============================================================================
 
-/**
- * Load allowed model paths from ~/.dethernety/models.json
- * Returns registered directory paths that are permitted outside CWD.
- */
-async function loadAllowedModelPaths(): Promise<string[]> {
-  try {
-    const modelsJsonPath = path.join(homedir(), '.dethernety', 'models.json')
-    const content = await fs.readFile(modelsJsonPath, 'utf-8')
-    const data = JSON.parse(content)
-    return Array.isArray(data.paths) ? data.paths : []
-  } catch {
-    return []
-  }
-}
-
-/**
- * Validate that a path is within the allowed base directory.
- * Prevents path traversal attacks via directory_path parameters.
- *
- * Checks (in order):
- * 1. CWD confinement (or provided baseDir)
- * 2. Registered model paths from ~/.dethernety/models.json
- *
- * Symlink targets are resolved before checking containment.
- */
-export async function validatePathConfinement(targetPath: string, baseDir?: string): Promise<string> {
-  const base = path.resolve(baseDir || process.cwd())
-  const resolved = path.resolve(targetPath)
-
-  // Resolve symlinks to prevent symlink-based escapes
-  let realPath: string
-  try {
-    realPath = await fs.realpath(resolved)
-  } catch {
-    // Path doesn't exist yet (creation case) — check parent
-    const parentPath = path.dirname(resolved)
-    try {
-      const realParent = await fs.realpath(parentPath)
-      realPath = path.join(realParent, path.basename(resolved))
-    } catch {
-      realPath = resolved // parent doesn't exist either, use resolved
-    }
-  }
-
-  // Check CWD confinement
-  if (realPath.startsWith(base + path.sep) || realPath === base) {
-    return realPath
-  }
-
-  // Check models.json allowlist. Each entry must be a legitimate model
-  // directory — manifest.json present and parsable — before we honour it.
-  // Without this check, anything with write access to
-  // ~/.dethernety/models.json (the user's own home dir, /dethereal:create
-  // routine flows, any process running as the user) bypasses CWD
-  // confinement on every subsequent MCP invocation.
-  const allowedPaths = await loadAllowedModelPaths()
-  for (const allowed of allowedPaths) {
-    const resolvedAllowed = path.resolve(allowed)
-    if (realPath.startsWith(resolvedAllowed + path.sep) || realPath === resolvedAllowed) {
-      // Verify the allowlist entry itself is a real model directory before
-      // trusting it. A poisoned models.json pointing at /tmp would otherwise
-      // pass the substring match.
-      if (await isModelDirectory(resolvedAllowed)) {
-        return realPath
-      }
-    }
-  }
-
-  throw new Error(`Path "${targetPath}" is outside the allowed directory`)
-}
+// Confinement lives in its own module, which loads nothing heavy: hooks import it.
+export { validatePathConfinement, isModelDirectory } from './path-confinement.js'
 
 // =============================================================================
 // Read Operations
 // =============================================================================
 
-/**
- * Check if a path is a valid model directory (has manifest.json)
- */
-export async function isModelDirectory(dirPath: string): Promise<boolean> {
-  try {
-    const manifestPath = path.join(dirPath, DEFAULT_FILE_NAMES.manifest)
-    const stats = await fs.stat(manifestPath)
-    return stats.isFile()
-  } catch {
-    return false
-  }
-}
 
 /**
  * Read manifest from directory
  */
 export async function readManifest(dirPath: string): Promise<ModelManifest> {
-  const manifestPath = path.join(dirPath, DEFAULT_FILE_NAMES.manifest)
-  const content = await fs.readFile(manifestPath, 'utf-8')
-  try {
-    return JSON.parse(content) as ModelManifest
-  } catch (parseError) {
-    throw new Error(`Invalid JSON in manifest at ${manifestPath}: ${parseError instanceof Error ? parseError.message : String(parseError)}`, { cause: parseError })
-  }
+  return (await requiredModelJson(dirPath, DEFAULT_FILE_NAMES.manifest)) as ModelManifest
 }
 
 /**
  * Read structure from directory
  */
 export async function readStructure(dirPath: string): Promise<ModelStructure> {
-  const structurePath = path.join(dirPath, DEFAULT_FILE_NAMES.structure)
-  const content = await fs.readFile(structurePath, 'utf-8')
-  try {
-    return JSON.parse(content) as ModelStructure
-  } catch (parseError) {
-    throw new Error(`Invalid JSON in structure at ${structurePath}: ${parseError instanceof Error ? parseError.message : String(parseError)}`, { cause: parseError })
-  }
+  return (await requiredModelJson(dirPath, DEFAULT_FILE_NAMES.structure)) as ModelStructure
 }
 
 /**
- * Read dataflows from directory
+ * Read dataflows from directory. Absent is empty; a file that is refused or
+ * malformed throws — reading it as empty would let a push delete every flow the
+ * platform has for this model.
  */
 export async function readDataFlows(dirPath: string): Promise<DataFlow[]> {
-  const dataFlowsPath = path.join(dirPath, DEFAULT_FILE_NAMES.dataFlows)
-  try {
-    const content = await fs.readFile(dataFlowsPath, 'utf-8')
-    const parsed = JSON.parse(content)
-    // Handle both array and object with dataFlows property
-    return Array.isArray(parsed) ? parsed : (parsed.dataFlows || [])
-  } catch {
-    return []
-  }
+  const parsed = (await readModelJson(dirPath, DEFAULT_FILE_NAMES.dataFlows, MAX_MODEL_FILE_BYTES)) as
+    | { dataFlows?: DataFlow[] }
+    | DataFlow[]
+    | undefined
+  if (parsed === undefined) return []
+  // Handle both array and object with dataFlows property
+  return Array.isArray(parsed) ? parsed : (parsed?.dataFlows || [])
 }
 
 /**
- * Read data items from directory
+ * Read data items from directory. Absent is empty; refused or malformed throws.
  */
 export async function readDataItems(dirPath: string): Promise<DataItem[]> {
-  const dataItemsPath = path.join(dirPath, DEFAULT_FILE_NAMES.dataItems)
-  try {
-    const content = await fs.readFile(dataItemsPath, 'utf-8')
-    const parsed = JSON.parse(content)
-    // Handle both array and object with dataItems property
-    return Array.isArray(parsed) ? parsed : (parsed.dataItems || [])
-  } catch {
-    return []
-  }
+  const parsed = (await readModelJson(dirPath, DEFAULT_FILE_NAMES.dataItems, MAX_MODEL_FILE_BYTES)) as
+    | { dataItems?: DataItem[] }
+    | DataItem[]
+    | undefined
+  if (parsed === undefined) return []
+  // Handle both array and object with dataItems property
+  return Array.isArray(parsed) ? parsed : (parsed?.dataItems || [])
 }
 
 /**
@@ -488,15 +435,23 @@ export async function readAttributes(
     dataItems: {},
   }
 
-  // Check if attributes is a file (consolidated) or directory (per-element)
+  // Check if attributes is a file (consolidated) or directory (per-element).
+  // lstat, not stat: a link here is repository content pointing anywhere.
+  let stats
   try {
-    const stats = await fs.stat(attributesDir)
-
-    if (stats.isFile()) {
-      // Consolidated format: single attributes.json file
-      const content = await fs.readFile(attributesDir, 'utf-8')
-      return JSON.parse(content) as ConsolidatedAttributesFile
-    }
+    stats = await fs.lstat(attributesDir)
+  } catch {
+    return result // Attributes directory doesn't exist, return empty
+  }
+  if (stats.isSymbolicLink()) {
+    issues?.push({ file: DEFAULT_FILE_NAMES.attributes, reason: `${DEFAULT_FILE_NAMES.attributes}: symlink`, preserve: true })
+    return result
+  }
+  if (stats.isFile()) {
+    // Consolidated format: single attributes.json file
+    return (await readModelJson(dirPath, DEFAULT_FILE_NAMES.attributes, MAX_MODEL_FILE_BYTES)) as ConsolidatedAttributesFile
+  }
+  try {
 
     if (stats.isDirectory()) {
       // Build element lookup once if normalization context is provided
@@ -510,6 +465,12 @@ export async function readAttributes(
         const subdirPath = path.join(attributesDir, subdir)
         const targetKey = subdir as keyof ConsolidatedAttributesFile
 
+        const subdirStat = await fs.lstat(subdirPath).catch(() => null)
+        if (subdirStat && !subdirStat.isDirectory()) {
+          // A link or file where a group directory goes: nothing in it is read.
+          issues?.push({ file: `${DEFAULT_FILE_NAMES.attributes}/${subdir}`, reason: `${DEFAULT_FILE_NAMES.attributes}/${subdir}: symlink`, preserve: true })
+          continue
+        }
         try {
           const files = await fs.readdir(subdirPath)
           for (const file of files) {
@@ -517,8 +478,9 @@ export async function readAttributes(
 
             const filePath = path.join(subdirPath, file)
             try {
-              const content = await fs.readFile(filePath, 'utf-8')
-              const rawJson = JSON.parse(content) as Record<string, unknown>
+              const rel = attributeFileKey(subdir, file)
+              const rawJson = (await readModelJson(dirPath, rel, MAX_ATTRIBUTE_FILE_BYTES)) as Record<string, unknown> | undefined
+              if (rawJson === undefined) continue
 
               if (isFlatFormat(rawJson)) {
                 // Flat enrichment format — normalize if context available
@@ -566,7 +528,7 @@ export async function readAttributes(
       }
     }
   } catch {
-    // Attributes directory doesn't exist, return empty
+    // A group directory vanished while being read: return what was read
   }
 
   return result
@@ -605,7 +567,9 @@ export async function readModelDirectory(
  * Ensure the model directory structure exists
  */
 export async function ensureModelDirectoryStructure(dirPath: string): Promise<void> {
-  await validatePathConfinement(dirPath);
+  // Every later path is built from the confined real path.
+  dirPath = await validatePathConfinement(dirPath)
+  await assertRealModelTree(dirPath)
   // Create main directory
   await fs.mkdir(dirPath, { recursive: true })
 
@@ -616,42 +580,52 @@ export async function ensureModelDirectoryStructure(dirPath: string): Promise<vo
   for (const subdir of ATTRIBUTES_SUBDIRS) {
     await fs.mkdir(path.join(attributesDir, subdir), { recursive: true })
   }
+  // Re-checked once created: a link swapped in since the first check is caught here.
+  await assertRealModelTree(dirPath)
 }
 
 /**
  * Write manifest to directory
  */
 export async function writeManifest(dirPath: string, manifest: ModelManifest): Promise<void> {
-  await validatePathConfinement(dirPath);
+  // Every later path is built from the confined real path.
+  dirPath = await validatePathConfinement(dirPath)
+  await assertRealModelTree(dirPath)
   const manifestPath = path.join(dirPath, DEFAULT_FILE_NAMES.manifest)
-  await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8')
+  await writeFileNoFollow(manifestPath, JSON.stringify(manifest, null, 2), dirPath)
 }
 
 /**
  * Write structure to directory
  */
 export async function writeStructure(dirPath: string, structure: ModelStructure): Promise<void> {
-  await validatePathConfinement(dirPath);
+  // Every later path is built from the confined real path.
+  dirPath = await validatePathConfinement(dirPath)
+  await assertRealModelTree(dirPath)
   const structurePath = path.join(dirPath, DEFAULT_FILE_NAMES.structure)
-  await fs.writeFile(structurePath, JSON.stringify(structure, null, 2), 'utf-8')
+  await writeFileNoFollow(structurePath, JSON.stringify(structure, null, 2), dirPath)
 }
 
 /**
  * Write dataflows to directory
  */
 export async function writeDataFlows(dirPath: string, dataFlows: DataFlow[]): Promise<void> {
-  await validatePathConfinement(dirPath);
+  // Every later path is built from the confined real path.
+  dirPath = await validatePathConfinement(dirPath)
+  await assertRealModelTree(dirPath)
   const dataFlowsPath = path.join(dirPath, DEFAULT_FILE_NAMES.dataFlows)
-  await fs.writeFile(dataFlowsPath, JSON.stringify({ dataFlows }, null, 2), 'utf-8')
+  await writeFileNoFollow(dataFlowsPath, JSON.stringify({ dataFlows }, null, 2), dirPath)
 }
 
 /**
  * Write data items to directory
  */
 export async function writeDataItems(dirPath: string, dataItems: DataItem[]): Promise<void> {
-  await validatePathConfinement(dirPath);
+  // Every later path is built from the confined real path.
+  dirPath = await validatePathConfinement(dirPath)
+  await assertRealModelTree(dirPath)
   const dataItemsPath = path.join(dirPath, DEFAULT_FILE_NAMES.dataItems)
-  await fs.writeFile(dataItemsPath, JSON.stringify({ dataItems }, null, 2), 'utf-8')
+  await writeFileNoFollow(dataItemsPath, JSON.stringify({ dataItems }, null, 2), dirPath)
 }
 
 /**
@@ -662,7 +636,9 @@ export async function writeAttributes(
   attributes: ConsolidatedAttributesFile,
   protectedFiles?: ReadonlySet<string>
 ): Promise<void> {
-  await validatePathConfinement(dirPath);
+  // Every later path is built from the confined real path.
+  dirPath = await validatePathConfinement(dirPath)
+  await assertRealModelTree(dirPath)
   const attributesDir = path.join(dirPath, DEFAULT_FILE_NAMES.attributes)
 
   /**
@@ -690,6 +666,7 @@ export async function writeAttributes(
   for (const subdir of ATTRIBUTES_SUBDIRS) {
     await fs.mkdir(path.join(attributesDir, subdir), { recursive: true })
   }
+  await assertRealModelTree(dirPath)
 
   // Write boundary attributes
   if (attributes.boundaries) {
@@ -697,7 +674,7 @@ export async function writeAttributes(
       validateElementId(elementId)
       if (skip('boundaries', elementId)) continue
       const filePath = path.join(attributesDir, 'boundaries', `${elementId}.json`)
-      await fs.writeFile(filePath, JSON.stringify(attrs, null, 2), 'utf-8')
+      await writeFileNoFollow(filePath, JSON.stringify(attrs, null, 2), dirPath)
     }
   }
 
@@ -707,7 +684,7 @@ export async function writeAttributes(
       validateElementId(elementId)
       if (skip('components', elementId)) continue
       const filePath = path.join(attributesDir, 'components', `${elementId}.json`)
-      await fs.writeFile(filePath, JSON.stringify(attrs, null, 2), 'utf-8')
+      await writeFileNoFollow(filePath, JSON.stringify(attrs, null, 2), dirPath)
     }
   }
 
@@ -717,7 +694,7 @@ export async function writeAttributes(
       validateElementId(elementId)
       if (skip('dataFlows', elementId)) continue
       const filePath = path.join(attributesDir, 'dataFlows', `${elementId}.json`)
-      await fs.writeFile(filePath, JSON.stringify(attrs, null, 2), 'utf-8')
+      await writeFileNoFollow(filePath, JSON.stringify(attrs, null, 2), dirPath)
     }
   }
 
@@ -727,7 +704,7 @@ export async function writeAttributes(
       validateElementId(elementId)
       if (skip('dataItems', elementId)) continue
       const filePath = path.join(attributesDir, 'dataItems', `${elementId}.json`)
-      await fs.writeFile(filePath, JSON.stringify(attrs, null, 2), 'utf-8')
+      await writeFileNoFollow(filePath, JSON.stringify(attrs, null, 2), dirPath)
     }
   }
 }
@@ -789,13 +766,17 @@ export async function writeModelDirectory(
  * Returns `null` when the file is absent/unparseable or carries none of the synced keys.
  */
 export async function readScope(modelDir: string): Promise<ModelScopeLocal | null> {
-  const scopePath = path.join(modelDir, DETHEREAL_DIR, SCOPE_FILE)
-  let raw: Record<string, unknown>
+  // Read like the state file: no links, no special files, a size cap. Absent or
+  // malformed is null, as before (writeScope refuses to overwrite a malformed file
+  // and says so); a file that is refused for what it is throws a coded error.
+  let raw: Record<string, unknown> | null
   try {
-    raw = JSON.parse(await fs.readFile(scopePath, 'utf-8'))
-  } catch {
-    return null
+    raw = await readRepoJson(modelDir, `${DETHEREAL_DIR}/${SCOPE_FILE}`)
+  } catch (err) {
+    if (err instanceof StateFileError && (err.code === 'invalid_json' || err.code === 'not_object')) return null
+    throw err
   }
+  if (raw === null) return null
 
   const scope: ModelScopeLocal = {}
   for (const key of SYNCED_SCOPE_KEYS) {
@@ -818,50 +799,27 @@ export async function readScope(modelDir: string): Promise<ModelScopeLocal | nul
  * an empty `scope` with no pre-existing scope.json is a no-op (nothing to clear, nothing to write).
  */
 export async function writeScope(modelDir: string, scope: ModelScopeLocal): Promise<void> {
-  const detherealDir = path.join(modelDir, DETHEREAL_DIR)
-  const scopePath = path.join(detherealDir, SCOPE_FILE)
-
-  // Read any existing file first (before mkdir) so we distinguish absent / parseable /
-  // malformed without leaving side effects.
-  let rawExisting: string | null = null
-  try {
-    rawExisting = await fs.readFile(scopePath, 'utf-8')
-  } catch {
-    // No existing scope.json.
-  }
-
   const incoming = scope as Record<string, unknown>
   const hasSyncedKeys = SYNCED_SCOPE_KEYS.some((key) => incoming[key] !== undefined)
 
-  // Nothing to mirror and no file to reconcile: don't create an empty scope.json. Reached on a
-  // pull/push of a model whose platform scope is empty and which has no local scope.json yet.
-  if (rawExisting === null && !hasSyncedKeys) return
-
-  let existing: Record<string, unknown> = {}
-  if (rawExisting !== null) {
-    // Fail loud on a present-but-unparseable file rather than overwriting it: a
-    // blind `{}` fallback here would silently destroy the skill-owned local-only
-    // keys (crown_jewels, adversary_classes, …) on the next merge.
-    try {
-      existing = JSON.parse(rawExisting)
-    } catch {
-      throw new Error(
-        `Refusing to overwrite malformed ${SCOPE_FILE} (it would destroy local-only scope keys); fix or remove the file first`,
-      )
-    }
-  }
-
-  const merged: Record<string, unknown> = { ...existing }
-  for (const key of SYNCED_SCOPE_KEYS) {
-    if (incoming[key] !== undefined) {
-      merged[key] = incoming[key]
-    } else {
-      delete merged[key]
-    }
-  }
-
-  await fs.mkdir(detherealDir, { recursive: true })
-  await fs.writeFile(scopePath, JSON.stringify(merged, null, 2), 'utf-8')
+  // Through the store: locked against the other writers of .dethereal/ (the id
+  // remap re-keys scope too), atomic, never through a link, and unknown keys —
+  // the skill-owned local-only ones — are kept. Nothing to mirror and no file
+  // yet: nothing is created. A present but malformed file is refused, never
+  // overwritten.
+  await updateDetherealJson(
+    modelDir,
+    SCOPE_FILE,
+    (existing) => {
+      const merged: Record<string, unknown> = { ...existing }
+      for (const key of SYNCED_SCOPE_KEYS) {
+        if (incoming[key] !== undefined) merged[key] = incoming[key]
+        else delete merged[key]
+      }
+      return merged
+    },
+    { createIfMissing: hasSyncedKeys }
+  )
 }
 
 /**
@@ -901,32 +859,47 @@ export async function createDirectoryBackup(dirPath: string): Promise<string> {
   const baseName = path.basename(dirPath)
   const backupPath = path.join(parentDir, `${baseName}.backup-${timestamp}`)
 
-  // Validate backup path stays within confinement boundary
-  await validatePathConfinement(backupPath)
+  // Validate backup path stays within confinement boundary; copy to the confined path
+  const confinedBackup = await validatePathConfinement(backupPath)
 
-  // Recursively copy directory
-  await copyDirectory(dirPath, backupPath)
+  // Recursively copy directory: links and special files are left out, never followed
+  const skipped = await copyDirectory(dirPath, confinedBackup)
+  if (skipped.length > 0) {
+    console.warn(`[dethereal] Backup left out ${skipped.length} link(s) or special file(s): ${skipped.slice(0, 10).join(', ')}`)
+  }
 
-  return backupPath
+  return confinedBackup
 }
 
 /**
  * Recursively copy a directory
  */
-async function copyDirectory(src: string, dest: string): Promise<void> {
+/**
+ * Copy a directory tree for a backup. Only real directories and single-link
+ * regular files are copied: a symlink, special file or hard link inside a model
+ * directory may point anywhere, and following it would put the target's bytes
+ * into the repository. Skipped entries are returned, relative to `src`.
+ */
+async function copyDirectory(src: string, dest: string, rel = ''): Promise<string[]> {
+  const skipped: string[] = []
   await fs.mkdir(dest, { recursive: true })
   const entries = await fs.readdir(src, { withFileTypes: true })
 
   for (const entry of entries) {
     const srcPath = path.join(src, entry.name)
     const destPath = path.join(dest, entry.name)
+    const entryRel = rel ? `${rel}/${entry.name}` : entry.name
+    const st = await fs.lstat(srcPath)
 
-    if (entry.isDirectory()) {
-      await copyDirectory(srcPath, destPath)
+    if (st.isDirectory()) {
+      skipped.push(...(await copyDirectory(srcPath, destPath, entryRel)))
+    } else if (st.isFile() && st.nlink === 1) {
+      await fs.copyFile(srcPath, destPath, fsConstants.COPYFILE_EXCL)
     } else {
-      await fs.copyFile(srcPath, destPath)
+      skipped.push(entryRel)
     }
   }
+  return skipped
 }
 
 // =============================================================================
@@ -945,7 +918,7 @@ export async function applyIdMapping(
   dirPath: string,
   idMapping: Map<string, string>,
   modelId: string
-): Promise<void> {
+): Promise<string[] | undefined> {
   // Read current files
   const manifest = await readManifest(dirPath)
   const structure = await readStructure(dirPath)
@@ -981,7 +954,7 @@ export async function applyIdMapping(
   const updatedAttributes = await updateAndRenameAttributes(dirPath, attributes, idMapping, protectedFiles)
 
   // Re-key the id-keyed sidecars under .dethereal/ — see remapLocalSidecars.
-  await remapLocalSidecars(dirPath, idMapping)
+  const sidecarWarnings = await remapLocalSidecars(dirPath, idMapping)
 
   // Write updated files
   await writeManifest(dirPath, manifest)
@@ -992,6 +965,8 @@ export async function applyIdMapping(
 
   // Clean up stale files (flat-format originals, undefined.json, etc.)
   await cleanupStaleAttributeFiles(dirPath, updatedAttributes, protectedFiles)
+
+  return sidecarWarnings
 }
 
 /**
@@ -1019,50 +994,109 @@ export async function applyIdMapping(
 export async function remapLocalSidecars(
   dirPath: string,
   idMapping: Map<string, string> | undefined
-): Promise<void> {
-  if (!idMapping || idMapping.size === 0) return
+): Promise<string[] | undefined> {
+  if (!idMapping || idMapping.size === 0) return undefined
   await renameTemplateFieldManifests(dirPath, idMapping)
-  await remapStateStaleElements(dirPath, idMapping)
+  const warnings = [
+    await remapStateStaleElements(dirPath, idMapping),
+    await remapCrownJewelElements(dirPath, idMapping),
+  ].filter((w): w is string => w !== null)
+  return warnings.length > 0 ? warnings : undefined
+}
+
+/**
+ * Re-key the element ids in `.dethereal/scope.json`'s `crown_jewel_elements`
+ * map (crown jewel → the elements that hold it).
+ *
+ * Held in pre-push ids, every entry resolves to nothing after the first push,
+ * and the crown-jewel gate fails on a model that was fine a moment before.
+ * Everything else in the file is kept as it is.
+ *
+ * Best-effort, like the stale-element remap: the write goes through the state
+ * store (locked, atomic, no symlinked or special files); an absent file or key
+ * is left alone, and a refusal comes back as a warning.
+ */
+async function remapCrownJewelElements(
+  dirPath: string,
+  idMapping: Map<string, string>
+): Promise<string | null> {
+  const remapIds = (ids: unknown): unknown =>
+    Array.isArray(ids) ? ids.map((id) => (typeof id === 'string' ? idMapping.get(id) ?? id : id)) : ids
+  try {
+    await updateDetherealJson(dirPath, 'scope.json', (scope) => {
+      const map = scope.crown_jewel_elements
+      if (!map || typeof map !== 'object' || Array.isArray(map)) return scope
+      const remapped = Object.fromEntries(Object.entries(map).map(([jewel, ids]) => [jewel, remapIds(ids)]))
+      return { ...scope, crown_jewel_elements: remapped }
+    })
+    return null
+  } catch (err) {
+    const what =
+      err instanceof StateFileError ? `was not updated (${err.code.replaceAll('_', ' ')})`
+      : err instanceof LockBusyError || err instanceof LockLostError ? 'was busy in another session'
+      : 'could not be updated'
+    return (
+      `The crown-jewel map in .dethereal/scope.json ${what}, so it still holds the pre-push element ids ` +
+      'and the crown-jewel gate will fail until it is re-confirmed. Re-run the push, or map the crown jewels again.'
+    )
+  }
 }
 
 /**
  * Re-key the element ids held in `.dethereal/state.json`'s `staleElements[]`.
  *
- * `src/` otherwise never touches state.json — it is maintained by the skills —
- * but nothing else runs at the moment ids change, so after the first push the
+ * Nothing else runs at the moment ids change, so after the first push the
  * array holds pre-push ids that resolve to no element. The next enrichment pass
  * reads it to decide what to prioritise, finds nothing, and silently drops the
  * elements that were explicitly queued as needing attention. Same failure shape
  * as the orphaned template-field manifests above; fixed in the same place.
  *
- * Best-effort: state.json is workflow bookkeeping, never model data, so a
- * missing or malformed file must not fail a push that already succeeded.
+ * Best-effort: state.json is workflow bookkeeping, never model data, so it
+ * must not fail a push that already succeeded. The write goes through the state
+ * store (locked, atomic); an absent state is left absent, and a busy lock or a
+ * refused file comes back as a warning for the tool result.
  */
 async function remapStateStaleElements(
   dirPath: string,
   idMapping: Map<string, string>
-): Promise<void> {
-  const statePath = path.join(dirPath, DETHEREAL_DIR, 'state.json')
-
+): Promise<string | null> {
   try {
-    const raw = await fs.readFile(statePath, 'utf-8')
-    const state = JSON.parse(raw) as Record<string, unknown>
-    const stale = state.staleElements
-    if (!Array.isArray(stale) || stale.length === 0) return
-
-    let changed = false
-    const remapped = stale.map((id) => {
-      if (typeof id !== 'string') return id
-      const next = idMapping.get(id)
-      if (next && next !== id) { changed = true; return next }
-      return id
+    await updateState(dirPath, (state) => {
+      const next = { ...state }
+      const stale = state.staleElements
+      if (Array.isArray(stale) && stale.length > 0) {
+        next.staleElements = stale.map((id) => (typeof id === 'string' ? idMapping.get(id) ?? id : id))
+      }
+      // Waivers name elements too. Their fingerprints and signature are id-free, so re-keying keeps them valid.
+      if (Array.isArray(state.waivers)) {
+        const rekey = (id: unknown) => (typeof id === 'string' ? idMapping.get(id) ?? id : id)
+        next.waivers = state.waivers.map((w: any) => (w && typeof w === 'object' && Array.isArray(w.element_ids)
+          ? {
+            ...w,
+            element_ids: w.element_ids.map(rekey),
+            ...(w.fingerprints && typeof w.fingerprints === 'object'
+              ? { fingerprints: Object.fromEntries(Object.entries(w.fingerprints).map(([id, fp]) => [rekey(id), fp])) }
+              : {}),
+          }
+          : w))
+      }
+      return next
     })
-    if (!changed) return
-
-    state.staleElements = remapped
-    await fs.writeFile(statePath, JSON.stringify(state, null, 2), 'utf-8')
-  } catch {
-    // Absent, unreadable, or not JSON — leave it alone.
+    return null
+  } catch (err) {
+    if (err instanceof LockBusyError || err instanceof LockLostError) {
+      return (
+        'The workflow state (.dethereal/state.json) was busy in another session, so its stale-element ' +
+        'list and waivers still hold the pre-push ids (those waivers do not apply until re-keyed). Re-run the push, or re-queue the affected elements.'
+      )
+    }
+    if (err instanceof StateFileError) {
+      return (
+        `The workflow state (.dethereal/state.json) was not updated (${err.code.replaceAll('_', ' ')}), so its ` +
+        'stale-element list still holds the pre-push ids. Replace it with a regular file, or re-queue the affected elements.'
+      )
+    }
+    return null
   }
 }
 
@@ -1080,6 +1114,7 @@ async function renameTemplateFieldManifests(
   dirPath: string,
   idMapping: Map<string, string>
 ): Promise<void> {
+  await assertRealModelTree(dirPath)
   const manifestDir = path.join(dirPath, DETHEREAL_DIR, 'template-fields')
 
   let entries: string[]
@@ -1107,6 +1142,9 @@ async function renameTemplateFieldManifests(
     try {
       // Overwrite rather than skip: a manifest already sitting on the new id is
       // from an earlier run of the same element and is not newer than this one.
+      // Only a regular file is moved, and never onto a link.
+      const [from, to] = await Promise.all([fs.lstat(oldPath).catch(() => null), fs.lstat(newPath).catch(() => null)])
+      if (!from?.isFile() || (to && !to.isFile())) continue
       await fs.rename(oldPath, newPath)
     } catch {
       // Unreadable/locked manifest — losing it costs one reclassification
@@ -1277,6 +1315,7 @@ async function updateAndRenameAttributes(
   idMapping: Map<string, string>,
   protectedFiles?: ReadonlySet<string>
 ): Promise<ConsolidatedAttributesFile> {
+  await assertRealModelTree(dirPath)
   const attributesDir = path.join(dirPath, DEFAULT_FILE_NAMES.attributes)
   const updated: ConsolidatedAttributesFile = {
     boundaries: {},
@@ -1322,7 +1361,7 @@ async function updateAndRenameAttributes(
         }
         const oldPath = path.join(attributesDir, subdir, `${oldId}.json`)
         try {
-          await fs.unlink(oldPath)
+          await unlinkRegularFile(oldPath)
         } catch {
           // File doesn't exist, ignore
         }
@@ -1417,6 +1456,7 @@ async function cleanupStaleAttributeFiles(
   currentAttributes: ConsolidatedAttributesFile,
   protectedFiles?: ReadonlySet<string>
 ): Promise<void> {
+  await assertRealModelTree(dirPath)
   const attributesDir = path.join(dirPath, DEFAULT_FILE_NAMES.attributes)
 
   const currentIdSets: Record<string, Set<string>> = {
@@ -1447,7 +1487,7 @@ async function cleanupStaleAttributeFiles(
           continue
         }
         try {
-          await fs.unlink(path.join(subdirPath, file))
+          await unlinkRegularFile(path.join(subdirPath, file))
         } catch {
           // File may already be gone
         }

@@ -1,0 +1,50 @@
+{
+  "elementId": "c-edge-gateway",
+  "elementType": "component",
+  "elementName": "Edge gateway",
+  "classData": {
+    "id": "6d723569-dc75-47dd-8f77-aa679dba1d54",
+    "name": "API Gateway"
+  },
+  "attributes": {
+    "admin_api_public_bind": false,
+    "enforce_rbac": "off",
+    "admin_gui_auth_configured": true,
+    "jwt_signature_verified": false,
+    "issuer_claim_validated": false,
+    "audience_claim_validated": false,
+    "expiry_claim_validated": false,
+    "unauthenticated_route_exposed": true,
+    "global_auth_plugin_enabled": false,
+    "routes_without_auth_plugin_count": 2,
+    "flow_tls_encrypted": true,
+    "min_tls_version": "tls1_2_or_higher",
+    "weak_tls_versions_enabled": false,
+    "cipher_suites_strong_only": true,
+    "back_end_traffic_reencrypted_after_tls_termination": false,
+    "rate_limiting_or_lockout_enabled": true,
+    "request_body_size_capped": true,
+    "request_size_and_complexity_limits_enforced": false,
+    "ddos_protection_in_place": true,
+    "request_framing_normalized_front_back": true,
+    "ambiguous_length_headers_forwarded": false,
+    "http2_downgrade_strictly_normalized": true,
+    "content_type_strict_validation": false,
+    "request_payload_schema_validated": false,
+    "secrets_masked_in_logs": true,
+    "secrets_hardcoded_in_config_or_iac": false,
+    "access_audit_trail_enabled": true,
+    "upstream_proxy_ips_unscoped": true,
+    "gateway_image_signature_verified": false,
+    "artifact_supply_chain_signed_provenance_verified": false,
+    "artifact_references_immutable_digest_pinned": true,
+    "untrusted_plugins_allowed": false,
+    "authentication_type": "none",
+    "encryption_in_transit": "TLS 1.2+",
+    "encryption_at_rest": "not_applicable",
+    "implicit_deny_enabled": true,
+    "monitoring_tools": [
+      "log platform (http-log)"
+    ]
+  }
+}

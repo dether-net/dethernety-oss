@@ -5,6 +5,9 @@
  * write-ahead-log repair and the other control actions keep working there.
  */
 import { describe, it, expect } from 'vitest'
+import { readdirSync, readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   allTools,
   type BaseTool,
@@ -13,6 +16,7 @@ import {
   importModelTool,
   manageControlsTool,
   needsDataControls,
+  queryControlsTool,
   updateAttributesTool,
   updateModelTool,
 } from '../index.js'
@@ -31,8 +35,28 @@ describe('needsDataControls', () => {
     }
   })
 
+  it('checks query_controls for its list, which runs manage_controls\' list past the entry point', () => {
+    expect(needsDataControls(queryControlsTool, { action: 'list' })).toBe(true)
+    for (const action of ['get', 'rank']) expect(needsDataControls(queryControlsTool, { action })).toBe(false)
+  })
+
   it('checks no other tool', () => {
-    const gated = new Set<BaseTool>([importModelTool, exportModelTool, updateModelTool, createModelTool, updateAttributesTool, manageControlsTool])
+    const gated = new Set<BaseTool>([importModelTool, exportModelTool, updateModelTool, createModelTool, updateAttributesTool, manageControlsTool, queryControlsTool])
     for (const tool of allTools.filter((t) => !gated.has(t))) expect(needsDataControls(tool, { action: 'list' })).toBe(false)
+  })
+})
+
+describe('the tools that reach those documents', () => {
+  // The dt-core calls whose documents select a data item's controls or a control's data items: a model export,
+  // import, update or read, a data item or element write, a control search or assignment, a greenfield control push,
+  // the platform prints a push compares, and manage_controls run in-process. A new tool file that makes one of them
+  // must be classified above. A call made through a util of its own is not seen here.
+  const REACHES = /\b(findControls|assignControlToElements|pushGreenfieldControl|Dt(Export|Import|Update)[A-Za-z]*|exportPlatformPrints|manageControlsTool\.execute|dumpModelData|getModelData|createDataItem|updateDataItem|updateComponent|updateBoundaryNode|updateDataFlow)\b/
+  const KNOWN = ['create-model.tool.ts', 'export-model.tool.ts', 'import-model.tool.ts', 'manage-controls.tool.ts', 'query-security.tool.ts', 'update-attributes.tool.ts', 'update-model.tool.ts']
+
+  it('are exactly the files of the checked tools', () => {
+    const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
+    const reaching = readdirSync(dir).filter((f) => f.endsWith('.tool.ts') && REACHES.test(readFileSync(path.join(dir, f), 'utf8'))).sort()
+    expect(reaching).toEqual(KNOWN)
   })
 })

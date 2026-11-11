@@ -87,63 +87,183 @@ function dirname(p: string): string {
   return p.slice(0, idx);
 }
 
+// =============================================================================
+// Links and special files
+// =============================================================================
+
 /**
- * Reject WAL-journal-supplied paths that could escape the model directory.
+ * Everything below a model directory comes from the repository, and a
+ * repository can commit links. Every read, write, rename and unlink here goes
+ * through the helpers below: each directory component under the model
+ * directory must be a real directory, each file a regular single-link file,
+ * and files are opened no-follow and non-blocking (a link to a FIFO or
+ * `/dev/stdin` would otherwise hang the server). Errors name a path relative to
+ * the model directory and a code, never an absolute path.
  *
- * The journal lives on disk and is consumed without authentication — any
- * actor able to plant a hostile `.dethereal/pending-id-rewrite.json` (a
- * cloned repo containing a malicious journal, a shared model dir on a
- * multi-tenant fileshare, a prompt-injection attack on the agent that
- * caused it to invoke `manage_controls` with a path the operator did not
- * intend) gets arbitrary file rewrite/rename/unlink via the replay path.
- *
- * Rejection rules — applied to every relative path before it is joined
- * onto `modelDir` and passed to `fs.rename` / `fs.unlink` / `replaceIdInFile`:
- *   - empty string
- *   - null bytes (POSIX path separator boundary trick)
- *   - leading `/` (would escape via the join helper, which strips leading
- *     slashes only on continuation parts — but malicious input is rejected
- *     here regardless)
- *   - leading `\` or any backslash (Windows path separator; we are
- *     POSIX-only but the replay should still refuse mixed separators)
- *   - any `..` path component (parent traversal)
- *
- * Throws on any violation. Caller is `applyGreenfieldRewrite` /
- * `applyCloneAndSwap` — both bail out of the entire replay on throw,
- * leaving the journal intact for `/dethereal:sync repair-wal` review.
+ * Residual: Node has no `openat`/`renameat`, so a directory swapped for a link
+ * between the last check and the `rename` syscall is not caught, and the tmp
+ * file is written inside a swapped directory before the re-check before the
+ * rename notices it. Closing that needs a directory-fd API.
  */
-function assertSafeRelPath(relPath: string, fieldName: string): void {
-  if (typeof relPath !== 'string' || relPath.length === 0) {
-    throw new Error(
-      `WAL journal validation failed: ${fieldName} must be a non-empty string`,
-    );
-  }
-  if (relPath.includes('\0')) {
-    throw new Error(
-      `WAL journal validation failed: ${fieldName} contains a null byte`,
-    );
-  }
-  if (relPath.includes('\\')) {
-    throw new Error(
-      `WAL journal validation failed: ${fieldName} contains a backslash (POSIX paths only)`,
-    );
-  }
-  if (relPath.startsWith('/')) {
-    throw new Error(
-      `WAL journal validation failed: ${fieldName} must be a relative path (got absolute: ${relPath})`,
-    );
-  }
-  // Reject any `..` segment. Splitting on `/` catches `../foo`,
-  // `foo/..`, `foo/../bar`, and `..` on its own.
-  const segments = relPath.split('/');
-  for (const seg of segments) {
-    if (seg === '..') {
-      throw new Error(
-        `WAL journal validation failed: ${fieldName} contains a parent-traversal segment (..): ${relPath}`,
-      );
-    }
+export class UnsafePathError extends Error {
+  constructor(
+    readonly code: 'symlink' | 'not_directory' | 'not_regular' | 'hardlinked' | 'too_large' | 'changed' | 'outside',
+    readonly rel: string,
+  ) {
+    super(`${rel}: ${code.replace('_', ' ')}`);
+    this.name = 'UnsafePathError';
   }
 }
+
+type FsConstants = typeof import('node:fs').constants;
+let _constants: FsConstants | undefined;
+async function loadConstants(): Promise<FsConstants> {
+  if (!_constants) _constants = (await import('node:fs')).constants;
+  return _constants;
+}
+
+async function lstatOrNull(p: string): Promise<import('node:fs').Stats | null> {
+  const fs = await loadFs();
+  try {
+    return await fs.lstat(p);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
+/** `abs` relative to `root`; throws when it is not strictly below it. */
+function relUnder(root: string, abs: string): string {
+  const base = root.endsWith('/') ? root : `${root}/`;
+  if (!abs.startsWith(base) || abs.length === base.length) throw new UnsafePathError('outside', '.');
+  return abs.slice(base.length);
+}
+
+/**
+ * Check the directories of `relDir` under `root`, component by component: each
+ * existing one must be a real directory. Returns false when one is absent.
+ */
+export async function checkRealDirs(root: string, relDir: string): Promise<boolean> {
+  const top = await lstatOrNull(root);
+  if (!top) return false;
+  if (top.isSymbolicLink()) throw new UnsafePathError('symlink', '.');
+  if (!top.isDirectory()) throw new UnsafePathError('not_directory', '.');
+  let cur = root;
+  let rel = '';
+  for (const part of relDir.split('/').filter(p => p.length > 0 && p !== '.')) {
+    cur = join(cur, part);
+    rel = rel ? `${rel}/${part}` : part;
+    const st = await lstatOrNull(cur);
+    if (!st) return false;
+    if (st.isSymbolicLink()) throw new UnsafePathError('symlink', rel);
+    if (!st.isDirectory()) throw new UnsafePathError('not_directory', rel);
+  }
+  return true;
+}
+
+/** Create the directories of `relDir` under `root` one level at a time, never through a link. */
+export async function ensureRealDirs(root: string, relDir: string): Promise<void> {
+  const fs = await loadFs();
+  if (!(await checkRealDirs(root, '.'))) throw new UnsafePathError('not_directory', '.');
+  let cur = root;
+  let rel = '';
+  for (const part of relDir.split('/').filter(p => p.length > 0 && p !== '.')) {
+    cur = join(cur, part);
+    rel = rel ? `${rel}/${part}` : part;
+    try {
+      await fs.mkdir(cur);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    }
+    const st = await lstatOrNull(cur);
+    if (!st || st.isSymbolicLink()) throw new UnsafePathError('symlink', rel);
+    if (!st.isDirectory()) throw new UnsafePathError('not_directory', rel);
+  }
+}
+
+/** A file at `abs` must be absent or a regular single-link file; returns its stats, or null when absent. */
+async function regularOrAbsent(abs: string, rel: string): Promise<import('node:fs').Stats | null> {
+  const st = await lstatOrNull(abs);
+  if (!st) return null;
+  if (st.isSymbolicLink()) throw new UnsafePathError('symlink', rel);
+  if (!st.isFile()) throw new UnsafePathError('not_regular', rel);
+  if (st.nlink !== 1) throw new UnsafePathError('hardlinked', rel);
+  return st;
+}
+
+/**
+ * Read a regular file without following a link at its own path and without
+ * blocking on a special file; the same file from inspection to read, at most
+ * `maxBytes`. `rel` names it in errors. Null when absent.
+ */
+export async function readLeafNoFollow(abs: string, rel: string, maxBytes: number): Promise<string | null> {
+  const fs = await loadFs();
+  const c = await loadConstants();
+  const before = await regularOrAbsent(abs, rel);
+  if (!before) return null;
+  if (before.size > maxBytes) throw new UnsafePathError('too_large', rel);
+  let fh;
+  try {
+    fh = await fs.open(abs, c.O_RDONLY | (c.O_NOFOLLOW ?? 0) | (c.O_NONBLOCK ?? 0));
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') return null;
+    if (code === 'ELOOP') throw new UnsafePathError('symlink', rel);
+    throw err;
+  }
+  try {
+    const st = await fh.stat();
+    if (st.dev !== before.dev || st.ino !== before.ino || st.nlink === 0) throw new UnsafePathError('changed', rel);
+    if (!st.isFile()) throw new UnsafePathError('not_regular', rel);
+    if (st.nlink !== 1) throw new UnsafePathError('hardlinked', rel);
+    if (st.size > maxBytes) throw new UnsafePathError('too_large', rel);
+    const text = await fh.readFile('utf-8');
+    if (Buffer.byteLength(text) > maxBytes) throw new UnsafePathError('too_large', rel);
+    return text;
+  } finally {
+    await fh.close();
+  }
+}
+
+/** Read `rel` under the model directory `root`, checking every directory on the way. Null when absent. */
+export async function readRegularNoFollow(root: string, rel: string, maxBytes: number): Promise<string | null> {
+  if (!(await checkRealDirs(root, dirname(rel)))) return null;
+  return readLeafNoFollow(join(root, rel), rel, maxBytes);
+}
+
+/** fsync a directory, opened without following a link and without blocking. Best effort. */
+async function syncDir(dir: string): Promise<void> {
+  const fs = await loadFs();
+  const c = await loadConstants();
+  try {
+    const fh = await fs.open(dir, c.O_RDONLY | (c.O_DIRECTORY ?? 0) | (c.O_NOFOLLOW ?? 0) | (c.O_NONBLOCK ?? 0));
+    try {
+      await fh.sync();
+    } finally {
+      await fh.close();
+    }
+  } catch {
+    // Overlay and network filesystems may refuse; replay is idempotent.
+  }
+}
+
+/** Remove `rel` under `root` if it is a regular file; absent → false. Never follows a link. */
+async function unlinkRegular(root: string, rel: string): Promise<boolean> {
+  const fs = await loadFs();
+  if (!(await checkRealDirs(root, dirname(rel)))) return false;
+  const abs = join(root, rel);
+  if (!(await regularOrAbsent(abs, rel))) return false;
+  await fs.unlink(abs);
+  await syncDir(dirname(abs));
+  return true;
+}
+
+/** Largest model file this module reads (structure, dataflows, a control file). */
+const MAX_MODEL_FILE_BYTES = 32 * 1024 * 1024;
+/** Largest journal replayed. */
+const MAX_JOURNAL_BYTES = 1024 * 1024;
+/** Most operations one journal may hold: the writer appends one, and every caller drains first. */
+const MAX_JOURNAL_OPS = 4;
 
 const JOURNAL_RELATIVE_PATH = '.dethereal/pending-id-rewrite.json';
 
@@ -209,78 +329,234 @@ export interface PendingIdRewriteJournal {
 /**
  * Atomic write with full POSIX fsync sequence.
  *
- * Steps: write to `<targetPath>.tmp.<pid>.<rand>` → fsync(file) → rename →
- * fsync(parent_dir). The parent-directory fsync is what guarantees the
- * rename survives a crash; without it, a crash between rename and the
- * subsequent flush can leave the rename invisible after reboot even though
- * the file content is on disk.
+ * Steps: write a hidden tmp next to the target (`.<name>.<pid>.<rand>.tmp`,
+ * created exclusively) → fsync(file) → rename → fsync(parent_dir). The
+ * parent-directory fsync is what guarantees the rename survives a crash;
+ * without it, a crash between rename and the subsequent flush can leave the
+ * rename invisible after reboot even though the file content is on disk.
+ *
+ * With `root` (the model directory), every directory between `root` and the
+ * target must be a real directory — missing ones are created one level at a
+ * time — and they are checked again right before the rename. The target must be
+ * absent or a regular single-link file: a link, FIFO or hard link at its path is
+ * refused, never replaced or written through, and the target itself is never
+ * opened. An existing file's mode is kept.
  *
  * Throws on any I/O error; cleans up the tmp file on failure.
  */
-export async function atomicWriteWithFsync(targetPath: string, content: string): Promise<void> {
+export async function atomicWriteWithFsync(targetPath: string, content: string, root?: string): Promise<void> {
   const fs = await loadFs();
   const parentDir = dirname(targetPath);
-  await fs.mkdir(parentDir, { recursive: true });
-  const tmpPath = `${targetPath}.tmp.${process.pid}.${Math.random().toString(36).slice(2, 10)}`;
+  const base = root ?? parentDir;
+  const rel = root ? relUnder(root, targetPath) : targetPath.slice(parentDir.length + 1);
+  const relDir = root ? dirname(rel) : '.';
+  if (root) await ensureRealDirs(root, relDir);
+  else await fs.mkdir(parentDir, { recursive: true });
+  const existing = await regularOrAbsent(targetPath, rel);
+  const name = targetPath.slice(parentDir.length + 1);
+  const tmpPath = join(parentDir, `.${name}.${process.pid}.${Math.random().toString(36).slice(2, 10)}.tmp`);
 
+  let created = false;
   try {
-    // 1. Write content to tmp
-    await fs.writeFile(tmpPath, content);
-
-    // 2. fsync the file's content
-    const fileFd = await fs.open(tmpPath, 'r+');
+    // 1. Write content to a tmp only this call can have created.
+    const fh = await fs.open(tmpPath, 'wx', 0o600);
+    created = true;
     try {
-      await fileFd.sync();
+      await fh.chmod(existing ? existing.mode & 0o777 : 0o644);
+      await fh.writeFile(content, 'utf-8');
+      // 2. fsync the file's content
+      await fh.sync();
     } finally {
-      await fileFd.close();
+      await fh.close();
     }
 
-    // 3. Atomic rename
+    // 3. Nothing on the way was swapped for a link meanwhile; then the atomic rename.
+    if (!(await checkRealDirs(base, relDir))) throw new UnsafePathError('changed', relDir);
+    await regularOrAbsent(targetPath, rel);
     await fs.rename(tmpPath, targetPath);
+    created = false;
 
     // 4. fsync the parent directory so the rename hits disk
-    const dirFd = await fs.open(parentDir, 'r');
-    try {
-      await dirFd.sync();
-    } finally {
-      await dirFd.close();
-    }
+    await syncDir(parentDir);
+  } finally {
+    if (created) await fs.unlink(tmpPath).catch(() => undefined);
+  }
+}
+
+// =============================================================================
+// The journal
+// =============================================================================
+
+/** Bumped when the journal format or what its MAC covers changes. */
+const JOURNAL_VERSION = 1;
+
+/**
+ * Signs and verifies journals. A journal is a machine-local crash-recovery
+ * artifact: replay trusts only a journal this process wrote, or one carrying a
+ * MAC this machine's authenticator accepts. A journal from another machine or
+ * checkout, an unsigned one, or one planted in a repository is never replayed;
+ * it can only be inspected and cleared.
+ */
+export interface JournalAuthenticator {
+  /** The MAC of `payload`, or null when this machine has no usable key for `modelDir` (its real path). */
+  sign(payload: string, modelDir: string): Promise<string | null>;
+  verify(payload: string, mac: string, modelDir: string): Promise<boolean>;
+}
+
+let authenticator: JournalAuthenticator | null = null;
+
+/**
+ * Install the authenticator journals are signed and verified with. Set once,
+ * at startup, before any journal is written or replayed: a second call throws,
+ * so nothing loaded later in the process can swap in one that accepts anything.
+ */
+export function setJournalAuthenticator(next: JournalAuthenticator): void {
+  if (authenticator) throw new Error('WAL journal authenticator is already installed');
+  authenticator = next;
+}
+
+/** Digests of journals this process wrote: trusted without a MAC, so replay works without a key. */
+const writtenHere = new Set<string>();
+
+async function digest(text: string): Promise<string> {
+  const { createHash } = await import('node:crypto');
+  return createHash('sha256').update(text).digest('hex');
+}
+
+/** A journal that will not be replayed. The message carries no string from the journal. */
+export class JournalRejectedError extends Error {
+  constructor(
+    readonly code: 'malformed' | 'unverified' | 'unreadable',
+    readonly rejected: Array<{ index: number; code: string }> = [],
+  ) {
+    super(
+      `WAL journal rejected (${code}): it is not replayed. Inspect it and clear it ` +
+        `with /dethereal:sync repair-wal, then reconcile the control files by hand.`,
+    );
+    this.name = 'JournalRejectedError';
+  }
+}
+
+/** A greenfield Control's temporary local id, replaced by the platform id once the Control is created. */
+export const GREENFIELD_TEMP_ID = /^greenfield-[A-Za-z0-9_-]{1,120}$/;
+const CONTROL_ID = /^[A-Za-z0-9_-]{1,128}$/;
+const ISO_8601 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+/**
+ * Why `op` is not an operation this module's writer produces, or null when it is.
+ * Only the exact greenfield shape passes: nothing writes a clone-and-swap op.
+ */
+function opProblem(op: unknown): string | null {
+  if (!op || typeof op !== 'object' || Array.isArray(op)) return 'not_object';
+  const o = op as Record<string, unknown>;
+  if (o.kind !== 'greenfield-id-rewrite') return 'unsupported_kind';
+  const { tempId, serverId, filePaths, controlFileRename, createdAt } = o;
+  if (typeof tempId !== 'string' || !GREENFIELD_TEMP_ID.test(tempId)) return 'bad_temp_id';
+  if (typeof serverId !== 'string' || !CONTROL_ID.test(serverId) || serverId.startsWith('greenfield-')) return 'bad_server_id';
+  // The rewrite covers data-items.json since data items carry controls; a journal written before that names the
+  // two structural files only, and still replays.
+  const shapes = [
+    ['structure.json', 'dataflows.json', 'data-items.json', `controls/${tempId}.json`],
+    ['structure.json', 'dataflows.json', `controls/${tempId}.json`],
+  ];
+  const sameAs = (expected: string[]) =>
+    Array.isArray(filePaths) && filePaths.length === expected.length && filePaths.every((p, i) => p === expected[i]);
+  if (!shapes.some(sameAs)) return 'bad_paths';
+  const r = controlFileRename as Record<string, unknown> | null;
+  if (!r || typeof r !== 'object' || r.from !== `controls/${tempId}.json` || r.to !== `controls/${serverId}.json`) {
+    return 'bad_rename';
+  }
+  if (typeof createdAt !== 'string' || !ISO_8601.test(createdAt)) return 'bad_created_at';
+  return null;
+}
+
+/** What the MAC covers: the journal version, the model's real path, and the exact operations. */
+async function macPayload(modelDir: string, operations: unknown[]): Promise<{ payload: string; realDir: string }> {
+  const fs = await loadFs();
+  const realDir = await fs.realpath(modelDir);
+  return { payload: JSON.stringify({ v: JOURNAL_VERSION, modelDir: realDir, operations }), realDir };
+}
+
+interface LoadedJournal {
+  operations: GreenfieldIdRewriteOp[];
+  payload: string;
+}
+
+/** Read the raw journal; null when absent. Throws JournalRejectedError when it cannot be read safely. */
+async function readRawJournal(modelDir: string): Promise<{ operations: unknown[]; mac?: unknown } | null> {
+  let text: string | null;
+  try {
+    text = await readRegularNoFollow(modelDir, JOURNAL_RELATIVE_PATH, MAX_JOURNAL_BYTES);
   } catch (err) {
-    await fs.unlink(tmpPath).catch(() => undefined);
+    if (err instanceof UnsafePathError) throw new JournalRejectedError('unreadable');
     throw err;
   }
+  if (text === null) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new JournalRejectedError('malformed');
+  }
+  const j = parsed as { operations?: unknown; mac?: unknown } | null;
+  if (!j || typeof j !== 'object' || !Array.isArray(j.operations)) throw new JournalRejectedError('malformed');
+  return { operations: j.operations, mac: j.mac };
+}
+
+function problemsOf(operations: unknown[]): Array<{ index: number; code: string }> {
+  if (operations.length > MAX_JOURNAL_OPS) return [{ index: -1, code: 'too_many_operations' }];
+  const out: Array<{ index: number; code: string }> = [];
+  operations.forEach((op, index) => {
+    const code = opProblem(op);
+    if (code) out.push({ index, code });
+  });
+  return out;
+}
+
+async function isTrusted({ payload, realDir }: { payload: string; realDir: string }, mac: unknown): Promise<boolean> {
+  if (writtenHere.has(await digest(payload))) return true;
+  if (typeof mac !== 'string' || !authenticator) return false;
+  return authenticator.verify(payload, mac, realDir).catch(() => false);
+}
+
+/** The journal, validated and verified; null when absent. Throws JournalRejectedError otherwise. */
+async function loadJournal(modelDir: string): Promise<LoadedJournal | null> {
+  const raw = await readRawJournal(modelDir);
+  if (!raw) return null;
+  const problems = problemsOf(raw.operations);
+  if (problems.length > 0) throw new JournalRejectedError('malformed', problems);
+  const signed = await macPayload(modelDir, raw.operations);
+  if (raw.operations.length > 0 && !(await isTrusted(signed, raw.mac))) throw new JournalRejectedError('unverified');
+  return { operations: raw.operations as GreenfieldIdRewriteOp[], payload: signed.payload };
 }
 
 /**
  * Read the pending-rewrite journal for a model directory.
- * Returns `null` if no journal exists.
+ * Returns `null` if no journal exists; throws JournalRejectedError for a journal
+ * that is malformed, unverified or cannot be read safely.
  */
 export async function readJournal(modelDir: string): Promise<PendingIdRewriteJournal | null> {
-  const fs = await loadFs();
-  const journalPath = join(modelDir, JOURNAL_RELATIVE_PATH);
-  try {
-    const raw = await fs.readFile(journalPath, 'utf-8');
-    const parsed = JSON.parse(raw) as PendingIdRewriteJournal;
-    if (!parsed || !Array.isArray(parsed.operations)) {
-      throw new Error(`Malformed journal at ${journalPath}: missing operations[]`);
-    }
-    return parsed;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw err;
-  }
+  const loaded = await loadJournal(modelDir);
+  return loaded ? { operations: loaded.operations } : null;
 }
 
 /**
- * Append a new operation to the journal (creating it if absent).
- * Atomic via tmp+fsync+rename — a crash mid-append leaves either the old
- * journal intact or the new one fully written.
+ * Append a new operation to the journal (creating it if absent), signed when
+ * an authenticator is installed and has a key. Atomic via tmp+fsync+rename —
+ * a crash mid-append leaves either the old journal intact or the new one fully
+ * written.
  */
 export async function appendOperation(modelDir: string, op: PendingOperation): Promise<void> {
-  const existing = (await readJournal(modelDir)) ?? { operations: [] };
-  existing.operations.push(op);
-  const journalPath = join(modelDir, JOURNAL_RELATIVE_PATH);
-  await atomicWriteWithFsync(journalPath, JSON.stringify(existing, null, 2));
+  const problem = opProblem(op);
+  if (problem) throw new Error(`WAL journal: refusing to write an operation of an unsupported shape (${problem})`);
+  const existing = await loadJournal(modelDir);
+  const operations: unknown[] = [...(existing?.operations ?? []), op];
+  if (operations.length > MAX_JOURNAL_OPS) throw new Error('WAL journal: too many pending operations; replay it first');
+  const { payload, realDir } = await macPayload(modelDir, operations);
+  const mac = authenticator ? await authenticator.sign(payload, realDir).catch(() => null) : null;
+  writtenHere.add(await digest(payload));
+  const journal = { version: JOURNAL_VERSION, operations, ...(mac ? { mac } : {}) };
+  await atomicWriteWithFsync(join(modelDir, JOURNAL_RELATIVE_PATH), JSON.stringify(journal, null, 2), modelDir);
 }
 
 /**
@@ -289,98 +565,68 @@ export async function appendOperation(modelDir: string, op: PendingOperation): P
  * tempId → rewrite; if file contains serverId → skip"), so replay after
  * any crash point converges to the same final state.
  *
+ * Only a journal of the writer's exact shape that this process wrote, or that
+ * carries a MAC this machine accepts, is replayed; anything else throws
+ * JournalRejectedError before any file is touched.
+ *
  * After all operations apply cleanly, the journal is unlinked.
+ *
+ * `afterOperation`, when given, is awaited after each operation's rewrite and
+ * before the journal is unlinked, with the operation's ids only. A throw
+ * propagates and keeps the journal, so the next replay runs every operation,
+ * and the callback, again: the callback must be idempotent.
  *
  * Returns the number of operations replayed (0 if no journal).
  */
-export async function applyPendingRewrites(modelDir: string): Promise<number> {
-  const journal = await readJournal(modelDir);
+export async function applyPendingRewrites(
+  modelDir: string,
+  options: { afterOperation?: (op: { tempId: string; serverId: string }) => Promise<void> } = {},
+): Promise<number> {
+  const journal = await loadJournal(modelDir);
   if (!journal || journal.operations.length === 0) {
     // No-op fast path — under 5ms when journal absent (the common case).
     return 0;
   }
 
   for (const op of journal.operations) {
-    if (op.kind === 'greenfield-id-rewrite') {
-      await applyGreenfieldRewrite(modelDir, op);
-    } else if (op.kind === 'clone-and-swap') {
-      await applyCloneAndSwap(modelDir, op);
-    } else {
-      // TypeScript exhaustiveness check; defensive runtime guard.
-      throw new Error(`Unknown WAL operation kind: ${(op as { kind: string }).kind}`);
-    }
+    await applyGreenfieldRewrite(modelDir, op);
+    if (options.afterOperation) await options.afterOperation({ tempId: op.tempId, serverId: op.serverId });
   }
 
-  // All operations applied cleanly — atomic unlink + dir fsync.
-  const fs = await loadFs();
-  const journalPath = join(modelDir, JOURNAL_RELATIVE_PATH);
-  await fs.unlink(journalPath);
-  // Best-effort dir fsync so the unlink survives crash. Same caveat as
-  // atomicWriteWithFsync — overlay/network FS may not honor it.
-  try {
-    const dirFd = await fs.open(dirname(journalPath), 'r');
-    try {
-      await dirFd.sync();
-    } finally {
-      await dirFd.close();
-    }
-  } catch {
-    // ENOENT on the directory is impossible (we just had a file in it);
-    // any other failure is non-fatal — replay is idempotent.
-  }
+  // All operations applied cleanly — unlink + dir fsync.
+  await unlinkRegular(modelDir, JOURNAL_RELATIVE_PATH);
+  writtenHere.delete(await digest(journal.payload));
   return journal.operations.length;
 }
 
-async function applyGreenfieldRewrite(
-  modelDir: string,
-  op: GreenfieldIdRewriteOp,
-): Promise<void> {
-  // Security: validate every journal-supplied path before joining onto
-  // modelDir. A hostile journal otherwise gets arbitrary file rewrite via
-  // replaceIdInFile or arbitrary rename via fs.rename. See assertSafeRelPath
-  // header for rejection rules.
-  for (let i = 0; i < op.filePaths.length; i++) {
-    assertSafeRelPath(op.filePaths[i], `op.filePaths[${i}]`);
-  }
-  assertSafeRelPath(op.controlFileRename.from, 'op.controlFileRename.from');
-  assertSafeRelPath(op.controlFileRename.to, 'op.controlFileRename.to');
-
+async function applyGreenfieldRewrite(modelDir: string, op: GreenfieldIdRewriteOp): Promise<void> {
   // Step 1 — content rewrite per filePath. Idempotent: if the file already
   // has serverId (rewrite previously completed), skip.
   for (const relPath of op.filePaths) {
-    await replaceIdInFile(join(modelDir, relPath), op.tempId, op.serverId);
+    await replaceIdInFile(join(modelDir, relPath), op.tempId, op.serverId, modelDir);
   }
 
   // Step 2 — control-file rename (atomic on POSIX). Idempotent: if the
   // destination exists and the source does not, the rename was already done.
   const fs = await loadFs();
-  const fromPath = join(modelDir, op.controlFileRename.from);
-  const toPath = join(modelDir, op.controlFileRename.to);
-  const fromExists = await pathExists(fromPath);
-  const toExists = await pathExists(toPath);
+  const { from, to } = op.controlFileRename;
+  const fromPath = join(modelDir, from);
+  const toPath = join(modelDir, to);
+  if (!(await checkRealDirs(modelDir, dirname(from)))) return;
+  const fromExists = (await regularOrAbsent(fromPath, from)) !== null;
+  const toExists = (await regularOrAbsent(toPath, to)) !== null;
   if (fromExists && toExists) {
     // Both present — this is the ambiguous-state case the macOS overlay-FS
     // caveat warns about. Bail to manual reconciliation rather than guess.
     throw new Error(
-      `WAL replay detected ambiguous state: both '${op.controlFileRename.from}' ` +
-        `and '${op.controlFileRename.to}' present in '${modelDir}' ` +
-        `(tempId=${op.tempId}, serverId=${op.serverId}). ` +
-        `Manual reconciliation required — see /dethereal:sync repair-wal.`,
+      'WAL replay detected ambiguous state: both control files of a pending id rewrite are present. ' +
+        'Manual reconciliation required — see /dethereal:sync repair-wal.',
     );
   }
   if (fromExists && !toExists) {
+    if (!(await checkRealDirs(modelDir, dirname(from)))) throw new UnsafePathError('changed', dirname(from));
     await fs.rename(fromPath, toPath);
-    // Best-effort dir fsync.
-    try {
-      const dirFd = await fs.open(dirname(toPath), 'r');
-      try {
-        await dirFd.sync();
-      } finally {
-        await dirFd.close();
-      }
-    } catch {
-      // Non-fatal — replay is idempotent.
-    }
+    await syncDir(dirname(toPath));
   }
   // else: !fromExists && (toExists || !toExists) → already done or nothing
   // to do; either way skip silently. Without the from-file there is no
@@ -388,40 +634,10 @@ async function applyGreenfieldRewrite(
   // step's idempotency.
 }
 
-async function applyCloneAndSwap(modelDir: string, op: CloneAndSwapOp): Promise<void> {
-  // Security: validate every journal-supplied path before joining onto
-  // modelDir. Without this, a hostile journal's controlFileWrite +
-  // controlFileContent gives arbitrary file write (e.g. ssh authorized_keys).
-  // See assertSafeRelPath header for rejection rules.
-  for (let i = 0; i < op.filePaths.length; i++) {
-    assertSafeRelPath(op.filePaths[i], `op.filePaths[${i}]`);
-  }
-  assertSafeRelPath(op.controlFileWrite, 'op.controlFileWrite');
-  assertSafeRelPath(op.controlFileDelete, 'op.controlFileDelete');
-
-  // Step 1 — content rewrite per filePath (oldId → newId).
-  for (const relPath of op.filePaths) {
-    await replaceIdInFile(join(modelDir, relPath), op.oldId, op.newId);
-  }
-
-  // Step 2 — write the new control file if absent (idempotent).
-  const writePath = join(modelDir, op.controlFileWrite);
-  if (!(await pathExists(writePath))) {
-    await atomicWriteWithFsync(writePath, op.controlFileContent);
-  }
-
-  // Step 3 — unlink the old control file if present (idempotent).
-  const deletePath = join(modelDir, op.controlFileDelete);
-  if (await pathExists(deletePath)) {
-    const fs = await loadFs();
-    await fs.unlink(deletePath);
-  }
-}
-
 /**
- * Content-based search/replace for an id within a JSON-or-text file.
- * Uses string replacement — works regardless of JSON structure (the id may
- * appear as `"id":"..."` or `"controls":[{"id":"...",...}]`).
+ * Replace every JSON string token `"<oldId>"` with `"<newId>"` in a file.
+ * Only whole quoted tokens are replaced, so an id that is a prefix of another
+ * (or of any other string) is left alone.
  *
  * If the file does not exist, returns silently (the rewrite is a no-op
  * for files that never had the temp id, e.g. `dataflows.json` in a model
@@ -429,36 +645,25 @@ async function applyCloneAndSwap(modelDir: string, op: CloneAndSwapOp): Promise<
  *
  * Idempotent: if `oldId` is not present in the file content, no write
  * occurs (preserving fsync cost on already-replayed files).
+ *
+ * With `root` (the model directory), the file is read and written with the
+ * link checks described above.
  */
 export async function replaceIdInFile(
   filePath: string,
   oldId: string,
   newId: string,
+  root?: string,
 ): Promise<void> {
-  const fs = await loadFs();
-  let content: string;
-  try {
-    content = await fs.readFile(filePath, 'utf-8');
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
-    throw err;
-  }
-  if (!content.includes(oldId)) return; // already done or never present
-  // Use split/join for whole-string replacement (replaceAll requires Node 15+,
-  // available everywhere we run, but this style is also slightly safer
-  // against accidental regex special-character interpretation).
-  const replaced = content.split(oldId).join(newId);
-  await atomicWriteWithFsync(filePath, replaced);
-}
-
-async function pathExists(path: string): Promise<boolean> {
-  const fs = await loadFs();
-  try {
-    await fs.access(path);
-    return true;
-  } catch {
-    return false;
-  }
+  const parentDir = dirname(filePath);
+  const content = root
+    ? await readRegularNoFollow(root, relUnder(root, filePath), MAX_MODEL_FILE_BYTES)
+    : await readLeafNoFollow(filePath, filePath.slice(parentDir.length + 1), MAX_MODEL_FILE_BYTES);
+  if (content === null) return;
+  const from = JSON.stringify(oldId);
+  if (!content.includes(from)) return; // already done or never present
+  const replaced = content.split(from).join(JSON.stringify(newId));
+  await atomicWriteWithFsync(filePath, replaced, root);
 }
 
 /**
@@ -477,6 +682,10 @@ export function getJournalPath(modelDir: string): string {
  * content) and gives the operator no recovery path. The `repair-wal` skill
  * verb consumes this inspector to surface the journal contents, the on-disk
  * file state for each operation, and the resolution options.
+ *
+ * A journal that is not of the writer's exact shape is reported only as
+ * `rejected` entries (an index and a code): none of its strings is echoed and
+ * none of its paths is read. `verified` says whether replay would trust it.
  *
  * Pure read — never mutates the filesystem.
  */
@@ -497,6 +706,7 @@ export interface WalGreenfieldInspection {
   createdAt: string;
 }
 
+/** No longer produced: clone-and-swap journals are never replayed. Kept for type compatibility. */
 export interface WalCloneAndSwapInspection {
   kind: 'clone-and-swap';
   oldId: string;
@@ -519,82 +729,68 @@ export type WalOperationInspection = WalGreenfieldInspection | WalCloneAndSwapIn
 export interface WalInspection {
   present: boolean;
   journalPath: string;
+  /** Whether replay would trust this journal (written here, or signed on this machine). */
+  verified: boolean;
+  /** Why the journal or an operation in it is refused; index -1 means the journal as a whole. */
+  rejected: Array<{ index: number; code: string }>;
   operations: WalOperationInspection[];
+}
+
+async function fileState(modelDir: string, rel: string): Promise<string | null | 'unsafe'> {
+  try {
+    return await readRegularNoFollow(modelDir, rel, MAX_MODEL_FILE_BYTES);
+  } catch (err) {
+    if (err instanceof UnsafePathError) return 'unsafe';
+    throw err;
+  }
 }
 
 export async function inspectPendingRewrite(modelDir: string): Promise<WalInspection> {
   const journalPath = getJournalPath(modelDir);
-  const journal = await readJournal(modelDir);
-  if (!journal) {
-    return { present: false, journalPath, operations: [] };
+  let raw: { operations: unknown[]; mac?: unknown } | null;
+  try {
+    raw = await readRawJournal(modelDir);
+  } catch (err) {
+    if (!(err instanceof JournalRejectedError)) throw err;
+    return { present: true, journalPath, verified: false, rejected: [{ index: -1, code: err.code }], operations: [] };
   }
+  if (!raw) return { present: false, journalPath, verified: false, rejected: [], operations: [] };
 
-  const fs = await loadFs();
+  const rejected = problemsOf(raw.operations);
+  if (rejected.length > 0) return { present: true, journalPath, verified: false, rejected, operations: [] };
+  const verified = await isTrusted(await macPayload(modelDir, raw.operations), raw.mac);
+
   const operations: WalOperationInspection[] = [];
-
-  for (const op of journal.operations) {
-    if (op.kind === 'greenfield-id-rewrite') {
-      const fromExists = await pathExists(join(modelDir, op.controlFileRename.from));
-      const toExists = await pathExists(join(modelDir, op.controlFileRename.to));
-      const filePaths = await Promise.all(
-        op.filePaths.map(async (relPath): Promise<WalGreenfieldInspection['filePaths'][number]> => {
-          const abs = join(modelDir, relPath);
-          if (!(await pathExists(abs))) {
-            return { path: relPath, exists: false, containsTempId: false, containsServerId: false };
-          }
-          const content = await fs.readFile(abs, 'utf-8');
-          return {
-            path: relPath,
-            exists: true,
-            containsTempId: content.includes(op.tempId),
-            containsServerId: content.includes(op.serverId),
-          };
-        }),
-      );
-      operations.push({
-        kind: 'greenfield-id-rewrite',
-        tempId: op.tempId,
-        serverId: op.serverId,
-        controlFileRename: op.controlFileRename,
-        fromExists,
-        toExists,
-        filePaths,
-        ambiguous: fromExists && toExists,
-        createdAt: op.createdAt,
-      });
-    } else {
-      const writeExists = await pathExists(join(modelDir, op.controlFileWrite));
-      const deleteExists = await pathExists(join(modelDir, op.controlFileDelete));
-      const filePaths = await Promise.all(
-        op.filePaths.map(async (relPath): Promise<WalCloneAndSwapInspection['filePaths'][number]> => {
-          const abs = join(modelDir, relPath);
-          if (!(await pathExists(abs))) {
-            return { path: relPath, exists: false, containsOldId: false, containsNewId: false };
-          }
-          const content = await fs.readFile(abs, 'utf-8');
-          return {
-            path: relPath,
-            exists: true,
-            containsOldId: content.includes(op.oldId),
-            containsNewId: content.includes(op.newId),
-          };
-        }),
-      );
-      operations.push({
-        kind: 'clone-and-swap',
-        oldId: op.oldId,
-        newId: op.newId,
-        controlFileWrite: op.controlFileWrite,
-        controlFileDelete: op.controlFileDelete,
-        writeExists,
-        deleteExists,
-        filePaths,
-        createdAt: op.createdAt,
+  for (const op of raw.operations as GreenfieldIdRewriteOp[]) {
+    const from = await fileState(modelDir, op.controlFileRename.from);
+    const to = await fileState(modelDir, op.controlFileRename.to);
+    const filePaths: WalGreenfieldInspection['filePaths'] = [];
+    for (const relPath of op.filePaths) {
+      const content = await fileState(modelDir, relPath);
+      const exists = typeof content === 'string';
+      filePaths.push({
+        path: relPath,
+        exists,
+        containsTempId: exists && content.includes(JSON.stringify(op.tempId)),
+        containsServerId: exists && content.includes(JSON.stringify(op.serverId)),
       });
     }
+    const fromExists = typeof from === 'string';
+    const toExists = typeof to === 'string';
+    operations.push({
+      kind: 'greenfield-id-rewrite',
+      tempId: op.tempId,
+      serverId: op.serverId,
+      controlFileRename: op.controlFileRename,
+      fromExists,
+      toExists,
+      filePaths,
+      ambiguous: fromExists && toExists,
+      createdAt: op.createdAt,
+    });
   }
 
-  return { present: true, journalPath, operations };
+  return { present: true, journalPath, verified, rejected: [], operations };
 }
 
 /**
@@ -605,26 +801,19 @@ export async function inspectPendingRewrite(modelDir: string): Promise<WalInspec
  * operator is willing to manually re-create the local files). The skill is
  * responsible for confirming with the operator before invoking — there is
  * no engine-level confirmation gate.
+ *
+ * A link at the journal's path is removed as a link (its target is never
+ * touched); a linked `.dethereal/` is refused.
  */
 export async function clearPendingRewrite(modelDir: string): Promise<boolean> {
   const fs = await loadFs();
+  if (!(await checkRealDirs(modelDir, dirname(JOURNAL_RELATIVE_PATH)))) return false;
   const journalPath = getJournalPath(modelDir);
-  try {
-    await fs.unlink(journalPath);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
-    throw err;
-  }
-  // Best-effort dir fsync.
-  try {
-    const dirFd = await fs.open(dirname(journalPath), 'r');
-    try {
-      await dirFd.sync();
-    } finally {
-      await dirFd.close();
-    }
-  } catch {
-    // Non-fatal.
-  }
+  const st = await lstatOrNull(journalPath);
+  if (!st) return false;
+  if (st.isDirectory()) throw new UnsafePathError('not_regular', JOURNAL_RELATIVE_PATH);
+  await fs.unlink(journalPath);
+  await syncDir(dirname(journalPath));
+  writtenHere.clear();
   return true;
 }

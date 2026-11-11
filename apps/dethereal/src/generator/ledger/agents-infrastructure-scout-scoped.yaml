@@ -1,0 +1,277 @@
+source: agents/infrastructure-scout-scoped.md
+blob: 863476bc98eba0dab191f7f569b15b249b4a5ea3
+migrated: true
+rules:
+  - id: 4a4d7dd25d
+    line: 12
+    anchor: You are a read-only infrastructure re-verification agent.
+    destination: agents/infrastructure-scout-scoped.md
+  - id: e395ccb5b9
+    line: 12
+    anchor: (the drift-reconciliation flow) has already determined which files drifted and which model elements need re-verification.
+    destination: agents/infrastructure-scout-scoped.md
+  - id: 7ee08a32b0
+    line: 12
+    anchor: You answer precise questions about those specific files — you do not enumerate the repository.
+    destination: agents/infrastructure-scout-scoped.md
+  - id: 4bfef5d02e
+    line: 14
+    anchor: This agent is a companion to the full-scope
+    destination: agents/infrastructure-scout-scoped.md
+  - id: 383bfb098a
+    line: 14
+    anchor: both use the same classification reference below
+    destination: agents/infrastructure-scout-scoped.md
+  - id: 55c0db9e63
+    line: 14
+    dropped:
+      reason: The two scouts now include one shared reference file for their classification rules, so there is nothing left to keep in sync by hand.
+      ref: apps/dethereal/workflow/shared/scout-reference.md
+  - id: e8af6429e6
+    line: 18
+    anchor: Your tools grant only two things
+    destination: agents/infrastructure-scout-scoped.md
+    harnesses:
+      - claude
+      - opencode
+  - id: f32df05dab
+    line: 20
+    anchor: Reading only the paths in the allowlist is your rule to keep
+    destination: agents/infrastructure-scout-scoped.md
+    harnesses:
+      - claude
+      - opencode
+  - id: b19f048077
+    line: 21
+    anchor: for resolving classification IDs when proposing reclassifications
+    destination: agents/infrastructure-scout-scoped.md
+  - id: ba71bfd052
+    line: 23
+    anchor: You have no search, no file listing and no shell.
+    destination: agents/infrastructure-scout-scoped.md
+    harnesses:
+      - claude
+      - opencode
+  - id: abd94cda20
+    line: 23
+    anchor: no amount of prompt drift can pattern-search the repository
+    destination: agents/infrastructure-scout-scoped.md
+    harnesses:
+      - claude
+      - opencode
+  - id: d33581e268
+    line: 23
+    anchor: The calling conversation has already computed the file diff
+    destination: agents/infrastructure-scout-scoped.md
+  - id: 9604a128dc
+    line: 27
+    anchor: "Every scoped invocation will include, in the prompt:"
+    destination: agents/infrastructure-scout-scoped.md
+  - id: 53dd0a8a6f
+    line: 29
+    anchor: A **file allowlist** — the exact paths you may `Read`. Typically this is the drift diff
+    destination: agents/infrastructure-scout-scoped.md
+  - id: 22fd7bac91
+    line: 30
+    anchor: The **prior discovery report** (or slice of it) — the model's current understanding of these elements.
+    destination: agents/infrastructure-scout-scoped.md
+  - id: 815dece86b
+    line: 31
+    anchor: "The **drift classification** requested — one of: `discover elements`, `re-verify element attributes`, `propose reclassification`, `check element"
+    destination: agents/infrastructure-scout-scoped.md
+  - id: fb65e549dd
+    line: 35
+    anchor: "**Read only paths in the allowlist.** Do not infer additional paths. If you believe a path"
+    destination: agents/infrastructure-scout-scoped.md
+  - id: cd231ea7c3
+    line: 36
+    anchor: '**Do not enumerate.** "Let me check what else is in this directory" is not an option'
+    destination: agents/infrastructure-scout-scoped.md
+  - id: 593ca37de5
+    line: 37
+    anchor: "**No speculative cross-checks.** In full discovery mode the scout speculates about related infrastructure (CI config, env"
+    destination: agents/infrastructure-scout-scoped.md
+  - id: 1a705f807d
+    line: 38
+    anchor: "**Filesystem only.** Live-source re-verification (K8s/AWS/GCP) uses the full"
+    destination: agents/infrastructure-scout-scoped.md
+  - id: fe1ae6f095
+    line: 39
+    anchor: "`.envrc`, `*.tfstate*`, `*.tfvars`, `*.tfvars.json`, `.terraformrc`, `credentials.tfrc.json`, keys and certificates (`*.pem`, `*.key`, `*.p8`, `*.p12`, `*.pfx`, `*.jks`, `*.keystore`,"
+    destination: shared/secret-files.md
+  - id: e4289036ba
+    line: 43
+    anchor: When reading config maps, connection strings
+    destination: shared/scout-reference.md
+  - id: a8a1e66cf4
+    line: 45
+    anchor: "**NEVER** include secret values (passwords, API keys, tokens, private keys, certificates) in your output or conversation"
+    destination: shared/scout-reference.md
+  - id: 944bb45fd7
+    line: 46
+    anchor: If you encounter a secret, reference it by variable name
+    destination: shared/scout-reference.md
+  - id: 200c4550a5
+    line: 47
+    anchor: "Connection strings: extract host, port, protocol, database name — **never"
+    destination: shared/scout-reference.md
+  - id: 116ca93157
+    line: 48
+    anchor: "Config maps: list key names only, never display values; Secret manifests are never"
+    destination: agents/infrastructure-scout.md
+  - id: 19837fc088
+    line: 52
+    anchor: Use this table for deterministic pre-classification
+    destination: shared/scout-reference.md
+  - id: 616af68606
+    line: 52
+    anchor: "Check that a suggested class exists on the platform before you propose it"
+    destination: shared/scout-reference.md
+  - id: d6fad587df
+    line: 56
+    anchor: "| `aws_instance`, `aws_ecs_service` | PROCESS | Varies by workload |"
+    destination: shared/scout-reference.md
+  - id: 7c6a39e2e7
+    line: 57
+    anchor: "| `aws_db_instance`, `aws_dynamodb_table` | STORE | Database, Key-Value Store |"
+    destination: shared/scout-reference.md
+  - id: 47c6ad2c08
+    line: 58
+    anchor: "| `aws_lb`, `aws_cloudfront_distribution` | PROCESS | Load Balancer, CDN |"
+    destination: shared/scout-reference.md
+  - id: ab87f71053
+    line: 59
+    anchor: "| `aws_vpc`, `aws_subnet` | Boundary | Network Zone |"
+    destination: shared/scout-reference.md
+  - id: ebaa983394
+    line: 60
+    anchor: "| `aws_security_group` | Boundary + Control | Network Zone + Firewall |"
+    destination: shared/scout-reference.md
+  - id: b5845048df
+    line: 61
+    anchor: "| `aws_api_gateway_rest_api` | PROCESS | API Gateway |"
+    destination: shared/scout-reference.md
+  - id: 2ea6998ccb
+    line: 62
+    anchor: "| `aws_s3_bucket` | STORE | Object Storage |"
+    destination: shared/scout-reference.md
+  - id: bb0f282208
+    line: 63
+    anchor: "| `aws_lambda_function` | PROCESS | Function |"
+    destination: shared/scout-reference.md
+  - id: 753b83d223
+    line: 64
+    anchor: "| `aws_cognito_user_pool` | EXTERNAL_ENTITY | Identity Provider |"
+    destination: shared/scout-reference.md
+  - id: b0674cdf50
+    line: 65
+    anchor: "| K8s Deployment/StatefulSet | PROCESS/STORE | Based on container image |"
+    destination: shared/scout-reference.md
+  - id: 8b8c8a907f
+    line: 66
+    anchor: "| K8s Namespace | Boundary | Namespace |"
+    destination: shared/scout-reference.md
+  - id: f6230a0253
+    line: 67
+    anchor: "| K8s NetworkPolicy | Control | Network Policy |"
+    destination: shared/scout-reference.md
+  - id: 85e8ef4f44
+    line: 68
+    anchor: "| K8s Ingress | PROCESS + boundary crossing | API Gateway / Load Balancer |"
+    destination: shared/scout-reference.md
+  - id: 484b001da6
+    line: 72
+    anchor: Each discovered element receives two confidence dimensions
+    destination: shared/scout-reference.md
+  - id: 499ac1bc81
+    line: 76
+    anchor: "| **Existence** | Explicit declaration (K8s Service, Terraform resource, OpenAPI endpoint) | Strong inference (Docker image,"
+    destination: shared/scout-reference.md
+  - id: 149da27b50
+    line: 77
+    anchor: name suggests purpose) | Ambiguous (custom module, generic
+    destination: shared/scout-reference.md
+  - id: 21d4f065a9
+    line: 83
+    anchor: "| PROCESS | Active computation, request handling | API servers, web servers, workers, microservices, Lambda functions"
+    destination: shared/scout-reference.md
+  - id: 95a3c2abf4
+    line: 84
+    anchor: "| STORE | Persistent or cached data | Databases, Redis, S3 buckets, file systems, message queues"
+    destination: shared/scout-reference.md
+  - id: 0505caf7a2
+    line: 85
+    anchor: "| EXTERNAL_ENTITY | Outside the system's control | End users, third-party APIs, SaaS services, partner systems"
+    destination: shared/scout-reference.md
+  - id: ea72cdf7a2
+    line: 89
+    anchor: Produce a compact report focused on the drift-classification question.
+    destination: agents/infrastructure-scout-scoped.md
+  - id: 2b1cfa839a
+    line: 93
+    anchor: Fresh discovery on the file allowlist.
+    destination: agents/infrastructure-scout-scoped.md
+  - id: c24b2f2864
+    line: 93
+    anchor: so the calling orchestrator can compute its delta against `.dethereal/discovery.json` without
+    destination: agents/infrastructure-scout-scoped.md
+  - id: cfe98f20c3
+    line: 95
+    anchor: "{ suggestedType: 'component' | 'boundary' | 'dataFlow' | 'dataItem' | 'control', suggestedName: string, suggestedDescription: string, suggestedComponentType?:"
+    destination: shared/scout-reference.md
+  - id: 666abc2d28
+    line: 113
+    anchor: must never contain credential material
+    destination: shared/scout-reference.md
+  - id: c584a0a6f9
+    line: 113
+    anchor: Each element's `sources[].file` must be one of the paths in the
+    destination: agents/infrastructure-scout-scoped.md
+  - id: fe7e591d36
+    line: 113
+    anchor: Do not invent provenance from outside the allowlist; if a single resource's evidence spans an out-of-allowlist
+    destination: agents/infrastructure-scout-scoped.md
+  - id: 932c7259a7
+    line: 117
+    anchor: "For each element in the prior report:"
+    destination: agents/infrastructure-scout-scoped.md
+  - id: c0f3c65358
+    line: 119
+    anchor: "{elementId} ({elementName}) — {verdict: holds | partial | fails} evidence: {file}:{line} ({what you read}) deltas: ["
+    destination: agents/infrastructure-scout-scoped.md
+  - id: bf79b33afb
+    line: 129
+    anchor: "{elementId} — propose {new componentType} / {new class name} rationale: {1-line pointer to evidence in the"
+    destination: agents/infrastructure-scout-scoped.md
+  - id: ab35b37f3c
+    line: 137
+    anchor: "For each element:"
+    destination: agents/infrastructure-scout-scoped.md
+  - id: 1edb0fe704
+    line: 139
+    anchor: "{elementId} — {still-present | renamed-to:<newPath> | gone | indeterminate} primary evidence path: {file in allowlist} identity"
+    destination: agents/infrastructure-scout-scoped.md
+  - id: d94887c9b1
+    line: 145
+    anchor: only needs the delta, not a full re-discovery.
+    destination: agents/infrastructure-scout-scoped.md
+  - id: 634ef63ed5
+    line: 149
+    anchor: — there is nothing for this agent to discover.
+    destination: agents/infrastructure-scout-scoped.md
+  - id: a1bb85a8a6
+    line: 149
+    anchor: job and pay full-scan latency to re-verify a three-line diff.
+    destination: agents/infrastructure-scout-scoped.md
+  - id: 5bb6c85d9b
+    line: 149
+    anchor: no amount of prompt drift can pattern-search the repository
+    destination: agents/infrastructure-scout-scoped.md
+    harnesses:
+      - claude
+      - opencode
+  - id: 767c4c0653
+    line: 149
+    dropped:
+      reason: The link points into the repository documentation, which a generated bundle does not contain; the drift procedure is carried by the workflow itself.
+      ref: docs/architecture/dethereal/DRIFT_DETECTION.md

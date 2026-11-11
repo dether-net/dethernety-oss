@@ -44,9 +44,11 @@ The engine splits into a **pure determination core** (a deterministic function o
 | `computeContainerSummary` | function | The display-only roll-up for a structural container. |
 | `buildZoningContext` | function | Project a model (structure + flows + data items) into a `ZoningContext`. |
 | `buildBoundaryAdjacency` | function | The component→component to boundary→boundary flow projection. |
+| `isForwarder` | function | Predicate: does this component relay traffic it does not terminate (a load balancer, proxy, VPN gateway, firewall or router)? |
 | `DEFAULT_ZONE` | const | The residual zone (`INTERNAL`) when nothing in the chain declares one. |
 | `EXPOSURE_RANK` | const | Exposure ordering used by the display roll-up (`VENDOR` is off the gradient). |
-| `ZoningContext`, `EffectiveZone`, `ZoneTierResult`, `ZoningFinding`, `ContainerSummary` | types | The engine's contract types. |
+| `FORWARDER_CLASS_IDS`, `FORWARDER_CLASS_NAMES` | const | The stock forwarding component classes, by id and by name. |
+| `ZoningContext`, `EffectiveZone`, `ZoneTierResult`, `ZoningFinding`, `ForwardPath`, `ContainerSummary` | types | The engine's contract types. |
 
 The `Zone`, `Plane`, and `Conduit` types the engine reasons over are defined in the [Domain Model](./DOMAIN_MODEL.md#boundary-zoning); the boundary hierarchy type (`StructureBoundary` / `ModelStructure`) is defined in `schemas/structure.schema.ts` (see [Import/Export — Schema Package](./IMPORT_EXPORT.md#schema-package)).
 
@@ -66,6 +68,8 @@ interface ZoningContext {
   directAssetIds: Set<string>  // boundaries that DIRECTLY hold a high-value asset (no ancestor rollup) — subset of assetIds
   externalIds: Set<string>     // boundaries declared UNTRUSTED (open/unknown external)
   vendorIds: Set<string>       // boundaries declared VENDOR (vetted-partner external)
+  forwardPaths?: ForwardPath[] // external ingress masked by forwarders: one { sourceId, targetId, via, viaIds } per (E, T)
+  forwardReach?: Set<string>   // every (E, T) a forwarder chain connects, whatever the zones — a conduit E→T there is never dead intent
 }
 ```
 
@@ -75,6 +79,8 @@ Two distinctions carry weight:
 - **`assetIds` emptiness is the phase.** An empty asset set (assets not yet classified) can never reach the cascade's asset rule, so the engine yields the skeleton tiering; a populated set lets the promotion fire. Default-then-promote falls out of the core reading a fuller context — it is **not** a second code path. See [TRUST_ZONING.md §2.3](../dethereal/TRUST_ZONING.md).
 
 Externality (`externalIds` / `vendorIds`) comes from each boundary's **own declared** `zone` — externality is an explicit declaration, never inherited.
+
+`forwardPaths` and `forwardReach` are optional: a context built by hand without them yields exactly the direct-edge findings.
 
 ---
 
@@ -132,6 +138,8 @@ interface ZoningFinding {
   detail: string
   severity: 'info' | 'warning'
   peerId?: string   // the crossing/channel peer, for the conduit- and domain-dependent kinds
+  via?: string[]    // external-ingress through forwarders: their names, in order
+  viaIds?: string[] // …and their ids, since names repeat
 }
 ```
 
@@ -142,11 +150,11 @@ Deterministic findings about intent completeness/coherence — **never correctne
 | `unclassified` | info | No zone declared anywhere in a leaf boundary's inheritance chain (falls back to Internal). Suppressed on structural containers. |
 | `under-protected` | warning | A **direct** asset holder resolves looser than `RESTRICTED` (misplaced in an exposed segment, under-segmented, or unverifiable ingress). |
 | `mgmt-plane` | warning | A `MANAGEMENT`-plane boundary resolves to an externally-reachable tier (`PUBLIC`/`EXPOSED`). |
-| `external-ingress` | warning | An external-tier boundary has a modelled flow into a declared-trusted tier with no approved conduit. |
+| `external-ingress` | warning | An external-tier boundary has a modelled flow into a declared-trusted tier with no approved conduit — directly, or through one or more forwarders (then with `via` / `viaIds`). |
 | `flow-channel` | warning / info | A risk-bearing crossing vs. its declared conduit: an undeclared path (warning), a declared-but-dormant channel, or a channel with no justification (info). |
 | `cross-tier-domain` | info | A hand-authored `domains` tag couples an externally-reachable member with a protected one (direct asset holder or declared `RESTRICTED`) — the blast-radius / co-tenancy shape. |
 
-The `external-ingress` and `flow-channel` kinds read the boundaries' declared conduits (see [Domain Model — Boundary Zoning](./DOMAIN_MODEL.md#boundary-zoning)) against the flow `adjacency`; conduits are matched OUTBOUND-canonically. `cross-tier-domain` is what makes the otherwise free-text `domains` field **load-bearing** — the engine reads `domains` nowhere else. The per-kind rationale (why `cross-tier-domain` fires only on the external↔protected coupling, the scope disclaimer) is in [TRUST_ZONING.md §2.4](../dethereal/TRUST_ZONING.md).
+The `external-ingress` and `flow-channel` kinds read the boundaries' declared conduits (see [Domain Model — Boundary Zoning](./DOMAIN_MODEL.md#boundary-zoning)) against the flow `adjacency`; conduits are matched OUTBOUND-canonically. `cross-tier-domain` is what makes the otherwise free-text `domains` field **load-bearing** — the engine reads `domains` nowhere else. The masked `external-ingress` crossings come from the context's `forwardPaths`; a direct edge E→T wins over them, and `forwardReach` keeps a conduit E→T behind forwarders from reading as dead intent. The per-kind rationale (why `cross-tier-domain` fires only on the external↔protected coupling, what counts as a forwarder and where it may sit, the scope disclaimer) is in [TRUST_ZONING.md §2.4](../dethereal/TRUST_ZONING.md).
 
 ---
 
@@ -187,6 +195,7 @@ buildBoundaryAdjacency(structure: ModelStructure, flows: DataFlow[]): { in: ...;
 
 - **Nesting-derived parents.** On-disk structure is nesting-only and commonly omits `parentBoundary` back-refs, so `boundariesById` is normalized to carry a `parentBoundary` derived from the authoritative nesting projection (`flattenStructure`'s `parentMap`). Without this, the inheritance resolver — the sole reader of `parentBoundary` — would skip every nesting ancestor.
 - **Externality from declared zone.** A boundary lands in `externalIds` / `vendorIds` from its own declared `UNTRUSTED` / `VENDOR` zone; the default root is never external.
+- **Forward paths.** One breadth-first search per external boundary E along component flows, in (name, id) order, passing only through components `isForwarder` admits: `forwardPaths` relays only through forwarders outside a trusted tier, `forwardReach` through forwarders whatever their tier's zone (neither ever through the root, E, or an external boundary). Each (E, T) is recorded once, from the shortest path, so the result does not depend on flow order; there is no hop bound. A component's class (`classData`) decides whether it is a forwarder; only an unclassified `PROCESS` is judged by its name.
 - **Asset join.** A boundary is asset-bearing when a descendant is a high-value asset: a `crownJewel === true` component, or a data item with `sensitivity === 'restricted'` or a non-empty `regulatory_flags`. Each asset marks its direct holder (`directAssetIds`) and — for the rollup — every ancestor up to but excluding the default root (`assetIds`).
 
 **`buildBoundaryAdjacency`** projects each flow's two component endpoints up to their containing boundaries via `parentMap` and keeps an edge only when both endpoints resolve, the two boundaries differ (intra-boundary edges are dropped), and neither is the default root (the root contributes **no phantom ingress**, so it cannot satisfy the asset rule's positive-ingress test). The map is directional — the asset rule reads the `in` map; egress is not a classifier.

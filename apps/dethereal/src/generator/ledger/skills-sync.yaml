@@ -1,0 +1,1766 @@
+source: skills/sync/SKILL.md
+blob: e50eb6beae68c95c88b960dca0cef5d5d6d98cf2
+migrated: true
+rules:
+  - id: 37e13a1b8f
+    line: 7
+    anchor: a threat model between local files and the platform
+    destination: skills/sync/SKILL.md
+  - id: ca343adfee
+    line: 7
+    anchor: a push publishes; it is not a two-way sync
+    destination: skills/sync/SKILL.md
+  - id: 4f0b51b8ab
+    line: 9
+    anchor: the local files are authoritative for the model
+    destination: skills/sync/SKILL.md
+  - id: d15e6c0a7e
+    line: 9
+    anchor: the platform for what it computes
+    destination: skills/sync/SKILL.md
+  - id: 7b59e78be7
+    line: 9
+    anchor: it is not a two-way sync
+    destination: skills/sync/SKILL.md
+  - id: 24b5d7b8ce
+    line: 13
+    dropped:
+      reason: The routing is the verb table below the arguments; the harness argument token replaces the Claude variable
+      ref: apps/dethereal/workflow/skills/sync/SKILL.md
+  - id: cb9383ca89
+    line: 15
+    anchor: push, below; then the control library in sync-controls
+    destination: skills/sync/SKILL.md
+  - id: c9c6393984
+    line: 16
+    anchor: pull [model id or name]
+    destination: skills/sync/SKILL.md
+  - id: 1ee18480ef
+    line: 17
+    anchor: status [directory] | status, below
+    destination: skills/sync/SKILL.md
+  - id: a5b7da19ab
+    line: 18
+    anchor: promote-external-edit <control id> <class id>
+    destination: skills/sync/SKILL.md
+  - id: "23449618e3"
+    line: 19
+    anchor: tombstone <control id>
+    destination: skills/sync/SKILL.md
+  - id: f20ad3ceee
+    line: 20
+    anchor: recovers from a stranded WAL journal
+    destination: shared/control-library-push.md
+  - id: a212f22a68
+    line: 21
+    anchor: "no verb, or an unknown one: show this table and stop"
+    destination: skills/sync/SKILL.md
+  - id: b97824fb71
+    line: 22
+    dropped:
+      reason: The verb table replaces the usage block; command names are spelled per harness by the generator
+      ref: apps/dethereal/workflow/skills/sync/SKILL.md
+  - id: a9178d6566
+    line: 35
+    anchor: model resolution protocol
+    destination: skills/sync/SKILL.md
+  - id: bbe87905a5
+    line: 35
+    anchor: "## 2. the platform model"
+    destination: skills/sync-pull/SKILL.md
+  - id: 688661fd84
+    line: 43
+    anchor: "with verify: true"
+    destination: shared/push-flow.md
+  - id: 726cc72e8a
+    line: 43
+    dropped:
+      reason: The core rules state the home-directory state rule for every skill
+      ref: apps/dethereal/workflow/shared/core-rules.md
+  - id: 2e22bc73a6
+    line: 43
+    dropped:
+      reason: The core rules state the home-directory state rule for every skill
+      ref: apps/dethereal/workflow/shared/core-rules.md
+  - id: 5257bbffe4
+    line: 45
+    anchor: "If `authenticated` is true (this includes platforms with `authDisabled: true`): proceed"
+    destination: shared/push-flow.md
+  - id: 694830fd24
+    line: 46
+    anchor: ask the auth-missing question (core rules)
+    destination: shared/push-flow.md
+  - id: 3db907463a
+    line: 50
+    anchor: resolve the model path using the model resolution protocol
+    destination: shared/push-flow.md
+  - id: bfaf1dbe68
+    line: 51
+    anchor: if no model exists, suggest
+    destination: shared/push-flow.md
+  - id: "3863176941"
+    line: 52
+    anchor: "model files from disk: `manifest.json`, `structure.json`, `dataflows.json`, `data-items.json`"
+    destination: shared/push-flow.md
+  - id: a60500476c
+    line: 53
+    anchor: if validation fails, show the errors and stop
+    destination: shared/push-flow.md
+  - id: ff11db6699
+    line: 54
+    anchor: errors and stop — do not push a broken model
+    destination: shared/push-flow.md
+  - id: dbd8949018
+    line: 55
+    anchor: If the model has 0 components and 0 boundaries (beyond the default boundary),
+    destination: shared/push-flow.md
+  - id: c49be04134
+    line: 59
+    anchor: "Read `manifest.json` and check the `model.id` field:"
+    destination: shared/push-flow.md
+  - id: e5f8f41190
+    line: 61
+    anchor: "**If `model.id` is set** (model was previously pushed or pulled): this is an update to an"
+    destination: shared/push-flow.md
+  - id: a60a217b20
+    line: 62
+    anchor: "**If `model.id` is null or missing**: this is a first push (new platform model); there is nothing to conflict with."
+    destination: shared/push-flow.md
+  - id: 3c183a0d08
+    line: 66
+    anchor: The pull and push tools write .dethereal/sync.json themselves
+    destination: shared/push-flow-reference.md
+  - id: cff150035f
+    line: 68
+    anchor: When it is missing but manifest.model.id is set
+    destination: shared/push-flow-reference.md
+  - id: 2a69e5420f
+    line: 70
+    dropped:
+      reason: "A missing sync.json is no longer rebuilt by hand: a hand-written file cannot carry the signed platform record. The push refuses with baseline missing and lists every element instead."
+      ref: apps/dethereal/workflow/shared/push-flow-reference.md
+  - id: 1d0bd80678
+    line: 71
+    dropped:
+      reason: "A missing sync.json is no longer rebuilt by hand: a hand-written file cannot carry the signed platform record. The push refuses with baseline missing and lists every element instead."
+      ref: apps/dethereal/workflow/shared/push-flow-reference.md
+  - id: c2ba1bfd19
+    line: 72
+    dropped:
+      reason: "A missing sync.json is no longer rebuilt by hand: a hand-written file cannot carry the signed platform record. The push refuses with baseline missing and lists every element instead."
+      ref: apps/dethereal/workflow/shared/push-flow-reference.md
+  - id: 71ab0c6c77
+    line: 73
+    dropped:
+      reason: "A missing sync.json is no longer rebuilt by hand: a hand-written file cannot carry the signed platform record. The push refuses with baseline missing and lists every element instead."
+      ref: apps/dethereal/workflow/shared/push-flow-reference.md
+  - id: 2fd8ea78a1
+    line: 74
+    dropped:
+      reason: "A missing sync.json is no longer rebuilt by hand: a hand-written file cannot carry the signed platform record. The push refuses with baseline missing and lists every element instead."
+      ref: apps/dethereal/workflow/shared/push-flow-reference.md
+  - id: cfc51e8369
+    line: 78
+    anchor: What the push would delete on the platform
+    destination: shared/push-flow-reference.md
+  - id: af29526311
+    line: 80
+    dropped:
+      reason: "The server finds what a push would delete: the added_on_platform rows of its PLATFORM_CHANGED_SINCE_SYNC refusal, checked against its signed record of the last sync. The hand diff over a temporary export is gone (that export also registered a stray model directory on every push)."
+      ref: apps/dethereal/workflow/shared/push-flow-reference.md
+  - id: a8d7f77107
+    line: 80
+    dropped:
+      reason: "The server finds what a push would delete: the added_on_platform rows of its PLATFORM_CHANGED_SINCE_SYNC refusal, checked against its signed record of the last sync. The hand diff over a temporary export is gone (that export also registered a stray model directory on every push)."
+      ref: apps/dethereal/workflow/shared/push-flow-reference.md
+  - id: 9d50c5b09b
+    line: 80
+    dropped:
+      reason: "The server finds what a push would delete: the added_on_platform rows of its PLATFORM_CHANGED_SINCE_SYNC refusal, checked against its signed record of the last sync. The hand diff over a temporary export is gone (that export also registered a stray model directory on every push)."
+      ref: apps/dethereal/workflow/shared/push-flow-reference.md
+  - id: e7dcf6adfc
+    line: 80
+    anchor: Show them as a table, grouped
+    destination: shared/push-flow.md
+  - id: 9b9987f026
+    line: 83
+    dropped:
+      reason: "The server finds what a push would delete: the added_on_platform rows of its PLATFORM_CHANGED_SINCE_SYNC refusal, checked against its signed record of the last sync. The hand diff over a temporary export is gone (that export also registered a stray model directory on every push)."
+      ref: apps/dethereal/workflow/shared/push-flow-reference.md
+  - id: a65de282a5
+    line: 84
+    dropped:
+      reason: "The server finds what a push would delete: the added_on_platform rows of its PLATFORM_CHANGED_SINCE_SYNC refusal, checked against its signed record of the last sync. The hand diff over a temporary export is gone (that export also registered a stray model directory on every push)."
+      ref: apps/dethereal/workflow/shared/push-flow-reference.md
+  - id: 55f84f4805
+    line: 85
+    dropped:
+      reason: "The server finds what a push would delete: the added_on_platform rows of its PLATFORM_CHANGED_SINCE_SYNC refusal, checked against its signed record of the last sync. The hand diff over a temporary export is gone (that export also registered a stray model directory on every push)."
+      ref: apps/dethereal/workflow/shared/push-flow-reference.md
+  - id: 15aed7ad2d
+    line: 86
+    dropped:
+      reason: "The server finds what a push would delete: the added_on_platform rows of its PLATFORM_CHANGED_SINCE_SYNC refusal, checked against its signed record of the last sync. The hand diff over a temporary export is gone (that export also registered a stray model directory on every push)."
+      ref: apps/dethereal/workflow/shared/push-flow-reference.md
+  - id: d8252c63b3
+    line: 88
+    dropped:
+      reason: "The server finds what a push would delete: the added_on_platform rows of its PLATFORM_CHANGED_SINCE_SYNC refusal, checked against its signed record of the last sync. The hand diff over a temporary export is gone (that export also registered a stray model directory on every push)."
+      ref: apps/dethereal/workflow/shared/push-flow-reference.md
+  - id: c4fe999efe
+    line: 89
+    dropped:
+      reason: "The server finds what a push would delete: the added_on_platform rows of its PLATFORM_CHANGED_SINCE_SYNC refusal, checked against its signed record of the last sync. The hand diff over a temporary export is gone (that export also registered a stray model directory on every push)."
+      ref: apps/dethereal/workflow/shared/push-flow-reference.md
+  - id: 8ce70d7bf5
+    line: 100
+    dropped:
+      reason: "The server finds what a push would delete: the added_on_platform rows of its PLATFORM_CHANGED_SINCE_SYNC refusal, checked against its signed record of the last sync. The hand diff over a temporary export is gone (that export also registered a stray model directory on every push)."
+      ref: apps/dethereal/workflow/shared/push-flow-reference.md
+  - id: 027b974f86
+    line: 101
+    dropped:
+      reason: "The server finds what a push would delete: the added_on_platform rows of its PLATFORM_CHANGED_SINCE_SYNC refusal, checked against its signed record of the last sync. The hand diff over a temporary export is gone (that export also registered a stray model directory on every push)."
+      ref: apps/dethereal/workflow/shared/push-flow-reference.md
+  - id: 4fff1c16c5
+    line: 102
+    dropped:
+      reason: "The server finds what a push would delete: the added_on_platform rows of its PLATFORM_CHANGED_SINCE_SYNC refusal, checked against its signed record of the last sync. The hand diff over a temporary export is gone (that export also registered a stray model directory on every push)."
+      ref: apps/dethereal/workflow/shared/push-flow-reference.md
+  - id: 115f45f06d
+    line: 104
+    dropped:
+      reason: "The server finds what a push would delete: the added_on_platform rows of its PLATFORM_CHANGED_SINCE_SYNC refusal, checked against its signed record of the last sync. The hand diff over a temporary export is gone (that export also registered a stray model directory on every push)."
+      ref: apps/dethereal/workflow/shared/push-flow-reference.md
+  - id: dde2041832
+    line: 108
+    anchor: Show them as a table, grouped
+    destination: shared/push-flow.md
+  - id: e5d0f50933
+    line: 109
+    anchor: the push DELETES these
+    destination: shared/push-flow.md
+  - id: 6b32951fef
+    line: 133
+    anchor: the push DELETES these
+    destination: shared/push-flow.md
+  - id: c76b0e24a1
+    line: 133
+    dropped:
+      reason: "The refusal's table lists only the rows the server gives: a kind with no rows has none to omit."
+      ref: apps/dethereal/workflow/shared/push-flow.md
+  - id: 9b4c1edf74
+    line: 133
+    anchor: deleting a boundary has cascading structural consequences
+    destination: shared/push-flow-reference.md
+  - id: 45d732e275
+    line: 135
+    dropped:
+      reason: The refusal's grouped table (the Push Flow's platform-changes step) replaces the two conflict wordings; a first push after a pull shows the same rows.
+      ref: apps/dethereal/workflow/shared/push-flow.md
+  - id: b383341ba5
+    line: 136
+    dropped:
+      reason: The refusal's grouped table (the Push Flow's platform-changes step) replaces the two conflict wordings; a first push after a pull shows the same rows.
+      ref: apps/dethereal/workflow/shared/push-flow.md
+  - id: 871cf54fb5
+    line: 154
+    anchor: "pull: pull the platform version first"
+    destination: shared/push-flow.md
+  - id: 91627378fe
+    line: 154
+    anchor: "the push-conflict answer pull: hand over to sync-pull with the directory, the model id and backup"
+    destination: skills/sync/SKILL.md
+  - id: f02cdb1a1f
+    line: 154
+    anchor: backing up local changes — never without the backup
+    destination: shared/push-flow.md
+  - id: 0e36733e67
+    line: 160
+    anchor: "**First push** (no `manifest.model.id`):"
+    destination: shared/push-flow.md
+  - id: 6825a25666
+    line: 161
+    anchor: with directory_path. Update →
+    destination: shared/push-flow.md
+  - id: 761e6e32a7
+    line: 162
+    anchor: "The tool handles: ID mapping (writes server UUIDs back to local files), sync.json creation"
+    destination: shared/push-flow.md
+  - id: 1c382195e3
+    line: 164
+    anchor: "**Update** (has `manifest.model.id`):"
+    destination: shared/push-flow.md
+  - id: 6fa86eb544
+    line: 165
+    anchor: "with directory_path and delete_orphaned: true"
+    destination: shared/push-flow.md
+  - id: d8ebf39b8b
+    line: 166
+    anchor: "The tool handles: structural diff, applying changes, sync.json update"
+    destination: shared/push-flow.md
+  - id: 0d854d34ba
+    line: 167
+    anchor: the server refuses before it deletes anything the operator has not named
+    destination: shared/push-flow-reference.md
+  - id: 188c1b757f
+    line: 169
+    anchor: "Both tools also publish the model's **asset context**: model scope (read from `.dethereal/scope.json`), per-component `crownJewel` (first-class"
+    destination: shared/push-flow-reference.md
+  - id: 9d0121e8a5
+    line: 169
+    anchor: These use REPLACE semantics — clearing a value locally clears it on the platform on the
+    destination: shared/push-flow-reference.md
+  - id: be634332df
+    line: 173
+    anchor: read the updated model files
+    destination: shared/push-flow.md
+  - id: 11c69b68d4
+    line: 174
+    anchor: server ids written to local files.
+    destination: shared/push-flow-reference.md
+  - id: c423c3ebce
+    line: 175
+    anchor: 'Pushed "<model-name>" to platform. <N> boundaries, <M> components, <K> flows, <J> data items. Platform model ID:'
+    destination: shared/push-flow.md
+  - id: a7ea2a89e8
+    line: 183
+    anchor: a push that succeeds has linked every `controls[]` entry
+    destination: shared/push-flow-reference.md
+  - id: 5eb2fb56b4
+    line: 185
+    dropped:
+      reason: "Intended change: a push no longer stores an unlinkable control as a name-only reference with a warning; it refuses, and the operator decides each entry."
+      ref: apps/dethereal/workflow/shared/control-resolution.md
+  - id: 4e0d964a8b
+    line: 193
+    anchor: a push that succeeds has linked every `controls[]` entry
+    destination: shared/push-flow-reference.md
+  - id: e320764831
+    line: 195
+    dropped:
+      reason: A step number of the legacy list; the step itself is placed
+      ref: apps/dethereal/workflow/shared/push-flow-reference.md
+  - id: f52d0006da
+    line: 195
+    anchor: flows) were not synced — the platform tracks crown jewels on components
+    destination: shared/push-flow-reference.md
+  - id: bbc04a9bbe
+    line: 195
+    anchor: surface it verbatim when present
+    destination: shared/push-flow-reference.md
+  - id: a8d466987e
+    line: 197
+    dropped:
+      reason: "Intended change: the push writes back the id of each control it linked by name, and its registration follows; the model no longer pins ids after a push."
+      ref: apps/dethereal/workflow/shared/push-flow.md
+  - id: 944ec6a84b
+    line: 199
+    dropped:
+      reason: "Intended change: the push writes back the id of each control it linked by name, and its registration follows; the model no longer pins ids after a push."
+      ref: apps/dethereal/workflow/shared/push-flow.md
+  - id: 8d4a08d679
+    line: 200
+    dropped:
+      reason: "Intended change: the push writes back the id of each control it linked by name, and its registration follows; the model no longer pins ids after a push."
+      ref: apps/dethereal/workflow/shared/push-flow.md
+  - id: 68e1b95f26
+    line: 201
+    dropped:
+      reason: "Intended change: the push writes back the id of each control it linked by name, and its registration follows; the model no longer pins ids after a push."
+      ref: apps/dethereal/workflow/shared/push-flow.md
+  - id: f5d364e165
+    line: 203
+    dropped:
+      reason: "Intended change: the push writes back the id of each control it linked by name, and its registration follows; the model no longer pins ids after a push."
+      ref: apps/dethereal/workflow/shared/push-flow.md
+  - id: 72adb72826
+    line: 204
+    dropped:
+      reason: "Intended change: the push writes back the id of each control it linked by name, and its registration follows; the model no longer pins ids after a push."
+      ref: apps/dethereal/workflow/shared/push-flow.md
+  - id: 54f1623c63
+    line: 206
+    dropped:
+      reason: "Intended change: the push writes back the id of each control it linked by name, and its registration follows; the model no longer pins ids after a push."
+      ref: apps/dethereal/workflow/shared/push-flow.md
+  - id: 573423712d
+    line: 208
+    anchor: For each control reference with a non-null `id`
+    destination: shared/push-flow.md
+  - id: 203b9872ff
+    line: 209
+    anchor: check the id exists in the platform control list
+    destination: shared/push-flow.md
+  - id: 1149d45c6c
+    line: 210
+    anchor: if any others are missing, show them (name and id)
+    destination: shared/push-flow.md
+  - id: 8552d17fec
+    line: 213
+    anchor: if any others are missing, show them (name and id)
+    destination: shared/push-flow.md
+  - id: 0d9775e20f
+    line: 215
+    anchor: these control references no longer exist on the platform.
+    destination: shared/push-flow.md
+  - id: 150208f49d
+    line: 215
+    anchor: "`keep`: change nothing, and note the warning for manual review"
+    destination: shared/push-flow.md
+  - id: ceac2a41db
+    line: 215
+    anchor: "`keep`: change nothing, and note the warning for manual review"
+    destination: shared/push-flow.md
+  - id: 008b4ae583
+    line: 215
+    anchor: "`keep`: change nothing, and note the warning for manual review"
+    destination: shared/push-flow.md
+  - id: 332db22fe6
+    line: 220
+    anchor: after analysis, to link controls to exposures
+    destination: shared/push-flow.md
+  - id: 7e917ce43b
+    line: 222
+    anchor: merge the structural push's counts with the control-library counts
+    destination: shared/control-library-push.md
+  - id: 0aa7ad408f
+    line: 226
+    anchor: runs after the structural push succeeded
+    destination: shared/control-library-push.md
+  - id: efe02f64bf
+    line: 226
+    anchor: drives the per-control attribute edits
+    destination: shared/control-library-push.md
+  - id: e3dbb00974
+    line: 230
+    anchor: Enumerate `<modelDir>/controls/<id>.json` files.
+    destination: shared/control-library-push.md
+  - id: 15fb4bb9eb
+    line: 230
+    anchor: "Sort each into one of three buckets:"
+    destination: shared/control-library-push.md
+  - id: fd5466f405
+    line: 232
+    anchor: "**Brownfield with pending edits** (the canonical case): `lifecycle === 'brownfield'` AND any `classes[].pendingEdit` populated."
+    destination: shared/control-library-push.md
+  - id: 3a5a9018ad
+    line: 234
+    anchor: these are locally-authored Controls that need to be created on the platform with WAL-protected id
+    destination: shared/control-library-push.md
+  - id: 64210ed593
+    line: 236
+    anchor: "**External-edit drift**: `lifecycle === 'brownfield' || lifecycle === 'partially-pushed'`, AND `attributes != platformAttributes` for any class"
+    destination: shared/control-library-push.md
+  - id: 57d5ecfc8a
+    line: 237
+    anchor: 'External edit detected on control(s): - "<name>" [class "<className>"]: attributes diverge from platformAttributes with no pendingEdit.'
+    destination: shared/control-library-push.md
+  - id: ec9254260c
+    line: 244
+    anchor: even if other Controls have valid pending edits in the same batch.
+    destination: shared/control-library-push.md
+  - id: 5cc543f9cb
+    line: 244
+    anchor: Forcing the operator to resolve drift before any further pushes mirrors the engine's
+    destination: shared/control-library-push.md
+  - id: ff60a04076
+    line: 246
+    anchor: if all three buckets are empty, print the plain footer
+    destination: shared/control-library-push.md
+  - id: 02b9347f18
+    line: 246
+    anchor: "**Do not surface noise** when the common case (no pending edits, no drift, no greenfield files)"
+    destination: shared/control-library-push.md
+  - id: 0e7a5ccc17
+    line: 250
+    anchor: "Refresh `platformAttributes` and `platformState.assignedModelIds` for the touched controls in a single batched round-trip:"
+    destination: shared/control-library-push.md
+  - id: 550bdc36af
+    line: 252
+    anchor: "action: 'pull-controls', directory_path: <modelDir>, control_ids: [ <touchedId1>, <touchedId2>, ... ] )"
+    destination: shared/control-library-push.md
+  - id: 1845a85628
+    line: 260
+    anchor: "`pull-controls` preserves `pendingEdit` when it exists on disk — only `platformAttributes` and `platformState.assignedModelIds` are overwritten."
+    destination: shared/control-library-push.md
+  - id: 5ef7743c93
+    line: 260
+    anchor: Re-read each touched file from disk; the skill now has the three inputs the engine needs
+    destination: shared/control-library-push.md
+  - id: 2bb5a2ea6f
+    line: 262
+    anchor: "`freshPlatformAttrs`: `Map<classId, Record<string, unknown>>` built from each class entry's refreshed `platformAttributes`."
+    destination: shared/control-library-push.md
+  - id: 278fabe524
+    line: 263
+    anchor: copied as it is — never built by hand
+    destination: shared/control-library-push.md
+  - id: 53450022fa
+    line: 264
+    anchor: "`thisModelId`: read from `manifest.json` `model.id`."
+    destination: shared/control-library-push.md
+  - id: a7b8e0e975
+    line: 266
+    anchor: If `pull-controls` reconciled one of the ids to `tombstoned` (the control was deleted on the platform
+    destination: shared/control-library-push.md
+  - id: db10a73e18
+    line: 270
+    anchor: "For each touched control, classify its state locally (no extra round-trips) using the refreshed data:"
+    destination: shared/control-library-push.md
+  - id: 2dc8760377
+    line: 274
+    anchor: "| `alone` | `assignedModelIds.length === 0` OR `assignedModelIds.length === 1 && assignedModelIds[0] === thisModelId` | Push"
+    destination: shared/control-library-push.md
+  - id: e940b55afe
+    line: 275
+    anchor: needs a sharedownership decision
+    destination: shared/control-library-push.md
+  - id: 50ccee50e9
+    line: 276
+    anchor: only push-unverified or cancel for that row
+    destination: shared/control-library-push.md
+  - id: 55f2133532
+    line: 277
+    anchor: "| `tombstoned` | `lifecycle === 'tombstoned'` after reconciliation | Surface as \"Control deleted on platform; skip"
+    destination: shared/control-library-push.md
+  - id: db0c303404
+    line: 279
+    anchor: "Within each state, compute per-key conflicts: for each `entry.pendingEdit.previousAttributes` key `k`, check whether `freshPlatformAttrs[classId][k] !== pendingEdit.previousAttributes[k]`."
+    destination: shared/control-library-push.md
+  - id: e473df34ba
+    line: 279
+    anchor: conflicting keys require a decision.perkey[<classidx>.<key>] resolution
+    destination: shared/control-library-push.md
+  - id: 40a8e3a8be
+    line: 283
+    anchor: used for one shared control with no conflicting keys and known ownership
+    destination: shared/control-library-push.md
+  - id: 16863f0ac3
+    line: 285
+    anchor: "Shared Control: <controlName> (<thisModelName>) This Control is also assigned to <M> other models (<M+1> total): -"
+    destination: shared/control-library-push.md
+  - id: 1833f629d7
+    line: 309
+    anchor: the row format and verb table are grouped for scannability under panic load
+    destination: shared/control-library-push.md
+  - id: 22da8d2153
+    line: 311
+    anchor: "Shared-Control review (<P> of <T> controls require approval): Prompted (require your decision): #1 <controlName> [shared: <M>"
+    destination: shared/control-library-push.md
+  - id: 19a2b417b2
+    line: 356
+    anchor: "**Row format rules:**"
+    destination: shared/control-library-push.md
+  - id: d3bcde0e04
+    line: 358
+    anchor: "The `[conflict: ...]` segment lists conflicting key names inline when the conflicting-key count is ≤ 3."
+    destination: shared/control-library-push.md
+  - id: 17e180caf3
+    line: 359
+    anchor: "`[intent: ...]` follows the same rule but applies to non-conflicting intended keys (the keys the operator"
+    destination: shared/control-library-push.md
+  - id: 6d718c56a0
+    line: 360
+    anchor: Always indent continuation lines by exactly the column width of the row label so the eye
+    destination: shared/control-library-push.md
+  - id: 30d7131fd1
+    line: 362
+    anchor: "**`cancel-all` vs `cancel-everything`:**"
+    destination: shared/control-library-push.md
+  - id: fb80e0de4a
+    line: 364
+    anchor: "`cancel-all` cancels only the *prompted* rows (the ones the operator was being asked about). The safe-to-push"
+    destination: shared/control-library-push.md
+  - id: f14c43445f
+    line: 365
+    anchor: — no pushes at all, including safe-to-push. Use for "kill all control-library writes this session."
+    destination: shared/control-library-push.md
+  - id: df17298e4e
+    line: 367
+    anchor: The asymmetric default exists so an operator can deal with the prompts without inadvertently blocking the
+    destination: shared/control-library-push.md
+  - id: 86296b3c51
+    line: 369
+    anchor: "or for every 3-way conflict the single-control prompt expands inline:"
+    destination: shared/control-library-push.md
+  - id: 718d088b82
+    line: 371
+    anchor: "<key> (<type>): <yourValue> → <yourProposed> (you proposed) <serverValue> (server changed since your pull) Per-key choice: keep"
+    destination: shared/control-library-push.md
+  - id: 514bce6869
+    line: 380
+    anchor: Parse operator input iteratively until `done` is issued.
+    destination: shared/control-library-push.md
+  - id: ebeef264ba
+    line: 380
+    anchor: maintain a decisions map keyed by control index
+    destination: shared/control-library-push.md
+  - id: 2982875deb
+    line: 382
+    anchor: "**Key-name syntax with dots / hyphens / spaces:** When a key contains a dot (`tls.min_version`), wrap"
+    destination: shared/control-library-push.md
+  - id: 06d699c373
+    line: 383
+    anchor: without quoting, the dot is parsed as the row/key separator
+    destination: shared/control-library-push.md
+  - id: "9424896173"
+    line: 386
+    anchor: Without quoting, the dot is parsed as the row/key separator and `keep 3.tls.min_version` is rejected as
+    destination: shared/control-library-push.md
+  - id: a842be0c33
+    line: 388
+    anchor: renders the cached platformstate.assignedmodelids
+    destination: shared/control-library-push.md
+  - id: 74a9bac953
+    line: 390
+    anchor: 'Models assigned to "<controlName>" (<M> total, cached from last pull): - <modelId1> - <modelId2> ... (model'
+    destination: shared/control-library-push.md
+  - id: 453155a5e5
+    line: 400
+    anchor: The `--follow` flag matters because `controls/` files get renamed when class IDs change (greenfield → brownfield
+    destination: shared/control-library-push.md
+  - id: 1c6ed2adb8
+    line: 402
+    anchor: "**`merge <n>.<key> = <json>` — JSON literal validation with helpful error:**"
+    destination: shared/control-library-push.md
+  - id: b19b90ce2d
+    line: 404
+    anchor: When `JSON.parse(<json>)` throws, render the parse error verbatim plus the input plus three example forms (covers
+    destination: shared/control-library-push.md
+  - id: d9fd6e4d28
+    line: 406
+    anchor: 'Invalid JSON literal: <error message from JSON.parse> Got: <user input> Try: "string" (string) | true /'
+    destination: shared/control-library-push.md
+  - id: 824e4be098
+    line: 414
+    anchor: then ask again
+    destination: shared/control-library-push.md
+  - id: fb9e950622
+    line: 414
+    anchor: "Without the type hint, operators retype the same broken input (most common: typing `strict` instead of"
+    destination: shared/control-library-push.md
+  - id: b975efe8fa
+    line: 416
+    anchor: "**`show all` cost guard:** When prompted-control count > 4, render `show all` as `show all (will"
+    destination: shared/control-library-push.md
+  - id: 321e598cc6
+    line: 420
+    anchor: Under realistic operator load (5+ shared Controls × 3+ conflicting keys each), even the
+    destination: shared/control-library-push.md
+  - id: bd59c5766a
+    line: 420
+    anchor: "Auto-engage **compact mode** when EITHER threshold is met:"
+    destination: shared/control-library-push.md
+  - id: bc0b7caa4f
+    line: 422
+    anchor: "**≥5 prompted Controls**, OR"
+    destination: shared/control-library-push.md
+  - id: 82705b7287
+    line: 423
+    anchor: "**≥10 total conflicting keys** across all prompted Controls."
+    destination: shared/control-library-push.md
+  - id: 2c659293f4
+    line: 425
+    anchor: (The row threshold is intentionally generous — a 3- or 4-row table reads cleanly verbose; the
+    destination: shared/control-library-push.md
+  - id: 6b32348eda
+    line: 425
+    anchor: The conflicting-key threshold is the load-bearing axis since per-key prompts dominate vertical space.)
+    destination: shared/control-library-push.md
+  - id: 8850bddadb
+    line: 427
+    anchor: "Render rules in compact mode:"
+    destination: shared/control-library-push.md
+  - id: 04cf9335b1
+    line: 429
+    anchor: "Strip the per-row `[shared: ...]` / `[intent: ...]` segments. Keep only `[!<N> conflicts]` as a badge"
+    destination: shared/control-library-push.md
+  - id: 3f9367b6e6
+    line: 430
+    anchor: keep [ownership unknown]
+    destination: shared/control-library-push.md
+  - id: 956a4bb265
+    line: 431
+    anchor: "Replace the multi-line Verbs block with a one-line hint that includes the display toggle: `Verbs: per-row"
+    destination: shared/control-library-push.md
+  - id: 83151fef7c
+    line: 432
+    anchor: Always render `show <n>` and `show all` outputs in **verbose mode** (compact is for the at-a-glance
+    destination: shared/control-library-push.md
+  - id: 49c67cbc00
+    line: 434
+    dropped:
+      reason: The worked example of the compact render is dropped; the rules above it define the render
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: 1ecf0e43cf
+    line: 435
+    anchor: <n>) | per-key (keep|accept-theirs|merge <n>.<key>) | bulk (keep-all|accept-theirs-all|cancel-all|cancel-everything <n>?) | inspect (show <n>|show all|show
+    destination: shared/control-library-push.md
+  - id: 9b02f5720c
+    line: 454
+    dropped:
+      reason: A note on revisiting the thresholds after telemetry; not an instruction
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: 170859d773
+    line: 454
+    dropped:
+      reason: A note on revisiting the thresholds after telemetry; not an instruction
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: 4fe4e78be0
+    line: 454
+    anchor: for the rest of the session; `compact` flips back.
+    destination: shared/control-library-push.md
+  - id: 9dc8f12f01
+    line: 454
+    anchor: The toggle is also surfaced in the Verbs hint above so it's discoverable in-band.
+    destination: shared/control-library-push.md
+  - id: 8fab08e83f
+    line: 458
+    dropped:
+      reason: "merge-from-file is removed: a long value is pasted as a merge JSON literal (reading a staged file needed a check only a shell can make, and invited key material into the session)"
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: e17512249e
+    line: 458
+    dropped:
+      reason: "merge-from-file is removed: a long value is pasted as a merge JSON literal (reading a staged file needed a check only a shell can make, and invited key material into the session)"
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: a5acc02465
+    line: 460
+    dropped:
+      reason: "merge-from-file is removed: a long value is pasted as a merge JSON literal (reading a staged file needed a check only a shell can make, and invited key material into the session)"
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: 2fd6192490
+    line: 464
+    dropped:
+      reason: "merge-from-file is removed: a long value is pasted as a merge JSON literal (reading a staged file needed a check only a shell can make, and invited key material into the session)"
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: 7e472901bb
+    line: 464
+    dropped:
+      reason: A label; the items under it are placed on their own
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: aebc1252e2
+    line: 466
+    dropped:
+      reason: "merge-from-file is removed: a long value is pasted as a merge JSON literal (reading a staged file needed a check only a shell can make, and invited key material into the session)"
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: ec06be4463
+    line: 467
+    dropped:
+      reason: "merge-from-file is removed: a long value is pasted as a merge JSON literal (reading a staged file needed a check only a shell can make, and invited key material into the session)"
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: b67be36421
+    line: 468
+    dropped:
+      reason: "merge-from-file is removed: a long value is pasted as a merge JSON literal (reading a staged file needed a check only a shell can make, and invited key material into the session)"
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: c22f2aaa49
+    line: 469
+    dropped:
+      reason: "merge-from-file is removed: a long value is pasted as a merge JSON literal (reading a staged file needed a check only a shell can make, and invited key material into the session)"
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: 640677081c
+    line: 470
+    dropped:
+      reason: "merge-from-file is removed: a long value is pasted as a merge JSON literal (reading a staged file needed a check only a shell can make, and invited key material into the session)"
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: 1b9d3986f4
+    line: 475
+    dropped:
+      reason: "Showing file content in a parse error is dropped: the error names the offset only"
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: f169432980
+    line: 476
+    dropped:
+      reason: "merge-from-file is removed: a long value is pasted as a merge JSON literal (reading a staged file needed a check only a shell can make, and invited key material into the session)"
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: f48bd65cfb
+    line: 478
+    dropped:
+      reason: "merge-from-file is removed: a long value is pasted as a merge JSON literal (reading a staged file needed a check only a shell can make, and invited key material into the session)"
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: cf8d99f713
+    line: 482
+    dropped:
+      reason: "merge-from-file is removed: a long value is pasted as a merge JSON literal (reading a staged file needed a check only a shell can make, and invited key material into the session)"
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: dff5e935d0
+    line: 483
+    dropped:
+      reason: "merge-from-file is removed: a long value is pasted as a merge JSON literal (reading a staged file needed a check only a shell can make, and invited key material into the session)"
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: 2f0fe31ebf
+    line: 484
+    dropped:
+      reason: "merge-from-file is removed: a long value is pasted as a merge JSON literal (reading a staged file needed a check only a shell can make, and invited key material into the session)"
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: ee8ee37b74
+    line: 485
+    dropped:
+      reason: "merge-from-file is removed: a long value is pasted as a merge JSON literal (reading a staged file needed a check only a shell can make, and invited key material into the session)"
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: 5ae1491660
+    line: 487
+    dropped:
+      reason: "merge-from-file is removed: a long value is pasted as a merge JSON literal (reading a staged file needed a check only a shell can make, and invited key material into the session)"
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: fd96140528
+    line: 487
+    dropped:
+      reason: The staging directory is now the only accepted location, not a suggested convention
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: 50f54e5e7d
+    line: 491
+    anchor: Iterate touched controls in stable (lexicographic by id) order.
+    destination: shared/control-library-push.md
+  - id: f5d154014d
+    line: 491
+    anchor: "For each control whose decision is NOT `cancel`:"
+    destination: shared/control-library-push.md
+  - id: 4c03c0bc86
+    line: 493
+    anchor: "perKey: { '<classIdx>.<key>': { chosen: '<keep|accept-theirs|merge>', merged?: <value> }, ... }, queryFailureReason: '<...>', // only for"
+    destination: shared/control-library-push.md
+  - id: bc1d7eab4c
+    line: 510
+    dropped:
+      reason: A label; the items under it are placed on their own
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: c8775bb1e2
+    line: 512
+    anchor: never promote from inside the review loop
+    destination: shared/control-library-push.md
+  - id: 8f3379478b
+    line: 513
+    anchor: 'Control "<name>" [class "<classId>"]: its local values were changed outside the plugin (no edit record for them). Recovery'
+    destination: shared/control-library-push.md
+  - id: a1d4bea386
+    line: 519
+    dropped:
+      reason: "The in-prompt promote shortcut is dropped: a promotion shows the diverging keys and asks first, in its own verb"
+      ref: apps/dethereal/workflow/shared/prompts.yaml (promote-confirm)
+  - id: cb2e21d651
+    line: 519
+    dropped:
+      reason: "The in-prompt promote shortcut is dropped: a promotion shows the diverging keys and asks first, in its own verb"
+      ref: apps/dethereal/workflow/shared/prompts.yaml (promote-confirm)
+  - id: 5290ad99d4
+    line: 521
+    anchor: "clone_and_swap_not_implemented cannot occur: clone is not offered"
+    destination: shared/control-library-push.md
+  - id: 0e1493216d
+    line: 522
+    anchor: cancel the row and create a separate control
+    destination: shared/control-library-push.md
+  - id: cec0330f56
+    line: 534
+    anchor: "clone_and_swap_not_implemented cannot occur: clone is not offered"
+    destination: shared/control-library-push.md
+  - id: 89267fb2a3
+    line: 536
+    anchor: Other errors → render control-scoped failure and continue with the next control (one failure does not
+    destination: shared/control-library-push.md
+  - id: 3f301ae51c
+    line: 538
+    anchor: for each successful push-anyway / push-unverified
+    destination: shared/control-library-push.md
+  - id: a38ea53383
+    line: 540
+    anchor: 'Control "<name>" [class "<className>"]: attributes pushed (audit logged, force-shared).'
+    destination: shared/control-library-push.md
+  - id: 8615b89fa8
+    line: 544
+    anchor: Once per sync session (first audit entry), render the log pointer
+    destination: shared/control-library-push.md
+  - id: 4a658052ca
+    line: 546
+    dropped:
+      reason: the audit log records no values (per-machine tags) and stays on this machine, so the verbatim note and the commit suggestion go
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: e75a4a04af
+    line: 562
+    anchor: merge the structural push's counts with the control-library counts
+    destination: shared/control-library-push.md
+  - id: 147d5a248b
+    line: 564
+    anchor: "[done] Push complete. <N> structural elements + <P> control edits pushed (Q force-shared, R force-unverified, S"
+    destination: shared/control-library-push.md
+  - id: 9dd0a13320
+    line: 569
+    anchor: if the control library had no work (empty gather), keep the plain footer
+    destination: shared/control-library-push.md
+  - id: 966fb18ddf
+    line: 571
+    anchor: "[done] Push complete. Quality: X/100. [next] When you're ready: commit changes to git, then"
+    destination: shared/control-library-push.md
+  - id: 7d73272136
+    line: 578
+    anchor: drives the engine's pushgreenfieldcontrol for locally-authored controls
+    destination: shared/control-library-push.md
+  - id: 7a8c640a76
+    line: 578
+    anchor: locally-authored controls that need to be created on the platform
+    destination: shared/control-library-push.md
+  - id: cb2cc8dc21
+    line: 580
+    anchor: for each control file in the greenfield / partially-pushed bucket
+    destination: shared/control-library-push.md
+  - id: 4d2e70fac2
+    line: 582
+    anchor: derive `supporting_element_ids`.** Walk `structure.json`, `dataflows.json` and `data-items.json`, collecting the id of every element or data item whose `controls[]` array
+    destination: shared/control-library-push.md
+  - id: 1047079a77
+    line: 584
+    anchor: "supportingElementIds = [] for each boundary, component, flow, data item in structure + dataflows + data-items: if element.controls?.some(c => c.id"
+    destination: shared/control-library-push.md
+  - id: 02cc35cec9
+    line: 591
+    anchor: the skill asks before pushing
+    destination: shared/control-library-push.md
+  - id: 09a6906ad5
+    line: 592
+    anchor: be created on the platform with no SUPPORTS
+    destination: shared/control-library-push.md
+  - id: a13db1fa85
+    line: 600
+    anchor: pre-fetch liveassignedmodelids for the new id
+    destination: shared/control-library-push.md
+  - id: ed4a66ba45
+    line: 600
+    anchor: For greenfield this is always `[]` (the Control doesn't exist on the platform yet
+    destination: shared/control-library-push.md
+  - id: 5c26ae8324
+    line: 600
+    anchor: Pass `[]` explicitly rather than the empty default to make caller intent visible.
+    destination: shared/control-library-push.md
+  - id: 07546cf727
+    line: 602
+    dropped:
+      reason: A label; the items under it are placed on their own
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: 09658ba573
+    line: 604
+    anchor: "action: 'push-greenfield', directory_path: <modelDir>, control_id: <greenfieldId>, supporting_element_ids: [...], folder_id: <optional folder>, live_assigned_model_ids: [] )"
+    destination: shared/control-library-push.md
+  - id: 6fcde7750f
+    line: 615
+    anchor: WAL-protected id rewrite (file rename + every `controls[]` reference in structure/dataflows/data-items rewritten from temp id to
+    destination: shared/control-library-push.md
+  - id: 4fa5a68782
+    line: 615
+    anchor: The WAL replay invoked by the pre-dispatch handles crash-recovery if the rewrite is interrupted.
+    destination: shared/control-library-push.md
+  - id: f1e2caa041
+    line: 617
+    anchor: "On success, render:"
+    destination: shared/control-library-push.md
+  - id: 5e9bf0ff92
+    line: 618
+    anchor: 'Greenfield Control "<name>": created on platform (<serverId>), <K> SUPPORTS edge(s) attached, lifecycle → brownfield.'
+    destination: shared/control-library-push.md
+  - id: 450d45f1cb
+    line: 622
+    anchor: On failure, surface the engine's error and continue to the next greenfield file (one failure does
+    destination: shared/control-library-push.md
+  - id: e1c5ec9065
+    line: 622
+    anchor: The on-disk file remains in `greenfield` or `partially-pushed` state for the next sync attempt.
+    destination: shared/control-library-push.md
+  - id: 09569ebd70
+    line: 624
+    anchor: <g> greenfield controls created
+    destination: shared/control-library-push.md
+  - id: e02efc805a
+    line: 630
+    anchor: marks a control tombstoned locally
+    destination: skills/sync-controls/SKILL.md
+  - id: 4e04b58e98
+    line: 630
+    anchor: Useful when an operator wants to retire a Control locally (e.g., after deciding the platform-side Control
+    destination: shared/control-library-push.md
+  - id: e39cd4fdf3
+    line: 632
+    dropped:
+      reason: The tool takes the model lock itself; the sign-in check runs before every verb
+      ref: apps/dethereal/src/tools/manage-controls.tool.ts
+  - id: 5e54b76f6b
+    line: 633
+    anchor: not found locally. nothing to tombstone
+    destination: skills/sync-controls/SKILL.md
+  - id: 2c1d645fb2
+    line: 634
+    anchor: Control <controlId> not found locally. Nothing to tombstone.
+    destination: shared/control-library-push.md
+  - id: b545b62e68
+    line: 637
+    dropped:
+      reason: A bare continuation of the preceding rendering step; the stop is in the rewritten step
+      ref: apps/dethereal/workflow/skills/sync-controls/SKILL.md
+  - id: e13f6a9f94
+    line: 638
+    anchor: it is left out of pushes
+    destination: skills/sync-controls/SKILL.md
+  - id: 68ff3e8418
+    line: 639
+    anchor: a later pull brings it back while the model still references it
+    destination: skills/sync-controls/SKILL.md
+  - id: 92cc773767
+    line: 645
+    dropped:
+      reason: The confirmation is the tombstone-confirm question; its cancel answer stops
+      ref: apps/dethereal/workflow/shared/prompts.yaml (tombstone-confirm)
+  - id: ede8f8ed64
+    line: 646
+    anchor: "with action: 'tombstone'"
+    destination: skills/sync-controls/SKILL.md
+  - id: 47a2a69388
+    line: 647
+    anchor: lifecycle → tombstoned; pendingedit (if any) preserved
+    destination: shared/control-library-push.md
+  - id: 679741a46b
+    line: 648
+    anchor: Control "<controlName>" tombstoned. Lifecycle → tombstoned; pendingEdit (if any) preserved for forensic reference. To re-activate,
+    destination: shared/control-library-push.md
+  - id: 886588e0e7
+    line: 653
+    anchor: "This verb is local-only: the platform-side Control is not deleted."
+    destination: shared/control-library-push.md
+  - id: 67442bb055
+    line: 653
+    anchor: Use the platform UI for that.
+    destination: shared/control-library-push.md
+  - id: 4d0f340a22
+    line: 659
+    anchor: recovers from a stranded wal journal
+    destination: shared/control-library-push.md
+  - id: 4942f54175
+    line: 659
+    anchor: Surfaces the journal contents, the on-disk state of every operation, and walks the operator through the
+    destination: shared/control-library-push.md
+  - id: eb88319c27
+    line: 659
+    anchor: network-fs ambiguous-state case
+    destination: shared/control-library-push.md
+  - id: 92b96dbf77
+    line: 661
+    anchor: model resolution protocol
+    destination: skills/sync-controls/SKILL.md
+  - id: ee182da0e2
+    line: 663
+    anchor: "with action: 'inspect-wal'"
+    destination: skills/sync-controls/SKILL.md
+  - id: 47baa94edb
+    line: 664
+    anchor: '"operations": [ { "kind": "greenfield-id-rewrite", "tempId": "greenfield-abc", "serverId": "550e8400-...", "controlFileRename": { "from": "controls/greenfield-abc.json", "to": "controls/550e8400-...json" },'
+    destination: shared/control-library-push.md
+  - id: 0ff64f5307
+    line: 686
+    anchor: no recovery journal. nothing to repair
+    destination: skills/sync-controls/SKILL.md
+  - id: 1f1e73615c
+    line: 688
+    anchor: example render for an ambiguous greenfield rewrite
+    destination: shared/control-library-push.md
+  - id: fd970d6980
+    line: 689
+    anchor: "Created: <createdAt> Operation 1 of 1: greenfield-id-rewrite tempId = greenfield-abc serverId = 550e8400-... Control file rename:"
+    destination: shared/control-library-push.md
+  - id: 8d7814b1e2
+    line: 715
+    anchor: under WAL-recovery stress operators are fatigued; the safest option (cancel)
+    destination: shared/control-library-push.md
+  - id: 11854ac7f7
+    line: 715
+    anchor: the destructive option (clear) comes last
+    destination: shared/control-library-push.md
+  - id: cda8212b59
+    line: 717
+    anchor: the safest option (cancel) comes first and is the default on empty input
+    destination: shared/control-library-push.md
+  - id: 5c4f272580
+    line: 718
+    anchor: journal preserved. re-run
+    destination: shared/control-library-push.md
+  - id: b0e6aaca54
+    line: 719
+    anchor: it replays on entry
+    destination: skills/sync-controls/SKILL.md
+  - id: 776bcad26d
+    line: 721
+    anchor: Re-inspect before each retry — the WAL state may have changed since the operator's prior inspect
+    destination: shared/control-library-push.md
+  - id: b3ff521b8c
+    line: 721
+    anchor: Render the freshly-inspected state alongside the retry prompt so the operator's mental model is current.
+    destination: shared/control-library-push.md
+  - id: f33fc3a823
+    line: 723
+    anchor: deleting the journal leaves the control files and references as they are
+    destination: skills/sync-controls/SKILL.md
+  - id: 546e44faad
+    line: 729
+    anchor: only the exact text clear-journal deletes
+    destination: skills/sync-controls/SKILL.md
+  - id: e52b04cee6
+    line: 729
+    anchor: Local file reconciliation is now manual.
+    destination: shared/control-library-push.md
+  - id: fe39eb98ea
+    line: 735
+    anchor: status NOW before any other directory-touching action — the lock has been released; another shell may
+    destination: shared/control-library-push.md
+  - id: 846eedf93a
+    line: 739
+    anchor: "Suggested manual checks:"
+    destination: shared/control-library-push.md
+  - id: 16337ca99e
+    line: 740
+    anchor: Verify exactly one of {controls/<tempId>.json, controls/<serverId>.json} exists
+    destination: shared/control-library-push.md
+  - id: 059863b9d5
+    line: 741
+    anchor: grep -r "<tempId>" structure.json dataflows.json data-items.json (should return no hits) ```
+    destination: shared/control-library-push.md
+  - id: 6c822760f3
+    line: 744
+    anchor: status now before any other directory-touching action
+    destination: shared/control-library-push.md
+  - id: 4a235c41d2
+    line: 746
+    dropped:
+      reason: A label; each caveat under it is placed on its own
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: 8269bf4df7
+    line: 747
+    anchor: "`repair-wal` is the operator's escape hatch — it cannot guess the right resolution. The skill's job"
+    destination: shared/control-library-push.md
+  - id: 2cf189251a
+    line: 748
+    anchor: The lock is held for the duration of inspect-wal / clear-wal so two operators can't repair
+    destination: shared/control-library-push.md
+  - id: 81a5a0a83a
+    line: 749
+    anchor: The platform-side Control was already created (that's how the journal got a `serverId`). Clearing the journal
+    destination: shared/control-library-push.md
+  - id: 3faf64f62a
+    line: 750
+    anchor: keep the surrounding prose ascii-only
+    destination: shared/control-library-push.md
+  - id: 688661fd84-2
+    line: 758
+    anchor: "with verify: true"
+    destination: skills/sync-pull/SKILL.md
+  - id: 726cc72e8a-2
+    line: 758
+    dropped:
+      reason: The core rules state the home-directory state rule for every skill
+      ref: apps/dethereal/workflow/shared/core-rules.md
+  - id: 2e22bc73a6-2
+    line: 758
+    dropped:
+      reason: The core rules state the home-directory state rule for every skill
+      ref: apps/dethereal/workflow/shared/core-rules.md
+  - id: 5257bbffe4-2
+    line: 760
+    anchor: "If `authenticated` is true (this includes platforms with `authDisabled: true`): proceed"
+    destination: shared/push-flow.md
+  - id: 694830fd24-2
+    line: 761
+    anchor: the core rules' sign-in question
+    destination: skills/sync-pull/SKILL.md
+  - id: 6777c74d28
+    line: 765
+    anchor: "handed a model id: use it"
+    destination: skills/sync-pull/SKILL.md
+  - id: 92db613d5f
+    line: 765
+    anchor: show them numbered (name, description)
+    destination: skills/sync-pull/SKILL.md
+  - id: 464c0b3849
+    line: 767
+    anchor: only if exactly one platform model has that name. otherwise call
+    destination: skills/sync-pull/SKILL.md
+  - id: a76ba33db4
+    line: 768
+    anchor: no models found on the platform.
+    destination: skills/sync-pull/SKILL.md
+  - id: 88150308f8
+    line: 769
+    anchor: show them numbered (name, description)
+    destination: skills/sync-pull/SKILL.md
+  - id: 2319e1ca71
+    line: 770
+    anchor: show them numbered (name, description)
+    destination: skills/sync-pull/SKILL.md
+  - id: 31acf951b6
+    line: 780
+    anchor: which platform model? give its number or id.
+    destination: skills/sync-pull/SKILL.md
+  - id: 5079d44d92
+    line: 784
+    anchor: "## 3. the target directory"
+    destination: skills/sync-pull/SKILL.md
+  - id: 6a9fd4e21d
+    line: 785
+    anchor: the directory argument, or the one handed over
+    destination: skills/sync-pull/SKILL.md
+  - id: 3c28293c0d
+    line: 786
+    anchor: ./threat-models/<kebab-case model name>/
+    destination: skills/sync-pull/SKILL.md
+  - id: 65c7320532
+    line: 788
+    anchor: "problem: absent → pull"
+    destination: skills/sync-pull/SKILL.md
+  - id: e36a4b5699
+    line: 789
+    anchor: never pull into a directory that is not a model
+    destination: skills/sync-pull/SKILL.md
+  - id: b25196ba7f
+    line: 790
+    dropped:
+      reason: The local-change check is the tool's; it reads the sync record itself
+      ref: apps/dethereal/src/utils/sync-utils.ts (localChangeStatus)
+  - id: a5bbc3ffd2
+    line: 791
+    dropped:
+      reason: The content hash is computed by the tool, never by hand
+      ref: apps/dethereal/src/utils/sync-utils.ts (localChangeStatus)
+  - id: 6f2817e5bd
+    line: 793
+    dropped:
+      reason: The content hash is computed by the tool, never by hand
+      ref: apps/dethereal/src/utils/sync-utils.ts (localChangeStatus)
+  - id: ef02399633
+    line: 793
+    dropped:
+      reason: The content hash is computed by the tool, never by hand
+      ref: apps/dethereal/src/utils/sync-utils.ts (localChangeStatus)
+  - id: 611b2b7f13
+    line: 794
+    dropped:
+      reason: The tool picks the baseline and treats a hash from an earlier scheme as clean
+      ref: apps/dethereal/src/utils/sync-utils.ts (localChangeStatus)
+  - id: fd27b45ebb
+    line: 795
+    anchor: "sync.status: no_local_changes and controllibrary pendingedits, drift and unpushed all 0 → pull"
+    destination: skills/sync-pull/SKILL.md
+  - id: 2ab54054cd
+    line: 796
+    anchor: anything else (local changes, never synced, unknown, control work not pushed)
+    destination: skills/sync-pull/SKILL.md
+  - id: 15ac09f334
+    line: 797
+    anchor: pulling will overwrite the model files
+    destination: skills/sync-pull/SKILL.md
+  - id: 99c2db50b8
+    line: 807
+    dropped:
+      reason: "push first stops and tells the operator to push, then pull again: a hand-over had no way back to the pull"
+      ref: apps/dethereal/workflow/skills/sync-pull/SKILL.md
+  - id: 93c16b8eaa
+    line: 808
+    anchor: both keep a backup, since the export always takes one
+    destination: skills/sync-pull/SKILL.md
+  - id: 640bd1fe91
+    line: 809
+    anchor: both keep a backup, since the export always takes one
+    destination: skills/sync-pull/SKILL.md
+  - id: 86f2ba4082
+    line: 810
+    anchor: "cancel: stop; nothing changed"
+    destination: skills/sync-pull/SKILL.md
+  - id: a38c158c79
+    line: 814
+    anchor: "with the model id, the directory and if_exists: 'backup'"
+    destination: skills/sync-pull/SKILL.md
+  - id: df4b07c7b1
+    line: 815
+    anchor: "with the model id, the directory and if_exists: 'backup'"
+    destination: skills/sync-pull/SKILL.md
+  - id: 83596c7e4f
+    line: 816
+    anchor: "with the model id, the directory and if_exists: 'backup'"
+    destination: skills/sync-pull/SKILL.md
+  - id: 037ba6b882
+    line: 818
+    anchor: "`manifest.json`, `structure.json`, `dataflows.json`, `data-items.json`, `attributes/`, `.dethereal/scope.json`, and `.dethereal/sync.json`."
+    destination: shared/sync-pull-reference.md
+  - id: ff7e51834a
+    line: 818
+    anchor: per-data `sensitivity` / `regulatoryFlags` / `origin` / `isCredential`
+    destination: shared/push-flow-reference.md
+  - id: 33bc490f45
+    line: 822
+    anchor: "`export_model` writes `structure.json`, `dataflows.json` and `data-items.json` with `controls[]` references but does NOT write the per-control files at"
+    destination: shared/sync-pull-reference.md
+  - id: adafcd211e
+    line: 822
+    anchor: Without this step, the local view shows Control references that have no local backing file —
+    destination: shared/sync-pull-reference.md
+  - id: ad9b79979d
+    line: 824
+    anchor: "**Discover the Control id set** by walking the freshly-pulled structure + dataflows + data-items:"
+    destination: shared/sync-pull-reference.md
+  - id: 0b6f14cc97
+    line: 826
+    anchor: "controlIds = new Set() for each component / boundary / flow / data item in structure.json + dataflows.json + data-items.json: for"
+    destination: shared/sync-pull-reference.md
+  - id: 48aa2622f1
+    line: 833
+    anchor: if no control is referenced, skip this step
+    destination: shared/sync-pull-reference.md
+  - id: 9125526a31
+    line: 835
+    anchor: otherwise pull-controls with those ids
+    destination: shared/sync-pull-reference.md
+  - id: c6ce969abe
+    line: 835
+    dropped:
+      reason: A label; the items under it are placed on their own
+      ref: apps/dethereal/workflow/shared/sync-pull-reference.md
+  - id: e5e361b2a0
+    line: 837
+    anchor: Refreshes (or creates) `controls/<id>.json` for each id with the platform's current state.
+    destination: shared/sync-pull-reference.md
+  - id: 523b706ac4
+    line: 838
+    anchor: Preserves any in-flight `pendingEdit` block on existing files
+    destination: shared/sync-pull-reference.md
+  - id: 388438ff90
+    line: 839
+    anchor: "Reconciles tombstoned ids by flipping `lifecycle: 'tombstoned'` rather than deleting the file."
+    destination: shared/sync-pull-reference.md
+  - id: 449bcfc409
+    line: 841
+    anchor: <c> control file(s) refreshed
+    destination: shared/sync-pull-reference.md
+  - id: 64364168cc
+    line: 842
+    anchor: <c> control file(s) refreshed
+    destination: shared/sync-pull-reference.md
+  - id: 091db3feb8
+    line: 846
+    anchor: any other per-id error is a warning in the summary
+    destination: skills/sync-pull/SKILL.md
+  - id: 3de62a1218
+    line: 846
+    dropped:
+      reason: The reason for continuing the pull; the continue rule itself is placed
+      ref: apps/dethereal/workflow/skills/sync-pull/SKILL.md
+  - id: 9dbf2c80fc
+    line: 848
+    anchor: --focus controls` still calls `pull-controls` for newly-discovered Control references during enrichment, but a fresh pull no
+    destination: shared/sync-pull-reference.md
+  - id: 8e5348b55e
+    line: 852
+    anchor: a model with no workflow state gets the state the content supports
+    destination: shared/sync-pull-reference.md
+  - id: 4d587faf42
+    line: 852
+    anchor: a model with no workflow state gets the state the content supports
+    destination: shared/sync-pull-reference.md
+  - id: 2ade7fc741
+    line: 854
+    anchor: a model with no workflow state gets the state the content supports
+    destination: shared/sync-pull-reference.md
+  - id: c9a551f45b
+    line: 874
+    dropped:
+      reason: A label; the items under it are placed on their own
+      ref: apps/dethereal/workflow/shared/sync-pull-reference.md
+  - id: 8a82de3122
+    line: 875
+    anchor: '**DISCOVERED is skipped** — discovery is a plugin concept; platform models were not "discovered"'
+    destination: shared/sync-pull-reference.md
+  - id: 96d478f952
+    line: 876
+    anchor: "**REVIEWED is never inferred** — review is a human attestation, must be explicit"
+    destination: shared/sync-pull-reference.md
+  - id: 63d3ebf502
+    line: 878
+    anchor: never write state.json
+    destination: skills/sync-pull/SKILL.md
+  - id: bdc294ee4e
+    line: 878
+    anchor: never write state.json
+    destination: skills/sync-pull/SKILL.md
+  - id: 1c00a2669e
+    line: 880
+    dropped:
+      reason: The state object is written by the state tool, which keeps every other key
+      ref: apps/dethereal/src/tools/model-state.tool.ts (merge_pulled)
+  - id: dc83b91535
+    line: 890
+    anchor: it keeps the rest of the state (the drift baseline, the sign-off, the elements awaiting re-enrichment)
+    destination: shared/sync-pull-reference.md
+  - id: f4f5fe864d
+    line: 890
+    anchor: it keeps the rest of the state (the drift baseline, the sign-off, the elements awaiting re-enrichment)
+    destination: shared/sync-pull-reference.md
+  - id: "1661965429"
+    line: 890
+    anchor: it keeps the rest of the state (the drift baseline, the sign-off, the elements awaiting re-enrichment)
+    destination: shared/sync-pull-reference.md
+  - id: 6282017e3c
+    line: 890
+    anchor: it keeps the rest of the state (the drift baseline, the sign-off, the elements awaiting re-enrichment)
+    destination: shared/sync-pull-reference.md
+  - id: 8b2ba3fa18
+    line: 892
+    dropped:
+      reason: The completed states are recorded by the state tool
+      ref: apps/dethereal/src/tools/model-state.tool.ts (merge_pulled)
+  - id: 5e90c9fd1d
+    line: 896
+    dropped:
+      reason: The completed states are recorded by the state tool
+      ref: apps/dethereal/src/tools/model-state.tool.ts (merge_pulled)
+  - id: 550afc744c
+    line: 897
+    dropped:
+      reason: The completed states are recorded by the state tool
+      ref: apps/dethereal/src/tools/model-state.tool.ts (merge_pulled)
+  - id: bf88cf1e0d
+    line: 898
+    dropped:
+      reason: The completed states are recorded by the state tool
+      ref: apps/dethereal/src/tools/model-state.tool.ts (merge_pulled)
+  - id: cbb2f1f8e9
+    line: 899
+    dropped:
+      reason: The completed states are recorded by the state tool
+      ref: apps/dethereal/src/tools/model-state.tool.ts (merge_pulled)
+  - id: 4dad5cf108
+    line: 903
+    anchor: "with action: 'quality'"
+    destination: skills/sync-pull/SKILL.md
+  - id: cd20b4d642
+    line: 905
+    anchor: records the result in .dethereal/quality.json itself
+    destination: skills/sync-pull/SKILL.md
+  - id: e666e93522
+    line: 909
+    anchor: the file is created when absent and every other entry is kept
+    destination: shared/sync-pull-reference.md
+  - id: 0ae3465f67
+    line: 911
+    anchor: an existing entry for the same directory is updated
+    destination: shared/sync-pull-reference.md
+  - id: ddeee0c8de
+    line: 912
+    anchor: a new one records the name, the path, when it was added
+    destination: shared/sync-pull-reference.md
+  - id: 9ddd08e9bc
+    line: 921
+    anchor: updated, never duplicated
+    destination: shared/sync-pull-reference.md
+  - id: 2864b291b1
+    line: 925
+    anchor: with representedmodel represent entire sub-models on the platform
+    destination: shared/sync-pull-reference.md
+  - id: fb7a736f2d
+    line: 927
+    dropped:
+      reason: A label; the items under it are placed on their own
+      ref: apps/dethereal/workflow/shared/sync-pull-reference.md
+  - id: 1156ef09cc
+    line: 928
+    anchor: this model references <n> other models
+    destination: shared/sync-pull-reference.md
+  - id: af3be15a21
+    line: 929
+    anchor: and whether each is registered locally
+    destination: skills/sync-pull/SKILL.md
+  - id: f2f46ed4a8
+    line: 930
+    dropped:
+      reason: "No sync record is written by hand: workspace_status reads the referenced models from structure.json"
+      ref: apps/dethereal/src/tools/workspace-status.tool.ts (referencedModelIds)
+  - id: d8044abc9e
+    line: 931
+    anchor: referenced models are not pulled automatically
+    destination: shared/sync-pull-reference.md
+  - id: 07f5e5bd22
+    line: 932
+    anchor: 'This model references <N> other models: "<Model A>" (<id>) -- not available locally "<Model B>" (<id>)'
+    destination: shared/sync-pull-reference.md
+  - id: 73d9762642
+    line: 941
+    dropped:
+      reason: With no referenced models the list is simply empty
+      ref: apps/dethereal/workflow/skills/sync-pull/SKILL.md
+  - id: 9170fade5f
+    line: 945
+    anchor: this is now your working copy
+    destination: shared/sync-pull-reference.md
+  - id: cea2dec3db
+    line: 946
+    anchor: 'Pulled "<model-name>" from platform. Written to: <directory-path>/ manifest.json Model metadata structure.json <N> boundaries, <M> components dataflows.json'
+    destination: shared/sync-pull-reference.md
+  - id: 24efe32372
+    line: 966
+    anchor: "**Callout when any control file had a `pendingEdit` block preserved**"
+    destination: shared/sync-pull-reference.md
+  - id: c030f5ae2a
+    line: 966
+    anchor: The operator needs to see this because the pull deliberately did NOT overwrite their in-flight local
+    destination: shared/sync-pull-reference.md
+  - id: 86d1efb36e
+    line: 967
+    anchor: Preserved in-flight edits on <P> control file(s) — your uncommitted pendingEdit blocks were kept; only platformAttributes
+    destination: shared/sync-pull-reference.md
+  - id: 45127667b2
+    line: 973
+    anchor: "**Callout when structure/dataflows/data-items referenced a Control id that the platform no longer returns** (tombstoned server-side between"
+    destination: shared/sync-pull-reference.md
+  - id: 61113f724f
+    line: 974
+    anchor: "Note: <Q> Control reference(s) in structure/dataflows/data-items had no matching entry in the platform response — likely"
+    destination: shared/sync-pull-reference.md
+  - id: 6010023c7f
+    line: 982
+    anchor: so a crashed or incomplete pull is recovered by restoring `<dir>.backup-<timestamp>/` over the model directory.
+    destination: shared/sync-pull-reference.md
+  - id: 41b4165fe5
+    line: 982
+    anchor: These backups are full-tree copies and are not garbage-collected, so prune stale `*.backup-*` siblings periodically.
+    destination: shared/sync-pull-reference.md
+  - id: f2d2509b2c
+    line: 984
+    dropped:
+      reason: A label; the items under it are placed on their own
+      ref: apps/dethereal/workflow/shared/sync-pull-reference.md
+  - id: 3707463cc0
+    line: 985
+    anchor: '[done] Pulled "<model-name>" (<STATE>, <score>/100 quality). <N> boundaries, <M> components, <K> flows. [next]'
+    destination: shared/sync-pull-reference.md
+  - id: ad015b2be9
+    line: 994
+    anchor: unblocks the external-edit guard of the push
+    destination: shared/control-library-push.md
+  - id: 354d24d7a0
+    line: 994
+    anchor: When the local `controls/<id>.json` `attributes` field diverges from `platformAttributes` *without* a `pendingEdit` block recording the change
+    destination: shared/control-library-push.md
+  - id: 406d2cfbf3
+    line: 994
+    anchor: This verb writes a `pendingEdit` block that records the divergence as the operator's deliberate intent so
+    destination: shared/control-library-push.md
+  - id: 0daad967db
+    line: 994
+    anchor: "**It does NOT re-pull** — re-pulling would overwrite the local `attributes` divergence the operator is trying"
+    destination: shared/control-library-push.md
+  - id: 913bfce1bc
+    line: 1000
+    anchor: both ids are required
+    destination: skills/sync-controls/SKILL.md
+  - id: 6383d6e257
+    line: 1000
+    anchor: otherwise show the table and stop
+    destination: skills/sync-controls/SKILL.md
+  - id: 21cf7e562a
+    line: 1002
+    anchor: model resolution protocol
+    destination: skills/sync-controls/SKILL.md
+  - id: fe6b8f2195
+    line: 1006
+    anchor: read controls/<control id>.json
+    destination: skills/sync-controls/SKILL.md
+  - id: 6b4e6346d0
+    line: 1006
+    anchor: "If the file does not exist, render:"
+    destination: shared/control-library-push.md
+  - id: eef1c35714
+    line: 1008
+    anchor: --focus controls to pull the control first, then re-try.
+    destination: shared/control-library-push.md
+  - id: b545b62e68-2
+    line: 1012
+    dropped:
+      reason: A bare continuation of the preceding rendering step; the stop is in the rewritten step
+      ref: apps/dethereal/workflow/skills/sync-controls/SKILL.md
+  - id: 1b1a1a90d0
+    line: 1014
+    anchor: note its 0-based index
+    destination: skills/sync-controls/SKILL.md
+  - id: c43a860b6f
+    line: 1014
+    anchor: "none matches: list the class ids and stop"
+    destination: skills/sync-controls/SKILL.md
+  - id: 0b4951b658
+    line: 1018
+    anchor: "with action: 'promote-external-edit'"
+    destination: skills/sync-controls/SKILL.md
+  - id: a0e6552832
+    line: 1027
+    anchor: "the engine's promote:"
+    destination: shared/control-library-push.md
+  - id: 7a33fba934
+    line: 1028
+    anchor: Computes the divergence between local `attributes` and `platformAttributes` for this class entry.
+    destination: shared/control-library-push.md
+  - id: 78e055ce41
+    line: 1029
+    anchor: Writes a `pendingEdit` block whose `previousAttributes` contains ONLY the keys that diverge (not a full snapshot
+    destination: shared/control-library-push.md
+  - id: 79f82259a9
+    line: 1030
+    anchor: "Sets `editedBy: 'external'` and bumps `localEditedAt`."
+    destination: shared/control-library-push.md
+  - id: 8de9e6087d
+    line: 1031
+    anchor: Persists via the WAL helper's atomic write.
+    destination: shared/control-library-push.md
+  - id: 78160101a6
+    line: 1032
+    anchor: Local `attributes` is **untouched** — the operator's intended values stay.
+    destination: shared/control-library-push.md
+  - id: bc1d7eab4c-2
+    line: 1034
+    dropped:
+      reason: A label; each error case under it is placed on its own
+      ref: apps/dethereal/workflow/shared/control-library-push.md
+  - id: 1aada7d26c
+    line: 1036
+    anchor: "`success: false, error: 'NO_DIVERGENCE'` → render:"
+    destination: shared/control-library-push.md
+  - id: 4d22068663
+    line: 1037
+    anchor: Control <controlId> [class <classId>] has no divergence between local attributes and platformAttributes.
+    destination: shared/control-library-push.md
+  - id: b545b62e68-3
+    line: 1042
+    dropped:
+      reason: A bare continuation of the preceding rendering step; the stop is in the rewritten step
+      ref: apps/dethereal/workflow/skills/sync-controls/SKILL.md
+  - id: 67239a1095
+    line: 1046
+    anchor: promoted the external edit on
+    destination: skills/sync-controls/SKILL.md
+  - id: 41367ceee5
+    line: 1053
+    anchor: "The audit entry written by the next successful `push-brownfield` will carry `editedBy: 'external'` so an auditor"
+    destination: shared/control-library-push.md
+  - id: bcebd51d2c
+    line: 1055
+    anchor: "**Stale `platformAttributes` note.** If your last `pull-controls` call was a while ago, `platformAttributes` in the local"
+    destination: shared/control-library-push.md
+  - id: 052b3b8caa
+    line: 1055
+    anchor: so the conflict-detection step will catch any new server-side drift and
+    destination: shared/control-library-push.md
+  - id: 09392fcf1d
+    line: 1055
+    anchor: You don't need to pull manually before invoking this verb.
+    destination: shared/control-library-push.md
+  - id: 25fdb2b4c7
+    line: 1063
+    anchor: model resolution protocol
+    destination: skills/sync/SKILL.md
+  - id: 7cdc77838b
+    line: 1063
+    dropped:
+      reason: Status reads the model through workspace_status with a directory, not file by file
+      ref: apps/dethereal/src/tools/workspace-status.tool.ts (directory_path)
+  - id: 26c5b32094
+    line: 1064
+    dropped:
+      reason: Status reads the model name and platform id through workspace_status
+      ref: apps/dethereal/src/tools/workspace-status.tool.ts (directory_path)
+  - id: 09958d2245
+    line: 1065
+    dropped:
+      reason: Status reads the sync record through workspace_status, which reads sync.json with the checked reader
+      ref: apps/dethereal/src/tools/workspace-status.tool.ts (directory_path)
+  - id: df530782a2
+    line: 1066
+    dropped:
+      reason: Status reads the workflow state through workspace_status
+      ref: apps/dethereal/src/tools/workspace-status.tool.ts (directory_path)
+  - id: 5238c892c3
+    line: 1067
+    dropped:
+      reason: Status reads the quality score through workspace_status
+      ref: apps/dethereal/src/tools/workspace-status.tool.ts (directory_path)
+  - id: dd0959bb6f
+    line: 1071
+    dropped:
+      reason: The local-change comparison is computed by workspace_status; the model never hashes by hand
+      ref: apps/dethereal/src/utils/sync-utils.ts (localChangeStatus)
+  - id: 8d3e9a2b54
+    line: 1072
+    dropped:
+      reason: The content hash is computed by the tool, never by hand
+      ref: apps/dethereal/src/utils/sync-utils.ts (localChangeStatus)
+  - id: e0e3ee1a93
+    line: 1073
+    dropped:
+      reason: The tool picks the push or pull baseline itself
+      ref: apps/dethereal/src/utils/sync-utils.ts (localChangeStatus)
+  - id: 92375b8ac2
+    line: 1074
+    dropped:
+      reason: The tool compares against the push hash when the push is the latest sync
+      ref: apps/dethereal/src/utils/sync-utils.ts (localChangeStatus)
+  - id: aec97dfb8a
+    line: 1075
+    dropped:
+      reason: The tool compares against the pull hash otherwise
+      ref: apps/dethereal/src/utils/sync-utils.ts (localChangeStatus)
+  - id: 029a5cfd52
+    line: 1076
+    dropped:
+      reason: The tool treats a hash from an earlier scheme as a clean baseline
+      ref: apps/dethereal/src/utils/sync-utils.ts (localChangeStatus)
+  - id: 351599ed4c
+    line: 1077
+    anchor: no local changes, local changes not pushed, never synced
+    destination: skills/sync/SKILL.md
+  - id: f52df7cff8
+    line: 1078
+    anchor: local changes not pushed
+    destination: skills/sync/SKILL.md
+  - id: f32997400a
+    line: 1080
+    anchor: never synced, or unknown
+    destination: skills/sync/SKILL.md
+  - id: 64844bc86a
+    line: 1084
+    anchor: "with verify: true"
+    destination: skills/sync/SKILL.md
+  - id: 57e0e7f086
+    line: 1086
+    anchor: show the model name, state
+    destination: skills/sync/SKILL.md
+  - id: 3aa56c44ae
+    line: 1110
+    anchor: never synced, or unknown
+    destination: skills/sync/SKILL.md
+  - id: 473ced1307
+    line: 1111
+    anchor: push when never synced, not pushed, or with local changes or control work
+    destination: skills/sync/SKILL.md
+  - id: 50e799d15c
+    line: 1115
+    anchor: referenced model ids
+    destination: skills/sync/SKILL.md
+  - id: 51d78ff804
+    line: 1121
+    anchor: the server keeps them out of git with `.dethereal/.gitignore`
+    destination: shared/per-machine-files.md
+  - id: 9d093dcba1
+    line: 1123
+    anchor: the server keeps them out of git with `.dethereal/.gitignore`
+    destination: shared/per-machine-files.md
+  - id: 36e9ae8df7
+    line: 1129
+    dropped:
+      reason: Independent sync state per developer follows from sync.json being per-user state, which the reminder names
+      ref: apps/dethereal/workflow/skills/sync/SKILL.md
+  - id: 6d11cebc51
+    line: 1129
+    dropped:
+      reason: Reconstructing the sync baseline from the platform is the push flow's own section
+      ref: apps/dethereal/workflow/shared/push-flow.md (Sync baseline)

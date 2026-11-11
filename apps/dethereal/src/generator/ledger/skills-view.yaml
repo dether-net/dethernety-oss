@@ -1,0 +1,108 @@
+source: skills/view/SKILL.md
+blob: 0f0dcab43e8453a2ede4b5494eaa97309b1145c8
+migrated: true
+rules:
+  - id: aed71430e3
+    line: 7
+    anchor: "show a threat model, read-only"
+    destination: skills/view/SKILL.md
+  - id: 004cba9302
+    line: 11
+    anchor: "a path in the arguments, or the model resolution protocol"
+    destination: skills/view/SKILL.md
+  - id: 83b49f0905
+    line: 12
+    anchor: "a path in the arguments"
+    destination: skills/view/SKILL.md
+  - id: 2b07ed86c3
+    line: 13
+    anchor: "lists exactly one model, use it implicitly"
+    destination: skills/view/SKILL.md
+  - id: 25fb2e7480
+    line: 14
+    anchor: "lists exactly one model, use it implicitly"
+    destination: skills/view/SKILL.md
+  - id: 7e441a6528
+    line: 15
+    anchor: "show them as a numbered list"
+    destination: skills/view/SKILL.md
+  - id: 3e1d1d0583
+    line: 16
+    anchor: "with none, suggest"
+    destination: skills/view/SKILL.md
+  - id: b0630a5825
+    line: 18
+    anchor: "when none is given"
+    destination: skills/view/SKILL.md
+  - id: 30bbdaae7a
+    line: 20
+    anchor: "data-items.json from disk"
+    destination: skills/view/SKILL.md
+  - id: c5255357d5
+    line: 21
+    anchor: "manifest.json (name, description, modules)"
+    destination: skills/view/SKILL.md
+  - id: fb3a861144
+    line: 22
+    anchor: "structure.json (boundaries and components)"
+    destination: skills/view/SKILL.md
+  - id: f917b6d9bb
+    line: 23
+    anchor: "dataflows.json and data-items.json"
+    destination: skills/view/SKILL.md
+  - id: 393638f2a2
+    line: 24
+    anchor: "dataflows.json and data-items.json"
+    destination: skills/view/SKILL.md
+  - id: 40a86f2ddc
+    line: 25
+    anchor: "never from the files under .dethereal/"
+    destination: skills/view/SKILL.md
+  - id: 0d65c1602b
+    line: 26
+    anchor: "never from the files under .dethereal/"
+    destination: skills/view/SKILL.md
+  - id: b227a39c0a
+    line: 27
+    anchor: "never from the files under .dethereal/"
+    destination: skills/view/SKILL.md
+  - id: c1c3f09e02
+    line: 29
+    anchor: "from the arguments; tree when none is given"
+    destination: skills/view/SKILL.md
+  - id: dc9580ee8c
+    line: 33
+    anchor: "never the internal \"default boundary\" label"
+    destination: skills/view/SKILL.md
+  - id: 255af1249d
+    line: 33
+    anchor: "the default boundary's children are the top-level entries"
+    destination: skills/view/SKILL.md
+  - id: 9422db9a74
+    line: 35
+    anchor: Production Stack (56/100 quality, ENRICHING) ├── Internet Zone │ └── [EXTERNAL_ENTITY] End Users ├── DMZ │
+    destination: skills/view/SKILL.md
+  - id: 71b646694a
+    line: 70
+    anchor: "shows its type in brackets"
+    destination: skills/view/SKILL.md
+  - id: 44fd4688a1
+    line: 70
+    anchor: "its class name in parentheses when it has one"
+    destination: skills/view/SKILL.md
+  - id: 78ced24768
+    line: 70
+    anchor: "nested boundaries use tree-drawing characters"
+    destination: skills/view/SKILL.md
+  - id: 9da0ef50d6
+    line: 74
+    anchor: "the model as one formatted json object"
+    destination: skills/view/SKILL.md
+  - id: da92e93a88
+    line: 78
+    anchor: "the same object as yaml"
+    destination: skills/view/SKILL.md
+  - id: 9d53a05309
+    line: 78
+    anchor: "yaml is a display convenience only"
+    destination: skills/view/SKILL.md

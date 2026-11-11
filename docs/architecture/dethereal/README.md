@@ -1,8 +1,8 @@
-# Dethereal -- Claude Code Plugin Architecture
+# Dethereal -- Plugin Architecture for Claude Code, Codex and OpenCode
 
 ## What is Dethereal?
 
-Dethereal is a Claude Code plugin for **guided threat modeling**. It turns unstructured infrastructure knowledge — code, config files, IaC definitions, container specs, API schemas — into structured threat model graphs that the Dethernety platform can analyze.
+Dethereal is a plugin for **guided threat modeling** in Claude Code, Codex and OpenCode: one workflow, rendered into a bundle for each of the three harnesses. It turns unstructured infrastructure knowledge — code, config files, IaC definitions, container specs, API schemas — into structured threat model graphs that the Dethernety platform can analyze.
 
 The plugin's job is **mapping, not analysis**. It helps users discover components, define trust boundaries, map data flows, classify assets, and enrich security attributes. Once the model is structured and published to the platform, the platform's analysis modules take over — running graph algorithms, computing attack paths, evaluating exposures via OPA/Rego policies, and generating findings.
 
@@ -67,28 +67,31 @@ The plugin provides an 11-step guided workflow (`/dethereal:threat-model`) that 
 | 6. Classification | Assign component classes from platform module definitions | Class assignments in `structure.json` |
 | 7. Data Item Classification | Classify data sensitivity on flows | `data-items.json` |
 | 8. Enrichment | Populate security attributes (auth, encryption, logging, credentials) | `attributes/*.json` |
-| 9. Validation | Quality gate check (score 0-100) + advisory zoning-coherence findings | Readiness assessment |
+| 9. Validation | Gates 1–3, the quality score (0-100, a label, not a gate) and advisory zoning-coherence findings | Readiness assessment |
 | 10. Publish | Push to platform | Platform model + ID mapping |
 | 11. Post-publish linking | Link countermeasures to platform-computed exposures | Defense coverage |
 
-Each step is individually invocable (`/dethereal:discover`, `/dethereal:enrich`, etc.) and the workflow is resumable — progress is tracked via a state machine, and all data is persisted to disk.
+Each step is individually invocable (`/dethereal:discover`, `/dethereal:enrich`, etc.) and the workflow is resumable — progress is tracked via a state machine, and all data is persisted to disk. A new model — one this workflow starts, or one made with `/dethereal:create` — is a **quick model** unless that run has `--full`: enrichment covers only the priority set, the control pass is deferred, and Step 9 is a read-only pass without Gate 3 — a quick model is never marked reviewed until a run with `--full` deepens it. A model pulled from the platform is a full model.
 
 ## Plugin Components
 
 | Component | Count | Purpose |
 |-----------|-------|---------|
-| **Skills** | 14 | Slash commands for each workflow step + utilities (login, status, help) |
-| **Agents** | 4 | Specialized subagents: infrastructure-scout, threat-modeler, security-enricher, model-reviewer |
-| **MCP Tools** | 22 | Platform communication: model CRUD, MITRE ATT&CK/D3FEND, exposures, controls, countermeasures, analysis, class matching, control gaps, attribute stub generation |
-| **Hooks** | 3 | Session orientation, post-write validation, pre-compaction context preservation |
+| **Skills** | 17 | 14 slash commands for each workflow step + utilities (login, status, help), and 3 companion skills that `enrich` and `sync` hand over to (`enrich-controls`, `sync-controls`, `sync-pull`) |
+| **Agents** | 6 | Specialized subagents: infrastructure-scout, infrastructure-scout-scoped (drift re-verification), threat-modeler, security-enricher, model-reviewer, enrichment-applier (applies the operator's reply to the Step 8 enrichment relay) |
+| **MCP Tools** | 30 | Local work: validation and quality gates, workspace status, drift detection, workflow state (`model_state`, `model_state_settle`, `model_state_waive`, `model_state_prune`; `model_state_settle` is listed only with the settlement switched on, which is off by default — see [MCP_ARCHITECTURE.md → Settlement Switch](MCP_ARCHITECTURE.md#settlement-switch)). Platform communication: model CRUD, class listing and matching, attribute stub generation, MITRE ATT&CK/D3FEND, controls, countermeasures, control gaps, analysis, and the read-only `query_controls`, `query_exposures` and `query_countermeasures` |
+| **Hooks** | 5 commands | Session orientation (also re-injecting model state after a compaction), post-write validation hint, config guard against agent writes to harness permission configuration, auto-approval of the Dethereal tools that need no operator approval, secret-file guard against agent reads of secret files. The wiring differs per harness: Claude Code runs all five; Codex runs all but auto-approval and adds an agent-tool hook; OpenCode runs the guards, the post-write hint and the compaction reminder through its plugin — see [PLUGIN_ARCHITECTURE.md §6](PLUGIN_ARCHITECTURE.md#6-hooks) |
+| **Installer** | 1 CLI | `dethereal install`, `uninstall`, `doctor` and `gc`: installs Claude Code through `claude plugin`, and Codex and OpenCode against a runtime copy of the package under `~/.dethernety/runtime/` — see [PLUGIN_ARCHITECTURE.md §2](PLUGIN_ARCHITECTURE.md#installer-and-runtime) |
+
+Skills, agents and hooks are generated from a single workflow source into bundles for Claude Code, Codex and OpenCode; all three bundles ship in the package — see [PLUGIN_ARCHITECTURE.md §2](PLUGIN_ARCHITECTURE.md#2-plugin-structure).
 
 ## Architecture Documentation
 
-> **Recommended reading order:** [CONTROL_LIBRARY.md](CONTROL_LIBRARY.md) §1 → SKILL.md (`/dethereal:sync`, `/dethereal:enrich`, `/dethereal:status`) → engine source under [`packages/dt-core/src/dt-control-library/`](../../../packages/dt-core/src/dt-control-library/). The hardening rationale (rejected design alternatives + risk-register Plan-B fallbacks) lives at CL Appendix A.12.
+> **Recommended reading order:** [CONTROL_LIBRARY.md](CONTROL_LIBRARY.md) §1 → SKILL.md (`/dethereal:sync`, `/dethereal:enrich`, `/dethereal:status`) → engine source under [`packages/dt-core/src/dt-control-library/`](../../../packages/dt-core/src/dt-control-library/). The hardening rationale (rejected design alternatives + risk-register Plan-B fallbacks) lives at [CONTROL_LIBRARY.md Appendix A.12](CONTROL_LIBRARY.md#a12--hardening-design-choice-rationale).
 
 | Document | Description |
 |----------|-------------|
-| [PLUGIN_ARCHITECTURE.md](PLUGIN_ARCHITECTURE.md) | Plugin structure, skills, subagents, hooks, settings |
+| [PLUGIN_ARCHITECTURE.md](PLUGIN_ARCHITECTURE.md) | Plugin structure, generated bundles, installer, skills, subagents, hooks, settings |
 | [MCP_ARCHITECTURE.md](MCP_ARCHITECTURE.md) | MCP server architecture — tool system, auth flow, dt-core integration |
 | [THREAT_MODELING_WORKFLOW.md](THREAT_MODELING_WORKFLOW.md) | End-to-end workflow, discovery, classification, MITRE integration, quality gates |
 | [TRUST_ZONING.md](TRUST_ZONING.md) | Trust zones, planes, domains & conduits — data model, `validate_model_json` determination (incl. structural-container abstention), guided-flow ratification, persistence |
@@ -96,16 +99,18 @@ Each step is individually invocable (`/dethereal:discover`, `/dethereal:enrich`,
 | [SYNC_AND_SOURCE_OF_TRUTH.md](SYNC_AND_SOURCE_OF_TRUTH.md) | Publish/pull architecture, conflict taxonomy, push flow, state bootstrap |
 | [OPERATIONAL_REQUIREMENTS.md](OPERATIONAL_REQUIREMENTS.md) | Attack surface accuracy, detection readiness, compliance, trustworthiness |
 | [CONTROL_INTEGRATION.md](CONTROL_INTEGRATION.md) | Control **assignment** — categories, workflow placement, reference shape in `structure.json`, two-tier reporting, phasing |
-| [CONTROL_LIBRARY.md](CONTROL_LIBRARY.md) | Control **configuration storage** — `controls/` folder layout, lifecycle (greenfield→brownfield), shared-ownership safety, per-instance attribute sync flows. See CL §1 for the canonical landing date. |
+| [CONTROL_LIBRARY.md](CONTROL_LIBRARY.md) | Control **configuration storage** — `controls/` folder layout, lifecycle (greenfield→brownfield), shared-ownership safety, per-instance attribute sync flows |
 | [BACKEND_DELEGATION.md](BACKEND_DELEGATION.md) | Backend delegation strategy — what to compute server-side vs client-side |
-| [CLASS_AND_CONTROL_RESOLVER_ARCHITECTURE.md](../backend/LLD/CLASS_AND_CONTROL_RESOLVER_ARCHITECTURE.md) | Backend services target architecture — service design, embedding pipeline, integration, quality attributes |
+| [DRIFT_DETECTION.md](DRIFT_DETECTION.md) | Drift detection — the model elements behind files changed since the drift baseline, re-verified and routed through the modeling skills |
+| [TEMPLATE_STUB_GENERATION.md](TEMPLATE_STUB_GENERATION.md) | `generate_attribute_stubs` — class template attribute stubs for classified elements, and the per-model class cache |
+| [CLASS_AND_CONTROL_RESOLVER_ARCHITECTURE.md](../backend/LLD/CLASS_AND_CONTROL_RESOLVER_ARCHITECTURE.md) | Backend services architecture — service design, embedding pipeline, integration, quality attributes |
 | [CLASS_AND_CONTROL_RESOLVER_SPEC.md](../backend/LLD/CLASS_AND_CONTROL_RESOLVER_SPEC.md) | Backend services specification — GraphQL types, Cypher queries, method signatures, implementation sequence |
-| [DECISIONS.md](DECISIONS.md) | All 66 architecture decisions with rationale |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Current MCP server implementation (pre-upgrade reference) |
+| [DECISIONS.md](DECISIONS.md) | All 73 architecture decisions with rationale |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Retired: pointer from the superseded pre-upgrade server snapshot (2.0.0, 12 tools) to MCP_ARCHITECTURE.md, PLUGIN_ARCHITECTURE.md and DECISIONS.md |
 
 ## Key Design Principles
 
-1. **Mapping, not analysis.** The plugin structures data. The platform analyzes it. This boundary is maintained across all 20 MCP tools — exposures are read-only in the plugin because they are analysis outputs, not mapping inputs.
+1. **Mapping, not analysis.** The plugin structures data. The platform analyzes it. This boundary is maintained across all 30 MCP tools — exposures are read-only in the plugin because they are analysis outputs, not mapping inputs.
 
 2. **Files as source of truth during modeling.** All model data lives in local JSON files under version control. The plugin reads from and writes to disk. No hidden state, no in-memory-only data.
 

@@ -1,0 +1,130 @@
+[
+  {
+    "id": "d-order",
+    "name": "Customer order records",
+    "description": "Customers (name, email, address) and their orders.",
+    "classData": {
+      "id": "7d6f45d4-3b84-49f3-8085-7105b0448706",
+      "name": "Customer & Personal Data"
+    },
+    "sensitivity": "confidential",
+    "regulatory_flags": [
+      "PII",
+      "GDPR personal"
+    ],
+    "origin": "arbitrary_public",
+    "is_credential": false
+  },
+  {
+    "id": "d-card",
+    "name": "Payment card data",
+    "description": "Card number and expiry stored for card-on-file; no CVV.",
+    "classData": {
+      "id": "7d6f45d4-3b84-49f3-8085-7105b0448706",
+      "name": "Customer & Personal Data"
+    },
+    "sensitivity": "restricted",
+    "regulatory_flags": [
+      "PCI cardholder"
+    ],
+    "origin": "arbitrary_public",
+    "is_credential": false
+  },
+  {
+    "id": "d-access-token",
+    "name": "Customer access token",
+    "description": "RS256 access token issued by the identity provider.",
+    "classData": {
+      "id": "2bc04479-7e0c-43f2-88b5-9fe788860642",
+      "name": "Authentication Tokens"
+    },
+    "sensitivity": "restricted",
+    "regulatory_flags": [],
+    "origin": "third_party",
+    "is_credential": true
+  },
+  {
+    "id": "d-signin",
+    "name": "Customer sign-in credentials",
+    "description": "Email address and password entered at the identity provider.",
+    "classData": {
+      "id": "a6406f69-a0ec-48c9-a9dd-27b3c03bbda8",
+      "name": "User Credentials"
+    },
+    "sensitivity": "restricted",
+    "regulatory_flags": [
+      "PII"
+    ],
+    "origin": "arbitrary_public",
+    "is_credential": true
+  },
+  {
+    "id": "d-signing-keys",
+    "name": "Identity provider signing keys",
+    "description": "Published public keys used to verify access tokens.",
+    "classData": {
+      "id": "e57ffaaa-62d3-4860-b556-8bb1f1769c69",
+      "name": "System Configuration"
+    },
+    "sensitivity": "public",
+    "regulatory_flags": [],
+    "origin": "third_party",
+    "is_credential": false
+  },
+  {
+    "id": "d-payment-event",
+    "name": "Payment status event",
+    "description": "Event id, order reference, status, customer email and the card's last four digits.",
+    "classData": {
+      "id": "7d6f45d4-3b84-49f3-8085-7105b0448706",
+      "name": "Customer & Personal Data"
+    },
+    "sensitivity": "confidential",
+    "regulatory_flags": [
+      "PII"
+    ],
+    "origin": "third_party",
+    "is_credential": false
+  },
+  {
+    "id": "d-logs",
+    "name": "Application and access logs",
+    "description": "Gateway request logs, application logs and the bastion auth log; carry customer email addresses and bearer tokens.",
+    "classData": {
+      "id": "5e0eb7c5-6a23-496f-82be-e98e12f252af",
+      "name": "Security Logs"
+    },
+    "sensitivity": "confidential",
+    "regulatory_flags": [
+      "PII"
+    ],
+    "origin": "arbitrary_public",
+    "is_credential": false
+  },
+  {
+    "id": "d-admin-commands",
+    "name": "Admin commands",
+    "description": "Replay, reindex and cancel requests to the admin listener.",
+    "classData": {
+      "id": "e57ffaaa-62d3-4860-b556-8bb1f1769c69",
+      "name": "System Configuration"
+    },
+    "sensitivity": "internal",
+    "regulatory_flags": [],
+    "origin": "not_assessed",
+    "is_credential": false
+  },
+  {
+    "id": "d-ssh-keys",
+    "name": "Engineer SSH keys",
+    "description": "Engineers' SSH key authentication to the shared ops account.",
+    "classData": {
+      "id": "a6406f69-a0ec-48c9-a9dd-27b3c03bbda8",
+      "name": "User Credentials"
+    },
+    "sensitivity": "restricted",
+    "regulatory_flags": [],
+    "origin": "authenticated_first_party",
+    "is_credential": true
+  }
+]

@@ -68,6 +68,9 @@ export interface ZoningGraphComponent {
   type: string | null;
   boundaryId: string | null;
   crownJewel: boolean;
+  /** The class the component instantiates: the engine tells relaying hops (load balancers, proxies, …) by it. */
+  classId?: string | null;
+  className?: string | null;
 }
 
 export interface ZoningGraphFlow {
@@ -148,9 +151,9 @@ export function graphToZoningStructure(graph: ZoningGraphInput): {
     }
   }
 
-  // 2. Reconstruct StructureComponent[] grouped by their parent boundary. `type`/`positionX/Y` are
-  //    required by the type but ignored by the engine; `crownJewel` + `dataItemIds` are the asset
-  //    signals it actually reads. A component with no resolved boundary can't be placed (the engine
+  // 2. Reconstruct StructureComponent[] grouped by their parent boundary. `positionX/Y` are required
+  //    by the type but ignored by the engine; `crownJewel` + `dataItemIds` are the asset signals it
+  //    reads, and `classData` (or, unclassified, `type` and `name`) tells it a relaying hop. A component with no resolved boundary can't be placed (the engine
   //    resolves flow endpoints via the component→boundary map), so it is dropped — same semantics as
   //    the existing crossings engine.
   const componentsByBoundary = new Map<string, StructureComponent[]>();
@@ -164,6 +167,7 @@ export function graphToZoningStructure(graph: ZoningGraphInput): {
       positionY: 0,
       crownJewel: c.crownJewel === true,
       dataItemIds: componentDataItemIds.get(c.id),
+      ...(c.classId || c.className ? { classData: { id: c.classId ?? '', name: c.className ?? '' } } : {}),
     };
     (componentsByBoundary.get(c.boundaryId) ?? setDefault(componentsByBoundary, c.boundaryId)).push(sc);
   }

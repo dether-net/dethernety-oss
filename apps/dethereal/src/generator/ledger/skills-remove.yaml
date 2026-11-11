@@ -1,0 +1,204 @@
+source: skills/remove/SKILL.md
+blob: 760b341dbebb822cdda0d2177b2fb86018b65fb8
+migrated: true
+rules:
+  - id: 4e3b4bd608
+    line: 8
+    anchor: "with its dependencies checked first"
+    destination: skills/remove/SKILL.md
+  - id: 0f7d53366c
+    line: 14
+    anchor: "Resolve it (Model Resolution Protocol"
+    destination: skills/remove/SKILL.md
+  - id: "2730422e03"
+    line: 14
+    anchor: "read structure.json, dataflows.json and data-items.json"
+    destination: skills/remove/SKILL.md
+  - id: 3305cc76ba
+    line: 18
+    anchor: "The element, from the arguments or the conversation"
+    destination: skills/remove/SKILL.md
+  - id: 3060fe0f31
+    line: 18
+    anchor: "matched by name (ignoring case) or id"
+    destination: skills/remove/SKILL.md
+  - id: 674954ab0b
+    line: 20
+    anchor: "With several matches, show them as a numbered list"
+    destination: skills/remove/SKILL.md
+  - id: 8e637df6f9
+    line: 22
+    anchor: "Which one do you want to remove? Give its number."
+    destination: skills/remove/SKILL.md
+  - id: 6e176dc773
+    line: 31
+    anchor: "component — the data flows it starts or ends"
+    destination: skills/remove/SKILL.md
+  - id: "8667282090"
+    line: 33
+    anchor: "component — the data flows it starts or ends"
+    destination: skills/remove/SKILL.md
+  - id: 4f00b9bdf7
+    line: 34
+    anchor: "component — the data flows it starts or ends"
+    destination: skills/remove/SKILL.md
+  - id: 3349e0853b
+    line: 35
+    anchor: "A data item is modelled once and shared: it is a dependent to remove only when no remaining element lists it in dataItemIds"
+    destination: skills/remove/SKILL.md
+  - id: 7206be0a7f
+    line: 36
+    anchor: "the data flows it starts or ends, attributes/components/<id>.json"
+    destination: skills/remove/SKILL.md
+  - id: aa84b57434
+    line: 38
+    anchor: "boundary — its child components and sub-boundaries, the data flows that cross it"
+    destination: skills/remove/SKILL.md
+  - id: 3b368084a1
+    line: 39
+    anchor: "boundary — its child components and sub-boundaries, the data flows that cross it"
+    destination: skills/remove/SKILL.md
+  - id: b8337d6599
+    line: 40
+    anchor: "boundary — its child components and sub-boundaries, the data flows that cross it"
+    destination: skills/remove/SKILL.md
+  - id: 46ab5a5e01
+    line: 41
+    anchor: "boundary — its child components and sub-boundaries, the data flows that cross it"
+    destination: skills/remove/SKILL.md
+  - id: c6990b813e
+    line: 43
+    anchor: "data flow — attributes/dataFlows/<id>.json"
+    destination: skills/remove/SKILL.md
+  - id: 0aa6077987
+    line: 44
+    anchor: "data flow — attributes/dataFlows/<id>.json"
+    destination: skills/remove/SKILL.md
+  - id: 254009ecd0
+    line: 45
+    anchor: "data flow — attributes/dataFlows/<id>.json"
+    destination: skills/remove/SKILL.md
+  - id: 4fe1b5aacc
+    line: 47
+    anchor: "data item — attributes/dataItems/<id>.json"
+    destination: skills/remove/SKILL.md
+  - id: 6ef82dff5f
+    line: 48
+    anchor: "data item — attributes/dataItems/<id>.json"
+    destination: skills/remove/SKILL.md
+  - id: 6f0d141957
+    line: 52
+    anchor: "Crown jewel first."
+    destination: skills/remove/SKILL.md
+  - id: 2a0cb3f801
+    line: 52
+    anchor: "A component with crownJewel: true in structure.json"
+    destination: skills/remove/SKILL.md
+  - id: e65e9ff39c
+    line: 52
+    anchor: "in its attribute file (top level or under attributes)"
+    destination: skills/remove/SKILL.md
+  - id: 2bbbf6d26d
+    line: 52
+    anchor: "is tagged as a CROWN JEWEL"
+    destination: skills/remove/SKILL.md
+  - id: d6deb9e9a8
+    line: 54
+    anchor: only if the asset has genuinely been retired or relocated, not because it became inconvenient to
+    destination: skills/remove/SKILL.md
+  - id: 8189d10e27
+    line: 65
+    anchor: "stop: remove nothing, show no dependencies."
+    destination: skills/remove/SKILL.md
+  - id: b6ada22a3b
+    line: 65
+    anchor: "On yes, go on — the dependency check still applies."
+    destination: skills/remove/SKILL.md
+  - id: 3846f17a23
+    line: 65
+    anchor: "On yes, go on — the dependency check still applies."
+    destination: skills/remove/SKILL.md
+  - id: 3554aa8648
+    line: 67
+    anchor: "With dependencies, show them as a table"
+    destination: skills/remove/SKILL.md
+  - id: bb336ae45d
+    line: 69
+    anchor: "With dependencies, show them as a table"
+    destination: skills/remove/SKILL.md
+  - id: e9f12327ea
+    line: 86
+    anchor: "Remove the element and everything listed"
+    destination: skills/remove/SKILL.md
+  - id: a7b6a157f9
+    line: 87
+    anchor: "Remove the element and everything listed, keep everything"
+    destination: skills/remove/SKILL.md
+  - id: 6d3c9d582a
+    line: 88
+    anchor: "remove only the component and leave its flows flagged for review"
+    destination: skills/remove/SKILL.md
+  - id: 8a3c895051
+    line: 90
+    anchor: "\"<name>\" from <boundary>?"
+    destination: skills/remove/SKILL.md
+  - id: "3916346763"
+    line: 91
+    anchor: "\"<name>\" from <boundary>?"
+    destination: skills/remove/SKILL.md
+  - id: 9d505cfa6f
+    line: 97
+    anchor: "Remove what was confirmed from its file"
+    destination: skills/remove/SKILL.md
+  - id: b043ecc686
+    line: 98
+    anchor: "structure.json, dataflows.json, data-items.json"
+    destination: skills/remove/SKILL.md
+  - id: 2ad756f3f9
+    line: 99
+    anchor: "structure.json, dataflows.json, data-items.json"
+    destination: skills/remove/SKILL.md
+  - id: f1da4696bb
+    line: 100
+    anchor: "structure.json, dataflows.json, data-items.json"
+    destination: skills/remove/SKILL.md
+  - id: f4f03bf25f
+    line: 102
+    anchor: "Prune** the removed elements' attribute files \u2014 you never delete a file yourself"
+    destination: skills/remove/SKILL.md
+  - id: 53a2695c63
+    line: 104
+    anchor: "A removed boundary's child components move to its parent boundary"
+    destination: skills/remove/SKILL.md
+  - id: "49751e9597"
+    line: 108
+    anchor: "At ENRICHING or REVIEWED, apply the Backward Transition Protocol"
+    destination: skills/remove/SKILL.md
+  - id: 85d2b1c865
+    line: 110
+    anchor: "to: 'STRUCTURE_COMPLETE', and add = the ids"
+    destination: shared/backward-transition.md
+  - id: 95350d6c99
+    line: 111
+    anchor: "it deletes .dethereal/quality.json (forcing recomputation)"
+    destination: shared/backward-transition.md
+  - id: 49031192b1
+    line: 112
+    anchor: "clears the sign-off and the review"
+    destination: shared/backward-transition.md
+  - id: a73a637e55
+    line: 113
+    anchor: "add the ids of the elements that were changed and still exist"
+    destination: skills/remove/SKILL.md
+  - id: 3fa93b2636
+    line: 114
+    anchor: "Warn the operator:"
+    destination: shared/backward-transition.md
+  - id: c3e79d8922
+    line: 118
+    anchor: "Validate once per step"
+    destination: shared/core-rules.md
+  - id: 4aa7d6ba08
+    line: 120
+    anchor: "(review the updated model)"
+    destination: skills/remove/SKILL.md

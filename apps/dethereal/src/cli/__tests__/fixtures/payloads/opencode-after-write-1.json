@@ -1,0 +1,12 @@
+{
+  "tool": "write",
+  "args": {
+    "content": "alpha",
+    "filePath": "<run>/project/probe/a.txt"
+  },
+  "metadata": {
+    "filepath": "<run>/project/probe/a.txt",
+    "exists": false
+  },
+  "directory": "<run>/project/src/frontend"
+}

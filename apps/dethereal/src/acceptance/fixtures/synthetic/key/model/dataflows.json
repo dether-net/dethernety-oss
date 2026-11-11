@@ -1,0 +1,279 @@
+[
+  {
+    "id": "f-customer-idp",
+    "name": "Customer sign-in",
+    "description": "The customer signs in at the identity provider.",
+    "source": {
+      "id": "x-customer"
+    },
+    "target": {
+      "id": "x-idp"
+    },
+    "classData": {
+      "id": "a70d4c24-c532-4830-9585-3e951063a5ea",
+      "name": "HTTP/S Request"
+    },
+    "dataItemIds": [
+      "d-signin"
+    ]
+  },
+  {
+    "id": "f-customer-gateway",
+    "name": "Shop API request",
+    "description": "Orders and checkout requests with the access token.",
+    "source": {
+      "id": "x-customer"
+    },
+    "target": {
+      "id": "c-edge-gateway"
+    },
+    "classData": {
+      "id": "a70d4c24-c532-4830-9585-3e951063a5ea",
+      "name": "HTTP/S Request"
+    },
+    "dataItemIds": [
+      "d-order",
+      "d-card",
+      "d-access-token"
+    ]
+  },
+  {
+    "id": "f-gateway-orders",
+    "name": "Routed API request",
+    "description": "The gateway forwards to the orders API over plain HTTP.",
+    "source": {
+      "id": "c-edge-gateway"
+    },
+    "target": {
+      "id": "c-orders-api"
+    },
+    "classData": {
+      "id": "a70d4c24-c532-4830-9585-3e951063a5ea",
+      "name": "HTTP/S Request"
+    },
+    "dataItemIds": [
+      "d-order",
+      "d-card",
+      "d-access-token"
+    ]
+  },
+  {
+    "id": "f-orders-idp",
+    "name": "Signing key fetch",
+    "description": "The orders API fetches the identity provider's signing keys.",
+    "source": {
+      "id": "c-orders-api"
+    },
+    "target": {
+      "id": "x-idp"
+    },
+    "classData": {
+      "id": "01170208-db8f-4c1b-8e29-636bf6d220b8",
+      "name": "API Call"
+    },
+    "dataItemIds": [
+      "d-signing-keys"
+    ]
+  },
+  {
+    "id": "f-orders-db",
+    "name": "Orders queries",
+    "description": "Orders and stored-card reads and writes, sslmode=disable.",
+    "source": {
+      "id": "c-orders-api"
+    },
+    "target": {
+      "id": "c-orders-db"
+    },
+    "classData": {
+      "id": "9b29a354-9ad5-408b-85c3-2da624d935b1",
+      "name": "Database Query"
+    },
+    "dataItemIds": [
+      "d-order",
+      "d-card"
+    ]
+  },
+  {
+    "id": "f-webhook-db",
+    "name": "Payment event writes",
+    "description": "Payment events and order status updates, verify-full TLS.",
+    "source": {
+      "id": "c-webhook-receiver"
+    },
+    "target": {
+      "id": "c-orders-db"
+    },
+    "classData": {
+      "id": "9b29a354-9ad5-408b-85c3-2da624d935b1",
+      "name": "Database Query"
+    },
+    "dataItemIds": [
+      "d-payment-event"
+    ]
+  },
+  {
+    "id": "f-vendor-webhook",
+    "name": "Payment status webhook",
+    "description": "HMAC-signed payment status events from the vendor.",
+    "source": {
+      "id": "x-payvendor"
+    },
+    "target": {
+      "id": "c-webhook-receiver"
+    },
+    "classData": {
+      "id": "a70d4c24-c532-4830-9585-3e951063a5ea",
+      "name": "HTTP/S Request"
+    },
+    "dataItemIds": [
+      "d-payment-event"
+    ]
+  },
+  {
+    "id": "f-orders-vendor",
+    "name": "Charge request",
+    "description": "The orders API creates charges with the card data.",
+    "source": {
+      "id": "c-orders-api"
+    },
+    "target": {
+      "id": "x-payvendor"
+    },
+    "classData": {
+      "id": "01170208-db8f-4c1b-8e29-636bf6d220b8",
+      "name": "API Call"
+    },
+    "dataItemIds": [
+      "d-card",
+      "d-order"
+    ]
+  },
+  {
+    "id": "f-gateway-logs",
+    "name": "Gateway request logs",
+    "description": "http-log plugin output.",
+    "source": {
+      "id": "c-edge-gateway"
+    },
+    "target": {
+      "id": "x-logplatform"
+    },
+    "classData": {
+      "id": "8e7eb2dd-eab6-4167-9ece-5fd0bd070819",
+      "name": "Log & Telemetry Collection"
+    },
+    "dataItemIds": [
+      "d-logs"
+    ]
+  },
+  {
+    "id": "f-orders-logs",
+    "name": "Orders API logs",
+    "description": "Application logs, including customer email addresses.",
+    "source": {
+      "id": "c-orders-api"
+    },
+    "target": {
+      "id": "x-logplatform"
+    },
+    "classData": {
+      "id": "8e7eb2dd-eab6-4167-9ece-5fd0bd070819",
+      "name": "Log & Telemetry Collection"
+    },
+    "dataItemIds": [
+      "d-logs"
+    ]
+  },
+  {
+    "id": "f-webhook-logs",
+    "name": "Webhook receiver logs",
+    "description": "Application logs, including customer email addresses.",
+    "source": {
+      "id": "c-webhook-receiver"
+    },
+    "target": {
+      "id": "x-logplatform"
+    },
+    "classData": {
+      "id": "8e7eb2dd-eab6-4167-9ece-5fd0bd070819",
+      "name": "Log & Telemetry Collection"
+    },
+    "dataItemIds": [
+      "d-logs"
+    ]
+  },
+  {
+    "id": "f-engineer-bastion",
+    "name": "SSH to the bastion",
+    "description": "Engineers sign in to the shared ops account with a key.",
+    "source": {
+      "id": "x-engineer"
+    },
+    "target": {
+      "id": "c-bastion"
+    },
+    "classData": {
+      "id": "5f88d821-1513-4c08-b9ed-7ea0aed3ac86",
+      "name": "Secure Remote Access"
+    },
+    "dataItemIds": [
+      "d-ssh-keys"
+    ]
+  },
+  {
+    "id": "f-bastion-db",
+    "name": "Admin database session",
+    "description": "psql as orders_admin through an SSH tunnel.",
+    "source": {
+      "id": "c-bastion"
+    },
+    "target": {
+      "id": "c-orders-db"
+    },
+    "classData": {
+      "id": "9b29a354-9ad5-408b-85c3-2da624d935b1",
+      "name": "Database Query"
+    },
+    "dataItemIds": [
+      "d-order",
+      "d-card"
+    ]
+  },
+  {
+    "id": "f-bastion-admin",
+    "name": "Admin API call",
+    "description": "Replay and reindex calls to the admin listener, no authentication.",
+    "source": {
+      "id": "c-bastion"
+    },
+    "target": {
+      "id": "c-orders-api"
+    },
+    "classData": {
+      "id": "a70d4c24-c532-4830-9585-3e951063a5ea",
+      "name": "HTTP/S Request"
+    },
+    "dataItemIds": [
+      "d-admin-commands"
+    ]
+  },
+  {
+    "id": "f-bastion-logs",
+    "name": "Bastion auth log",
+    "description": "auth.log forwarded to the log platform.",
+    "source": {
+      "id": "c-bastion"
+    },
+    "target": {
+      "id": "x-logplatform"
+    },
+    "classData": {
+      "id": "8e7eb2dd-eab6-4167-9ece-5fd0bd070819",
+      "name": "Log & Telemetry Collection"
+    },
+    "dataItemIds": [
+      "d-logs"
+    ]
+  }
+]

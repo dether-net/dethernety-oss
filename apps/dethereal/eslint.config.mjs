@@ -3,7 +3,8 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['dist/**', 'node_modules/**', 'eslint.config.mjs', 'tsup.config.ts'],
+    // The generator goldens are byte copies of generator output; their sources are linted.
+    ignores: ['dist/**', 'node_modules/**', 'eslint.config.mjs', 'tsup.config.ts', 'src/generator/goldens/**', 'src/generator/package-goldens/**'],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
@@ -28,4 +29,6 @@ export default tseslint.config(
       '@typescript-eslint/no-namespace': ['error', { allowDeclarations: true }],
     },
   },
+  // Plain JavaScript scripts (the Codex plugin's hook scripts): linted without type information.
+  { files: ['**/*.mjs'], ...tseslint.configs.disableTypeChecked },
 );

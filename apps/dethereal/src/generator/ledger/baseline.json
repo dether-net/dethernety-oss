@@ -1,0 +1,101 @@
+{
+  "total": 2764,
+  "sources": {
+    "agents/infrastructure-scout-scoped.md": {
+      "blob": "863476bc98eba0dab191f7f569b15b249b4a5ea3",
+      "rules": 64
+    },
+    "agents/infrastructure-scout.md": {
+      "blob": "ae616fe84d4f7278498db521e6c7a311442409ed",
+      "rules": 120
+    },
+    "agents/model-reviewer.md": {
+      "blob": "ee3b6d6b1c8adf69ce50c0ad9ca2a10e69d20963",
+      "rules": 93
+    },
+    "agents/security-enricher.md": {
+      "blob": "db32bc750daf815d6a80bdf89e5e0a03937b45c7",
+      "rules": 279
+    },
+    "agents/threat-modeler.md": {
+      "blob": "06b24b6d2d61de987b86c8304694f49997efd291",
+      "rules": 138
+    },
+    "docs/controls-enrichment.md": {
+      "blob": "1b4449944ea46d27933b0ac955e5a06bdf112f51",
+      "rules": 200
+    },
+    "docs/guidelines-core.md": {
+      "blob": "39443fad1437f9474a99d28bbd9fa20d9ba552fa",
+      "rules": 87
+    },
+    "docs/guidelines-examples.md": {
+      "blob": "fc962b5cc393f2974512b714afde21ab2a8b2a27",
+      "rules": 25
+    },
+    "docs/guidelines-layout.md": {
+      "blob": "659e7d51726ae8fc05aefcfb3297c7480f86d235",
+      "rules": 29
+    },
+    "docs/guidelines-schema.md": {
+      "blob": "f3f7771d32883964b7d6a89590b121468a958307",
+      "rules": 129
+    },
+    "skills/add/SKILL.md": {
+      "blob": "52ffb326789cc168c6e03ae34da30944ec976903",
+      "rules": 46
+    },
+    "skills/classify/SKILL.md": {
+      "blob": "f6521f3bdb136cad395fc74ebb6baf4352138c6b",
+      "rules": 78
+    },
+    "skills/create/SKILL.md": {
+      "blob": "28383ae9a9716c161ff0d2c6321f401fb85c623f",
+      "rules": 82
+    },
+    "skills/discover/SKILL.md": {
+      "blob": "04d7f026b053b4c89de7460ac288e05dc14e21a1",
+      "rules": 52
+    },
+    "skills/enrich/SKILL.md": {
+      "blob": "ddd26333e9e072ac9935845673ac8fc4972af2ba",
+      "rules": 259
+    },
+    "skills/help/SKILL.md": {
+      "blob": "7b175b25a14f867f77a0918c21d615ba900e95e0",
+      "rules": 22
+    },
+    "skills/login/SKILL.md": {
+      "blob": "7c6d3bd58fbdea8d6ed9f7fc9b32db7e7021ab54",
+      "rules": 10
+    },
+    "skills/remove/SKILL.md": {
+      "blob": "760b341dbebb822cdda0d2177b2fb86018b65fb8",
+      "rules": 50
+    },
+    "skills/review/SKILL.md": {
+      "blob": "0132edba45491f94302ba8402e537cb79f628795",
+      "rules": 93
+    },
+    "skills/status/SKILL.md": {
+      "blob": "6658de61141b85868e17d1283d9bd611c7ed83c3",
+      "rules": 44
+    },
+    "skills/surface/SKILL.md": {
+      "blob": "5d3e95465e3a94d91a794b04680a45a40898690a",
+      "rules": 99
+    },
+    "skills/sync/SKILL.md": {
+      "blob": "e50eb6beae68c95c88b960dca0cef5d5d6d98cf2",
+      "rules": 415
+    },
+    "skills/threat-model/SKILL.md": {
+      "blob": "da6030de4b6659aca1e4387f2cc01ee93812e370",
+      "rules": 324
+    },
+    "skills/view/SKILL.md": {
+      "blob": "0f0dcab43e8453a2ede4b5494eaa97309b1145c8",
+      "rules": 26
+    }
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "dethereal-enrichment-applier": {
+    "mcp": [
+      "mcp__dethereal__validate_model_json"
+    ],
+    "write": true
+  },
+  "dethereal-infrastructure-scout": {
+    "mcp": [
+      "mcp__dethereal__get_classes"
+    ],
+    "write": false
+  },
+  "dethereal-infrastructure-scout-scoped": {
+    "mcp": [
+      "mcp__dethereal__get_classes"
+    ],
+    "write": false
+  },
+  "dethereal-model-reviewer": {
+    "mcp": [
+      "mcp__dethereal__get_classes",
+      "mcp__dethereal__get_control_gaps",
+      "mcp__dethereal__model_state",
+      "mcp__dethereal__query_countermeasures",
+      "mcp__dethereal__query_exposures",
+      "mcp__dethereal__search_mitre_attack",
+      "mcp__dethereal__validate_model_json",
+      "mcp__dethereal__workspace_status"
+    ],
+    "write": false
+  },
+  "dethereal-security-enricher": {
+    "mcp": [
+      "mcp__dethereal__get_classes",
+      "mcp__dethereal__get_mitre_defend",
+      "mcp__dethereal__match_classes",
+      "mcp__dethereal__query_controls",
+      "mcp__dethereal__search_mitre_attack",
+      "mcp__dethereal__validate_model_json"
+    ],
+    "write": true
+  },
+  "dethereal-threat-modeler": {
+    "mcp": [
+      "mcp__dethereal__auth_status",
+      "mcp__dethereal__detect_drift",
+      "mcp__dethereal__get_classes",
+      "mcp__dethereal__get_control_gaps",
+      "mcp__dethereal__get_example_models",
+      "mcp__dethereal__get_mitre_defend",
+      "mcp__dethereal__get_model_schema",
+      "mcp__dethereal__list_models",
+      "mcp__dethereal__match_classes",
+      "mcp__dethereal__model_state",
+      "mcp__dethereal__query_controls",
+      "mcp__dethereal__query_countermeasures",
+      "mcp__dethereal__query_exposures",
+      "mcp__dethereal__search_mitre_attack",
+      "mcp__dethereal__validate_model_json",
+      "mcp__dethereal__workspace_status"
+    ],
+    "write": true
+  }
+}

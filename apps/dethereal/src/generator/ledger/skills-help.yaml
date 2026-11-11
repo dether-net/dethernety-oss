@@ -1,0 +1,91 @@
+source: skills/help/SKILL.md
+blob: 7b175b25a14f867f77a0918c21d615ba900e95e0
+migrated: true
+rules:
+  - id: fbb2324998
+    line: 6
+    anchor: "help for the dethereal threat-modeling commands"
+    destination: skills/help/SKILL.md
+  - id: 88c597e851
+    line: 10
+    anchor: "a one-line summary of the first model"
+    destination: skills/help/SKILL.md
+  - id: bdbd2ef48b
+    line: 11
+    dropped: {reason: "The helper script and the Claude skill-directory variable are replaced by the workspace_status tool, which returns the same context line and suggestions on every harness", ref: "apps/dethereal/workflow/skills/help/SKILL.md"}
+  - id: 388069981b
+    line: 14
+    anchor: "up to three suggestions, each a command name and a reason"
+    destination: skills/help/SKILL.md
+  - id: acb5b0e2d3
+    line: 16
+    anchor: "show only its row from the command list below"
+    destination: skills/help/SKILL.md
+  - id: 1eb7a54eeb
+    line: 18
+    anchor: "dethereal — threat modeling"
+    destination: skills/help/SKILL.md
+  - id: d301e65e6b
+    line: 20
+    anchor: "the guided process, recommended for a new model"
+    destination: skills/help/SKILL.md
+  - id: 651c6d3db8
+    line: 42
+    anchor: "leave the \"suggested now\" block out"
+    destination: skills/help/SKILL.md
+  - id: 8268f302b2
+    line: 48
+    anchor: "connection, sign-in and the local models"
+    destination: skills/help/SKILL.md
+  - id: 5fe5f367da
+    line: 49
+    anchor: "sign in to the dethernety platform"
+    destination: skills/help/SKILL.md
+  - id: 710fb55c27
+    line: 50
+    anchor: "shows one command's details"
+    destination: skills/help/SKILL.md
+  - id: acfd5c1dde
+    line: 51
+    anchor: "show a model: boundaries, components, flows, data items"
+    destination: skills/help/SKILL.md
+  - id: b92c0865d3
+    line: 52
+    anchor: "`create` | Create a new threat model | `[description or template] [--full]` |"
+    destination: skills/help/SKILL.md
+  - id: 6e123e375a
+    line: 53
+    anchor: "discover infrastructure from the codebase"
+    destination: skills/help/SKILL.md
+  - id: 1631a6016e
+    line: 54
+    anchor: "add components, boundaries, flows or data items"
+    destination: skills/help/SKILL.md
+  - id: 6fe054a9c4
+    line: 55
+    anchor: "remove elements, checking what depends on them"
+    destination: skills/help/SKILL.md
+  - id: 7bc71a8911
+    line: 56
+    anchor: "assign classes, with crown-jewel tagging"
+    destination: skills/help/SKILL.md
+  - id: ec17640a6d
+    line: 57
+    anchor: "security attributes, credentials, monitoring — and controls with"
+    destination: skills/help/SKILL.md
+  - id: 7622fc73b9
+    line: 58
+    anchor: "gates, quality breakdown, gaps and readiness"
+    destination: skills/help/SKILL.md
+  - id: 34f30c7cc8
+    line: 59
+    anchor: "attack surface: components, boundary crossings, control coverage"
+    destination: skills/help/SKILL.md
+  - id: 5e0cb5fcc8
+    line: 60
+    anchor: "push to or pull from the platform, sync status"
+    destination: skills/help/SKILL.md
+  - id: bfeef08ea5
+    line: 61
+    anchor: "the guided end-to-end workflow, from scope to sync"
+    destination: skills/help/SKILL.md

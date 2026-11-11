@@ -1,0 +1,356 @@
+source: docs/guidelines-core.md
+blob: 39443fad1437f9474a99d28bbd9fa20d9ba552fa
+migrated: true
+rules:
+  - id: 5a2a2568ca
+    line: 9
+    anchor: "| PROCESS | Internal system processes (APIs, services, workers) | top, right, bottom, left |"
+    destination: shared/guidelines-core.md
+  - id: 8482508ade
+    line: 10
+    anchor: "| EXTERNAL_ENTITY | External actors or systems outside trust boundary | top, right, bottom, left |"
+    destination: shared/guidelines-core.md
+  - id: 0a2e106ac7
+    line: 11
+    anchor: "| STORE | Data storage (databases, files, caches, queues) | **left, right only** |"
+    destination: shared/guidelines-core.md
+  - id: 5167b72e68
+    line: 15
+    anchor: Boundaries represent **trust zones** and must reflect the actual architecture.
+    destination: shared/guidelines-core.md
+  - id: c317a2bca1
+    line: 15
+    anchor: Do NOT flatten the model by placing all components directly under the default boundary.
+    destination: shared/guidelines-core.md
+  - id: ed76aff4e4
+    line: 17
+    anchor: "**BAD** (flat structure — loses security context):"
+    destination: shared/guidelines-core.md
+  - id: 30507804fb
+    line: 18
+    anchor: defaultBoundary/ ├── User (EXTERNAL_ENTITY) ├── Web Server (PROCESS) ├── API Server (PROCESS) ├── Database (STORE) └──
+    destination: shared/guidelines-core.md
+  - id: bd9ef8cbd4
+    line: 27
+    anchor: "**GOOD** (hierarchical — represents trust boundaries):"
+    destination: shared/guidelines-core.md
+  - id: c06b6cd4f0
+    line: 28
+    anchor: defaultBoundary/ ├── Internet Zone/ │ └── User (EXTERNAL_ENTITY) ├── DMZ/ │ └── Web Server (PROCESS) └──
+    destination: shared/guidelines-core.md
+  - id: ae088acbbf
+    line: 42
+    anchor: "**Why hierarchy matters:**"
+    destination: shared/guidelines-core.md
+  - id: b660442249
+    line: 43
+    anchor: Security analysis uses boundary crossings to identify threats
+    destination: shared/guidelines-core.md
+  - id: 867b4dc081
+    line: 44
+    anchor: Flat models cannot detect trust boundary violations
+    destination: shared/guidelines-core.md
+  - id: c8f9e3438b
+    line: 45
+    anchor: Network zones, cloud VPCs, containers should be separate boundaries
+    destination: shared/guidelines-core.md
+  - id: "2127963639"
+    line: 46
+    anchor: External entities should ALWAYS be in a separate boundary from internal systems
+    destination: shared/guidelines-core.md
+  - id: 8df91d87f7
+    line: 50
+    anchor: A boundary can carry a trust `zone`, operational `planes`, and free-text `domains`.
+    destination: shared/guidelines-core.md
+  - id: 9d3c321c95
+    line: 50
+    anchor: "**Raw enums live only in on-disk JSON; operator-facing copy always uses the display names below** (this"
+    destination: shared/guidelines-core.md
+  - id: cb831a9899
+    line: 54
+    anchor: "| `UNTRUSTED` | Open internet |"
+    destination: shared/guidelines-core.md
+  - id: 163cfdaf41
+    line: 55
+    anchor: "| `PUBLIC` | Internet-facing |"
+    destination: shared/guidelines-core.md
+  - id: 12cb8707e4
+    line: 56
+    anchor: "| `EXPOSED` | DMZ |"
+    destination: shared/guidelines-core.md
+  - id: aab5270abc
+    line: 57
+    anchor: "| `INTERNAL` | Internal |"
+    destination: shared/guidelines-core.md
+  - id: cde25a0503
+    line: 58
+    anchor: "| `RESTRICTED` | Restricted |"
+    destination: shared/guidelines-core.md
+  - id: d6da4b7097
+    line: 59
+    anchor: "| `VENDOR` | Trusted external |"
+    destination: shared/guidelines-core.md
+  - id: 3280a7355b
+    line: 60
+    anchor: "| _conduit_ | approved channel |"
+    destination: shared/guidelines-core.md
+  - id: bea998aa04
+    line: 62
+    anchor: "`planes`: `WORKLOAD` / `MANAGEMENT` — affirmative default **Undecided** (distinct from Workload)."
+    destination: shared/guidelines-core.md
+  - id: 37f0934698
+    line: 63
+    anchor: '`domains`: free-text business tags (e.g. "payments", "identity").'
+    destination: shared/guidelines-core.md
+  - id: 5aa60a9af7
+    line: 64
+    anchor: Zones inherit down the tree to the nearest declaring ancestor; unclassified resolves to Internal for display
+    destination: shared/guidelines-core.md
+  - id: 39b1252d27
+    line: 65
+    anchor: don't reason the determination cascade inline; call the tool and
+    destination: shared/guidelines-core.md
+  - id: e8707915e6
+    line: 69
+    anchor: When creating new models, use **temporary reference IDs** (e.g., UUIDs you generate)
+    destination: shared/guidelines-core.md
+  - id: f85e6760fe
+    line: 70
+    anchor: These IDs link elements together (e.g., data flow source/target references)
+    destination: shared/guidelines-core.md
+  - id: 0335beabc7
+    line: 71
+    anchor: After import to the platform, the server assigns **permanent IDs** which are written back to your
+    destination: shared/guidelines-core.md
+  - id: 49f694ff3b
+    line: 72
+    anchor: The original temporary IDs become obsolete after import
+    destination: shared/guidelines-core.md
+  - id: 521432aa05
+    line: 76
+    anchor: "**Group related components** within the same boundary"
+    destination: shared/guidelines-core.md
+  - id: f13a24c6bf
+    line: 77
+    anchor: '**Name data flows** descriptively (e.g., "User credentials", "API response", "Database query")'
+    destination: shared/guidelines-core.md
+  - id: dcc30ed48c
+    line: 78
+    anchor: "to elements to enable security analysis"
+    destination: shared/guidelines-core.md
+  - id: 7beff43b99
+    line: 79
+    anchor: "**Use data items** to classify sensitive data types (PII, credentials, API keys)"
+    destination: shared/guidelines-core.md
+  - id: bb18045eb3
+    line: 80
+    anchor: "**Flow direction** typically left-to-right or top-to-bottom for readability"
+    destination: shared/guidelines-core.md
+  - id: 5bde82df1f
+    line: 81
+    anchor: "**Size boundaries** to contain all child elements with padding (min 50px)"
+    destination: shared/guidelines-core.md
+  - id: 8bcf9d6418
+    line: 85
+    anchor: Models reference **modules** that provide class definitions
+    destination: shared/guidelines-core.md
+  - id: cdc5ac79bc
+    line: 86
+    anchor: "Classes define element types with attribute schemas:"
+    destination: shared/guidelines-core.md
+  - id: 109a0ce488
+    line: 87
+    anchor: Component classes (e.g., "Web Server", "Database", "User")
+    destination: shared/guidelines-core.md
+  - id: 1066173d31
+    line: 88
+    anchor: Boundary classes (e.g., "Trust Boundary", "Network Zone")
+    destination: shared/guidelines-core.md
+  - id: d206e06956
+    line: 89
+    anchor: Data flow classes (e.g., "HTTPS", "SQL Query")
+    destination: shared/guidelines-core.md
+  - id: 0c20d13d43
+    line: 90
+    anchor: Data item classes (e.g., "PII", "Credentials", "API Key")
+    destination: shared/guidelines-core.md
+  - id: 900e4c6157
+    line: 91
+    anchor: "`view: 'modules'` lists installed modules"
+    destination: shared/guidelines-core.md
+  - id: d66ba995d3
+    line: 95
+    anchor: "model-directory/ ├── manifest.json # Model metadata, modules, file references ├── structure.json # Boundary and component hierarchy"
+    destination: shared/guidelines-core.md
+  - id: a4376d0577
+    line: 114
+    anchor: "| manifest.json | Yes | Entry point with model metadata and module references |"
+    destination: shared/guidelines-core.md
+  - id: 388266763e
+    line: 115
+    anchor: "| structure.json | Yes | Visual hierarchy of boundaries and components |"
+    destination: shared/guidelines-core.md
+  - id: 366bb11abf
+    line: 116
+    anchor: "| dataflows.json | No | Connections between elements (can be empty array) |"
+    destination: shared/guidelines-core.md
+  - id: faf42b66da
+    line: 117
+    anchor: "| data-items.json | No | Data classifications (can be empty array) |"
+    destination: shared/guidelines-core.md
+  - id: 0b8236d5b3
+    line: 118
+    anchor: "| attributes/ | No | Class-specific attributes for elements |"
+    destination: shared/guidelines-core.md
+  - id: b800d0d393
+    line: 124
+    anchor: "Models progress through 6 states:"
+    destination: shared/guidelines-core.md
+  - id: 059aeb4ee9
+    line: 126
+    anchor: INITIALIZED → SCOPE_DEFINED → DISCOVERED → STRUCTURE_COMPLETE → ENRICHING → REVIEWED
+    destination: shared/guidelines-core.md
+  - id: af6e8780a7
+    line: 130
+    anchor: "Transitions: - Forward: the step"
+    destination: shared/guidelines-core.md
+  - id: a9d756164c
+    line: 131
+    anchor: "Forward: the step's gate passes + user confirmation"
+    destination: shared/guidelines-core.md
+  - id: 5b506f7c99
+    line: 132
+    anchor: "**Backward (manual)**: Explicit user request to return to an earlier state"
+    destination: shared/guidelines-core.md
+  - id: d9a1952581
+    line: 133
+    anchor: "**Backward (automatic)**: Structural changes (adding/removing components, boundaries, flows) at ENRICHING or later → revert to STRUCTURE_COMPLETE"
+    destination: shared/guidelines-core.md
+  - id: d8122ecdb0
+    line: 135
+    anchor: "**On backward transition:**"
+    destination: shared/guidelines-core.md
+  - id: 95350d6c99
+    line: 136
+    anchor: deletes `.dethereal/quality.json` (forcing recomputation)
+    destination: shared/guidelines-core.md
+  - id: 49031192b1
+    line: 137
+    anchor: The server clears the sign-off
+    destination: shared/guidelines-core.md
+  - id: e4f46c17b8
+    line: 138
+    anchor: record the modified element IDs with
+    destination: shared/guidelines-core.md
+  - id: 7e4b79e49d
+    line: 142
+    anchor: "**`.dethernety/models.json`** — Model registry (project root)"
+    destination: shared/guidelines-schema.md
+  - id: 7dc9ea6a73
+    line: 144
+    anchor: '{ "version": 1, "models": [ { "name": "Production Stack", "path": "./threat-models/production-stack", "createdAt": "2026-03-27T10:00:00Z" } ] }'
+    destination: shared/guidelines-schema.md
+  - id: 8eb348ccf2
+    line: 157
+    dropped:
+      reason: "Workflow state belongs to the server: the prose reads and changes it only through the state tool, so the file is no longer documented as something to read or write."
+      ref: apps/dethereal/src/tools/manifest.ts (model_state)
+  - id: 6e93eeff9e
+    line: 159
+    dropped:
+      reason: The on-disk shape of the state file is no longer model-facing; the state tool returns the state and applies every transition and side effect.
+      ref: apps/dethereal/src/tools/manifest.ts (model_state)
+  - id: b5b769666b
+    line: 169
+    anchor: "after a complete drift reconcile on a"
+    destination: shared/guidelines-core.md
+  - id: 6e06b6c7c0
+    line: 169
+    anchor: the commit the next `git diff` starts from
+    destination: shared/guidelines-core.md
+  - id: ff88e387eb
+    line: 169
+    anchor: "None outside a git repo."
+    destination: shared/guidelines-core.md
+  - id: ae6cff84ed
+    line: 169
+    dropped:
+      reason: The link points into the repository documentation, which a generated bundle does not contain; the drift procedure is carried by the workflow itself.
+      ref: docs/architecture/dethereal/DRIFT_DETECTION.md
+  - id: 55356ed693
+    line: 171
+    anchor: "Quality score cache, recorded by"
+    destination: shared/guidelines-core.md
+  - id: 2978fcfa04
+    line: 171
+    anchor: "Quality score cache, recorded by"
+    destination: shared/guidelines-core.md
+  - id: 6e19df10fe
+    line: 173
+    anchor: '{ "quality_score": 56.25, "label": "In Progress", "factors": { "component_classification_rate": { "value": 0.6, "weight": 25 }, "attribute_completion_rate":'
+    destination: shared/guidelines-schema.md
+  - id: 7ec1d5a49d
+    line: 209
+    anchor: "`factors[*].note` and a top-level `warnings: string[]` are present only when the tool emits them."
+    destination: shared/guidelines-schema.md
+  - id: 4905af4ef1
+    line: 211
+    anchor: "`attribute_residual` is the enrichment worklist behind `attribute_completion_rate` — render it, never collapse it to the single"
+    destination: shared/guidelines-core.md
+  - id: da30dac6fa
+    line: 213
+    anchor: "`top_unresolved` names the elements and the exact fields still unresolved (capped at 25 elements, 12 fields"
+    destination: shared/guidelines-core.md
+  - id: 2937f74c1f
+    line: 214
+    anchor: "`blocked` lists classified elements the ratio could NOT measure, each with its `class_id` — normally because"
+    destination: shared/guidelines-core.md
+  - id: 73d03ca854
+    line: 215
+    anchor: '`basis: "file-presence"` means no class template was cached for anything, so the factor measured whether an'
+    destination: shared/guidelines-core.md
+  - id: e19bb91015
+    line: 217
+    anchor: 'Quality labels: >= 90 "Comprehensive", 70-89 "Good", 40-69 "In Progress", < 40 "Starting".'
+    destination: shared/guidelines-core.md
+  - id: 276ad04f44
+    line: 217
+    dropped:
+      reason: "No score threshold gates anything any more: the quality score is reported, and readiness comes from the gate verdicts of the validation tool."
+      ref: apps/dethereal/src/tools/manifest.ts (validate_model_json, action gates)
+  - id: 31107d0c18
+    line: 219
+    anchor: "**`<model-path>/.dethereal/scope.json`** — Scope definition"
+    destination: shared/guidelines-core.md
+  - id: 954860530f
+    line: 221
+    anchor: '{ "system_name": "Production Stack", "description": "React frontend, Go API, PostgreSQL database", "depth": "architecture", "modeling_intent": "initial", "compliance_drivers":'
+    destination: shared/guidelines-schema.md
+  - id: 4e72a448fd
+    line: 238
+    anchor: "`activeModules` is optional."
+    destination: shared/guidelines-core.md
+  - id: 4cf77d531c
+    line: 238
+    anchor: If absent, classification searches all installed modules (backward compatible).
+    destination: shared/guidelines-core.md
+  - id: 6f5fa23e3d
+    line: 238
+    anchor: The baseline module (`dethernety-general`) is always included and non-removable.
+    destination: shared/guidelines-core.md
+  - id: ebc43bec55
+    line: 238
+    anchor: Populated by the module selection step after discovery — the agent recommends modules based on discovered
+    destination: shared/guidelines-core.md
+  - id: 296a472a7b
+    line: 242
+    anchor: "**`.dethernety/`** (project root) — plugin-level metadata: model registry, config"
+    destination: shared/guidelines-core.md
+  - id: 1503cbfb31
+    line: 243
+    anchor: "**`.dethereal/`** (per-model) — per-model workflow metadata: state, discovery, quality, scope, sync"
+    destination: shared/guidelines-core.md
+  - id: 3da9f5518e
+    line: 244
+    anchor: "The class cache is what attribute_completion_rate measures against"
+    destination: shared/guidelines-core.md

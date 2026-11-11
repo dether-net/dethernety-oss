@@ -10,6 +10,12 @@ import type { ToolContext } from '../base-tool.js'
 
 const { mockUpdateAttributesOnly } = vi.hoisted(() => ({ mockUpdateAttributesOnly: vi.fn() }))
 
+// The platform model the change check reads: none of the pushed elements yet, so nothing changed there.
+const emptyPlatformModel = () => ({
+  manifest: { schemaVersion: '2.0.0', format: 'split', model: { id: 'M1', name: 'T' }, modules: [] },
+  structure: {}, dataFlows: [], dataItems: [], attributes: {},
+})
+
 vi.mock('@dethernety/dt-core', async (importOriginal) => {
   const actual = await importOriginal() as Record<string, unknown>
   return {
@@ -18,6 +24,21 @@ vi.mock('@dethernety/dt-core', async (importOriginal) => {
       constructor(_apolloClient: any) {}
       updateAttributesOnly = mockUpdateAttributesOnly
     },
+    DtExportSplit: class MockDtExportSplit {
+      constructor(_apolloClient: any) {}
+      exportModelToSplit = async () => emptyPlatformModel()
+    },
+  }
+})
+
+// The push gate has its own tests at the end; the others are about the push itself.
+const { pushGate } = vi.hoisted(() => ({ pushGate: { real: false } }))
+vi.mock('../../utils/gates.js', async (importOriginal) => {
+  const actual = await importOriginal() as typeof import('../../utils/gates.js')
+  return {
+    ...actual,
+    directoryPushRefusal: (...args: Parameters<typeof actual.directoryPushRefusal>) =>
+      pushGate.real ? actual.directoryPushRefusal(...args) : Promise.resolve(null),
   }
 })
 

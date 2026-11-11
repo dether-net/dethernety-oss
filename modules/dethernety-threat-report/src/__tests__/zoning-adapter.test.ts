@@ -183,6 +183,23 @@ describe('computeZoning (engine integration)', () => {
     expect(ei[0].peerId).toBe('app');
   });
 
+  it('carries each component\'s class, so a load balancer in a public tier cannot hide a crossing', () => {
+    const lb = { classId: 'cda026ac-62af-4222-8523-155bc669c77a', className: 'Load Balancer' };
+    const run = (edge: Partial<ZoningGraphComponent>) =>
+      computeZoning(
+        graph({
+          boundaries: [bnd('vendor', { zone: 'VENDOR' }), bnd('edge', { zone: 'PUBLIC' }), bnd('app', { zone: 'INTERNAL' })],
+          components: [cmp('v', 'vendor', { type: 'external_entity' }), cmp('edgeC', 'edge', edge), cmp('appC', 'app')],
+          flows: [flow('f1', 'v', 'edgeC'), flow('f2', 'edgeC', 'appC')],
+        }),
+        engine,
+      ).findings.filter((f) => f.kind === 'external-ingress');
+    // A load balancer of any name, known by its class.
+    expect(run({ name: 'Front door', ...lb })).toEqual([expect.objectContaining({ boundaryId: 'vendor', peerId: 'app', via: ['Front door'] })]);
+    // An API gateway named like a proxy: its class says it terminates the request.
+    expect(run({ name: 'Ingress Controller', classId: '6d723569-dc75-47dd-8f77-aa679dba1d54', className: 'API Gateway' })).toEqual([]);
+  });
+
   it('suppresses external-ingress when a matching conduit is declared', () => {
     const { findings } = computeZoning(
       graph({

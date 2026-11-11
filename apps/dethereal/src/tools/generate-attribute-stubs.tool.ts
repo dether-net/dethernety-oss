@@ -29,6 +29,9 @@ import type {
 } from '@dethernety/dt-core'
 import { flattenStructure } from '@dethernety/dt-core'
 import { ClientDependentTool, ToolContext, ToolResult } from './base-tool.js'
+import { assertRealModelTree, writeFileNoFollow, ModelTreeError } from '../utils/path-confinement.js'
+import { moduleRef } from '../utils/manifest-modules.js'
+import { readChecked, StateFileError } from '../utils/state-store.js'
 import {
   validatePathConfinement,
   validateElementId,
@@ -51,6 +54,25 @@ const InputSchema = z.object({
 })
 
 type GenerateStubsInput = z.infer<typeof InputSchema>
+
+/** Largest attribute file read (as the model readers). */
+const MAX_ATTRIBUTE_BYTES = 1024 * 1024
+/** Largest class-cache or template-field entry read. */
+const MAX_CACHE_BYTES = 4 * 1024 * 1024
+
+/**
+ * Write a cache entry. The caches are rebuilt from the platform, so an entry that
+ * cannot be written (a link or special file committed in its place) is reported
+ * and skipped rather than failing the whole run.
+ */
+async function writeCacheFile(abs: string, data: string, root: string, warnings: string[]): Promise<void> {
+  try {
+    await writeFileNoFollow(abs, data, root)
+  } catch (err) {
+    if (!(err instanceof ModelTreeError)) throw err
+    warnings.push(`${path.relative(root, abs)} was not updated (${err.code.replaceAll('_', ' ')})`)
+  }
+}
 
 interface GenerateStubsResult {
   generated: number
@@ -100,6 +122,8 @@ export class GenerateAttributeStubsTool extends ClientDependentTool<GenerateStub
 
       // 1. Validate path
       const dirPath = await validatePathConfinement(input.directory_path)
+      // Everything below writes into attributes/ and .dethereal/: none of it through a link.
+      await assertRealModelTree(dirPath)
 
       // 2. Read model files
       const structure = await readStructure(dirPath)
@@ -146,6 +170,7 @@ export class GenerateAttributeStubsTool extends ClientDependentTool<GenerateStub
       const templateFieldsDir = path.join(dirPath, '.dethereal', 'template-fields')
       await fs.mkdir(classCacheDir, { recursive: true })
       await fs.mkdir(templateFieldsDir, { recursive: true })
+      await assertRealModelTree(dirPath)
 
       for (const [classId, { classType, elementIds }] of uniqueClassIds) {
         // classId comes from agent-writable model files and is interpolated
@@ -166,7 +191,7 @@ export class GenerateAttributeStubsTool extends ClientDependentTool<GenerateStub
           const cls = await dtClass.getClassById({ classId, classType })
           if (cls) {
             classMap.set(classId, cls)
-            await this.writeClassCache(classCacheDir, classId, cls, classType)
+            await this.writeClassCache(classCacheDir, classId, cls, classType, warnings)
             continue // Success — next class
           }
         } catch {
@@ -260,8 +285,20 @@ export class GenerateAttributeStubsTool extends ClientDependentTool<GenerateStub
         let existingAttributes: Record<string, unknown> = {}
         let existingMeta: { elementId?: string; elementType?: string; elementName?: string; classData?: unknown; modifiedAt?: string } = {}
 
+        // Read without following a link or blocking on a special file. Only an
+        // absent file is created: one that cannot be read is never overwritten,
+        // since its bytes exist nowhere else.
+        const attrRel = `attributes/${config.subdir}/${el.id}.json`
+        let content: string | null
         try {
-          const content = await fs.readFile(attrFilePath, 'utf-8')
+          const bytes = await readChecked(attrFilePath, attrRel, MAX_ATTRIBUTE_BYTES)
+          content = bytes === null ? null : bytes.toString('utf-8')
+        } catch (err) {
+          const code = err instanceof StateFileError ? err.code : 'io'
+          failed.push({ element_id: el.id, reason: `${attrRel} could not be read (${code}); left unchanged` })
+          continue
+        }
+        if (content !== null) try {
           const rawJson = JSON.parse(content) as Record<string, unknown>
 
           if (isFlatFormat(rawJson)) {
@@ -288,7 +325,8 @@ export class GenerateAttributeStubsTool extends ClientDependentTool<GenerateStub
             }
           }
         } catch {
-          // No existing file — will create new one
+          failed.push({ element_id: el.id, reason: `${attrRel} is not valid JSON; left unchanged` })
+          continue
         }
 
         // Reclassification detection: compare manifest classId with current classData.id
@@ -346,7 +384,7 @@ export class GenerateAttributeStubsTool extends ClientDependentTool<GenerateStub
         }
 
         await fs.mkdir(path.dirname(attrFilePath), { recursive: true })
-        await fs.writeFile(attrFilePath, JSON.stringify(outputAttrs, null, 2), 'utf-8')
+        await writeFileNoFollow(attrFilePath, JSON.stringify(outputAttrs, null, 2), dirPath)
 
         // Write template field manifest
         const manifest = {
@@ -356,7 +394,7 @@ export class GenerateAttributeStubsTool extends ClientDependentTool<GenerateStub
           generatedAt: new Date().toISOString(),
         }
         const manifestPath = path.join(templateFieldsDir, `${el.id}.json`)
-        await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8')
+        await writeCacheFile(manifestPath, JSON.stringify(manifest, null, 2), dirPath, warnings)
       }
 
       return {
@@ -440,6 +478,7 @@ export class GenerateAttributeStubsTool extends ClientDependentTool<GenerateStub
     classId: string,
     cls: Class,
     classType: string,
+    warnings: string[],
   ): Promise<void> {
     const cacheEntry = {
       classId,
@@ -451,12 +490,14 @@ export class GenerateAttributeStubsTool extends ClientDependentTool<GenerateStub
       // nothing else on disk carries it, and a STORE bound to a PROCESS class
       // was previously undetectable without the platform.
       ...(cls.type ? { componentType: cls.type } : {}),
+      // The module the platform says provides the class: what manifest.json's derived module list is built from offline.
+      ...(moduleRef(cls.module) ? { module: moduleRef(cls.module) } : {}),
       cachedAt: new Date().toISOString(),
       template: cls.template,
       guide: cls.guide,
     }
     const cachePath = path.join(cacheDir, `${classId}.json`)
-    await fs.writeFile(cachePath, JSON.stringify(cacheEntry, null, 2), 'utf-8')
+    await writeCacheFile(cachePath, JSON.stringify(cacheEntry, null, 2), path.resolve(cacheDir, '..', '..'), warnings)
   }
 
   /**
@@ -469,8 +510,9 @@ export class GenerateAttributeStubsTool extends ClientDependentTool<GenerateStub
   ): Promise<{ cls: Class; cachedAt: string } | null> {
     try {
       const cachePath = path.join(cacheDir, `${classId}.json`)
-      const content = await fs.readFile(cachePath, 'utf-8')
-      const cached = JSON.parse(content) as {
+      const bytes = await readChecked(cachePath, `.dethereal/class-cache/${classId}.json`, MAX_CACHE_BYTES)
+      if (bytes === null) return null
+      const cached = JSON.parse(bytes.toString('utf-8')) as {
         classId: string
         className: string
         classType: string
@@ -511,8 +553,9 @@ export class GenerateAttributeStubsTool extends ClientDependentTool<GenerateStub
   ): Promise<{ classId: string; className: string; templateFields: string[]; generatedAt: string } | null> {
     try {
       const manifestPath = path.join(templateFieldsDir, `${elementId}.json`)
-      const content = await fs.readFile(manifestPath, 'utf-8')
-      return JSON.parse(content) as {
+      const bytes = await readChecked(manifestPath, `.dethereal/template-fields/${elementId}.json`, MAX_CACHE_BYTES)
+      if (bytes === null) return null
+      return JSON.parse(bytes.toString('utf-8')) as {
         classId: string
         className: string
         templateFields: string[]

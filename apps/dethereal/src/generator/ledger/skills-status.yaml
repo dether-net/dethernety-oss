@@ -1,0 +1,178 @@
+source: skills/status/SKILL.md
+blob: 6658de61141b85868e17d1283d9bd611c7ed83c3
+migrated: true
+rules:
+  - id: 7c13e0e4e6
+    line: 8
+    anchor: "a status overview: the platform connection, the sign-in, and the local models"
+    destination: skills/status/SKILL.md
+  - id: fb845e791a
+    line: 8
+    anchor: "with verify: true. its platformurl is the platform line"
+    destination: skills/status/SKILL.md
+  - id: 5eb2ae2e59
+    line: 12
+    anchor: "no arguments: the full status below"
+    destination: skills/status/SKILL.md
+  - id: 7c3e78e4d9
+    line: 13
+    anchor: "the models a control is assigned to"
+    destination: skills/status/SKILL.md
+  - id: acb238434b
+    line: 17
+    anchor: "its platformurl is the platform line"
+    destination: skills/status/SKILL.md
+  - id: d5e1a56144
+    line: 19
+    anchor: "with verify: true"
+    destination: skills/status/SKILL.md
+  - id: bcc7025c5d
+    line: 20
+    anchor: "authentication disabled on this platform"
+    destination: skills/status/SKILL.md
+  - id: 0d3225a682
+    line: 21
+    anchor: "as minutes left"
+    destination: skills/status/SKILL.md
+  - id: 417359b7c9
+    line: 22
+    anchor: "in parentheses when present"
+    destination: skills/status/SKILL.md
+  - id: 4705ee19fc
+    line: 24
+    anchor: "lists the registered models with"
+    destination: skills/status/SKILL.md
+  - id: 677cb64fec
+    line: 25
+    anchor: "none registered: \"no local models"
+    destination: skills/status/SKILL.md
+  - id: 6c72368285
+    line: 26
+    anchor: "with directory_path set to the model's path gives"
+    destination: skills/status/SKILL.md
+  - id: fbe900705b
+    line: 27
+    anchor: "lists the registered models with name"
+    destination: skills/status/SKILL.md
+  - id: 1f51ff1a80
+    line: 28
+    anchor: "displaystate (or state), qualityscore"
+    destination: skills/status/SKILL.md
+  - id: 172b660802
+    line: 29
+    anchor: "displaystate (or state), qualityscore"
+    destination: skills/status/SKILL.md
+  - id: f111357d65
+    line: 30
+    anchor: "never_synced, no_local_changes, local_changes, unknown"
+    destination: skills/status/SKILL.md
+  - id: 68ecb7c0e0
+    line: 32
+    anchor: "these counts are the tool's; never judge drift or lifecycle by hand"
+    destination: skills/status/SKILL.md
+  - id: 6321111dc4
+    line: 34
+    anchor: "read from controls/*.json, for display only"
+    destination: skills/status/SKILL.md
+  - id: 92e6bdd2c0
+    line: 34
+    anchor: "read from controls/*.json, for display only"
+    destination: skills/status/SKILL.md
+  - id: 3309a4619d
+    line: 35
+    anchor: "unpushed (greenfield or partially pushed)"
+    destination: skills/status/SKILL.md
+  - id: 2d30a1e4e8
+    line: 36
+    anchor: "each class entry's classname and pendingedit"
+    destination: skills/status/SKILL.md
+  - id: 4d8f28aa1f
+    line: 37
+    anchor: "is more than 15 minutes old"
+    destination: skills/status/SKILL.md
+  - id: 3dee5eaa4f
+    line: 38
+    anchor: "never judge drift or lifecycle by hand"
+    destination: skills/status/SKILL.md
+  - id: 915db5c752
+    line: 39
+    anchor: "whose id no controls reference in structure.json, dataflows.json or data-items.json names"
+    destination: skills/status/SKILL.md
+  - id: 144002c49c
+    line: 41
+    anchor: "local changes since the last push"
+    destination: skills/status/SKILL.md
+  - id: dadcf416be
+    line: 43
+    anchor: "edited by agent at 2026-04-18T10:30Z - NSG Least-Privilege Ingress [Network Access Control]: 2 keys"
+    destination: skills/status/SKILL.md
+  - id: 7955b76dac
+    line: 74
+    anchor: "a row with a zero count is left out"
+    destination: skills/status/SKILL.md
+  - id: 4dfc9907b0
+    line: 74
+    anchor: "several models: one control-library block each"
+    destination: skills/status/SKILL.md
+  - id: 3e9010d908
+    line: 76
+    anchor: "list the first 5, then"
+    destination: skills/status/SKILL.md
+  - id: 4ffd039e74
+    line: 78
+    anchor: "list the first 5, then"
+    destination: skills/status/SKILL.md
+  - id: 75b73842e0
+    line: 88
+    dropped: {reason: "Drifted controls are a count from workspace_status (its detectControlDrift), never listed by hand; the push names each drifted control before it stops, and promote-external-edit recovers it", ref: "apps/dethereal/workflow/skills/status/SKILL.md"}
+  - id: a0a7b7000e
+    line: 88
+    dropped: {reason: "The lifecycle line is replaced by the tool's counts (unpushed, tombstoned), each its own row; nothing to truncate", ref: "apps/dethereal/workflow/skills/status/SKILL.md"}
+  - id: 8c73d97666
+    line: 88
+    anchor: "more than 10 pending edits, stale controls or orphan files"
+    destination: skills/status/SKILL.md
+  - id: 1b3adb657a
+    line: 90
+    anchor: "none registered: \"no local models"
+    destination: skills/status/SKILL.md
+  - id: b765562d6e
+    line: 91
+    anchor: "to get started.\" and skip to the footer"
+    destination: skills/status/SKILL.md
+  - id: 988fa8d75f
+    line: 99
+    anchor: "lists the models the control is assigned to, as cached at its last pull"
+    destination: skills/status/SKILL.md
+  - id: "9e90869959"
+    line: 101
+    anchor: "the directory argument, or the model resolution protocol"
+    destination: skills/status/SKILL.md
+  - id: d55e4db05a
+    line: 102
+    anchor: "is not pulled locally"
+    destination: skills/status/SKILL.md
+  - id: 54da129c43
+    line: 103
+    anchor: "cached at the last pull"
+    destination: skills/status/SKILL.md
+  - id: 26ac697813
+    line: 104
+    anchor: "this control's local edit history"
+    destination: skills/status/SKILL.md
+  - id: 832a9d0d89
+    line: 117
+    anchor: "local only: no platform query"
+    destination: skills/status/SKILL.md
+  - id: e4d118fd15
+    line: 119
+    anchor: "follow matters: a control file is renamed"
+    destination: skills/status/SKILL.md
+  - id: 299f1f06c1
+    line: 121
+    anchor: "the platform does not report a model's owner or last change yet"
+    destination: skills/status/SKILL.md
+  - id: 2e5cee2be7
+    line: 121
+    anchor: "model ids only"
+    destination: skills/status/SKILL.md

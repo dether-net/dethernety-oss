@@ -157,6 +157,7 @@ interface ModelGraphComponent {
   id: string;
   name: string;
   description: string | null; // the element's own free-text description
+  classId: string | null; // id of the class this element instantiates (the zoning engine tells forwarders by it)
   className: string | null; // name of the class this element instantiates
   classDescription: string | null; // that class's description
   type: string | null; // 'process' | 'store' | 'external_entity' | … (lower-cased)
@@ -394,8 +395,9 @@ class DethernetyThreatReportModule implements DTModule {
       // untouched. Every input the zoning engine reads must fold in, or a re-zoned/re-tagged/re-wired
       // model would read FRESH: per-boundary zone/planes/domains, crownJewel flags (also fixes a
       // pre-existing gap — crownJewel drove no prior digest term), Data regulatory flags (a flag alone
-      // makes data an asset), declared CONDUIT edges, and flow ENDPOINTS (re-wiring a flow, same id,
-      // changes the boundary adjacency → tiers/findings). List members are sorted in TS for
+      // makes data an asset), declared CONDUIT edges, flow ENDPOINTS (re-wiring a flow, same id,
+      // changes the boundary adjacency → tiers/findings), and each component's CLASS — or, unclassified,
+      // its name and type — which tell the engine a relaying hop (a load balancer, proxy, …). List members are sorted in TS for
       // determinism; the sentinel keeps one returned row even when there are no flows.
       const zoningRes = await session.run(
         `MATCH (m:Model {id: $modelId})
@@ -403,7 +405,9 @@ class DethernetyThreatReportModule implements DTModule {
          OPTIONAL MATCH (b)-[:BELONGS_TO]->(bp:SecurityBoundary)
          WITH m, collect(DISTINCT { id: b.id, zone: coalesce(b.zone, ''), planes: coalesce(b.planes, []), domains: coalesce(b.domains, []), parent: coalesce(bp.id, '') }) AS bZoning
          OPTIONAL MATCH (m)-[:CONTAINS]->(:SecurityBoundary)<-[:BELONGS_TO*0..50]-(cb:SecurityBoundary)<-[:BELONGS_TO]-(c:Component)
-         WITH m, bZoning, collect(DISTINCT c.id + '|' + coalesce(toString(c.crownJewel), '') + '<' + cb.id) AS cjSigs
+         OPTIONAL MATCH (c)-[:IS_INSTANCE_OF]->(ccls)
+         WITH m, bZoning, collect(DISTINCT c.id + '|' + coalesce(toString(c.crownJewel), '') + '<' + cb.id + '|' +
+              CASE WHEN ccls IS NULL THEN '~' + coalesce(c.name, '') + '|' + coalesce(c.type, '') ELSE ccls.id END) AS cjSigs
          OPTIONAL MATCH (m)-[:CONTAINS]->(d:Data)
          WITH m, bZoning, cjSigs, collect(DISTINCT { id: d.id, flags: coalesce(d.regulatoryFlags, []) }) AS dRegs
          OPTIONAL MATCH (m)-[:CONTAINS]->(:SecurityBoundary)<-[:BELONGS_TO*0..50]-(bc:SecurityBoundary)-[co:CONDUIT]->(peer:SecurityBoundary)
@@ -449,11 +453,11 @@ class DethernetyThreatReportModule implements DTModule {
         e: [...exposureSigs].sort(),
         h: [...handlesSigs].sort(), // HANDLES edges — Component Profile data sub-block
         bz: boundaryZoningSigs, // boundary zone/planes/domains + parent — tiers/mgmt-plane/domain findings + nesting
-        cj: [...cjSigs].sort(), // crownJewel flags + component→boundary — directAssetIds/tiers + component containment
+        cj: [...cjSigs].sort(), // crownJewel flags + component→boundary + class (unclassified: name, type) — assets, containment, forwarders
         dr: dataRegulatorySigs, // Data regulatory flags — a flag alone makes data an asset
         cd: [...conduitSigs].sort(), // declared CONDUIT edges — conduit-policy findings
         fe: [...flowEndpointSigs].sort(), // flow endpoints — adjacency → tiers/ingress findings
-        // Who runs each element, only when something declares: a model that declares nothing keeps its digest.
+        // Who runs each element, only when something declares: with nothing declared, the op key is left out.
         ...(operationSigs.length ? { op: operationSigs } : {}),
       });
       const fingerprint = createHash('sha256')
@@ -655,7 +659,7 @@ class DethernetyThreatReportModule implements DTModule {
            positionX: c.positionX, positionY: c.positionY,
            width: c.dimensionsWidth, height: c.dimensionsHeight,
            boundaryId: cb.id, crownJewel: c.crownJewel,
-           className: cls.name, classDescription: cls.description
+           classId: cls.id, className: cls.name, classDescription: cls.description
          }) AS components`,
         { modelId },
       );
@@ -780,6 +784,7 @@ class DethernetyThreatReportModule implements DTModule {
             id: c.id,
             name: c.name ?? '',
             description: c.description ?? null,
+            classId: c.classId ?? null,
             className: c.className ?? null,
             classDescription: c.classDescription ?? null,
             type: c.type ?? null,

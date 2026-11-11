@@ -218,9 +218,9 @@ More follows where it applies:
 
 ### What makes it stale
 
-Changing what an element declares under **Operated by** or **Product** marks the report stale, and so does a zone change or a move between boundaries, as for any report. A **Version** edit does not.
+Changing what an element declares under **Operated by** or **Product** marks the report stale, and so does a zone change, a change of a component's class (or renaming or retyping a component that has no class) or a move between boundaries, as for any report. A **Version** edit does not.
 
-A model that declares nothing keeps its fingerprint, so a report from before 2.2.0 stays **Fresh** on such a model, and its profile still asks you to recreate it. On a model that declares something, that older report reads stale. Click **Recreate** in either case.
+After the upgrade to 2.2.0, a report made before it reads stale once on any model that has components, even if the model has not changed and declares nothing: the check now also covers each component's class (a model with no components keeps its fingerprint). The older report's profile also asks you to recreate it. Click **Recreate**.
 
 ## Where to go next
 

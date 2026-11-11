@@ -1,0 +1,15 @@
+{
+  "session_id": "<session-id>",
+  "turn_id": "<turn-id>",
+  "transcript_path": "<transcript>",
+  "cwd": "<run>/project",
+  "hook_event_name": "PostToolUse",
+  "model": "gpt-6-astra",
+  "permission_mode": "bypassPermissions",
+  "tool_name": "apply_patch",
+  "tool_input": {
+    "command": "*** Begin Patch\n*** Update File: <run>/project/probe/a.txt\n*** Move to: <run>/project/probe/b.txt\n@@\n beta\n*** End Patch"
+  },
+  "tool_response": "Exit code: 0\nWall time: 0.1 seconds\nOutput:\nSuccess. Updated the following files:\nM <run>/project/probe/b.txt\n",
+  "tool_use_id": "<tool-use-id>"
+}

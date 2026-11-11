@@ -1,4 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { createHash } from 'node:crypto'
 import type { ToolContext } from '../base-tool.js'
 
 const {
@@ -14,6 +18,7 @@ const {
   mockReadControlFile,
   mockListControlFiles,
   mockAssignControlToElements,
+  libHooks,
 } = vi.hoisted(() => ({
   mockGetControl: vi.fn(),
   mockUpdateControl: vi.fn(),
@@ -27,6 +32,8 @@ const {
   mockReadControlFile: vi.fn(),
   mockListControlFiles: vi.fn(),
   mockAssignControlToElements: vi.fn(),
+  /** When set, replaces DtControlLibrary.pushBrownfieldControl (the engine has its own tests). */
+  libHooks: { pushBrownfield: null as null | ((args: unknown) => unknown) },
 }))
 
 vi.mock('@dethernety/dt-core', async (importOriginal) => {
@@ -48,6 +55,12 @@ vi.mock('@dethernety/dt-core', async (importOriginal) => {
       updateControl = mockUpdateControl
       createControl = mockCreateControl
       assignControlToElements = mockAssignControlToElements
+    },
+    DtControlLibrary: class HookedDtControlLibrary extends (actual.DtControlLibrary as new (c: unknown) => Record<string, unknown>) {
+      constructor(apolloClient: unknown) {
+        super(apolloClient)
+        if (libHooks.pushBrownfield) this.pushBrownfieldControl = libHooks.pushBrownfield
+      }
     },
     DtClass: class MockDtClass {
       constructor(_apolloClient: unknown) {}
@@ -84,6 +97,24 @@ beforeEach(() => {
 })
 
 describe('ManageControlsTool', () => {
+  it('refuses the read actions: listing, reading and ranking controls is query_controls\'', () => {
+    for (const input of [{ action: 'list' }, { action: 'list', name: 'firewall' }, { action: 'get', control_id: 'c-1' }, { action: 'rank', element_types: ['PROCESS'] }]) {
+      expect(manageControlsTool.inputSchema.safeParse(input).success, input.action).toBe(false)
+    }
+  })
+
+  it('lists no ranking inputs, and drops them from a call, while query_controls\' rank still takes them', async () => {
+    const listed = (await import('../../tool-listing.js')).listedTool(manageControlsTool).inputSchema as { properties: Record<string, unknown> }
+    expect(listed.properties).not.toHaveProperty('element_types')
+    expect(listed.properties).not.toHaveProperty('top_n')
+    const parsed = manageControlsTool.inputSchema.safeParse({ action: 'create', name: 'WAF', element_types: ['PROCESS'], top_n: 3 })
+    expect(parsed.success).toBe(true)
+    expect(parsed.data).not.toHaveProperty('element_types')
+    expect(parsed.data).not.toHaveProperty('top_n')
+    const { queryControlsTool } = await import('../query-security.tool.js')
+    expect(queryControlsTool.inputSchema.safeParse({ action: 'rank', element_types: ['PROCESS'], top_n: 3 }).success).toBe(true)
+  })
+
   it('should have the correct tool name', () => {
     expect(manageControlsTool.name).toBe('manage_controls')
   })
@@ -92,19 +123,7 @@ describe('ManageControlsTool', () => {
     expect(manageControlsTool.requiresClient).toBe(true)
   })
 
-  it('should accept list action without parameters', () => {
-    const result = manageControlsTool.inputSchema.safeParse({ action: 'list' })
-    expect(result.success).toBe(true)
-  })
 
-  it('should accept list action with folder_id and class_ids', () => {
-    const result = manageControlsTool.inputSchema.safeParse({
-      action: 'list',
-      folder_id: 'folder-1',
-      class_ids: ['class-1', 'class-2']
-    })
-    expect(result.success).toBe(true)
-  })
 
   it('should reject get action without control_id', () => {
     const result = manageControlsTool.inputSchema.safeParse({ action: 'get' })
@@ -169,39 +188,9 @@ describe('ManageControlsTool', () => {
   })
 
   // Advanced list filters
-  it('should accept list action with name filter', () => {
-    const result = manageControlsTool.inputSchema.safeParse({
-      action: 'list',
-      name: 'firewall',
-    })
-    expect(result.success).toBe(true)
-  })
 
-  it('should accept list action with element_ids filter', () => {
-    const result = manageControlsTool.inputSchema.safeParse({
-      action: 'list',
-      element_ids: ['elem-1', 'elem-2'],
-    })
-    expect(result.success).toBe(true)
-  })
 
-  it('should accept list action with module_name filter', () => {
-    const result = manageControlsTool.inputSchema.safeParse({
-      action: 'list',
-      module_name: 'dethernety-module',
-    })
-    expect(result.success).toBe(true)
-  })
 
-  it('should accept list action with combined filters', () => {
-    const result = manageControlsTool.inputSchema.safeParse({
-      action: 'list',
-      name: 'encryption',
-      class_type: 'network',
-      module_id: 'mod-1',
-    })
-    expect(result.success).toBe(true)
-  })
 
   // Multi-class bindings — a Control may bind several ControlClasses
   it('should accept create action with multiple class_ids', () => {
@@ -440,6 +429,144 @@ describe('ManageControlsTool.execute — CONTROL class-kind validation', () => {
   })
 })
 
+describe('ManageControlsTool — push-brownfield decisions', () => {
+  const input = (sharedOwnership: string) => ({
+    action: 'push-brownfield', directory_path: '/m', control_id: 'ctl-1', decision: { sharedOwnership },
+    fresh_platform_attrs: {}, live_assigned_model_ids: ['model-this'], this_model_id: 'model-this',
+  })
+
+  it('takes cancel, push-anyway and push-unverified, and refuses a clone, which is not offered', () => {
+    for (const d of ['cancel', 'push-anyway', 'push-unverified']) expect(manageControlsTool.inputSchema.safeParse(input(d)).success, d).toBe(true)
+    const clone = manageControlsTool.inputSchema.safeParse(input('clone-and-swap'))
+    expect(clone.success).toBe(false)
+    expect(clone.error!.issues[0]!.message).toMatch(/to fork a shared control, cancel the row and create a separate control/)
+    expect(manageControlsTool.inputSchema.safeParse(input('anything')).success).toBe(false)
+  })
+})
+
+describe('ManageControlsTool.execute — push-brownfield ownership', () => {
+  const context: ToolContext = { debug: false, apolloClient: {} as never }
+  const dir = './__ownership_model__'
+  const file = (assignedModelIds: string[]) => ({
+    id: 'ctl-1',
+    name: 'Shared control',
+    source: 'declared',
+    lifecycle: 'brownfield',
+    classes: [
+      {
+        classId: 'ctrl-class',
+        attributes: { foo: 'edited' },
+        platformAttributes: { foo: 'bar' },
+        localEditedAt: '2026-09-26T10:00:00Z',
+        pendingEdit: { editedBy: 'agent', editedAt: '2026-09-26T10:00:00Z', previousAttributes: { foo: 'bar' } },
+      },
+    ],
+    platformState: { assignedModelIds },
+  })
+  const push = (live: string[] | null, sharedOwnership = 'push-anyway') =>
+    manageControlsTool.execute(
+      {
+        action: 'push-brownfield',
+        directory_path: dir,
+        control_id: 'ctl-1',
+        decision: { sharedOwnership },
+        fresh_platform_attrs: { 'ctrl-class': { foo: 'bar' } },
+        live_assigned_model_ids: live,
+        this_model_id: 'model-this',
+      } as never,
+      context,
+    )
+
+  beforeEach(() => {
+    mockAcquireLock.mockReset().mockResolvedValue({} as never)
+    mockReleaseLock.mockReset().mockResolvedValue(undefined)
+    mockApplyPendingRewrites.mockReset().mockResolvedValue(0)
+    mockReadControlFile.mockReset()
+    mockGetClassById.mockReset().mockImplementation(asControlClass)
+  })
+
+  it('passes a failed ownership query on to the engine as unknown, never as alone', async () => {
+    mockReadControlFile.mockResolvedValue(file(['model-this', 'model-other']))
+    const seen: unknown[] = []
+    libHooks.pushBrownfield = async (args) => {
+      seen.push((args as { liveAssignedModelIds: unknown }).liveAssignedModelIds)
+      return { file: {}, auditEntries: [], mutated: false }
+    }
+    try {
+      await push(null, 'push-unverified')
+    } finally {
+      libHooks.pushBrownfield = null
+    }
+    // The engine treats null as unknown ownership: only push-unverified or cancel (its own tests).
+    expect(seen).toEqual([null])
+  })
+
+  it('attributes the push to the platform login only: no local identity reaches the engine', async () => {
+    mockReadControlFile.mockResolvedValue(file(['model-this']))
+    const seen: Record<string, unknown>[] = []
+    libHooks.pushBrownfield = async (args) => {
+      seen.push(args as Record<string, unknown>)
+      return { file: {}, auditEntries: [], mutated: false }
+    }
+    try {
+      await push(['model-this'], 'push-anyway')
+    } finally {
+      libHooks.pushBrownfield = null
+    }
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toHaveProperty('authnOperator')
+    expect(seen[0]).not.toHaveProperty('operator')
+  })
+
+  it("tags audit values under a key derived from this machine's key; with no usable key, values are left out", async () => {
+    // A throwaway HOME: this machine's key is created there, never in the real one.
+    const savedHome = process.env.HOME
+    const homeA = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dethereal-audit-home-')))
+    const homeB = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dethereal-audit-home-')))
+    mockReadControlFile.mockResolvedValue(file(['model-this']))
+    const seen: Array<{ tag?: (k: string, v: unknown) => string; omittedCode?: string }> = []
+    libHooks.pushBrownfield = async (args) => {
+      seen.push((args as { valueTags: (typeof seen)[number] }).valueTags)
+      return { file: {}, auditEntries: [], mutated: false }
+    }
+    try {
+      process.env.HOME = homeA
+      await push(['model-this'])
+      process.env.HOME = homeB
+      await push(['model-this'])
+      // A key the machine cannot use (group-readable): values are left out, and the code says why.
+      fs.chmodSync(path.join(homeB, '.dethernety', 'waiver.key'), 0o644)
+      await push(['model-this'])
+    } finally {
+      libHooks.pushBrownfield = null
+      process.env.HOME = savedHome
+    }
+    const [a, b, none] = seen
+    const tagA = a!.tag!
+    const secret = 's3cr3t-VALUE'
+    expect(tagA('api_key', secret)).toMatch(/^[0-9a-f]{32}$/)
+    expect(tagA('api_key', secret)).toBe(tagA('api_key', secret))
+    expect(tagA('password', secret)).not.toBe(tagA('api_key', secret))
+    expect(tagA('k', null)).not.toBe(tagA('k', undefined))
+    expect(b!.tag!('api_key', secret)).not.toBe(tagA('api_key', secret))
+    // Not a plain hash of the value, nor of the key and the value.
+    for (const plain of [JSON.stringify(secret), secret, JSON.stringify(['api_key', 1, secret])]) {
+      expect(createHash('sha256').update(plain).digest('hex').startsWith(tagA('api_key', secret))).toBe(false)
+    }
+    expect(none!.tag).toBeUndefined()
+    expect(none!.omittedCode).toBe('key_mode')
+    fs.rmSync(homeA, { recursive: true, force: true })
+    fs.rmSync(homeB, { recursive: true, force: true })
+  })
+
+  it('refuses an empty id list while the pulled control file records other models', async () => {
+    mockReadControlFile.mockResolvedValue(file(['model-this', 'model-other']))
+    const result = await push([], 'push-anyway')
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/records 1 other model\(s\) using this control/)
+  })
+})
+
 describe('ManageControlsTool.execute — push file-not-found diagnosis', () => {
   const context: ToolContext = { debug: false, apolloClient: {} as never }
   // Under CWD so validatePathConfinement passes; never actually created on
@@ -462,6 +589,8 @@ describe('ManageControlsTool.execute — push file-not-found diagnosis', () => {
     mockInspectPendingRewrite.mockResolvedValue({
       present: true,
       journalPath: '',
+      verified: true,
+      rejected: [],
       operations: [
         {
           kind: 'greenfield-id-rewrite',
@@ -487,6 +616,37 @@ describe('ManageControlsTool.execute — push file-not-found diagnosis', () => {
     expect(result.error).toContain('resume with control_id: uuid-123')
   })
 
+  it('never names an id from a journal this machine did not write', async () => {
+    mockReadControlFile.mockResolvedValue(null)
+    mockInspectPendingRewrite.mockResolvedValue({
+      present: true,
+      journalPath: '',
+      verified: false,
+      rejected: [],
+      operations: [
+        {
+          kind: 'greenfield-id-rewrite',
+          tempId: 'greenfield-xyz',
+          serverId: 'victim-control-id',
+          controlFileRename: { from: '', to: '' },
+          fromExists: false,
+          toExists: true,
+          filePaths: [],
+          ambiguous: false,
+          createdAt: '',
+        },
+      ],
+    })
+
+    const result = await manageControlsTool.execute(
+      { action: 'push-greenfield', directory_path: dir, control_id: 'greenfield-xyz' } as never,
+      context,
+    )
+
+    expect(result.success).toBe(false)
+    expect(result.error).not.toContain('victim-control-id')
+  })
+
   it('surfaces partially-pushed controls as resume candidates once the journal is consumed', async () => {
     // The common case: rename succeeded, journal already replayed+deleted, a
     // later push step failed leaving the control at partially-pushed.
@@ -507,6 +667,45 @@ describe('ManageControlsTool.execute — push file-not-found diagnosis', () => {
     expect(result.error!.toLowerCase()).toContain('partially-pushed')
     // brownfield controls are not resume candidates
     expect(result.error).not.toContain('uuid-done')
+  })
+
+  it('names a deleted class on a partially-pushed control, with the way to finish the push', async () => {
+    mockReadControlFile.mockResolvedValue({
+      id: 'uuid-abc', name: 'Half-pushed', source: 'declared', lifecycle: 'partially-pushed',
+      classes: [
+        { classId: 'cc-ok', className: 'Kept', attributes: {} },
+        { classId: 'cc-gone', className: 'Deleted class', attributes: { a: 1 } },
+      ],
+    } as never)
+    mockGetClassById.mockReset().mockImplementation(async ({ classId, classType }: { classId: string; classType: string }) =>
+      classId === 'cc-ok' && classType === 'control' ? { id: 'cc-ok', name: 'Kept' } : undefined)
+
+    const result = await manageControlsTool.execute(
+      { action: 'push-greenfield', directory_path: dir, control_id: 'uuid-abc', supporting_element_ids: [], live_assigned_model_ids: [] } as never,
+      context,
+    )
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('controls/uuid-abc.json binds class "cc-gone" ("Deleted class"), which no longer exists on the platform')
+    expect(result.error).toContain("remove that class's entry from the classes list in controls/uuid-abc.json")
+    expect(result.error).toContain('then run push-greenfield again')
+    expect(result.error).not.toContain('class_ids contains')
+  })
+
+  it('keeps the plain unknown-class message for a control not yet created', async () => {
+    mockReadControlFile.mockResolvedValue({
+      id: 'greenfield-xyz', name: 'New', source: 'declared', lifecycle: 'greenfield',
+      classes: [{ classId: 'cc-gone', attributes: {} }],
+    } as never)
+    mockGetClassById.mockReset().mockResolvedValue(undefined)
+
+    const result = await manageControlsTool.execute(
+      { action: 'push-greenfield', directory_path: dir, control_id: 'greenfield-xyz', supporting_element_ids: [], live_assigned_model_ids: [] } as never,
+      context,
+    )
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('class_ids contains "cc-gone", which does not resolve to any class on the platform')
   })
 
   it('falls back to the plain not-found message when nothing is resumable', async () => {

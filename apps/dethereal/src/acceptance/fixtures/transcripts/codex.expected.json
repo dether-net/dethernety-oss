@@ -1,0 +1,481 @@
+{
+ "schemaVersion": 1,
+ "harness": "codex",
+ "projectRoot": "/work/project",
+ "events": [
+  {
+   "seq": 0,
+   "ts": "2026-09-25T14:34:31.195Z",
+   "kind": "user",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-000000000051"
+  },
+  {
+   "seq": 1,
+   "ts": "2026-09-25T14:36:54.687Z",
+   "kind": "user",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-000000000052"
+  },
+  {
+   "seq": 2,
+   "ts": "2026-09-25T14:36:59.302Z",
+   "kind": "assistant",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-000000000052",
+   "source": "commentary"
+  },
+  {
+   "seq": 3,
+   "ts": "2026-09-25T14:38:22.891Z",
+   "kind": "file_write",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-000000000052",
+   "tool": "apply_patch",
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "modelFile": true,
+   "op": "write"
+  },
+  {
+   "seq": 4,
+   "ts": "2026-09-25T14:38:46.874Z",
+   "kind": "subagent_start",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-000000000052",
+   "tool": "spawn"
+  },
+  {
+   "seq": 5,
+   "ts": "2026-09-25T14:42:14.625Z",
+   "kind": "assistant",
+   "actor": "dethereal-infrastructure-scout",
+   "turn": "00000000-0000-4000-8000-00000000003b",
+   "source": "final_answer"
+  },
+  {
+   "seq": 6,
+   "ts": "2026-09-25T14:42:14.669Z",
+   "kind": "subagent_end",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-000000000052",
+   "tool": "spawn"
+  },
+  {
+   "seq": 7,
+   "ts": "2026-09-25T14:49:00.623Z",
+   "kind": "shell",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-000000000053",
+   "tool": "shell"
+  },
+  {
+   "seq": 8,
+   "ts": "2026-09-25T14:49:00.623Z",
+   "kind": "tool_result",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-000000000053",
+   "tool": "shell"
+  },
+  {
+   "seq": 9,
+   "ts": "2026-09-25T14:49:00.623Z",
+   "kind": "file_read",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-000000000053",
+   "tool": "shell",
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "modelFile": true
+  },
+  {
+   "seq": 10,
+   "ts": "2026-09-25T14:54:54.759Z",
+   "kind": "file_write",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-000000000054",
+   "tool": "apply_patch",
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "modelFile": true,
+   "op": "patch"
+  },
+  {
+   "seq": 11,
+   "ts": "2026-09-25T15:58:17.078Z",
+   "kind": "shell",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-000000000055",
+   "tool": "shell"
+  },
+  {
+   "seq": 12,
+   "ts": "2026-09-25T15:58:17.078Z",
+   "kind": "tool_result",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-000000000055",
+   "tool": "shell"
+  },
+  {
+   "seq": 13,
+   "ts": "2026-09-25T15:58:17.078Z",
+   "kind": "file_read",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-000000000055",
+   "tool": "shell",
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "modelFile": true
+  },
+  {
+   "seq": 14,
+   "ts": "2026-09-25T16:00:11.009Z",
+   "kind": "file_write",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-000000000055",
+   "tool": "apply_patch",
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "modelFile": true,
+   "op": "patch"
+  },
+  {
+   "seq": 15,
+   "ts": "2026-09-25T16:01:54.230Z",
+   "kind": "tool_call",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-000000000056",
+   "tool": "dethereal.generate_attribute_stubs"
+  },
+  {
+   "seq": 16,
+   "ts": "2026-09-25T16:01:54.230Z",
+   "kind": "tool_result",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-000000000056",
+   "tool": "dethereal.generate_attribute_stubs"
+  },
+  {
+   "seq": 17,
+   "ts": "2026-09-25T16:01:54.230Z",
+   "kind": "server_write",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-000000000056",
+   "tool": "dethereal.generate_attribute_stubs",
+   "touches": [
+    "threat-models/online-boutique/attributes/",
+    "threat-models/online-boutique/.dethereal/"
+   ]
+  },
+  {
+   "seq": 18,
+   "ts": "2026-09-25T16:03:01.618Z",
+   "kind": "file_write",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-000000000056",
+   "tool": "apply_patch",
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "modelFile": true,
+   "op": "patch"
+  },
+  {
+   "seq": 19,
+   "ts": "2026-09-25T16:04:00.474Z",
+   "kind": "shell",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-000000000057",
+   "tool": "shell"
+  },
+  {
+   "seq": 20,
+   "ts": "2026-09-25T16:04:00.474Z",
+   "kind": "tool_result",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-000000000057",
+   "tool": "shell"
+  },
+  {
+   "seq": 21,
+   "ts": "2026-09-25T16:04:00.474Z",
+   "kind": "file_read",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-000000000057",
+   "tool": "shell",
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "modelFile": true
+  },
+  {
+   "seq": 22,
+   "ts": "2026-09-25T16:07:24.841Z",
+   "kind": "file_write",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-000000000058",
+   "tool": "apply_patch",
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "modelFile": true,
+   "op": "patch",
+   "replayMismatch": "line 2 does not match the hunk"
+  },
+  {
+   "seq": 23,
+   "ts": "2026-09-25T16:08:51.419Z",
+   "kind": "shell",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-000000000059",
+   "tool": "shell"
+  },
+  {
+   "seq": 24,
+   "ts": "2026-09-25T16:08:51.419Z",
+   "kind": "tool_result",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-000000000059",
+   "tool": "shell"
+  },
+  {
+   "seq": 25,
+   "ts": "2026-09-25T16:08:51.419Z",
+   "kind": "file_read",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-000000000059",
+   "tool": "shell",
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "modelFile": true
+  },
+  {
+   "seq": 26,
+   "ts": "2026-09-25T16:17:09.957Z",
+   "kind": "compaction",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-00000000005a"
+  },
+  {
+   "seq": 27,
+   "ts": "2026-09-25T16:17:31.861Z",
+   "kind": "user",
+   "actor": "main",
+   "turn": "00000000-0000-4000-8000-00000000005b"
+  }
+ ],
+ "attributions": [
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "pointer": "/completedStates/0",
+   "after": "INITIALIZED",
+   "event": 3,
+   "actor": "main",
+   "tool": "apply_patch"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "pointer": "/completedStates/1",
+   "after": "SCOPE_DEFINED",
+   "event": 3,
+   "actor": "main",
+   "tool": "apply_patch"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "pointer": "/currentState",
+   "after": "SCOPE_DEFINED",
+   "event": 3,
+   "actor": "main",
+   "tool": "apply_patch"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "pointer": "/lastModified",
+   "after": "2026-09-25T14:37:09Z",
+   "event": 3,
+   "actor": "main",
+   "tool": "apply_patch"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "pointer": "/staleElements",
+   "after": [],
+   "event": 3,
+   "actor": "main",
+   "tool": "apply_patch"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "pointer": "/completedStates/2",
+   "after": "DISCOVERED",
+   "event": 10,
+   "actor": "main",
+   "tool": "apply_patch"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "pointer": "/currentState",
+   "before": "SCOPE_DEFINED",
+   "after": "DISCOVERED",
+   "event": 10,
+   "actor": "main",
+   "tool": "apply_patch"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "pointer": "/lastModified",
+   "before": "2026-09-25T14:37:09Z",
+   "after": "2026-09-25T14:54:39Z",
+   "event": 10,
+   "actor": "main",
+   "tool": "apply_patch"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "pointer": "/lastReconcileCommit",
+   "after": "0000000000000000000000000000000000000017",
+   "event": 10,
+   "actor": "main",
+   "tool": "apply_patch"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "pointer": "/pendingPrompt",
+   "after": "module-select",
+   "event": 10,
+   "actor": "main",
+   "tool": "apply_patch"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "pointer": "/lastModified",
+   "before": "2026-09-25T14:54:39Z",
+   "after": "2026-09-25T15:59:14Z",
+   "event": 14,
+   "actor": "main",
+   "tool": "apply_patch"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "pointer": "/pendingPrompt",
+   "before": "module-select",
+   "after": "model-review-confirm",
+   "event": 14,
+   "actor": "main",
+   "tool": "apply_patch"
+  }
+ ],
+ "opaque": [
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "since": 17,
+   "resyncedAt": 21,
+   "pointer": "/lastModified",
+   "before": "2026-09-25T15:59:14Z",
+   "after": "2026-09-25T16:02:04Z",
+   "alsoWritten": [
+    18
+   ]
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "since": 17,
+   "resyncedAt": 21,
+   "pointer": "/pendingPrompt",
+   "before": "model-review-confirm",
+   "after": "boundary-trust",
+   "alsoWritten": [
+    18
+   ]
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "since": 22,
+   "resyncedAt": 25,
+   "pointer": "/completedStates/3",
+   "after": "STRUCTURE_COMPLETE"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "since": 22,
+   "resyncedAt": 25,
+   "pointer": "/completedStates/4",
+   "after": "ENRICHING"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "since": 22,
+   "resyncedAt": 25,
+   "pointer": "/currentState",
+   "before": "DISCOVERED",
+   "after": "ENRICHING"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "since": 22,
+   "resyncedAt": 25,
+   "pointer": "/lastModified",
+   "before": "2026-09-25T16:02:04Z",
+   "after": "2026-09-25T16:07:07Z"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "since": 22,
+   "resyncedAt": 25,
+   "pointer": "/pendingPrompt",
+   "before": "boundary-trust",
+   "after": "session-break"
+  }
+ ],
+ "checkpoints": [
+  {
+   "seq": 0,
+   "after": 0,
+   "reason": "user",
+   "actor": "main",
+   "files": {}
+  },
+  {
+   "seq": 1,
+   "after": 1,
+   "reason": "user",
+   "actor": "main",
+   "files": {}
+  },
+  {
+   "seq": 2,
+   "after": 2,
+   "reason": "turn_end",
+   "actor": "main",
+   "files": {}
+  },
+  {
+   "seq": 3,
+   "after": 26,
+   "reason": "compaction",
+   "actor": "main",
+   "files": {
+    "threat-models/online-boutique/.dethereal/state.json": {
+     "state": "known",
+     "lastWrite": 22,
+     "sha256": "82b8fcb912694c19a93dcd4038aacfae7ff28fabcf7e50f26c0eba9504441550"
+    }
+   }
+  },
+  {
+   "seq": 4,
+   "after": 27,
+   "reason": "user",
+   "actor": "main",
+   "files": {
+    "threat-models/online-boutique/.dethereal/state.json": {
+     "state": "known",
+     "lastWrite": 22,
+     "sha256": "82b8fcb912694c19a93dcd4038aacfae7ff28fabcf7e50f26c0eba9504441550"
+    }
+   }
+  }
+ ],
+ "reconciliation": {
+  "crossCheck": "unavailable",
+  "note": "the file-change items are the replay itself; there is no independent record of the worktree",
+  "unobserved": [],
+  "untracked": []
+ },
+ "replayNotes": [
+  {
+   "event": 22,
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "note": "the change does not apply to the replayed file: line 2 does not match the hunk"
+  }
+ ]
+}

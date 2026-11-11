@@ -31,7 +31,7 @@ The headline number is a 0-100 score measuring model completeness (not system se
 Quality: 78/100 (Good)
 ```
 
-Score labels: **Starting** (0-39), **In Progress** (40-69), **Good** (70-89), **Comprehensive** (90-100). Analysis readiness requires 70+.
+Score labels: **Starting** (0-39), **In Progress** (40-69), **Good** (70-89), **Comprehensive** (90-100). The score is a label: it gates nothing, and analysis readiness comes from the gate verdicts (see [Analysis Readiness](#analysis-readiness)).
 
 #### Factor Breakdown
 
@@ -52,20 +52,33 @@ Factor Breakdown
 
 #### Quality Gate Evaluation
 
-Three progressive gates:
+Three progressive gates, computed by the server, shown on one verdict line:
 
 ```
-Quality Gates
-  Gate 1 (Creation):  PASS — all advisory checks clear
-  Gate 2 (Sync):      PASS — structure valid, references intact
-  Gate 3 (Analysis):  FAIL — attribute completion at 60% (requires 80%)
+Gate 1 WARN (2) · Gate 2 PASS · Gate 3 FAIL · Quality 78/100 Good
 ```
 
-**Gate 1 (Creation, advisory):** Flags issues without blocking — missing classifications, unnamed flows, single-component boundaries, external entities inside internal boundaries, cross-boundary flows without security controls.
+Gate 1 is `PASS` or `WARN`, Gates 2 and 3 `PASS` or `FAIL`. When waivers change Gate 3's verdict, the line adds the verdict without them, e.g. `Gate 3 PASS (without waivers: FAIL)`. Under the line, each failing Gate 2 and Gate 3 criterion is listed with its value, up to five failing elements, and its remedy. In this example Gate 3 fails on C2: only 60% of the template fields on the Tier 1–2 components are answered, and C2 needs 80%.
 
-**Gate 2 (Sync, blocking):** Must pass before `/dethereal:sync push` — manifest completeness, structure validity (>= 1 boundary, 1 component, 1 data flow), reference integrity, no orphaned attribute files.
+**Gate 1 (Creation, advisory):** Flags issues without blocking — missing classifications, unnamed flows, single-child boundaries, external entities inside internal boundaries, cross-boundary flows without security controls, and components in no declared or inherited zone.
 
-**Gate 3 (Analysis, blocking):** Must pass for meaningful analysis — 100% component classification, >= 80% attribute completion, all trust boundary crossings reviewed, data items classified for sensitive flows, >= 1 cross-boundary data flow.
+**Gate 2 (Sync, blocking):** Must pass before `/dethereal:sync push` — manifest completeness (including module references the server can derive; see [Gate 2 Pre-Flight](SYNC_AND_VERSION_CONTROL.md#gate-2-pre-flight) for the module gaps and their remedies), structure validity (at least one boundary besides the default boundary, one component, one data flow), reference integrity, no orphaned attribute files, every attribute file readable, no `controls` key in an attribute file, and no validation errors.
+
+**Gate 3 (Analysis, blocking):** Must pass for meaningful analysis. It has nine criteria, C1–C9. "Tier 1–2" means the internet-facing components, and those that hold a crown jewel or sit in a `RESTRICTED` zone (the server computes the tiers; see [Component Tiers](DISCOVERY_AND_ENRICHMENT.md#component-tiers)):
+
+- **C1** — every non-external component is classified
+- **C2** — ≥ 80% of template fields answered on Tier 1–2 components
+- **C3** — every cross-boundary flow is reviewed: encryption in transit, credentials required, and the authentication failure mode when the flow authenticates
+- **C4** — sensitive flows carry a classified data item with a sensitivity
+- **C5** — at least one cross-boundary flow
+- **C6** — crown jewels resolve through the persisted map: the crown-jewel map in `.dethereal/scope.json`
+- **C7** — sensitivity at or above its floor, for every data item that has one
+- **C8** — the literal six-attribute floor on Tier 1–2: `authentication_type`, `encryption_in_transit`, `encryption_at_rest`, `implicit_deny_enabled` and `monitoring_tools` on each component, and `encryption_in_transit` on its flows
+- **C9** — no dangling `credential_scope` id: every id is required by some flow
+
+A field gap of C2, C3, or C8 is listed by its fields rather than a one-line detail: `missing` (still empty) and `placeholder` (holding a stand-in value such as `unknown`, `TBD`, or `n/a`). The gate list and the waiver table both show them. A failure with a `placeholder` field can never be waived: replace the stand-in with a real value, or clear it, first.
+
+In the guided workflow you can waive a Gate 3 failure for named elements, only through the waiver questions at Step 9; a waiver counts only on the machine that granted it — see [Waiving a Gate 3 gap](GUIDED_WORKFLOW.md#waiving-a-gate-3-gap). A [quick model](GUIDED_WORKFLOW.md#quick-mode) skips that Gate 3 review and is never REVIEWED; running the guided workflow on it with `--full` deepens it and runs the review.
 
 #### Common Gaps Checklist
 
@@ -83,7 +96,7 @@ Common Gaps
 - [ ] Error/fallback paths
 ```
 
-Detection is heuristic — the plugin scans flow names and descriptions for relevant patterns (e.g., "SSH", "admin", "backup", "monitor").
+Detection is heuristic, and fixed so the list is the same for an unchanged model: most items search flow names and descriptions for words such as "SSH", "admin", "backup" or "monitor"; external dependencies and human actors search the names of external entities; boundary crossings and two-way flows are read from the structure.
 
 #### Top Issues
 
@@ -96,17 +109,53 @@ Top Issues
 3. [Info]     No data items defined — data sensitivity cannot be assessed
 ```
 
+Top Issues also lists **data-item assertions** as `[Info]` items. They are advisory: they never affect a gate or the quality score.
+
+- **Unanswered credential flag** — a data item bound to a credential-like class whose [credential flag](DISCOVERY_AND_ENRICHMENT.md#origin-and-credential-flag) is still unanswered. Confirm it with `/dethereal:enrich`. An item you answered **no** never appears.
+- **Unknown origin** — a data item without an origin that flows into an external entity, or into a component that runs a model or an agent: who can write it decides whether that input is trusted. Up to 3 items are named, then `+N more`.
+
+#### Red Flags
+
+Red flags are listed whatever the score. The review names:
+
+- **Every insecure fact recorded in your attribute files**, one line per element and field, with the element's name and id, the field and its value, under a heading that carries the count;
+- **flows that fail open or fall back** (`auth_failure_mode` `fail_open` or `fallback`) — they look authenticated but guarantee nothing on failure;
+- **crown jewels with no control**;
+- **controls whose class binding is empty** — no `attributes` and no `platformAttributes`, so the module derives no countermeasure from it;
+- **on a synced model, controls with no countermeasure** after analysis.
+
+```
+Red Flags (3)
+- Orders API → Orders DB (f-api-db): encryption_in_transit = none (plaintext to the database)
+- Payment webhook (f-webhook): auth_failure_mode = fail_open
+- db-admin-account: shared by 3 flows (f-api-db, f-worker-db, f-migrate-db)
+```
+
+A value is an insecure fact when the class guide's security impact marks it insecure, in either direction: `none` or `false` on a security posture (encryption, authentication, TLS, MFA, logging), and `true` on a permissive or exposed setting (`permit_any_*`, `allow_any_*`, `*_exposed`, a legacy or weak `*_enabled`, `*_hardcoded_*`). Unenforced boundaries (`implicit_deny_enabled: false`, `allow_any_inbound: true`), a credential shared by several flows, secrets in configuration or source, and an internet-exposed administrative interface count too. The reviewer finds them with one search across `attributes/` that matches field names by part of the name — `encryption`, `auth`, `tls`, `mfa`, `permit_any`, `allow_any`, `exposed`, `hardcoded`, `fail` or `implicit_deny` — reads them from the files, not from memory, and writes "none recorded" when there are none.
+
 #### Analysis Readiness
 
-Three assessment states:
+Readiness comes from the server, never from the quality score: the review reports the readiness the server computes for the model and never judges it by hand.
 
-| State | Criteria | Meaning |
-|-------|----------|---------|
-| **PASS** | Quality >= 70, all Gate 3 criteria met | Ready for platform analysis |
-| **PARTIAL** | Quality 40-69, or >= 70 with Gate 3 failures | Analysis possible but results will have gaps |
-| **FAIL** | Quality < 40 or Gate 2 failures | Structural issues must be resolved first |
+| State | Criteria |
+|-------|----------|
+| **Ready** | Gates 2 and 3 pass, and none of the reasons below applies |
+| **Not Ready** | Anything else — the review names each reason in words |
 
-If quality is >= 70 and Gate 3 passes but control and credential coverage are both 0%:
+The reasons a model is Not Ready:
+
+| Reason | Meaning |
+|--------|---------|
+| Gate 2 fails | The platform refuses the push until the structural failures are fixed |
+| Gate 3 fails | A push is possible, but analysis would have gaps; the review names the failing criteria. While a loop back is open, Gate 3 is not computed — neither a pass nor a fail — until Step 9 of `/dethereal:threat-model` ends it |
+| Pending enrichment | Only with the server's [settlement](SYNC_AND_VERSION_CONTROL.md#the-settlement-switch) switched on (off by default): enrichment values it holds as not yet confirmed |
+| Pending file unreadable | Only with the settlement on: its pending-enrichment file cannot be read |
+| Unregistered values | Only with the settlement on: values it holds as not registered as yours |
+| Model unavailable | The model could not be assessed |
+
+**A REVIEWED model.** When the model's state file claims REVIEWED, the review's state line says whether that still holds. If it does not, it says "REVIEWED no longer holds:" and names each reason — any of those above, plus two that apply only to a review: elements changed since the review are still queued as stale, or the model is a [quick model](GUIDED_WORKFLOW.md#quick-mode), which is never reviewed. If the review still holds but the model changed since, it says "REVIEWED is stale: the model changed since the review."
+
+If the model is Ready but control and credential coverage are both 0%:
 
 > Your model is structurally ready for analysis, but analysis quality will improve significantly with credentials (for lateral movement paths) and controls (for defense coverage gaps).
 
@@ -140,14 +189,20 @@ Lateral movement analysis cannot trace credential reuse across model boundaries.
 
 #### Zoning Coherence (Advisory)
 
-If your model carries [trust zoning](MODEL_CONCEPTS.md#trust-zones-planes-domains-and-conduits), the review rolls up its **zoning coherence** — a set of advisory findings that check whether your declared segmentation hangs together. They are **always advisory**: they inform you and **never** block a sync or fail a quality gate.
+The full review rolls up your model's [trust zoning](MODEL_CONCEPTS.md#trust-zones-planes-domains-and-conduits) as **zoning coherence** — a set of advisory findings that check whether your declared segmentation hangs together. They are **always advisory**: they inform you and **never** block a sync or fail a quality gate.
+
+The findings are rolled up by kind, one line each, `[Warning]` kinds before `[Info]` ones, naming up to three boundaries and then `+N more`. A scope note follows once, even when there are no findings:
 
 ```
-Zoning Coherence (advisory)
-  [info] external-ingress: DMZ reaches Data Tier with no approved channel
-  [info] unclassified:      "Legacy Gateway" has no zone (defaults to INTERNAL)
-  [info] under-protected:   Data Tier holds an asset but resolves INTERNAL
+Zoning Coherence (advisory — does not block sync)
+- [Warning] 2 boundaries hold high-value assets but aren't Restricted: payment-db (reached from a DMZ), secrets-vault, +1 more
+- [Warning] 1 external-tier boundary reaches a trusted tier without an approved channel: Vendor API → App Tier
+- [Info] 3 boundaries unclassified — fall back to Internal: Logging, Cache, Queue
+
+Zoning asserts network-reachability tiers only. Shared-identity blast radius and node co-tenancy are not evaluated from topology; where you hand-author matching domains tags, a heuristic flags a tag that couples an exposed and a protected tier — but a clean or tag-free result does not imply cross-tier isolation.
 ```
+
+`under-protected`, `external-ingress`, `mgmt-plane` and the undeclared paths of `flow-channel` are warnings; dead or unreviewable channels, `cross-tier-domain` and `unclassified` are informational. A structural container (a boundary that nests other boundaries) is never counted as unclassified; the review shows the range of tiers it spans instead.
 
 The six findings:
 
@@ -174,33 +229,26 @@ A lightweight validation without quality scoring. Useful for catching errors bef
 
 #### What It Checks
 
-8 structural checks, each reported as `[PASS]`, `[FAIL]`, or `[WARN]`:
+7 structural checks, each reported as `[PASS]`, `[FAIL]`, or `[WARN]`:
 
 ```
-Structural Validation: Payment API
-
-Checks:
+## Structure check: Payment API
   [PASS] Required fields present
-  [PASS] ID uniqueness (14 elements, 0 duplicates)
-  [FAIL] Reference integrity: 1 flow references missing component
-    - Flow "cache-read" references target "old-redis" (not found)
-  [WARN] 1 orphaned component: "Legacy Gateway" (no data flows)
-  [PASS] No empty boundaries
-  [PASS] No orphaned attribute files
-  [PASS] No component/class type mismatches
-  [PASS] Schema validation passed
+  [FAIL] References: 2 flows name missing components
+    - "user-login" → source "auth-proxy" not found
+  [WARN] 1 unconnected component: "Legacy Gateway"
+Result: 1 failure, 1 warning. Fix the references before a push.
 
-Result: 1 failure, 1 warning. Fix reference integrity before sync.
+[done] Structure check complete. 5 passed, 1 failed, 1 warning.
 ```
 
-1. **Required fields** — manifest has name and description, structure has boundaries, dataflows has flows
-2. **ID uniqueness** — no duplicate IDs across all model files
-3. **Reference integrity** — all data flow source/target IDs exist in structure.json
-4. **Orphaned components** — components with no inbound or outbound data flows (warning)
+1. **Required fields** — `manifest.json` has a name and a description, `structure.json` has its default boundary, `dataflows.json` has its `dataFlows` list
+2. **Unique IDs** — no ID used twice across components, boundaries, flows and data items
+3. **References** — every flow's source and target is a component or boundary in `structure.json` (a failure, listing each flow and the missing ID)
+4. **Unconnected components** — components with no inbound or outbound data flows (warning)
 5. **Empty boundaries** — boundaries with no child components or sub-boundaries (warning)
-6. **Orphaned attribute files** — attribute files whose element ID no longer exists (warning)
-7. **Component/class type mismatch** — a component whose `type` disagrees with the component type its assigned class describes, e.g. a `STORE` bound to a class written for a `PROCESS` (warning). This is a real defect, not a cosmetic one: the class's policy evaluates against a thing it does not describe. Fix it by correcting either the component type or the class assignment. The check needs a cached class template, so it is skipped for classes not present in `.dethereal/class-cache/`
-8. **Schema compliance** — full schema validation against the platform schema
+6. **Orphaned attribute files** — attribute files whose element no longer exists (warning)
+7. **Schema** — full schema validation, the same validation `/dethereal:review` runs
 
 ---
 
@@ -228,24 +276,30 @@ Components (9 total)
 
 ### 2. Trust Boundary Crossings
 
-Flows where source and target are in different boundaries, with encryption and authentication status:
+The crossing flows come from the server: flows whose endpoints sit in different boundaries, or with exactly one endpoint that is an external entity. They are grouped by the boundaries of their source and target, with encryption, authentication and enforcement:
 
 ```
 Trust Boundary Crossings (6 flows)
-| From → To          | Flow Count | Encrypted   | Authenticated | Enforcement  |
-|---------------------|-----------|-------------|---------------|-------------|
-| External → DMZ      | 2         | 2/2 TLS     | 1/2           | enforced    |
-| DMZ → Internal      | 2         | 2/2 mTLS    | 2/2           | enforced    |
-| Internal → Data     | 2         | 1/2         | 2/2           | logical only |
+| From → To       | Flows | Encrypted | Authenticated | Declares none | Undeclared | Enforcement  |
+|-----------------|-------|-----------|---------------|---------------|------------|--------------|
+| External → DMZ  | 2     | 2/2       | 1             | 0             | 1          | enforced     |
+| DMZ → Internal  | 2     | 2/2       | 2             | 0             | 0          | enforced     |
+| Internal → Data | 2     | 1/2       | 1             | 1             | 0          | logical only |
 ```
 
-Flows with `auth_failure_mode: fail_open` are annotated — they appear authenticated but provide no security guarantee on failure. Boundary enforcement is "enforced" (implicit deny + egress filtering) or "logical only."
+Authentication comes from what each flow declares: **Authenticated** (it declares an authentication), **Declares none** (it declares that it needs none), or **Undeclared** (it declares nothing). Flows with `auth_failure_mode: fail_open` are annotated — they appear authenticated but provide no security guarantee on failure. Boundary enforcement is "enforced" (implicit deny on the target boundary, egress filtering on the source boundary) or "logical only." If the server reports more crossing flows than it lists, the report adds "+N more crossing flows not listed".
 
-Unencrypted, unauthenticated, or fail-open cross-boundary flows are highlighted as high-priority control gaps.
+Unencrypted, declares-none, undeclared and fail-open crossings are the priority gaps, listed by name.
 
-### 3. Exposure Counts
+### 3. Exposures and MITRE-Grounded Gaps
 
-If the model has been pushed to the platform and analysis has run:
+**Requires a platform sync.** The exposure counts and the gap analysis come from the platform, so on a model that has never been pushed this section shows only:
+
+```
+Model not synced — push it with /dethereal:sync push for exposure and gap analysis.
+```
+
+If the model has been pushed to the platform and analysis has run, the section starts with the exposure counts:
 
 ```
 Exposures
@@ -253,23 +307,9 @@ Exposures
   Top affected: payment-db (4 exposures)
 ```
 
-If not synced:
+#### MITRE-grounded gap analysis
 
-```
-Exposures
-  Model not synced — push to platform for exposure analysis.
-  Run /dethereal:sync push to publish.
-```
-
-### 4. Control Coverage and Gap Analysis
-
-This is the longest section of the report, and it is deliberately not a single number. Coverage is reported in up to five parts, because "covered" means different things depending on where the evidence came from.
-
-The two you always get are **inferred** coverage — read from the security attributes you set during enrichment — and **formal** coverage — read from the controls actually assigned to elements. A synced model adds MITRE-grounded gap analysis on top; two further parts appear only when you have the data they describe.
-
-#### 4a. MITRE-grounded gap analysis
-
-**Requires a platform sync.** This part is skipped entirely on a model that has never been pushed — the analysis walks the platform's `Exposure → ATT&CK Technique → ATT&CK Mitigation → Countermeasure → Control` chain, and there are no platform exposures to walk from until you sync.
+The gap analysis walks the platform's `Exposure → ATT&CK Technique → ATT&CK Mitigation → Countermeasure → Control` chain, and there are no platform exposures to walk from until you sync.
 
 ```
 ### MITRE-Grounded Gap Analysis
@@ -299,9 +339,15 @@ Two more numbers appear alongside them. **Configured but non-matching** counts c
 
 > **Recommendations are per control class, not per control.** Several recommended rows naming related classes for the same mechanism are often satisfied by **one** control carrying several classes — not one control per row. See [Working with Security Controls](../WORKING_WITH_SECURITY_CONTROLS.md).
 
-If the platform call fails — expired auth, network error — the report falls back to what it can read from your local files (4c below).
+If the platform call fails — expired auth, network error — the report says so and goes on with the parts it reads from your local files, the control coverage in section 4 among them.
 
-#### 4b. Inferred coverage (from enrichment attributes)
+### 4. Control Coverage
+
+This is the longest section of the report, and it is deliberately not a single number. Coverage is reported in up to four parts, because "covered" means different things depending on where the evidence came from.
+
+The two you always get are **inferred** coverage — read from the security attributes you set during enrichment — and **formal** coverage — read from the controls actually assigned to elements. Two further parts appear only when you have the data they describe. The MITRE-grounded gap analysis, which needs a synced model, is in [section 3](#3-exposures-and-mitre-grounded-gaps).
+
+#### 4a. Inferred coverage (from enrichment attributes)
 
 Computed locally from the attributes you set during enrichment, broken down by protection category:
 
@@ -318,36 +364,27 @@ Computed locally from the attributes you set during enrichment, broken down by p
 
 The report labels this honestly, and so should you: it is **sufficient for a security posture review, insufficient as compliance evidence**. An `authentication: oauth2` attribute is your assertion that the component authenticates — it is not a control anyone has assigned, reviewed, or verified. Run `/dethereal:enrich` to fill the gaps it names.
 
-#### 4c. Formal control coverage (from assigned controls)
+#### 4b. Formal control coverage (from assigned controls)
 
-The same question asked of *assigned controls* rather than attributes, broken down by enrichment tier:
+The same question asked of *assigned controls* rather than attributes, broken down by component tier:
 
 ```
 ### Formal Control Coverage (from assigned controls)
 
-| Tier | Components | With Controls | Gap |
-|------|------------|---------------|-----|
-| 1 — Crown Jewels | 3 | 2 (67%) | payment-db |
-| 2 — Cross-boundary | 4 | 1 (25%) | api-gw, auth-svc, msg-queue |
-| 3 — Internet-facing | 2 | 2 (100%) | — |
-| 4 — Internal | 3 | 0 (0%) | scheduler, batch-worker, config-svc |
-| **Total** | **12** | **5 (42%)** | **7 components without formal controls** |
+| Tier | Components | With Controls | Without Controls |
+|------|------------|---------------|------------------|
+| 1 — Internet-facing | 2 | 2 (100%) | — |
+| 2 — Crown jewel or restricted | 4 | 2 (50%) | payment-db, auth-svc |
+| 3 — Internal | 6 | 1 (17%) | scheduler, batch-worker, config-svc, +2 more |
+| Crown jewels (label) | 3 | 2 (67%) | payment-db |
+| Cross-boundary (label) | 3 | 0 (0%) | auth-svc, msg-queue, worker |
 ```
 
-The four tiers are:
+The tiers are the [component tiers](DISCOVERY_AND_ENRICHMENT.md#component-tiers) the gates use, computed by the server: each component is in exactly one tier, and external entities are never counted. **Crown jewels** and **cross-boundary** pivots (components outside Tier 1 that talk across a boundary to another component) are labels: they overlap the tiers and are never added to them. The report also says how many components a tier leaves out because they have no class, and how many Tier 3 components sit in no declared zone.
 
-| Tier | Definition |
-|---|---|
-| **1 — Crown jewels** | Components you tagged `crownJewel` during classification. |
-| **2 — Cross-boundary** | Source or target of a flow that crosses a trust boundary. |
-| **3 — Internet-facing** | Connected to an external entity by a data flow. |
-| **4 — Internal** | Everything else. |
+This is the coverage figure that stands up as evidence: it counts controls actually assigned, not attributes you asserted. Close a gap with `/dethereal:enrich --focus controls`; with no control assigned at all, the report says "No formal controls assigned. Run /dethereal:enrich --focus controls."
 
-Each component appears in its **highest-priority tier only** — a crown jewel that is also cross-boundary appears in Tier 1 and nowhere else, so the tier totals add up to your component count.
-
-This is the coverage figure that stands up as evidence, which is why the report names the frameworks it serves (SOC 2 CC6.1, ISO 27001 A.8, PCI-DSS 6.x). Close a gap with `/dethereal:enrich --focus controls`.
-
-#### 4d. Control source breakdown
+#### 4c. Control source breakdown
 
 Appears only when your controls carry a `source` field. It separates controls the plugin found evidence for during discovery from controls you asserted yourself:
 
@@ -363,7 +400,7 @@ Appears only when your controls carry a `source` field. It separates controls th
 
 A control that is both discovered and declared is the strongest statement available: someone wrote the policy down, and the implementation was found.
 
-#### 4e. Governance controls
+#### 4d. Governance controls
 
 Appears only when you declared governance controls during the enrichment control pass — the organizational measures that protect the system without living in any one component:
 
@@ -374,7 +411,7 @@ Appears only when you declared governance controls during the enrichment control
   - Change control: CAB approval required for production
 ```
 
-These are listed, not scored. They have no element to attach to, so they contribute nothing to 4b or 4c — the section exists so a reviewer sees them rather than assuming they don't exist.
+These are listed, not scored. They have no element to attach to, so they contribute nothing to 4a or 4b — the section exists so a reviewer sees them rather than assuming they don't exist.
 
 ### 5. MITRE ATT&CK Coverage
 
@@ -394,8 +431,8 @@ MITRE ATT&CK Coverage (platform-derived)
 
 Two cases produce no coverage instead:
 
-- **Model not synced:** "Model not synced — push to platform and run an analysis for MITRE tactic coverage." Run `/dethereal:sync push`, then start an analysis.
-- **Synced, but no exposures yet:** "No exposures — analysis has not produced technique mappings yet." Either the analysis has not run, or no installed module has policies covering this model's components.
+- **Model not synced:** "Push with /dethereal:sync push, then run an analysis, for tactic coverage."
+- **Synced, but no exposures yet:** "No exposures yet — run an analysis on the platform (create, run, then read its results), or install a module whose policies cover these components." Either the analysis has not run, or no installed module has policies covering this model's components.
 
 ### 6. Credential Topology
 
@@ -428,9 +465,11 @@ If the model references external models:
 
 ```
 Cross-Model Analysis Boundaries
-  2 components reference external models. Attack paths through these
-  components are not included in this model's analysis.
+  2 components stand for other models; attack paths through them are
+  outside this model's analysis.
 ```
+
+If a `credential_scope` value is also used in another model registered in the project, the part warns about cross-model credential reuse. With neither, the part is left out.
 
 ---
 
@@ -442,15 +481,15 @@ Understanding which analysis requires platform sync:
 |----------|--------|------------------------|
 | Quality score, structural validation | Local (`/dethereal:review`) | No |
 | Boundary crossing matrix, credential topology, detection coverage | Local (`/dethereal:surface`) | No |
-| Inferred and formal control coverage (`/dethereal:surface` §4b, §4c) | Local (`/dethereal:surface`) | No |
-| MITRE-grounded gap analysis (`/dethereal:surface` §4a) | Platform analysis engine | Yes |
+| Inferred and formal control coverage (`/dethereal:surface` §4a, §4b) | Local (`/dethereal:surface`) | No |
+| MITRE-grounded gap analysis (`/dethereal:surface` §3) | Platform analysis engine | Yes |
 | MITRE ATT&CK tactic coverage (`/dethereal:surface` §5) | Platform analysis engine | Yes |
 | Exposures, attack paths | Platform analysis engine | Yes |
 | Countermeasure coverage, defense gaps | Platform analysis engine | Yes |
 
-Local analysis runs entirely from model files — you can review quality and most of the attack surface without a platform connection. `/dethereal:surface` still runs offline, but three of its parts come from the platform and are reported as unavailable until you push and run an analysis: exposure counts (§3), MITRE-grounded gap analysis (§4a), and MITRE tactic coverage (§5).
+Local analysis runs entirely from model files — you can review quality and most of the attack surface without a platform connection. `/dethereal:surface` still runs offline, but three of its parts come from the platform and are reported as unavailable until you push and run an analysis: exposure counts and MITRE-grounded gap analysis (both §3), and MITRE tactic coverage (§5).
 
-**"Control gaps" is not one thing.** The tier gap table in §4c is computed from your local files and needs no sync. The MITRE-grounded gap analysis in §4a — the one that names techniques, mitigations, and recommended controls — needs one. If you run `/dethereal:surface` offline and see tier gaps but no MITRE chain, that is the reason.
+**"Control gaps" is not one thing.** The tier gap table in §4b is computed from your local files and needs no sync. The MITRE-grounded gap analysis in §3 — the one that names techniques, mitigations, and recommended controls — needs one. If you run `/dethereal:surface` offline and see tier gaps but no MITRE chain, that is the reason.
 
 ### Prioritization Guidance
 
@@ -462,7 +501,7 @@ When reviewing results, prioritize remediation in this order:
 4. **Cross-boundary flows** — data moving between trust zones
 5. **Administrative access paths** — management and maintenance interfaces
 
-This order reflects the enrichment tier rationale: the highest-exposure surfaces get attention first.
+This order reflects the rationale behind the component tiers: the highest-exposure surfaces get attention first.
 
 ## Understanding Platform Analysis
 

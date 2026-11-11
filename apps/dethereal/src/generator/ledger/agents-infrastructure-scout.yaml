@@ -1,0 +1,490 @@
+source: agents/infrastructure-scout.md
+blob: ae616fe84d4f7278498db521e6c7a311442409ed
+migrated: true
+rules:
+  - id: e17648370a
+    line: 15
+    anchor: You are a read-only infrastructure discovery agent.
+    destination: agents/infrastructure-scout.md
+  - id: 962ee430dc
+    line: 15
+    anchor: You scan codebases to identify infrastructure components, trust boundaries, and data flows,
+    destination: agents/infrastructure-scout.md
+  - id: bbb8f25767
+    line: 19
+    dropped:
+      reason: "A lead-in to the secret-file list, which Secret Files now carries as its own rules."
+      ref: apps/dethereal/workflow/shared/secret-files.md
+  - id: 43ab27353e
+    line: 20
+    anchor: "**Extract only variable NAMES and endpoint information** (hostnames, ports, protocols); secret files are never opened (see"
+    destination: agents/infrastructure-scout.md
+  - id: 029b722afd
+    line: 21
+    anchor: "**NEVER include secret VALUES** (passwords, API keys, tokens, private keys, certificates) in your output or conversation"
+    destination: shared/scout-reference.md
+  - id: 607bf5fd31
+    line: 22
+    anchor: If you encounter a secret, reference it by variable name only (e.g., "DB_PASSWORD is configured" not
+    destination: shared/scout-reference.md
+  - id: b1b49ddaf2
+    line: 23
+    anchor: "Connection strings: extract host, port, protocol, database name — **never credentials**"
+    destination: shared/scout-reference.md
+  - id: d15075426f
+    line: 24
+    anchor: "Config maps: list key names only, never display values; Secret manifests are never opened (see Secret"
+    destination: agents/infrastructure-scout.md
+  - id: 0b6aefda0d
+    line: 25
+    anchor: Recommend `.gitignore` entries for the files that are transient or local
+    destination: shared/discovery-protocol.md
+  - id: e13607cfab
+    line: 29
+    anchor: "`.envrc`, `*.tfstate*`, `*.tfvars`, `*.tfvars.json`, `.terraformrc`, `credentials.tfrc.json`, keys and certificates (`*.pem`, `*.key`, `*.p8`, `*.p12`, `*.pfx`, `*.jks`, `*.keystore`,"
+    destination: shared/secret-files.md
+  - id: bea11ddf68
+    line: 29
+    anchor: Never open, print, copy or search them — reading one puts its values into the conversation
+    destination: shared/secret-files.md
+  - id: c20bdb41f7
+    line: 29
+    dropped:
+      reason: "Reworded: Secret Files reports every secret file by name, class and whether git tracks it, as present, not read."
+      ref: apps/dethereal/workflow/shared/secret-files.md
+  - id: 5839c83558
+    line: 29
+    dropped:
+      reason: "Reworded: names come from examples, compose references, Kubernetes secretKeyRef, envFrom.secretRef and volume references, Terraform variables and code (Secret Files; Core Rule 10)."
+      ref: apps/dethereal/workflow/shared/secret-files.md
+  - id: e1fb6b4295
+    line: 29
+    dropped:
+      reason: "Reworded: a content search that could match configuration values lists file names only, or excludes the secret files (Core Rule 10; Secret Files)."
+      ref: apps/dethereal/workflow/shared/core-rules.md
+  - id: 4057278ea3
+    line: 29
+    anchor: "Helm `values.yaml` files are read for structure but can hold default credentials: report such values by"
+    destination: shared/secret-files.md
+  - id: 0013b709d8
+    line: 33
+    anchor: Scan these in order of signal strength.
+    destination: agents/infrastructure-scout.md
+  - id: 56612d98ee
+    line: 33
+    anchor: Report which categories were checked and how many files/resources found in each.
+    destination: agents/infrastructure-scout.md
+  - id: 5adb83635c
+    line: 35
+    anchor: "**Code structure**: `package.json`, `go.mod`, `pom.xml`, `Cargo.toml`, monorepo workspace configs (`pnpm-workspace.yaml`, `lerna.json`) — identifies service boundaries and"
+    destination: agents/infrastructure-scout.md
+  - id: 96e0c0308e
+    line: 36
+    anchor: "**Infrastructure as Code**: Terraform (`*.tf`; `*.tfvars` and state files are secret files, never opened), CloudFormation (`*.yaml`/`*.json`"
+    destination: agents/infrastructure-scout.md
+  - id: 00f92b8f40
+    line: 37
+    anchor: "**Container definitions**: Dockerfiles, `docker-compose.yml`, container build configs"
+    destination: agents/infrastructure-scout.md
+  - id: edfa664756
+    line: 38
+    anchor: — Secret manifests are never opened; take their key names and mount targets from
+    destination: agents/infrastructure-scout.md
+  - id: 36a249a462
+    line: 39
+    anchor: "**API definitions**: OpenAPI/Swagger specs (`openapi.yaml`, `swagger.json`), gRPC `.proto` files, GraphQL schemas"
+    destination: agents/infrastructure-scout.md
+  - id: 55713bc0bb
+    line: 40
+    anchor: "**Network configuration**: Nginx, HAProxy, Envoy, Traefik configs, service mesh definitions, firewall rules"
+    destination: agents/infrastructure-scout.md
+  - id: 4aab02d65e
+    line: 41
+    anchor: "**CI/CD pipelines**: GitHub Actions (`.github/workflows/`), GitLab CI (`.gitlab-ci.yml`), Jenkins (`Jenkinsfile`), Dockerfile build stages"
+    destination: agents/infrastructure-scout.md
+  - id: 2b5e2643b2
+    line: 42
+    anchor: "**Database schemas**: SQL migrations (`migrations/`, `db/`), ORM models (Prisma `schema.prisma`, TypeORM entities, Sequelize models)"
+    destination: agents/infrastructure-scout.md
+  - id: 9b26e2fded
+    line: 43
+    anchor: "**Environment files**: `.env.example`, `.env.template`, `.env.sample`, `.env.dist` and config maps — **NAMES ONLY, never values**"
+    destination: agents/infrastructure-scout.md
+  - id: ef6897e259
+    line: 44
+    anchor: screenshots or images, read as images
+    destination: agents/infrastructure-scout.md
+  - id: bf6a8fe0ea
+    line: 45
+    anchor: "**Documentation**: README files, ADRs, architecture docs — supporting evidence only, not primary discovery source"
+    destination: agents/infrastructure-scout.md
+  - id: 36b24307c6
+    line: 49
+    anchor: "After scanning, produce a summary line showing what was checked:"
+    destination: agents/infrastructure-scout.md
+  - id: d5e1181543
+    line: 51
+    anchor: "Sources checked: Code (3), IaC/Terraform (12), Containers (3), K8s (—), API defs (1), Network (—), CI/CD"
+    destination: agents/infrastructure-scout.md
+  - id: 505619297f
+    line: 55
+    anchor: Number = files found with extractable resources
+    destination: agents/infrastructure-scout.md
+  - id: 45fa4c485f
+    line: 56
+    anchor: "`(—)` = category checked, no matching files found"
+    destination: agents/infrastructure-scout.md
+  - id: 7e9a00c2f4
+    line: 57
+    anchor: "`(⚠ error)` = parse failure (e.g., `IaC/Terraform (⚠ parse error in main.tf)`)"
+    destination: agents/infrastructure-scout.md
+  - id: ab103006e0
+    line: 61
+    anchor: Use this table for deterministic pre-classification.
+    destination: shared/scout-reference.md
+  - id: 2a7471b4ab
+    line: 61
+    anchor: When a discovered element matches a source pattern, assign the component type and suggested class directly.
+    destination: shared/scout-reference.md
+  - id: d6fad587df
+    line: 65
+    anchor: "| `aws_instance`, `aws_ecs_service` | PROCESS | Varies by workload |"
+    destination: shared/scout-reference.md
+  - id: 7c6a39e2e7
+    line: 66
+    anchor: "| `aws_db_instance`, `aws_dynamodb_table` | STORE | Database, Key-Value Store |"
+    destination: shared/scout-reference.md
+  - id: 47c6ad2c08
+    line: 67
+    anchor: "| `aws_lb`, `aws_cloudfront_distribution` | PROCESS | Load Balancer, CDN |"
+    destination: shared/scout-reference.md
+  - id: ab87f71053
+    line: 68
+    anchor: "| `aws_vpc`, `aws_subnet` | Boundary | Network Zone |"
+    destination: shared/scout-reference.md
+  - id: ebaa983394
+    line: 69
+    anchor: "| `aws_security_group` | Boundary + Control | Network Zone + Firewall |"
+    destination: shared/scout-reference.md
+  - id: b5845048df
+    line: 70
+    anchor: "| `aws_api_gateway_rest_api` | PROCESS | API Gateway |"
+    destination: shared/scout-reference.md
+  - id: 2ea6998ccb
+    line: 71
+    anchor: "| `aws_s3_bucket` | STORE | Object Storage |"
+    destination: shared/scout-reference.md
+  - id: bb0f282208
+    line: 72
+    anchor: "| `aws_lambda_function` | PROCESS | Function |"
+    destination: shared/scout-reference.md
+  - id: 753b83d223
+    line: 73
+    anchor: "| `aws_cognito_user_pool` | EXTERNAL_ENTITY | Identity Provider |"
+    destination: shared/scout-reference.md
+  - id: b0674cdf50
+    line: 74
+    anchor: "| K8s Deployment/StatefulSet | PROCESS/STORE | Based on container image |"
+    destination: shared/scout-reference.md
+  - id: 8b8c8a907f
+    line: 75
+    anchor: "| K8s Namespace | Boundary | Namespace |"
+    destination: shared/scout-reference.md
+  - id: f6230a0253
+    line: 76
+    anchor: "| K8s NetworkPolicy | Control | Network Policy |"
+    destination: shared/scout-reference.md
+  - id: 85e8ef4f44
+    line: 77
+    anchor: "| K8s Ingress | PROCESS + boundary crossing | API Gateway / Load Balancer |"
+    destination: shared/scout-reference.md
+  - id: c1ff2cbe89
+    line: 81
+    anchor: Maps discovery source patterns to recommended platform modules.
+    destination: agents/infrastructure-scout.md
+  - id: 8e253410ce
+    line: 81
+    anchor: uses this during module selection (post-discovery) to determine which modules are relevant for classification.
+    destination: agents/infrastructure-scout.md
+  - id: 9317678f11
+    line: 85
+    anchor: "| `terraform` with `aws_*` resources | AWS |"
+    destination: agents/infrastructure-scout.md
+  - id: 9bbb4e5cf3
+    line: 86
+    anchor: "| `terraform` with `azurerm_*` resources | Azure |"
+    destination: agents/infrastructure-scout.md
+  - id: 74ed422238
+    line: 87
+    anchor: "| `terraform` with `google_*` resources | GCP |"
+    destination: agents/infrastructure-scout.md
+  - id: c15f203bc9
+    line: 88
+    anchor: "| `kubernetes`, `helm` charts, K8s manifests | Kubernetes |"
+    destination: agents/infrastructure-scout.md
+  - id: da75193ca1
+    line: 89
+    anchor: "| `database` (SQL migrations, ORM models) | Databases |"
+    destination: agents/infrastructure-scout.md
+  - id: 205a6a66ef
+    line: 91
+    anchor: "**Baseline module (always included):** The platform's general-purpose, technology-agnostic module, named `dethernety-general`."
+    destination: agents/infrastructure-scout.md
+  - id: e5e6921de9
+    line: 91
+    anchor: The plugin identifies the baseline by matching the module name `dethernety-general`.
+    destination: agents/infrastructure-scout.md
+  - id: 423ae86fc6
+    line: 91
+    anchor: This module is always included and non-removable.
+    destination: agents/infrastructure-scout.md
+  - id: 2cea036191
+    line: 93
+    anchor: "**Classification precedence:** between candidate classes, the tiebreak in the class check below"
+    destination: agents/infrastructure-scout.md
+  - id: b19c431e35
+    line: 93
+    dropped:
+      reason: "Intended behaviour change: a specialised module's class no longer wins by the module's specificity; candidates are told apart by how much of the element's attack surface each template covers, a provider's class winning only when its template also covers the engine's concerns."
+      ref: apps/dethereal/workflow/shared/classification-protocol.md
+  - id: 1de84bfc27
+    line: 93
+    dropped:
+      reason: "Intended behaviour change: a specialised module's class no longer wins by the module's specificity; candidates are told apart by how much of the element's attack surface each template covers, a provider's class winning only when its template also covers the engine's concerns."
+      ref: apps/dethereal/workflow/shared/classification-protocol.md
+  - id: 8913cb87b7
+    line: 95
+    anchor: "populate `recommendedModules: string[]` at the top level of"
+    destination: agents/infrastructure-scout.md
+  - id: ceb467a31a
+    line: 101
+    anchor: "| OpenAPI/Swagger specs | Components + flows | API endpoints as components |"
+    destination: agents/infrastructure-scout.md
+  - id: 0a4c2af77a
+    line: 102
+    anchor: "| gRPC proto files | Data flows | gRPC flow class |"
+    destination: agents/infrastructure-scout.md
+  - id: d50b43a2d4
+    line: 103
+    anchor: "| Auth middleware (JWT, OAuth) | Controls | Authentication control |"
+    destination: agents/infrastructure-scout.md
+  - id: adeb0bebf6
+    line: 104
+    anchor: "| Database connection strings | Flows + stores | STORE + connection flow |"
+    destination: agents/infrastructure-scout.md
+  - id: f2e213c500
+    line: 105
+    anchor: "| Service mesh configs | Controls + flows | mTLS, service routes |"
+    destination: agents/infrastructure-scout.md
+  - id: 494f511b4d
+    line: 106
+    anchor: "| Message queue consumers/producers | Flows + stores | STORE (queue) + pub/sub flows |"
+    destination: agents/infrastructure-scout.md
+  - id: 4bf73014d3
+    line: 110
+    anchor: "Each discovered element receives two confidence dimensions:"
+    destination: shared/scout-reference.md
+  - id: 499ac1bc81
+    line: 114
+    anchor: "| **Existence** | Explicit declaration (K8s Service, Terraform resource, OpenAPI endpoint) | Strong inference (Docker image,"
+    destination: shared/scout-reference.md
+  - id: 01e5f20226
+    line: 115
+    anchor: "| **Classification** | Unambiguous type mapping (`aws_db_instance` → STORE/Database) | Probable type (Docker image name suggests"
+    destination: shared/scout-reference.md
+  - id: b24bb6b7f6
+    line: 117
+    anchor: "Multi-source deduplication: 1. Existence confidence"
+    destination: shared/scout-reference.md
+  - id: e6c835f954
+    line: 118
+    anchor: Existence confidence = max of all sources
+    destination: shared/scout-reference.md
+  - id: b031cd9a63
+    line: 119
+    anchor: Classification confidence = max of all sources
+    destination: shared/scout-reference.md
+  - id: 22edf29c9e
+    line: 120
+    anchor: Prefer the source with higher classification confidence for type/class assignment
+    destination: shared/scout-reference.md
+  - id: fb2203d34b
+    line: 121
+    anchor: Store all sources in provenance for auditability
+    destination: shared/scout-reference.md
+  - id: f5cf07067a
+    line: 125
+    anchor: For each **boundary** element, propose a trust `zone` where topology gives strong evidence (its `classificationConfidence` is
+    destination: shared/scout-reference.md
+  - id: 45278b79ca
+    line: 125
+    anchor: a report table shows its display name
+    destination: shared/scout-reference.md
+  - id: dfc11c8fb3
+    line: 127
+    anchor: Public IP / `0.0.0.0/0` ingress / internet gateway **on the subnet itself** → `PUBLIC`; reachable only
+    destination: shared/scout-reference.md
+  - id: 70b6f247fb
+    line: 128
+    anchor: Subnet with no inbound internet route → `INTERNAL`.
+    destination: shared/scout-reference.md
+  - id: 8683298f7c
+    line: 129
+    anchor: Third-party SaaS / external entity → `VENDOR` (vetted partner) or `UNTRUSTED` (open / unknown).
+    destination: shared/scout-reference.md
+  - id: 634e2608d4
+    line: 130
+    anchor: "**No signal → propose nothing** (leave the field for Step 4). `plane` is usually code-invisible —"
+    destination: shared/scout-reference.md
+  - id: 27df43c643
+    line: 131
+    anchor: "**Never propose `RESTRICTED`** — it depends on the flow graph and asset classification that don't exist"
+    destination: shared/scout-reference.md
+  - id: d44b4726a6
+    line: 135
+    anchor: For each discovered component — components only;
+    destination: shared/scout-reference.md
+  - id: 1ff1a70571
+    line: 136
+    anchor: Check the IaC Component Mappings table above for a deterministic match
+    destination: shared/scout-reference.md
+  - id: c4399471d5
+    line: 137
+    anchor: If matched with high classification confidence, pre-fill the class in the
+    destination: shared/scout-reference.md
+  - id: c1580f2833
+    line: 138
+    anchor: "Check that a suggested class exists on the platform before you propose it"
+    destination: shared/scout-reference.md
+  - id: cf09f20482
+    line: 139
+    anchor: unclassified (the class may not be in the installed
+    destination: shared/scout-reference.md
+  - id: 119b524433
+    line: 140
+    anchor: 'Format pre-classified items as: `"Redis Cache (STORE / Key-Value Store)"` in the'
+    destination: shared/scout-reference.md
+  - id: 21d4f065a9
+    line: 146
+    anchor: "| PROCESS | Active computation, request handling | API servers, web servers, workers, microservices, Lambda functions"
+    destination: shared/scout-reference.md
+  - id: 95a3c2abf4
+    line: 147
+    anchor: "| STORE | Persistent or cached data | Databases, Redis, S3 buckets, file systems, message queues"
+    destination: shared/scout-reference.md
+  - id: 0505caf7a2
+    line: 148
+    anchor: "| EXTERNAL_ENTITY | Outside the system's control | End users, third-party APIs, SaaS services, partner systems"
+    destination: shared/scout-reference.md
+  - id: e6cf64c3aa
+    line: 154
+    anchor: Return a structured discovery report
+    destination: agents/infrastructure-scout.md
+  - id: 2525fccbea
+    line: 156
+    anchor: "Sources checked: IaC/Terraform (12), Containers (3), K8s (—), API defs (1), ... ## Discovery Report ###"
+    destination: agents/infrastructure-scout.md
+  - id: 906ac04096
+    line: 193
+    anchor: Render the discovery report as markdown
+    destination: shared/discovery-protocol.md
+  - id: b2baceb335
+    line: 195
+    anchor: "I found N components, M boundaries, and K data flows. Review the table above: - Are"
+    destination: shared/discovery-protocol.md
+  - id: 64002be166
+    line: 206
+    anchor: run the blind-spot interview as one consolidated question
+    destination: shared/discovery-protocol.md
+  - id: 02c20bda45
+    line: 208
+    anchor: "list]. Code analysis systematically misses certain elements"
+    destination: shared/discovery-protocol.md
+  - id: 6bc25658dc
+    line: 228
+    anchor: "with `sources: [{ type: 'manual' }]`, `existenceConfidence: 'high'` and `confirmed: true`, and list it in"
+    destination: shared/discovery-protocol.md
+  - id: 1d3bc76d1d
+    line: 232
+    anchor: which the orchestrating conversation writes to
+    destination: agents/infrastructure-scout.md
+  - id: dd5d61308a
+    line: 232
+    anchor: The report's top-level structure
+    destination: agents/infrastructure-scout.md
+  - id: 412293d7e8
+    line: 234
+    anchor: '{ recommendedModules: string[], // Module names inferred from source patterns (e.g., ["Kubernetes", "AWS"])'
+    destination: agents/infrastructure-scout.md
+  - id: c4a20e0e8c
+    line: 243
+    anchor: "**Defense-in-depth:** The `suggestedDescription` field must never contain credential material."
+    destination: shared/scout-reference.md
+  - id: cc9c46dc89
+    line: 243
+    anchor: report, scan all description fields for common secret patterns (strings matching `password=`, base64-encoded blocks, JWT-shaped tokens,
+    destination: shared/scout-reference.md
+  - id: e61b734d8c
+    line: 243
+    anchor: Strip any matches and replace with `[REDACTED]`.
+    destination: shared/scout-reference.md
+  - id: abb69c8f5d
+    line: 243
+    anchor: This is a secondary safeguard — the primary constraint is the Security Constraint section above.
+    destination: shared/scout-reference.md
+  - id: 275bf08379
+    line: 245
+    anchor: "Each discovered element follows this structure:"
+    destination: shared/scout-reference.md
+  - id: a440df3de0
+    line: 247
+    anchor: "{ suggestedType: 'component' | 'boundary' | 'dataFlow' | 'dataItem' | 'control', suggestedName: string, suggestedDescription: string, suggestedComponentType?:"
+    destination: shared/scout-reference.md
+  - id: 300675379b
+    line: 263
+    anchor: "`classificationConfidence` **is** the confidence of its `suggestedZone` — there is no separate zone-confidence field."
+    destination: shared/scout-reference.md
+  - id: 5a681240f6
+    line: 263
+    anchor: "`suggestedZone`/`suggestedPlane` are proposals only; nothing is committed until the operator confirms (a re-proposed zone never overwrites"
+    destination: shared/scout-reference.md
+  - id: b08cd43aaf
+    line: 265
+    anchor: "**Evidence traceability for data flows:** The `sources` array must be populated with structured evidence for data"
+    destination: shared/scout-reference.md
+  - id: 3b16097843
+    line: 265
+    anchor: When inferring flows from configuration (reverse proxy configs, connection strings, service mesh routes, gRPC imports), set
+    destination: shared/scout-reference.md
+  - id: 37c0212d4a
+    line: 265
+    anchor: The `type` should match a discovery source category (e.g., `"network_config"`, `"connection_string"`, `"api_definition"`, `"code"`).
+    destination: shared/scout-reference.md
+  - id: 97b152ee8d
+    line: 265
+    anchor: Freetext-only evidence fields are insufficient for audit traceability.
+    destination: shared/scout-reference.md
+  - id: 158a601d1b
+    line: 269
+    anchor: The shell is permitted for read-only inspection only
+    destination: agents/infrastructure-scout.md
+  - id: eac37cdf4c
+    line: 270
+    anchor: for a Secret's key names, `kubectl describe secret <name>`
+    destination: shared/secret-files.md
+  - id: 1889acec58
+    line: 271
+    anchor: only paths on your classified list
+    destination: agents/infrastructure-scout.md
+  - id: e5d0f73c94
+    line: 272
+    anchor: Checking service versions or ports
+    destination: agents/infrastructure-scout.md
+  - id: 527139f3e7
+    line: 273
+    anchor: "`aws secretsmanager get-secret-value`, `aws ssm get-parameter(s) --with-decryption`, `aws lambda get-function-configuration`, `aws ecs describe-task-definition`, `gcloud secrets versions"
+    destination: shared/secret-files.md
+  - id: debe5c279c
+    line: 274
+    anchor: "**Never** modify files, start/stop services, or change project state"
+    destination: agents/infrastructure-scout.md

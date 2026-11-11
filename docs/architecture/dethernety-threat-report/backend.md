@@ -151,8 +151,8 @@ What the digest folds in determines what counts as a meaningful change:
 | **Exposure signature** — exposure id + `dispositionKind` + `dispositionStale`, via `HAS_EXPOSURE` across all four element types | **Disposition-aware.** Disposing or clearing a finding, or a stale-flip, flips it. |
 | **Data signature** — Data id + `sensitivity` | **Sensitivity-aware.** Re-classifying a Data node (e.g. `PUBLIC` → `RESTRICTED`) flips it. |
 | **HANDLES signature** — each `(element)-[:HANDLES]->(Data)` edge | **Handler-aware.** Re-wiring which element handles which data flips it. |
-| **Zoning signatures** — boundary `zone` / `planes` / `domains` + nesting parent, component `crownJewel` + containing boundary, Data regulatory flags, declared `CONDUIT` edges, and flow endpoints | **Zoning-aware.** Re-zoning, re-tagging, re-parenting, flag changes, or re-wiring a flow flips it, so the [zoning block](#trust-zoning-computation) never reads "fresh" against a changed model. Gathered by a separate structural query so the proven digest query is left untouched. |
-| **Operation signatures** — each declaring element's id + operator + product, normalised, under an `op` key present only when something declares | **Declaration-aware.** Changing an operator or product flips it. A version edit does not, and a model that declares nothing keeps its digest. See [the fingerprint contract](./data-model.md#the-fingerprint-and-staleness-contract). |
+| **Zoning signatures** — boundary `zone` / `planes` / `domains` + nesting parent, component `crownJewel` + containing boundary + class (unclassified: name and type), Data regulatory flags, declared `CONDUIT` edges, and flow endpoints | **Zoning-aware.** Re-zoning, re-tagging, re-classifying a component, re-parenting, flag changes, or re-wiring a flow flips it, so the [zoning block](#trust-zoning-computation) never reads "fresh" against a changed model. Gathered by a separate structural query so the proven digest query is left untouched. |
+| **Operation signatures** — each declaring element's id + operator + product, normalised, under an `op` key present only when something declares | **Declaration-aware.** Changing an operator or product flips it. A version edit does not, and a model that declares nothing gets no `op` key. See [the fingerprint contract](./data-model.md#the-fingerprint-and-staleness-contract). |
 
 The design intent is **accurate staleness**: a re-disposition, re-classification, or re-wiring changes the live fingerprint so an open snapshot correctly reads stale, while a no-op model save leaves the fingerprint unchanged so the snapshot stays "fresh". The same method also returns `componentCount` and `boundaryCount`, which the snapshot carries as headline figures.
 
@@ -182,7 +182,7 @@ The exact field shapes are documented in [`./data-model.md`](./data-model.md).
 | Pass | Per-element data | Notes |
 |---|---|---|
 | **boundaries** | canvas geometry (`positionX/Y`, `dimensionsWidth/Height` aliased to `width`/`height`), `parentBoundaryId`, declared trust-zoning (`zone`, `planes`, `domains`, `conduits`) | `parentBoundaryId` is `null` for top-level boundaries; it drives both the minimap's nesting and the client-side boundary-crossing walk. The declared trust-zoning fields feed both the [zoning computation](#trust-zoning-computation) and the frontend's per-flow declared-zone policy. `conduits` come from a small `CONDUIT`-edge sub-pass folded onto each boundary, gathered `OUTBOUND`-canonical (peer id + optional justification only). |
-| **components** | geometry, `boundaryId` (parent), lower-cased DFD `type`, `crownJewel` | `type` is `toLower`-ed to match the minimap's shape vocabulary; `boundaryId` is `null` for an orphan with no `BELONGS_TO` parent. |
+| **components** | geometry, `boundaryId` (parent), lower-cased DFD `type`, `crownJewel`, class `classId` / `className` | `type` is `toLower`-ed to match the minimap's shape vocabulary; `boundaryId` is `null` for an orphan with no `BELONGS_TO` parent. The class tells the [zoning computation](#trust-zoning-computation) a forwarding hop. |
 | **flows** | `sourceId`, `targetId`, carried `sensitivities` (nulls dropped), `dataItemCount` | Endpoints resolved via collect + `head()` (see below). `dataItemCount` distinguishes **"no data"** (count 0) from **"data-in-motion but unclassified"** (count > 0, `sensitivities` empty). |
 | **dataNodes** | `sensitivity`, `handledBy` (ids of elements with `HANDLES` → this Data) | `sensitivity` is `null` for unclassified data (never coerced to a level). Carries the sensitivity + handling topology the ledger does not; Data's own exposures stay in the ledger. |
 
@@ -213,6 +213,7 @@ The engine consumes dt-core's nested `ModelStructure`, but the report's `modelGr
 - **Rebuilds the nesting tree** — each boundary is linked under its declared parent, and each component grouped under its boundary, so the engine's ancestry walks resolve.
 - **Translates vocabulary** — the graph's `UPPERCASE` sensitivity is lower-cased and `camelCase` regulatory flags become the engine's `snake_case`, because a casing miss would silently zero the asset set the engine keys on.
 - **Inverts the handling topology** — `HANDLES` edges are inverted into per-holder `dataItemIds`, routed by handler type.
+- **Carries each component's class** — `classId` / `className` become the component's `classData`, which the engine reads to tell a forwarding hop (a load balancer, proxy, VPN gateway, firewall or router) from a component that terminates the request, so an `external-ingress` masked by such hops is found by class.
 - **Guards against corrupt nesting** — the parent chain is walked with a cycle-and-depth guard (matching the platform's `*0..50` ceiling), so a corrupt `parentBoundaryId` can never produce a self-referential object graph. Any boundary in or leading into a cycle is attached to a synthetic root instead, guaranteeing an acyclic forest.
 
 `computeZoning` then drives the engine over the adapted structure and returns `{ findings, effectiveZones }`. The engine is **injected** as an argument, so the pure adapter stays testable with a real engine import while production supplies the engine through the runtime loader below.
@@ -238,7 +239,7 @@ The whole computation is **additive and non-fatal**. Where the three gather pass
 
 ### Staleness folds in the zoning inputs
 
-Because the zoning block is derived from the model, the structural [fingerprint](#computestructure--the-cheap-structural-fingerprint) folds in every input the engine reads — boundary `zone` / `planes` / `domains` and nesting, component `crownJewel` and containment, data regulatory flags, declared conduit edges, and flow endpoints — so a re-zoned or re-wired model correctly reads **stale** rather than leaving a now-inconsistent zoning block reading "fresh".
+Because the zoning block is derived from the model, the structural [fingerprint](#computestructure--the-cheap-structural-fingerprint) folds in every input the engine reads — boundary `zone` / `planes` / `domains` and nesting, component `crownJewel`, containment and class (for an unclassified component, its name and type), data regulatory flags, declared conduit edges, and flow endpoints — so a re-zoned or re-wired model correctly reads **stale** rather than leaving a now-inconsistent zoning block reading "fresh".
 
 ---
 

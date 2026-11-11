@@ -14,6 +14,7 @@ import { ClassResolver, ResolvableClassKind } from '../dt-class/class-resolver.j
 import { DtControl } from '../dt-control/dt-control.js'
 import { ControlOwner, ControlResolver, UnresolvedControl, describeControlOwner, describeUnresolvedControl } from '../dt-control/control-resolver.js'
 import { validateMonolithicModel } from '../schemas/model.schema.js'
+import { StrictControlResolver, type ControlErrorFields, type ControlResolution, type ResolvedControl } from '../dt-control-resolution/dt-control-resolution.js'
 
 // Attribute writes run this many at a time once every element exists (see attributeWrites).
 const ATTRIBUTE_WRITE_CONCURRENCY = 4
@@ -25,7 +26,7 @@ export interface ImportProgress {
   percentage: number
 }
 
-export interface ImportError {
+export interface ImportError extends ControlErrorFields {
   step: string
   elementName?: string
   elementId?: string
@@ -47,6 +48,12 @@ export interface ImportResult {
   errors: ImportError[]
   warnings: string[]
   progress: ImportProgress
+  /**
+   * Strict control resolution only, on a successful import: the controls linked to each element
+   * (by ref: '@model', the element id as the input holds it, or `<group>[<n>]`), in list order, with
+   * the catalog name as linked. An element whose controls key is absent has no entry.
+   */
+  resolvedControls?: Record<string, ResolvedControl[]>
   /** Control references that were not attached: no control or several matched, or the catalog could not be fetched; a warning names each. */
   unresolvedControls?: UnresolvedControl[]
 }
@@ -54,6 +61,19 @@ export interface ImportResult {
 export interface ImportOptions {
   folderId?: string
   onProgress?: (progress: ImportProgress) => void
+  /**
+   * 'strict' links a control only by its id, or by a name exactly one catalog control has, and
+   * refuses the import before anything is created when any reference does not resolve. The default,
+   * 'lenient', also takes the one control whose name matches ignoring case and surrounding spaces, and
+   * attaches nothing for a reference no control or several controls match: it is listed in
+   * unresolvedControls, with a warning.
+   */
+  controlResolution?: ControlResolution
+  /**
+   * Called once, after every check this import runs and right before its first write. A message
+   * returned refuses the import with nothing written (one error, step `before_first_write`).
+   */
+  beforeFirstWrite?: () => Promise<string | undefined>
 }
 
 export class DtImport {
@@ -81,6 +101,8 @@ export class DtImport {
   // fetches once; a catalog that failed stays empty for the whole import (a down catalog is
   // down for the whole import — retrying per element is the pathology, not the fix).
   private classResolver = new ClassResolver(() => this.dtModule.getModules())
+  // Set for a strict import, once its preflight resolved every controls list.
+  private strict: StrictControlResolver | null = null
   private controlResolver = new ControlResolver((folderId) => this.dtControl.getControls({ folderId }))
   private unresolvedControls: UnresolvedControl[] = []
   private errors: ImportError[] = []
@@ -130,6 +152,7 @@ export class DtImport {
         this.idMapping.clear()
         this.elementParent.clear()
         this.classResolver = new ClassResolver(() => this.dtModule.getModules())
+        this.strict = null
         this.controlResolver = new ControlResolver((folderId) => this.dtControl.getControls({ folderId }))
         this.unresolvedControls = []
         this.errors = []
@@ -158,6 +181,14 @@ export class DtImport {
           }
         }
 
+        // Strict resolution reports by element id, so the ids must be unique before anything else.
+        if (options.controlResolution === 'strict') {
+          const idErrors = StrictControlResolver.validate(jsonData)
+          if (idErrors.length > 0) {
+            return { success: false, errors: idErrors, warnings: [], progress: this.progress }
+          }
+        }
+
         // Type gate: reject scalar shapes that would fail GraphQL coercion mid-import
         // (a bad `type`/position) BEFORE any mutation, so a bad file can't leave a partial model.
         const typeErrors = this.validateElementTypes(jsonData)
@@ -183,6 +214,21 @@ export class DtImport {
             warnings: this.warnings,
             progress: this.progress
           }
+        }
+
+        // Strict: every controls list resolves against one catalog snapshot before the model exists.
+        if (options.controlResolution === 'strict') {
+          const prepared = await StrictControlResolver.prepare(jsonData, this.dtControl)
+          if ('errors' in prepared) {
+            return { success: false, errors: prepared.errors, warnings: this.warnings, progress: this.progress }
+          }
+          this.strict = prepared.resolver
+          this.warnings.push(...prepared.warnings)
+        }
+
+        const held = await options.beforeFirstWrite?.()
+        if (held !== undefined) {
+          return { success: false, errors: [{ step: 'before_first_write', error: held }], warnings: this.warnings, progress: this.progress }
         }
 
         this.updateProgress(2, 'Creating model')
@@ -264,7 +310,8 @@ export class DtImport {
           // is this.idMapping.clear(), so any post-await read of the live private Map
           // (as DtImportSplit.buildIdMapping used to do) races it. The copy is immutable
           // once returned.
-          idMapping: new Map(this.idMapping)
+          idMapping: new Map(this.idMapping),
+          ...(this.strict && this.errors.length === 0 ? { resolvedControls: this.strict.resolved() } : {})
         }
 
       } catch (error) {
@@ -385,9 +432,12 @@ export class DtImport {
 
       // Resolve model-level controls (by id/name) so they are restored at create
       // time — the export→manifest→import round-trip carries them on jsonData.controls.
-      const modelControlIds = jsonData.controls
-        ? await this.resolveControls(jsonData.controls, { kind: 'MODEL', name: jsonData.name })
-        : []
+      const strictControls = this.strict ? this.strict.resolve(jsonData, jsonData.controls) : null
+      const modelControlIds = strictControls
+        ? strictControls.map(c => c.id)
+        : jsonData.controls
+          ? await this.resolveControls(jsonData.controls, { kind: 'MODEL', name: jsonData.name })
+          : []
 
       const model = await this.dtModel.createModel({
         name: jsonData.name,
@@ -400,6 +450,7 @@ export class DtImport {
       })
 
       if (model) {
+        if (this.strict && strictControls && jsonData.controls !== undefined) this.strict.record(jsonData, strictControls)
         return model
       } else {
         this.errors.push({ step: 'model_creation', error: 'Failed to create model' })
@@ -519,7 +570,7 @@ export class DtImport {
       }
 
       // Set controls if available
-      await this.setElementControls(defaultBoundaryId, boundaryData.controls || [], { kind: 'BOUNDARY', id: boundaryData.id, name: boundaryData.name })
+      await this.setElementControls(defaultBoundaryId, boundaryData.controls || [], boundaryData, { kind: 'BOUNDARY', id: boundaryData.id, name: boundaryData.name })
 
       // Handle represented model if present
       if (boundaryData.representedModel?.id) {
@@ -632,7 +683,7 @@ export class DtImport {
       }
 
       // Set controls directly (same pattern as boundaries and dataflows)
-      await this.setElementControlsDirect(newComponent.id, componentData.controls || [], 'component', {
+      await this.setElementControlsDirect(newComponent.id, componentData.controls || [], componentData, 'component', {
         type: componentData.type,
         name: componentData.name,
         description: componentData.description,
@@ -761,7 +812,7 @@ export class DtImport {
       }
 
       // Set controls
-      await this.setElementControlsDirect(newBoundary.id, boundaryData.controls || [], 'boundary', {
+      await this.setElementControlsDirect(newBoundary.id, boundaryData.controls || [], boundaryData, 'boundary', {
         type: 'TRUST_BOUNDARY',
         name: boundaryData.name,
         description: boundaryData.description,
@@ -868,7 +919,7 @@ export class DtImport {
         }
 
         // Set controls
-        await this.setElementControlsDirect(newDataFlow.id, dataFlowData.controls || [], 'dataflow', {
+        await this.setElementControlsDirect(newDataFlow.id, dataFlowData.controls || [], dataFlowData, 'dataflow', {
           name: dataFlowData.name,
           description: dataFlowData.description,
           sourceId: newEdge.source,
@@ -893,10 +944,16 @@ export class DtImport {
         // Create the data item with the model as the primary element
         // Data items are created BEFORE boundaries/components, so we use model as initial element
         // The actual associations will be made when elements are created (they reference data items)
-        // Controls are resolved against the catalogue and applied at create, as the model's own are.
-        const controlIds = Array.isArray(dataItemData.controls) && dataItemData.controls.length > 0
-          ? await this.resolveControls(dataItemData.controls, { kind: 'DATA', id: dataItemData.id, name: dataItemData.name })
-          : []
+        // Controls are resolved against the catalogue and applied at create, as the model's own are. A strict import
+        // links them from its preflight snapshot, as it does every element's.
+        const strictControls = this.strict && dataItemData.controls !== undefined
+          ? this.strict.resolve(dataItemData, dataItemData.controls)
+          : null
+        const controlIds = strictControls
+          ? strictControls.map(c => c.id)
+          : Array.isArray(dataItemData.controls) && dataItemData.controls.length > 0
+            ? await this.resolveControls(dataItemData.controls, { kind: 'DATA', id: dataItemData.id, name: dataItemData.name })
+            : []
 
         const newDataItem = await this.dtDataitem.createDataItem({
           name: dataItemData.name,
@@ -921,6 +978,7 @@ export class DtImport {
           continue
         }
 
+        if (this.strict && strictControls) this.strict.record(dataItemData, strictControls)
         this.idMapping.set(dataItemData.id, newDataItem.id)
 
         // Queue the attribute write, even with no answers: the write also evaluates the class
@@ -1198,13 +1256,20 @@ export class DtImport {
     return resolved.id
   }
 
-  private setElementControls = async (elementId: string, controls: any[], owner: ControlOwner): Promise<void> => {
+  /**
+   * `element` is the element's data as the input holds it (strict resolution keys on it); `label` names the element in
+   * an unresolved reference and its warning.
+   */
+  private setElementControls = async (elementId: string, controls: any[], element: object, label: ControlOwner): Promise<void> => {
+    if (this.strict) {
+      return this.writeStrictControls(element, elementId, ids => this.associateControlsWithElement(elementId, ids))
+    }
     if (!controls || !Array.isArray(controls) || controls.length === 0) {
       return
     }
 
     try {
-      const resolvedControlIds = await this.resolveControls(controls, owner)
+      const resolvedControlIds = await this.resolveControls(controls, label)
       if (resolvedControlIds.length > 0) {
         await this.associateControlsWithElement(elementId, resolvedControlIds)
       }
@@ -1216,16 +1281,20 @@ export class DtImport {
   private setElementControlsDirect = async (
     elementId: string,
     controls: any[],
+    element: object,
     elementType: 'component' | 'boundary' | 'dataflow',
     elementData: any,
-    owner: ControlOwner
+    label: ControlOwner
   ): Promise<void> => {
+    if (this.strict) {
+      return this.writeStrictControls(element, elementId, ids => this.associateControlsDirectly(elementId, ids, elementType, elementData))
+    }
     if (!controls || !Array.isArray(controls) || controls.length === 0) {
       return
     }
 
     try {
-      const resolvedControlIds = await this.resolveControls(controls, owner)
+      const resolvedControlIds = await this.resolveControls(controls, label)
 
       if (resolvedControlIds.length > 0) {
         await this.associateControlsDirectly(elementId, resolvedControlIds, elementType, elementData)
@@ -1235,7 +1304,32 @@ export class DtImport {
     }
   }
 
-  private associateControlsDirectly = async (elementId: string, controlIds: string[], elementType: 'component' | 'boundary' | 'dataflow', elementData: any): Promise<void> => {
+  /**
+   * Strict: writes the element's resolved controls, and records them only once the write succeeded.
+   * A failed write is an error, never a warning, so the import does not report success over it.
+   */
+  private writeStrictControls = async (owner: any, elementId: string, write: (ids: string[]) => Promise<boolean>): Promise<void> => {
+    const strict = this.strict!
+    if (owner.controls === undefined) return
+    const controls = strict.resolve(owner, owner.controls)
+    try {
+      if (controls.length > 0 && !(await write(controls.map(c => c.id)))) {
+        throw new Error('the platform returned no element')
+      }
+      strict.record(owner, controls)
+    } catch (error) {
+      this.errors.push({
+        step: 'associate_controls',
+        ref: strict.refOf(owner),
+        elementName: owner.name,
+        elementId,
+        error: `Controls were not written: ${error instanceof Error ? error.message : String(error)}`
+      })
+    }
+  }
+
+  /** True when the element came back from the write. */
+  private associateControlsDirectly = async (elementId: string, controlIds: string[], elementType: 'component' | 'boundary' | 'dataflow', elementData: any): Promise<boolean> => {
     try {
       switch (elementType) {
         case 'component':
@@ -1255,11 +1349,10 @@ export class DtImport {
             parentNode: elementData.parentBoundaryId,
           }
 
-          await this.dtComponent.updateComponent({
+          return (await this.dtComponent.updateComponent({
             updatedNode: updatedComponentNode,
             defaultBoundaryId: this.defaultBoundaryId
-          })
-          break
+          })) !== null
 
         case 'boundary':
           const updatedBoundaryNode = {
@@ -1280,11 +1373,10 @@ export class DtImport {
             parentNode: elementData.parentBoundaryId,
           }
 
-          await this.dtBoundary.updateBoundaryNode({
+          return (await this.dtBoundary.updateBoundaryNode({
             updatedNode: updatedBoundaryNode,
             defaultBoundaryId: this.defaultBoundaryId
-          })
-          break
+          })) !== null
 
         case 'dataflow':
           const dataFlowEdge = {
@@ -1299,26 +1391,27 @@ export class DtImport {
             }
           }
           
-          await this.dtDataflow.updateDataFlow({
+          return (await this.dtDataflow.updateDataFlow({
             edge: dataFlowEdge,
             updates: {
               name: elementData.name,
               description: elementData.description || '',
               controls: controlIds
             }
-          })
-          break
+          })) !== null
       }
+      return false
     } catch (error) {
       throw error
     }
   }
 
-  private associateControlsWithElement = async (elementId: string, controlIds: string[]): Promise<void> => {
+  /** True when the element came back from the write. */
+  private associateControlsWithElement = async (elementId: string, controlIds: string[]): Promise<boolean> => {
     try {
       // dumpModelData returns flat Vue Flow arrays (components: Node[], boundaries: Node[], dataFlows: Edge[])
       const modelData = await this.dtModel.dumpModelData({ modelId: this.getCurrentModelId() })
-      if (!modelData) return
+      if (!modelData) return false
 
       const defaultBoundaryId = modelData.defaultBoundary?.id || ''
 
@@ -1341,11 +1434,10 @@ export class DtImport {
           parentNode: component.parentNode || defaultBoundaryId,
         }
 
-        await this.dtComponent.updateComponent({
+        return (await this.dtComponent.updateComponent({
           updatedNode,
           defaultBoundaryId
-        })
-        return
+        })) !== null
       }
 
       // Search flat boundaries array
@@ -1371,11 +1463,10 @@ export class DtImport {
           parentNode: boundary.parentNode || undefined,
         }
 
-        await this.dtBoundary.updateBoundaryNode({
+        return (await this.dtBoundary.updateBoundaryNode({
           updatedNode,
           defaultBoundaryId
-        })
-        return
+        })) !== null
       }
 
       // Check if it's the default boundary itself
@@ -1394,11 +1485,10 @@ export class DtImport {
           parentNode: undefined,
         }
 
-        await this.dtBoundary.updateBoundaryNode({
+        return (await this.dtBoundary.updateBoundaryNode({
           updatedNode,
           defaultBoundaryId
-        })
-        return
+        })) !== null
       }
 
       // Search flat data flows array
@@ -1419,11 +1509,10 @@ export class DtImport {
           markerEnd: 'arrowclosed',
         }
 
-        await this.dtDataflow.updateDataFlow({
+        return (await this.dtDataflow.updateDataFlow({
           edge: updatedEdge,
           updates: {}
-        })
-        return
+        })) !== null
       }
 
       throw new Error(`Element ${elementId} not found`)

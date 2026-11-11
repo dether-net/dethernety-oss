@@ -1,0 +1,520 @@
+source: docs/guidelines-schema.md
+blob: f3f7771d32883964b7d6a89590b121468a958307
+migrated: true
+rules:
+  - id: f44f316009
+    line: 5
+    anchor: "Schema version: `2.0.0`."
+    destination: shared/guidelines-schema.md
+  - id: b8444e6036
+    line: 5
+    anchor: "Format: `split` (one file per concern)."
+    destination: shared/guidelines-schema.md
+  - id: 1f5fd9d725
+    line: 7
+    anchor: "**ID convention:** All `id` fields accept either a **work-name** (e.g., `b-system`, `c-postgres`, `f-api-db`) or a **UUID**."
+    destination: shared/guidelines-schema.md
+  - id: ad23882f39
+    line: 7
+    anchor: During initial model creation, use descriptive work-names with type prefixes (`b-` boundary, `c-` component, `f-` flow,
+    destination: shared/guidelines-schema.md
+  - id: 572424ee58
+    line: 7
+    anchor: After platform import, the server replaces these with permanent UUIDs.
+    destination: shared/guidelines-schema.md
+  - id: 24c1083238
+    line: 7
+    anchor: IDs must be unique within the model and contain only `[a-zA-Z0-9_-]`.
+    destination: shared/guidelines-schema.md
+  - id: a199c70d5e
+    line: 11
+    anchor: '{ "schemaVersion": "2.0.0", "format": "split", "model": { "id": null, "name": "Model Name", "description": "Optional description", "defaultBoundaryId":'
+    destination: shared/guidelines-schema.md
+  - id: d149bced76
+    line: 35
+    anchor: '| `schemaVersion` | `"2.0.0"` | Yes | Fixed literal |'
+    destination: shared/guidelines-schema.md
+  - id: 58c5d6ccd3
+    line: 36
+    anchor: '| `format` | `"split"` | Yes | Always `"split"` for directory-based models |'
+    destination: shared/guidelines-schema.md
+  - id: 782dab2fc9
+    line: 37
+    anchor: "| `model.id` | ID or `null` | Yes | `null` for new models; server assigns on"
+    destination: shared/guidelines-schema.md
+  - id: b2d66410e5
+    line: 38
+    anchor: "| `model.name` | string | Yes | Human-readable model name |"
+    destination: shared/guidelines-schema.md
+  - id: e74a90163d
+    line: 39
+    anchor: "| `model.description` | string | No | |"
+    destination: shared/guidelines-schema.md
+  - id: 6a18696e7a
+    line: 40
+    anchor: "| `model.defaultBoundaryId` | ID | Yes | Must match the `id` of `structure.defaultBoundary` |"
+    destination: shared/guidelines-schema.md
+  - id: 7fa3826666
+    line: 41
+    anchor: "| `files` | object | No | File path references (always the same literals for split"
+    destination: shared/guidelines-schema.md
+  - id: 5b6ec06258
+    line: 42
+    anchor: "Modules providing class definitions. Derived by the server"
+    destination: shared/guidelines-schema.md
+  - id: d7984067b0
+    line: 46
+    anchor: Top-level has a single `defaultBoundary` field containing the root boundary.
+    destination: shared/guidelines-schema.md
+  - id: 7881c2d842
+    line: 46
+    anchor: "Boundaries nest recursively — child boundaries and components are embedded **inline** within their parent boundary:"
+    destination: shared/guidelines-schema.md
+  - id: f4cdae3853
+    line: 48
+    anchor: "defaultBoundary (root) ├── boundaries[] ← child boundaries, each containing their own: │ ├── components[] ← components"
+    destination: shared/guidelines-schema.md
+  - id: 45fec00411
+    line: 58
+    anchor: Each boundary's `boundaries` and `components` arrays hold the full objects, not references.
+    destination: shared/guidelines-schema.md
+  - id: 19424bb49f
+    line: 58
+    anchor: This means the entire model hierarchy is a single nested tree rooted at `defaultBoundary`.
+    destination: shared/guidelines-schema.md
+  - id: afe096ba80
+    line: 64
+    anchor: "| `id` | ID | Yes | Work-name during creation (e.g., `b-dmz`); UUID after import |"
+    destination: shared/guidelines-schema.md
+  - id: 6558eb9fe2
+    line: 65
+    anchor: "| `name` | string | Yes | |"
+    destination: shared/guidelines-schema.md
+  - id: 9c861ead31
+    line: 66
+    anchor: "| `description` | string | No | |"
+    destination: shared/guidelines-schema.md
+  - id: bf2e8f7c51
+    line: 67
+    anchor: "| `positionX` | number | No | Pixels, relative to parent boundary (0,0 = top-left) |"
+    destination: shared/guidelines-schema.md
+  - id: 6bbad98ace
+    line: 68
+    anchor: "| `positionY` | number | No | |"
+    destination: shared/guidelines-schema.md
+  - id: e3a9644d1e
+    line: 69
+    anchor: "| `dimensionsWidth` | number | No | Width in pixels |"
+    destination: shared/guidelines-schema.md
+  - id: 6ec849bb68
+    line: 70
+    anchor: "| `dimensionsHeight` | number | No | Height in pixels |"
+    destination: shared/guidelines-schema.md
+  - id: 988840cc99
+    line: 71
+    anchor: "| `dimensionsMinWidth` | number | No | Minimum width constraint |"
+    destination: shared/guidelines-schema.md
+  - id: b79f1a6f43
+    line: 72
+    anchor: "| `dimensionsMinHeight` | number | No | Minimum height constraint |"
+    destination: shared/guidelines-schema.md
+  - id: dc67229d24
+    line: 73
+    anchor: "| `parentBoundary` | `{ id: ID }` | No | Omit for root boundary |"
+    destination: shared/guidelines-schema.md
+  - id: cb10c1e743
+    line: 74
+    anchor: "| `classData` | ClassReference \\| null | No | Class assignment (enables attributes). Explicit `null` unassigns"
+    destination: shared/guidelines-schema.md
+  - id: a5a3e41e13
+    line: 75
+    anchor: '| `zone` | `"UNTRUSTED"` `"PUBLIC"` `"EXPOSED"` `"INTERNAL"` `"RESTRICTED"` `"VENDOR"` \| `null` | No | Trust zone.'
+    destination: shared/guidelines-schema.md
+  - id: 9179547b0e
+    line: 76
+    anchor: "| `domains` | string[] | No | Free-text business domain tags (max 16, max 64 chars"
+    destination: shared/guidelines-schema.md
+  - id: 9b9e84ca5d
+    line: 77
+    anchor: '| `planes` | `("WORKLOAD" \| "MANAGEMENT")[]` | No | Operational planes. Absent = Undecided (not Workload)'
+    destination: shared/guidelines-schema.md
+  - id: 623975f289
+    line: 78
+    anchor: "| `conduits` | Conduit[] | No | Declared boundary-crossing channels — see [Conduit](#conduit). A present array"
+    destination: shared/guidelines-schema.md
+  - id: b17c97d6ac
+    line: 79
+    anchor: "| `boundaries` | StructureBoundary[] | No | Nested child boundaries |"
+    destination: shared/guidelines-schema.md
+  - id: 53fb3d454a
+    line: 80
+    anchor: "| `components` | StructureComponent[] | No | Components inside this boundary |"
+    destination: shared/guidelines-schema.md
+  - id: 0d36ac2afc
+    line: 81
+    anchor: "| `controls` | `{ id, name? }[]` | No | Security controls applied |"
+    destination: shared/guidelines-schema.md
+  - id: 67aa004ab4
+    line: 82
+    anchor: "| `dataItemIds` | ID[] | No | Data items scoped to this boundary |"
+    destination: shared/guidelines-schema.md
+  - id: 0e2e6bede7
+    line: 88
+    anchor: "| `id` | ID | Yes | Work-name during creation (e.g., `c-api`); UUID after import |"
+    destination: shared/guidelines-schema.md
+  - id: 6558eb9fe2-2
+    line: 89
+    anchor: "| `name` | string | Yes | |"
+    destination: shared/guidelines-schema.md
+  - id: 9c861ead31-2
+    line: 90
+    anchor: "| `description` | string | No | |"
+    destination: shared/guidelines-schema.md
+  - id: 2ffbb90d79
+    line: 91
+    anchor: '| `type` | `"PROCESS"` `"EXTERNAL_ENTITY"` `"STORE"` | Yes | DFD element type |'
+    destination: shared/guidelines-schema.md
+  - id: 1590c91327
+    line: 92
+    anchor: "| `positionX` | number | Yes | Relative to parent boundary |"
+    destination: shared/guidelines-schema.md
+  - id: 392abe8861
+    line: 93
+    anchor: "| `positionY` | number | Yes | |"
+    destination: shared/guidelines-schema.md
+  - id: 2ce301576c
+    line: 94
+    anchor: "| `parentBoundary` | `{ id: ID }` | No | Reference to containing boundary |"
+    destination: shared/guidelines-schema.md
+  - id: de9f4ea816
+    line: 95
+    anchor: "| `classData` | ClassReference \\| null | No | Explicit `null` unassigns on update; absent ="
+    destination: shared/guidelines-schema.md
+  - id: fa55b9c02f
+    line: 96
+    anchor: "| `controls` | `{ id, name? }[]` | No | |"
+    destination: shared/guidelines-schema.md
+  - id: a9e26e7fce
+    line: 97
+    anchor: "| `dataItemIds` | ID[] | No | Data items this component originates, processes, or stores (data"
+    destination: shared/guidelines-schema.md
+  - id: 97b836ceb2
+    line: 98
+    anchor: "| `crownJewel` | boolean | No | Author flag: high-value asset. **REPLACE on push** — the"
+    destination: shared/guidelines-schema.md
+  - id: 7f9a3b099d
+    line: 102
+    anchor: "Wrapper object with a `dataFlows` array:"
+    destination: shared/guidelines-schema.md
+  - id: 38ccf2aadb
+    line: 104
+    anchor: '{ "dataFlows": [ ... ] }'
+    destination: shared/guidelines-schema.md
+  - id: d3d73ec73d
+    line: 112
+    anchor: "| `id` | ID | Yes | Work-name during creation (e.g., `f-api-db`); UUID after import |"
+    destination: shared/guidelines-schema.md
+  - id: 278c83f0ec
+    line: 113
+    anchor: '| `name` | string | Yes | Descriptive label (e.g., "User login request") |'
+    destination: shared/guidelines-schema.md
+  - id: 9c861ead31-3
+    line: 114
+    anchor: "| `description` | string | No | |"
+    destination: shared/guidelines-schema.md
+  - id: 178dc6c7c1
+    line: 115
+    anchor: "| `source` | `{ id: ID }` | Yes | Source component reference |"
+    destination: shared/guidelines-schema.md
+  - id: 0a26e579b9
+    line: 116
+    anchor: "| `target` | `{ id: ID }` | Yes | Target component reference |"
+    destination: shared/guidelines-schema.md
+  - id: a294a3652f
+    line: 117
+    anchor: '| `sourceHandle` | `"top"` `"right"` `"bottom"` `"left"` | No | Connection point on source |'
+    destination: shared/guidelines-schema.md
+  - id: 679ab8c4d2
+    line: 118
+    anchor: '| `targetHandle` | `"top"` `"right"` `"bottom"` `"left"` | No | Connection point on target |'
+    destination: shared/guidelines-schema.md
+  - id: de9f4ea816-2
+    line: 119
+    anchor: "| `classData` | ClassReference \\| null | No | Explicit `null` unassigns on update; absent ="
+    destination: shared/guidelines-schema.md
+  - id: fa55b9c02f-2
+    line: 120
+    anchor: "| `controls` | `{ id, name? }[]` | No | |"
+    destination: shared/guidelines-schema.md
+  - id: fc35a479b9
+    line: 121
+    anchor: "| `dataItemIds` | ID[] | No | Data items carried by this flow |"
+    destination: shared/guidelines-schema.md
+  - id: 5654ed5ad6
+    line: 123
+    anchor: "**Constraint:** `source.id` must differ from `target.id` (no self-loops)."
+    destination: shared/guidelines-schema.md
+  - id: 8fd4683af5
+    line: 127
+    anchor: "Wrapper object with a `dataItems` array:"
+    destination: shared/guidelines-schema.md
+  - id: 58e96fdbee
+    line: 129
+    anchor: '{ "dataItems": [ ... ] }'
+    destination: shared/guidelines-schema.md
+  - id: 09bac659ec
+    line: 137
+    anchor: "| `id` | ID | Yes | Work-name during creation (e.g., `di-user-pii`); UUID after import |"
+    destination: shared/guidelines-schema.md
+  - id: ab48627254
+    line: 138
+    anchor: '| `name` | string | Yes | e.g., "User Credentials", "Payment Information" |'
+    destination: shared/guidelines-schema.md
+  - id: 9c861ead31-4
+    line: 139
+    anchor: "| `description` | string | No | |"
+    destination: shared/guidelines-schema.md
+  - id: b8114bd946
+    line: 140
+    anchor: "| `classData` | ClassReference \\| null | No | Data classification class. Explicit `null` unassigns on"
+    destination: shared/guidelines-schema.md
+  - id: a3b886d6ca
+    line: 141
+    anchor: '| `sensitivity` | `"public"` `"internal"` `"confidential"` `"restricted"` | No | Author-asserted sensitivity, lowercase. **REPLACE on push**'
+    destination: shared/guidelines-schema.md
+  - id: 9885f0b016
+    line: 142
+    anchor: '| `regulatory_flags` | string[] | No | Free-text regulatory scopes, e.g. `["PCI cardholder", "PHI"]`'
+    destination: shared/guidelines-schema.md
+  - id: 708a1dcc7e
+    line: 144
+    anchor: "`sensitivity` and `regulatory_flags` are first-class fields on the data item in `data-items.json` — never attribute-file keys."
+    destination: shared/guidelines-schema.md
+  - id: 906ff77350
+    line: 144
+    anchor: "Together with component crownJewel they are the asset signals"
+    destination: shared/guidelines-schema.md
+  - id: 4355a99850
+    line: 148
+    anchor: Per-element attribute files in the structured `ElementAttributes` format.
+    destination: shared/guidelines-schema.md
+  - id: b2433873df
+    line: 148
+    anchor: "`{type}` is the subdirectory `boundaries`, `components`, `dataFlows`, or `dataItems`; `{elementId}` is the element's `id`."
+    destination: shared/guidelines-schema.md
+  - id: 88a1fb5a45
+    line: 150
+    anchor: "`generate_attribute_stubs` writes each file during **classification** — before any platform import — seeding every class-template field"
+    destination: shared/guidelines-schema.md
+  - id: 124bffcf84
+    line: 150
+    anchor: Edit that stub in place; do not author a flat key-value file over it (see [Legacy
+    destination: shared/guidelines-schema.md
+  - id: 05bf176027
+    line: 152
+    anchor: "**Merge principle:** Always read the existing attribute file before writing."
+    destination: shared/guidelines-schema.md
+  - id: f84fc1eb64
+    line: 152
+    anchor: Merge new values into the existing content — never overwrite the entire file.
+    destination: shared/guidelines-schema.md
+  - id: 901396eb93
+    line: 152
+    anchor: "Attribute files contain a union of two vocabularies that must coexist:"
+    destination: shared/guidelines-schema.md
+  - id: f03269e6f6
+    line: 154
+    anchor: "**Class-template fields** — defined by the element's assigned class (e.g., `requirepass_present`, `tls_enabled`). Evaluated by OPA policies"
+    destination: shared/guidelines-schema.md
+  - id: d09de4ec85
+    line: 155
+    anchor: "**Plugin-enrichment fields** — added by the agent (e.g., `credential_scope`, `monitoring_tools`, and `crown_jewel` on boundaries, data flows"
+    destination: shared/guidelines-schema.md
+  - id: 5b35c5a836
+    line: 157
+    anchor: Both are stored on the same IS_INSTANCE_OF relationship in the graph.
+    destination: shared/guidelines-schema.md
+  - id: 1507b76c23
+    line: 157
+    anchor: OPA evaluates the fields it knows about (template-defined); extra fields are harmlessly ignored.
+    destination: shared/guidelines-schema.md
+  - id: 9b476ba529
+    line: 161
+    anchor: "for the fields the class template expects, in order, each with:"
+    destination: shared/guidelines-schema.md
+  - id: c893b50502
+    line: 163
+    anchor: "the field and the values it takes"
+    destination: shared/guidelines-schema.md
+  - id: b24b7b89bc
+    line: 164
+    anchor: "A class bigger than one page comes with enrich_next_offset"
+    destination: shared/guidelines-schema.md
+  - id: 21c6409417
+    line: 165
+    anchor: "name, value_type, typical_values and enum"
+    destination: shared/guidelines-schema.md
+  - id: 35501d71fe
+    line: 166
+    anchor: "description — what it means"
+    destination: shared/guidelines-schema.md
+  - id: d766e45c00
+    line: 167
+    anchor: "its definition, precondition and secure value"
+    destination: shared/guidelines-schema.md
+  - id: ba57b5525d
+    line: 168
+    anchor: "how_to_obtain — where to find the value (config files, IaC keys, a command to turn into a question)"
+    destination: shared/guidelines-schema.md
+  - id: c5b3a2cd1a
+    line: 170
+    anchor: "Use each field's how_to_obtain steps to discover attribute values from code, IaC, and configuration files."
+    destination: shared/guidelines-schema.md
+  - id: 6c62355b15
+    line: 170
+    anchor: For attributes not discoverable from code, the enrichment protocol asks the operator
+    destination: shared/guidelines-schema.md
+  - id: dadc3a9f31
+    line: 174
+    anchor: '{ "elementId": "c-redis", "elementType": "component", "elementName": "Redis", "classData": { "id": "<class-uuid>", "name": "Key-Value Store" }, "attributes":'
+    destination: shared/guidelines-schema.md
+  - id: c6a4d2dc54
+    line: 194
+    anchor: "| `elementId` | ID | Yes | Work-name before import (e.g. `c-redis`); UUID after. **This —"
+    destination: shared/guidelines-schema.md
+  - id: f1c255d0e1
+    line: 195
+    anchor: '| `elementType` | `"boundary"` `"component"` `"dataFlow"` `"dataItem"` | Yes | Singular — note it differs from'
+    destination: shared/guidelines-schema.md
+  - id: 0c359885be
+    line: 196
+    anchor: "| `elementName` | string | No | Human-readable (for debugging) |"
+    destination: shared/guidelines-schema.md
+  - id: 100c9ca438
+    line: 197
+    anchor: "Class that defines the attribute schema. Written by"
+    destination: shared/guidelines-schema.md
+  - id: 2d5735cb6a
+    line: 198
+    anchor: "| `attributes` | Record<string, unknown> | Yes | Class-template fields + plugin fields merged |"
+    destination: shared/guidelines-schema.md
+  - id: 6063ef9f7d
+    line: 199
+    anchor: "| `modifiedAt` | ISO 8601 string | No | Last modification timestamp |"
+    destination: shared/guidelines-schema.md
+  - id: 47377df564
+    line: 203
+    anchor: A `null` attribute value is the enrichment checklist marker
+    destination: shared/guidelines-schema.md
+  - id: e9acc73a50
+    line: 203
+    anchor: It is **not** "not applicable" and **not** "clear this value"
+    destination: shared/guidelines-schema.md
+  - id: cd9dd51781
+    line: 203
+    anchor: "Three consequences follow:"
+    destination: shared/guidelines-schema.md
+  - id: d17c74e4a1
+    line: 205
+    anchor: "`update_attributes` **withholds** null-valued keys from the push (counted as `withheld_unresolved`) — they never reach the platform."
+    destination: shared/guidelines-schema.md
+  - id: 82712f67fa
+    line: 206
+    anchor: is listed in attribute_residual.top_unresolved (see the core guidelines)
+    destination: shared/guidelines-schema.md
+  - id: ac50b2fd1f
+    line: 207
+    anchor: Reclassifying an element deletes its still-`null` template fields; non-null values are preserved.
+    destination: shared/guidelines-schema.md
+  - id: ba701473c8
+    line: 209
+    anchor: Resolve every field you can to a concrete value from evidence or the operator's answer
+    destination: shared/guidelines-schema.md
+  - id: 1405ba1c6b
+    line: 209
+    anchor: '`false`, `"none"`, and `[]` are resolutions; `null` is not.'
+    destination: shared/guidelines-schema.md
+  - id: 68572ad331
+    line: 213
+    anchor: Older models may contain flat key-value files with a type-specific ID field (`componentId`, `boundaryId`, `flowId`, `dataItemId`)
+    destination: shared/guidelines-schema.md
+  - id: c98549cce3
+    line: 213
+    anchor: "These are still **read** — normalized on load into `ElementAttributes` — but must not be written:"
+    destination: shared/guidelines-schema.md
+  - id: 5e3129a656
+    line: 215
+    anchor: The element is resolved by `{elementType}:{name}` lookup against the structure, not by id, so a renamed
+    destination: shared/guidelines-schema.md
+  - id: 7bba14b374
+    line: 216
+    anchor: "`classData` is recovered only if that name lookup hits; `modifiedAt` is never recovered."
+    destination: shared/guidelines-schema.md
+  - id: 56522bb495
+    line: 218
+    anchor: rewrite it into the structured format rather than extending it
+    destination: shared/guidelines-schema.md
+  - id: f116fa0abe
+    line: 224
+    anchor: '{ "id": "<uuid>", "name": "Web Server" }'
+    destination: shared/guidelines-schema.md
+  - id: 64acf277b3
+    line: 228
+    anchor: "Optional additional fields: `description`, `type`, `category`, `module`."
+    destination: shared/guidelines-schema.md
+  - id: 117e0fbaf0
+    line: 232
+    anchor: '{ "id": "<uuid>", "name": "dethernety" }'
+    destination: shared/guidelines-schema.md
+  - id: 4071d837fe
+    line: 238
+    anchor: '{ "id": "<uuid>" }'
+    destination: shared/guidelines-schema.md
+  - id: 0a459057d2
+    line: 242
+    anchor: Used for `parentBoundary`, `source`, `target` relationships.
+    destination: shared/guidelines-schema.md
+  - id: 3b50ae9888
+    line: 246
+    anchor: "A declared channel across a boundary edge, carried on `StructureBoundary.conduits`:"
+    destination: shared/guidelines-schema.md
+  - id: 821018120e
+    line: 248
+    anchor: '{ "peerId": "b-dmz", "peerName": "DMZ", "direction": "OUTBOUND", "justification": "Payment callbacks", "controlRefs": ["ctrl-mtls"] }'
+    destination: shared/guidelines-schema.md
+  - id: 5f51abce09
+    line: 260
+    anchor: "| `peerId` | ID | Yes | The boundary on the other end. Must be another"
+    destination: shared/guidelines-schema.md
+  - id: 465c891774
+    line: 261
+    anchor: "| `peerName` | string | No | Denormalized for display; the peer boundary is the source"
+    destination: shared/guidelines-schema.md
+  - id: c2a3667dee
+    line: 262
+    anchor: '| `direction` | `"OUTBOUND"` `"INBOUND"` | Yes | Which side of the edge this boundary sits'
+    destination: shared/guidelines-schema.md
+  - id: 39750cc4ef
+    line: 263
+    anchor: "| `justification` | string | No | Why the channel is approved |"
+    destination: shared/guidelines-schema.md
+  - id: 0257f53761
+    line: 264
+    anchor: "| `controlRefs` | string[] | No | Control ids protecting the channel |"
+    destination: shared/guidelines-schema.md
+  - id: 9a837f1c9c
+    line: 266
+    anchor: "`validate_model_json` raises **errors** (not warnings) on three shapes:"
+    destination: shared/guidelines-schema.md
+  - id: 967fa66cf3
+    line: 268
+    anchor: "**Self-conduit** — `peerId` equals the declaring boundary's own `id`."
+    destination: shared/guidelines-schema.md
+  - id: 7e62efc109
+    line: 269
+    anchor: "**Unknown peer** — `peerId` matches no boundary in `structure.json`."
+    destination: shared/guidelines-schema.md
+  - id: 5480e315b5
+    line: 270
+    anchor: "**Lone inbound** — an `INBOUND` conduit whose peer declares no matching `OUTBOUND` conduit back. Each edge"
+    destination: shared/guidelines-schema.md

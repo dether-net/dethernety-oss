@@ -55,17 +55,37 @@
  * `@dethernety/dt-core` barrel without dragging Node-only APIs into the
  * studio frontend bundle.
  *
+ * **Liveness.** A holder is judged by identity. The payload carries the
+ * holder's host and boot (as the plugin's cross-process file lock does):
+ *   - our host and our boot (within a minute) → live while its pid is alive,
+ *     with no age limit (writes are not fenced, so a slow or suspended holder
+ *     must never be broken); our own pid is live only with a nonce this
+ *     process holds (a release that failed leaves a stale lock, not a stuck one);
+ *   - another host, another boot, or no identity at all → stale. A lock
+ *     committed to a repository (`{"pid":1}`) never blocks anyone.
+ *   - a payload from an older version (a pid and a timestamp, no host or boot)
+ *     → live only while its pid is alive and its timestamp is recent (at most
+ *     10 minutes old, at most a minute ahead).
+ * The break claim is judged the same way.
+ *
  * **Not protected:** crashes mid-transaction leave a stale lock file. The
  * stale-lock recovery (PID-alive check) handles this on the next acquire.
  * Worst case: a process whose PID was recycled to a still-alive unrelated
  * PID would falsely report the lock as held — operator must manually
- * unlink. A second exotic residual: cleaning an ABANDONED claim is a
+ * unlink. Another host sharing the model directory (a network mount, a
+ * container and its host) is always judged stale: two hosts can break each
+ * other's live locks. A second exotic residual: cleaning an ABANDONED claim is a
  * read-then-unlink, so a fresh claim landing in that syscall-wide gap could
  * be wrongly removed — it requires a crashed breaker PLUS two more racers
  * interleaving within microseconds, and the cleanup path always yields
  * (never proceeds to break), so no one continues under a stolen claim.
  * Acceptable trade-offs for a dev workflow tool.
  */
+
+import { ensureRealDirs, readLeafNoFollow } from './wal-helper.js';
+
+/** A lock payload is a few dozen bytes. */
+const MAX_LOCK_BYTES = 4096;
 
 type FsModule = typeof import('node:fs/promises');
 let _fs: FsModule | undefined;
@@ -103,6 +123,10 @@ const LOCK_RELATIVE_PATH = '.dethereal/.control-library.lock';
 interface LockPayload {
   pid: number;
   acquiredAt: string;
+  /** The holder's host name; absent in locks written by older versions. */
+  host?: string;
+  /** The holder's boot time (seconds since the epoch); absent in older locks. */
+  boot?: number;
   /** Per-acquisition random token — the ownership arbiter. Distinguishes a lock
    *  WE hold from one another process re-created after breaking ours, so a
    *  broken loser never removes the current holder's lock, and two racers
@@ -146,6 +170,40 @@ export class LockBusyError extends Error {
  * target PID is invalid (ESRCH) or not owned by us (EPERM treated as
  * "alive but not ours" — we still refuse to break the lock).
  */
+/** A boot time computed at different moments drifts with clock steps; within this, it is the same boot. */
+const BOOT_TOLERANCE_S = 60;
+/** An older-version lock (no host or boot) counts as live only this long after it was taken. */
+const LEGACY_MAX_AGE_MS = 10 * 60 * 1000;
+const LEGACY_MAX_SKEW_MS = 60 * 1000;
+
+/** Nonces of locks this process holds. */
+const heldNonces = new Set<string>();
+
+let identity: { host: string; boot: number } | undefined;
+async function localIdentity(): Promise<{ host: string; boot: number }> {
+  if (!identity) {
+    const os = await import('node:os');
+    identity = { host: os.hostname(), boot: Math.round(Date.now() / 1000 - os.uptime()) };
+  }
+  return identity;
+}
+
+/** Whether `holder` (a lock or a break claim) belongs to a process that may still be using it. */
+async function isLive(holder: LockPayload | undefined): Promise<boolean> {
+  if (!holder || typeof holder !== 'object' || !Number.isInteger(holder.pid) || holder.pid <= 0) return false;
+  const ours = () => typeof holder.nonce === 'string' && heldNonces.has(holder.nonce);
+  if (holder.host !== undefined || holder.boot !== undefined) {
+    const me = await localIdentity();
+    if (holder.host !== me.host || typeof holder.boot !== 'number' || Math.abs(holder.boot - me.boot) > BOOT_TOLERANCE_S) {
+      return false;
+    }
+    return holder.pid === process.pid ? ours() : isPidAlive(holder.pid);
+  }
+  const at = typeof holder.acquiredAt === 'string' ? Date.parse(holder.acquiredAt) : NaN;
+  if (!Number.isFinite(at) || Date.now() - at > LEGACY_MAX_AGE_MS || at - Date.now() > LEGACY_MAX_SKEW_MS) return false;
+  return holder.pid === process.pid ? ours() : isPidAlive(holder.pid);
+}
+
 function isPidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -167,13 +225,17 @@ function isPidAlive(pid: number): boolean {
 export async function acquireLock(modelDir: string): Promise<LockHandle> {
   const fs = await loadFs();
   const lockPath = join(modelDir, LOCK_RELATIVE_PATH);
-  await fs.mkdir(dirname(lockPath), { recursive: true });
+  // Never create the lock through a linked `.dethereal/`.
+  await ensureRealDirs(modelDir, dirname(LOCK_RELATIVE_PATH));
 
   const nonce = `${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 10)}`;
+  const { host, boot } = await localIdentity();
   const payload: LockPayload = {
     pid: process.pid,
     acquiredAt: new Date().toISOString(),
     nonce,
+    host,
+    boot,
   };
   const payloadStr = JSON.stringify(payload);
 
@@ -200,8 +262,10 @@ export async function acquireLock(modelDir: string): Promise<LockHandle> {
 
   const readHolder = async (path = lockPath): Promise<LockPayload | undefined> => {
     try {
-      const raw = await fs.readFile(path, 'utf-8');
-      return JSON.parse(raw) as LockPayload;
+      // No-follow and non-blocking: a lock committed as a link to a FIFO or
+      // `/dev/stdin` reads as corrupt, and is broken by unlinking the link itself.
+      const raw = await readLeafNoFollow(path, LOCK_RELATIVE_PATH, MAX_LOCK_BYTES);
+      return raw === null ? undefined : (JSON.parse(raw) as LockPayload);
     } catch {
       // Absent, unreadable, or corrupt. With atomic-link creation a lock is
       // never mid-write, so "unparseable" now means genuinely corrupt, not a
@@ -211,11 +275,14 @@ export async function acquireLock(modelDir: string): Promise<LockHandle> {
   };
 
   // First attempt — exclusive create-with-content.
-  if (await placeOurPayload(lockPath)) return { path: lockPath, nonce };
+  if (await placeOurPayload(lockPath)) {
+    heldNonces.add(nonce);
+    return { path: lockPath, nonce };
+  }
 
   // EEXIST — inspect the holder. A live PID owns it: refuse.
   const holder = await readHolder();
-  if (holder && isPidAlive(holder.pid)) {
+  if (holder && (await isLive(holder))) {
     throw new LockBusyError(modelDir, holder.pid, holder.acquiredAt);
   }
 
@@ -233,7 +300,7 @@ export async function acquireLock(modelDir: string): Promise<LockHandle> {
     // stolen-claim race we refuse to run. The next acquireLock call finds a
     // clean slate and breaks normally.
     const claimant = await readHolder(claimPath);
-    if (claimant && isPidAlive(claimant.pid)) {
+    if (claimant && (await isLive(claimant))) {
       throw new LockBusyError(modelDir, claimant.pid, claimant.acquiredAt);
     }
     await fs.unlink(claimPath).catch(() => {});
@@ -260,7 +327,10 @@ export async function acquireLock(modelDir: string): Promise<LockHandle> {
     if (await placeOurPayload(lockPath)) {
       // Defense-in-depth: confirm our nonce actually landed.
       const confirmed = await readHolder();
-      if (confirmed?.nonce === nonce) return { path: lockPath, nonce };
+      if (confirmed?.nonce === nonce) {
+        heldNonces.add(nonce);
+        return { path: lockPath, nonce };
+      }
     }
     const raceHolder = await readHolder();
     throw new LockBusyError(modelDir, raceHolder?.pid ?? -1, raceHolder?.acquiredAt ?? 'unknown');
@@ -276,12 +346,14 @@ export async function acquireLock(modelDir: string): Promise<LockHandle> {
  */
 export async function releaseLock(handle: LockHandle): Promise<void> {
   const fs = await loadFs();
+  heldNonces.delete(handle.nonce);
   // Ownership check: only remove the lock if WE still hold it. If our lock was
   // broken as stale and another process legitimately re-acquired, its nonce
   // differs — unlinking it would remove the current holder's lock and cascade
   // the breach (the old unconditional unlink-by-path did exactly that).
   try {
-    const raw = await fs.readFile(handle.path, 'utf-8');
+    const raw = await readLeafNoFollow(handle.path, LOCK_RELATIVE_PATH, MAX_LOCK_BYTES);
+    if (raw === null) return;
     const holder = JSON.parse(raw) as LockPayload;
     if (holder.nonce !== handle.nonce) return; // not ours anymore — leave it
   } catch {

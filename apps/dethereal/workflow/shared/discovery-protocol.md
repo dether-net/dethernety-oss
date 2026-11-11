@@ -1,0 +1,59 @@
+## Discovery Orchestration Protocol
+
+When running discovery ({{cmd:discover}} or Step 2 of the guided workflow):
+
+1. Resolve model path using the Model Resolution Protocol
+2. Read `.dethereal/scope.json` if it exists — pass scope context to the scout
+3. Check for discovery cache at `.dethernety/discovery-cache.json`:
+   - If a cache exists and a decomposition plan is active, the scan's results are filtered by the cache's `assignedTo` map: show "N components pre-filtered for other models." The cache never replaces the scan below — only the scout reports secret files, modules and the sources checked
+4. Delegate scanning — the scout is read-only, all file writes happen here, not in the scout:
+
+   {{#delegate infrastructure-scout}}Scan <the directory or file the operator named, else the whole codebase> for infrastructure components, trust boundaries and data flows for the model at `<model-path>`. Scope summary: <system name, description, crown jewels, exclusions>. Return the full discovery report with the sources-checked summary, the discovered elements in the discovery output schema, `recommendedModules`, and `unreadSecretFiles` — every secret file you found and never opened. List names first; open only paths you have classified with Secret Files.{{/delegate}}
+
+5. Receive the discovery report (sources checked, element counts, confidence distribution, the tables and the elements). The scout has pre-classified from its IaC mapping — do not map again — but check each suggested class by its id with {{tool:get_classes}} (`class_id`) — a class that no longer exists is dropped from the proposal, never replaced by another, and at discovery a class that exists is never swapped for another module's: show any other candidate beside it (at classification, Step 3 item 2 governs) — and mark the ones it could not pre-classify for the operator's review in the confirmation table.
+6. **Persist the proposal as provenance, not as a decision.** Scan every returned description, and every `unreadSecretFiles` `secretNames` and `referencedBy` entry, for credential material and redact it (see Relay). Write the elements, with `confirmed: false` on each, `recommendedModules` and `unreadSecretFiles` to `<model-path>/.dethereal/discovery.json`, in its envelope: `version: 1`, `timestamp`, `sourcesChecked` (per source category), `blindSpotsAsked`, `userAddedElements`, `elements` — keeping every key an earlier run wrote outside it (`left_unclassified`, `dropped_classes`, `shared_credentials`, `privilege_transitions`). Each `unreadSecretFiles` entry is `{ file, class, tracked, referencedBy, secretNames? }` as the scout returned it — `tracked` is true when git tracks the file, never under another key name. Nothing goes into the model files before the operator answers: no element in `structure.json` or `dataflows.json`, and no zone (RESTRICTED included), plane, conduit, class or `crownJewel` field. Until then the proposal lives only in the `.dethereal/` sidecar.
+7. Render the discovery report as markdown — sources-checked summary, components, suggested boundaries with proposed zones, inferred flows, and the unread secret files (a file git tracks is a finding in its own right: credentials in source control) — then ask:
+
+   {{#ask id=discovery-confirm}}I found N components, M boundaries, and K data flows. Review the table above:
+   - Are any components missing? (shared infrastructure, third-party services, admin tools)
+   - Should any be removed? (false positives, out-of-scope)
+   - Are the suggested types and classes correct?
+
+   Respond with changes or "looks good" to confirm.{{/ask}}
+
+   Apply the operator's changes to the proposal in `discovery.json` — all of one reply in one message (Model-file writes): an element the operator removes leaves `elements`, one they add enters with `sources: [{ type: 'manual' }]`, `existenceConfidence: 'high'` and `confirmed: true`, and is listed in `userAddedElements` — then re-render the changed table and ask again until they confirm.
+8. After the component list is confirmed, run the blind-spot interview as one consolidated question. Pre-fill item 5 with the actors the source shows behind each remote-access entry point (SSH or RDP reachable from outside, a bastion, a runbook's on-call or admin role), cited. Pre-fill item 6 with the shared-credential candidates the unread secret files show without being read — an `env_file:` target used by two or more services, a Secret referenced by two or more workloads — and list any Secret manifest that nothing in the repository references, asking which component uses it:
+
+   Show the categories code analysis misses, each with its pre-fills, then ask:
+
+   1. **Shared infrastructure** — Identity provider (IdP), DNS, certificate authority (CA), log aggregator, SIEM, secret manager
+   2. **Side-channel data flows** — Logging pipelines, metrics collection, DNS resolution, backup/replication, health checks
+   3. **Deployment pipeline** — CI/CD platform, container registries, artifact stores, deployment agents
+   4. **Third-party SaaS** — OAuth providers, payment processors, CDN, email/SMS services, webhook consumers
+   5. **Human actors with privileged access** — System admins, database admins, on-call engineers, third-party support
+   6. **Shared credentials** — Service accounts used by multiple components, shared API keys, database credentials reused across services, shared secrets
+
+   {{#ask id=blind-spots text}}Discovery found [the confirmed list]. Code analysis systematically misses certain elements — Shared infrastructure, Side-channel data flows, Deployment pipeline, Third-party SaaS, Human actors with privileged access, Shared credentials: the list above. Are any of these relevant to your system? List anything else I missed, or say "none" to continue.{{/ask}}
+
+   Add each element the operator names to the proposal with `sources: [{ type: 'manual' }]`, `existenceConfidence: 'high'` and `confirmed: true`, and list it in `userAddedElements`; set `blindSpotsAsked: true` — all of this answer in one message to `discovery.json` (Model-file writes). Backup destinations and CI/CD registries or artifact stores enter as **components** (STORE or EXTERNAL_ENTITY), never as bare flows: a backup holds the same crown-jewel data at rest, often with weaker controls, and needs its own data-item links (those of the store it copies) and enrichment. Shared-credential answers are not elements: record them in `discovery.json` as `shared_credentials` (the credential name, the elements the operator named, the answer verbatim), so enrichment's credential capture starts from them even in a later session.
+9. Run the Decomposition Protocol on the confirmed proposal in `discovery.json`. If the operator narrows the scope or decomposes, the next step writes only the elements they confirmed at `decomposition-scope`: the chosen subsystem, or this model's share of the plan.
+10. After the operator's confirmation, write the confirmed elements to the model files below and mark them `confirmed: true` in `discovery.json`, all in one message (Model-file writes). When every element is confirmed, the marking is one edit that sets each `"confirmed": false` to `true` (every occurrence at once); otherwise one write of the whole file, each confirmed element marked, the removed ones gone and the added ones present with `confirmed: true`. When no question separates step 7's or step 8's change from this one, it joins this message: on the every-occurrence branch as its own edit, sent first, its old text never holding a `"confirmed"` flag; on the whole-file branch inside that one write, with no separate edit. The model files:
+{{#harness codex}}
+   With `apply_patch`, the every-occurrence edit is a hunk per flag.
+{{/harness}}
+   - `structure.json` (components + boundaries with coordinates; a proposed zone or plane stays in `discovery.json` as `suggestedZone` / `suggestedPlane` until the operator ratifies it — guided Step 4 — never in `structure.json`'s `zone` or `planes`: proposed is not set)
+   - `dataflows.json` (confirmed flows)
+11. Write `.dethernety/discovery-cache.json` after the first discovery in the project, and update it in a multi-model project
+12. Call {{tool:validate_model_json}} to check structural validity
+13. Record the state with {{tool:model_state}} (`action: 'get'` first), one step forward at a time:
+    - at SCOPE_DEFINED: `action: 'transition'`, `to: 'DISCOVERED'`, `commit: 'HEAD'` — the transition sets the drift baseline in the same call;
+    - at INITIALIZED: only if `.dethereal/scope.json` exists, transition to `SCOPE_DEFINED`, then to `DISCOVERED` with `commit: 'HEAD'`. Without a scope, record no state: say that the scope is not defined yet and point to Step 1 (Scope Definition) of {{cmd:threat-model}}. If the server refuses a transition for a reason other than a git refusal (below), show its reason and stop;
+    - at DISCOVERED or later (a re-run): no transition. If the re-run added or removed elements at ENRICHING or REVIEWED, apply the Backward Transition Protocol.
+
+    With no transition (a re-run), set the drift baseline alone: {{tool:model_state}} `action: 'set_baseline'` with no `commit` — the server records HEAD. When the baseline is refused — on the transition, or by `set_baseline` — with `not_a_git_repo`, `no_commits`, `git_unavailable`, `unsupported_repository`, `git_failure`, `unknown_commit` or `not_ancestor`, the whole call is refused: make the transition again with no `commit` (a `set_baseline` is simply skipped), say in one line that no drift baseline was set, and never retry through a shell — drift detection is skipped on resume until the operator re-runs {{cmd:discover}} in a git repo. Re-running discovery on an existing model sets a new baseline the same way; that is the explicit re-baseline path (e.g., after a history rewrite or a `--full-scan` cycle).
+14. Say which files git keeps. This machine's records (below) the server keeps out of git itself. Recommend `.gitignore` entries for the files that are transient or local — a teammate cannot use them: `.dethereal/pending-id-rewrite.json`, `.dethereal/control-audit.log`, the lock and temporary files in `.dethereal/` (`*.lock`, `*.tmp.*`, `*.breaking`), `.dethernety/.models.lock` and `.dethernety/discovery-cache.json`. The model files, `attributes/`, `controls/`, `.dethereal/state.json`, `.dethereal/scope.json`, `.dethereal/discovery.json` (drift reads it), `.dethereal/class-cache/`, `.dethereal/template-fields/`, `.dethereal/quality.json`, `.dethernety/models.json` and a decomposition plan are the model: they are committed.
+15. In the discover skill, show its footer. In the guided workflow, show none: go on to Module selection in the same turn.
+
+{{include shared/per-machine-files.md}}
+
+**Picking up after an answer.** If you stopped at one of the questions above and are started again with the operator's `[answer: <id>]`, apply that answer to the proposal already in `discovery.json` — do not scan again — and continue with the next step. The same holds at each question in turn: `discovery-confirm`, `blind-spots`, then the Decomposition Protocol's `decomposition` and `decomposition-scope`.

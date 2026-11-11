@@ -1,0 +1,20 @@
+{
+  "elementId": "b-ops",
+  "elementType": "boundary",
+  "elementName": "Operations subnet",
+  "classData": {
+    "id": "97026f27-3d32-4352-9132-b308b9b93ec1",
+    "name": "Network Segment"
+  },
+  "attributes": {
+    "segment_boundary_enforced": null,
+    "vlan_hopping_prevention": null,
+    "east_west_within_segment_restricted": null,
+    "inter_segment_traffic_filtered_by_identity": null,
+    "inter_segment_crossings_logged": null,
+    "segmentation_drift_detected": null,
+    "private_link_for_managed_services": null,
+    "segment_egress_scoped": null
+  },
+  "modifiedAt": "2026-09-27T22:22:54.037Z"
+}

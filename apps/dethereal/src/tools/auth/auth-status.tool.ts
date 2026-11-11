@@ -7,18 +7,23 @@
 
 import { z } from 'zod'
 import { ClientFreeTool, ToolContext, ToolResult } from '../base-tool.js'
-import { getConfig } from '../../config.js'
+import { configProblem, getConfig, originOf, type UrlSource } from '../../config.js'
 import {
   fetchPlatformConfig,
   getCachedPlatformConfig,
   loadStoredTokens,
   isTokenExpired,
-  isRefreshTokenValid,
+  canRefresh,
   refreshStoredSession,
+  SessionExpiredError,
+  SignedOutError,
+  isLoginPending,
+  lastLoginSummary,
   type PlatformConfig
 } from '../../auth/index.js'
 import { getRequiredScope } from '../../auth/platform-config.js'
 import { emailClaimOf, grantedScopeOf, parseScopes } from '../../auth/scope.js'
+import { getProjectRoot } from '../../utils/project-root.js'
 
 /** Upper bound on the network work `verify` may do, so a status check never hangs. */
 const VERIFY_TIMEOUT_MS = 10_000
@@ -39,15 +44,19 @@ interface AuthStatusOutput {
   /** Origin of the platform this server talks to */
   platformUrl: string
   /** Where the platform URL came from */
-  urlSource: 'env' | 'default'
-  /** Directory model paths are resolved against */
-  projectRoot: string
+  urlSource: UrlSource
+  /** Directory model paths are confined to; null when none could be used */
+  projectRoot: string | null
+  /** Why there is no project root, when there is none */
+  projectRootDetail?: string
   /** Whether the platform runs without authentication; null when it has not been reached */
   authDisabled: boolean | null
   /** Whether platform tools will be authorized right now */
   authenticated: boolean
   /** Whether a sign-in is waiting for the browser */
   pending: boolean
+  /** The last browser sign-in that finished in this server, while recent */
+  lastLogin?: { status: string; identityChanged?: boolean; error?: string }
   /** Signed-in user, from the session's identity token */
   email?: string
   /** When the current access token expires (ISO-8601) */
@@ -75,14 +84,6 @@ function describeFailure(error: unknown): string {
   return error instanceof Error ? error.message : 'unknown error'
 }
 
-function originOf(url: string): string {
-  try {
-    return new URL(url).origin
-  } catch {
-    return 'invalid URL'
-  }
-}
-
 export class AuthStatusTool extends ClientFreeTool<AuthStatusInput, AuthStatusOutput> {
   readonly name = 'auth_status'
 
@@ -101,11 +102,23 @@ Use this to check authentication. Never read files under ~/.dethernety/ in the h
     const signal = verify ? AbortSignal.timeout(VERIFY_TIMEOUT_MS) : undefined
     let detail: string | undefined
 
+    const root = getProjectRoot()
     const base = {
       platformUrl: originOf(config.baseUrl),
-      urlSource: (process.env.DETHERNETY_URL ? 'env' : 'default') as 'env' | 'default',
-      projectRoot: process.cwd(),
-      pending: false
+      urlSource: config.urlSource,
+      projectRoot: root ? root.root : process.cwd(),
+      ...(root && root.root === null ? { projectRootDetail: root.reason } : {}),
+      pending: isLoginPending(),
+      ...(lastLoginSummary() ? { lastLogin: lastLoginSummary() } : {})
+    }
+
+    // A configuration no request may be sent to: say so, and touch nothing.
+    const problem = configProblem()
+    if (problem) {
+      return {
+        success: true,
+        data: { ...base, authDisabled: null, authenticated: false, detail: `configuration error: ${problem}` }
+      }
     }
 
     let platformConfig: PlatformConfig | null = getCachedPlatformConfig()
@@ -133,7 +146,7 @@ Use this to check authentication. Never read files under ~/.dethernety/ in the h
 
     let session: SessionView = stored
     if (isTokenExpired(stored) && verify && platformConfig) {
-      if (isRefreshTokenValid(stored)) {
+      if (canRefresh(stored)) {
         try {
           const fresh = await refreshStoredSession(stored, config.baseUrl, { signal })
           session = {
@@ -143,7 +156,10 @@ Use this to check authentication. Never read files under ~/.dethernety/ in the h
             grantedScope: fresh.scope
           }
         } catch (error) {
-          detail = `refresh failed: ${describeFailure(error)}`
+          detail =
+            error instanceof SessionExpiredError || error instanceof SignedOutError
+              ? 'session expired; sign in again'
+              : `refresh failed: ${describeFailure(error)}`
         }
       } else {
         detail = 'session expired; sign in again'

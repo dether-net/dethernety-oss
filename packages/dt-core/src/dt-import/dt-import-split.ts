@@ -100,6 +100,8 @@ export class DtImportSplit {
       const importResult = await this.dtImport.importModel(monolithicModel, {
         folderId: options.folderId,
         onProgress: options.onProgress,
+        controlResolution: options.controlResolution,
+        beforeFirstWrite: options.beforeFirstWrite,
       })
 
       // Extract ID mapping from DtImport

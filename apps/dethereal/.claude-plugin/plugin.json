@@ -1,7 +1,7 @@
 {
   "name": "dethereal",
-  "version": "0.4.21",
-  "description": "Professional threat modeling for Claude Code. Discover infrastructure, build data flow diagrams, enrich with MITRE ATT&CK, and sync with the Dethernety platform.",
+  "version": "0.5.2",
+  "description": "Professional threat modeling for Claude Code. Discover infrastructure, build data flow diagrams, enrich with security attributes, and sync with the Dethernety platform.",
   "author": {
     "name": "dether.net",
     "url": "https://dether.net"
@@ -16,5 +16,26 @@
     "data-flow-diagram",
     "security-analysis"
   ],
-  "mcpServers": "./.mcp.json"
+  "skills": [
+    "./bundles/claude/skills/"
+  ],
+  "agents": [
+    "./bundles/claude/agents/enrichment-applier.md",
+    "./bundles/claude/agents/infrastructure-scout-scoped.md",
+    "./bundles/claude/agents/infrastructure-scout.md",
+    "./bundles/claude/agents/model-reviewer.md",
+    "./bundles/claude/agents/security-enricher.md",
+    "./bundles/claude/agents/threat-modeler.md"
+  ],
+  "hooks": "./bundles/claude/hooks/hooks.json",
+  "mcpServers": "./bundles/claude/.mcp.json",
+  "userConfig": {
+    "platform_url": {
+      "type": "string",
+      "title": "Dethernety platform URL",
+      "description": "Base URL of the Dethernety platform. A DETHERNETY_URL set in your shell takes precedence.",
+      "default": "http://127.0.0.1:3000",
+      "sensitive": false
+    }
+  }
 }

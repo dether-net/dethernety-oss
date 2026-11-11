@@ -50,7 +50,7 @@ A read-only, point-in-time report over a model. See the [Threat Report guide](th
 | [Reachability and Flow Routes](threat-report/REACHABILITY.md) | Flow routes to crown-jewel assets and between any two elements |
 | [Working with Findings](threat-report/WORKING_WITH_FINDINGS.md) | The Residual Risk ledger, triage, filtering, and the Component Profile |
 
-## AI and Automation — Dethereal (Claude Code Plugin)
+## AI and Automation — Dethereal (Plugin for Claude Code, Codex and OpenCode)
 
 For comprehensive documentation on the Dethereal threat modeling plugin, see the [Dethereal documentation](dethereal/README.md):
 
@@ -86,7 +86,7 @@ Everything needed to run Dethernety on your own machine or server. See the
 
 **Platform (GUI):** [Building Your First Model](BUILDING_YOUR_FIRST_MODEL.md) -- then [Security Analysis Workflow](SECURITY_ANALYSIS_WORKFLOW.md) to run and interpret analysis -- then the [Threat Report](threat-report/README.md) to read, filter, and export your residual risk.
 
-**Dethereal (Claude Code plugin):**
+**Dethereal (plugin for Claude Code, Codex and OpenCode):**
 1. [Getting Started](dethereal/GETTING_STARTED.md) -- install and create your first model
 2. [Guided Workflow](dethereal/GUIDED_WORKFLOW.md) -- the complete 11-step process
 3. [Command Reference](dethereal/COMMAND_REFERENCE.md) -- all available commands

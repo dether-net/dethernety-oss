@@ -1,0 +1,319 @@
+source: skills/classify/SKILL.md
+blob: f6521f3bdb136cad395fc74ebb6baf4352138c6b
+migrated: true
+rules:
+  - id: bc925298f9
+    line: 8
+    anchor: Classify the elements of a Dethernety threat model with platform module classes
+    destination: skills/classify/SKILL.md
+  - id: 3db907463a
+    line: 12
+    anchor: Resolve the model (Model Resolution Protocol
+    destination: skills/classify/SKILL.md
+  - id: bfaf1dbe68
+    line: 13
+    anchor: With none, suggest
+    destination: shared/model-resolution.md
+  - id: efda9f986e
+    line: 14
+    anchor: read structure.json, dataflows.json, data-items.json and .dethereal/scope.json
+    destination: skills/classify/SKILL.md
+  - id: f9af91a6d9
+    line: 15
+    anchor: (crown jewels, activeModules)
+    destination: skills/classify/SKILL.md
+  - id: 881382604b
+    line: 16
+    anchor: Re-read state before acting.
+    destination: shared/core-rules.md
+  - id: 2393cc8a4c
+    line: 22
+    anchor: limits the run to that type
+    destination: skills/classify/SKILL.md
+  - id: 63af00ca07
+    line: 23
+    anchor: limits the run to that type
+    destination: skills/classify/SKILL.md
+  - id: 51f043a908
+    line: 24
+    anchor: limits the run to that type
+    destination: skills/classify/SKILL.md
+  - id: 81f1bc7785
+    line: 25
+    anchor: limits the run to that type
+    destination: skills/classify/SKILL.md
+  - id: ce8c4d4f22
+    line: 26
+    anchor: limits the run to that type
+    destination: skills/classify/SKILL.md
+  - id: 130ac25841
+    line: 28
+    anchor: otherwise every unclassified element
+    destination: skills/classify/SKILL.md
+  - id: 6e44c76560
+    line: 32
+    anchor: List the elements without classData
+    destination: skills/classify/SKILL.md
+  - id: b034dcddc7
+    line: 33
+    anchor: components through the whole boundary hierarchy, boundaries, data flows, data items
+    destination: skills/classify/SKILL.md
+  - id: 3673e79c5d
+    line: 34
+    anchor: components through the whole boundary hierarchy, boundaries, data flows, data items
+    destination: skills/classify/SKILL.md
+  - id: 5b60765951
+    line: 35
+    anchor: components through the whole boundary hierarchy, boundaries, data flows, data items
+    destination: skills/classify/SKILL.md
+  - id: 100f428821
+    line: 36
+    anchor: components through the whole boundary hierarchy, boundaries, data flows, data items
+    destination: skills/classify/SKILL.md
+  - id: dcaa90f832
+    line: 38
+    anchor: X components, Y flows, Z boundaries, W data
+    destination: skills/classify/SKILL.md
+  - id: 336721bd17
+    line: 40
+    anchor: All elements are classified.
+    destination: skills/classify/SKILL.md
+  - id: 62329849c8
+    line: 41
+    anchor: All elements are classified.
+    destination: skills/classify/SKILL.md
+  - id: e51e99da48
+    line: 48
+    anchor: Read `activeModules` from `.dethereal/scope.json`
+    destination: shared/classification-protocol.md
+  - id: c78b0e38d9
+    line: 49
+    anchor: Extract `moduleIds` from `activeModules` (order matters — see tiebreaking
+    destination: shared/classification-protocol.md
+  - id: 23dbf10f69
+    line: 50
+    anchor: Group the unclassified elements by class label
+    destination: shared/classification-protocol.md
+  - id: 5d57b2adaf
+    line: 51
+    anchor: "[{name, type?, description?}, ...], classLabel: <label>, moduleIds: [...], topN: 3, fields: ['description', 'category',"
+    destination: shared/classification-protocol.md
+  - id: 21bbd5333c
+    line: 54
+    anchor: "componentType: <type>, one call per type"
+    destination: shared/classification-protocol.md
+  - id: 99bf8df054
+    line: 54
+    anchor: a type on an element only ranks
+    destination: shared/classification-protocol.md
+  - id: 8552a472b8
+    line: 56
+    anchor: "componentType: <type>, one call per type"
+    destination: shared/classification-protocol.md
+  - id: 910426cb67
+    line: 58
+    anchor: a class assigned across types evaluates a policy written for another kind of thing
+    destination: shared/classification-protocol.md
+  - id: 924deca4fa
+    line: 58
+    dropped:
+      reason: A note on the validator's type/class warning, not an instruction; the validator reports the mismatch wherever it runs.
+      ref: apps/dethereal/workflow/shared/classification-protocol.md
+  - id: 919ea090b9
+    line: 59
+    anchor: "Cross-module tiebreaking: Candidates at the same confidence from different modules"
+    destination: shared/classification-protocol.md
+  - id: 7134637eac
+    line: 60
+    anchor: if they differ, show both in the proposal table for the operator to choose
+    destination: shared/classification-protocol.md
+  - id: 71d513c30d
+    line: 61
+    anchor: Mark exact_name matches (high confidence) as accepted
+    destination: shared/classification-protocol.md
+  - id: "7067377758"
+    line: 62
+    anchor: matches for the operator to confirm
+    destination: shared/classification-protocol.md
+  - id: b38d024caa
+    line: 64
+    anchor: "**Offline fallback chain:**"
+    destination: shared/classification-protocol.md
+  - id: 91395a83f2
+    line: 65
+    anchor: "Offline fallback chain:"
+    destination: shared/classification-protocol.md
+  - id: 503ad27c64
+    line: 66
+    anchor: "If the result contains `{ success: false }` or an error → fall back to"
+    destination: shared/classification-protocol.md
+  - id: 5d41738c2c
+    line: 67
+    anchor: also errors → skip Pass 1, all classification in Pass 2
+    destination: shared/classification-protocol.md
+  - id: d240e9e688
+    line: 68
+    anchor: 'Warning: "Platform connectivity issues — classification running in LLM-only mode.'
+    destination: shared/classification-protocol.md
+  - id: c3a024270d
+    line: 72
+    anchor: "For remaining unclassified elements:"
+    destination: shared/classification-protocol.md
+  - id: 1e852cd094
+    line: 73
+    anchor: Use boundary context (which boundary contains the element
+    destination: shared/classification-protocol.md
+  - id: b344b1cfcc
+    line: 74
+    anchor: Consider connected flows and peer components for contextual inference
+    destination: shared/classification-protocol.md
+  - id: a81b87d701
+    line: 75
+    anchor: Consider connected flows and peer components for contextual inference
+    destination: shared/classification-protocol.md
+  - id: fe2326e135
+    line: 76
+    anchor: the closest available class from active modules — never fabricate class IDs
+    destination: shared/classification-protocol.md
+  - id: c0fd0ba8e1
+    line: 77
+    anchor: "If no suitable class exists in active modules, broaden the search: call"
+    destination: shared/classification-protocol.md
+  - id: a6e95b7861
+    line: 78
+    anchor: If still no match, leave unclassified and note the gap
+    destination: shared/classification-protocol.md
+  - id: 753a01bd95
+    line: 82
+    anchor: "Propose the mapping: each crown jewel to the elements that hold it"
+    destination: shared/crown-jewels.md
+  - id: 73d409497a
+    line: 84
+    anchor: then names that match — a component, else a data item
+    destination: shared/crown-jewels.md
+  - id: 408adf3d42
+    line: 85
+    anchor: on no match, also against data-item names
+    destination: shared/classification-protocol.md
+  - id: ca1d94b026
+    line: 86
+    anchor: Show it as a confirm table (jewel, element, type; the why behind
+    destination: shared/crown-jewels.md
+  - id: 91e1d9ddce
+    line: 87
+    anchor: Show it as a confirm table (jewel, element, type; the why behind
+    destination: shared/crown-jewels.md
+  - id: ed6a25ff80
+    line: 94
+    anchor: in a component's attribute file is a derived/legacy
+    destination: shared/classification-protocol.md
+  - id: 95e8cf744c
+    line: 95
+    anchor: An unresolved crown jewel drops out of every priority set, so it is never skipped without the operator's decision
+    destination: skills/classify/SKILL.md
+  - id: 155f272de8
+    line: 97
+    anchor: Full asset_criticality enrichment happens later, during enrichment.
+    destination: shared/classification-protocol.md
+  - id: 75eb14254c
+    line: 97
+    anchor: Full asset_criticality enrichment happens later, during enrichment.
+    destination: shared/classification-protocol.md
+  - id: 54feb32fc7
+    line: 101
+    anchor: Show one table — element, type, proposed class, module, confidence, match, crown jewel
+    destination: skills/classify/SKILL.md
+  - id: d0385d6869
+    line: 103
+    anchor: Show one table — element, type, proposed class, module, confidence, match, crown jewel
+    destination: skills/classify/SKILL.md
+  - id: 2152d5a966
+    line: 117
+    anchor: Apply these classes, or modify rows?
+    destination: skills/classify/SKILL.md
+  - id: a81f59c127
+    line: 121
+    anchor: The gate is Gate 3's C1
+    destination: skills/classify/SKILL.md
+  - id: 5759c182c2
+    line: 123
+    anchor: "list the failures STOREs first: STOREs drive data sensitivity analysis"
+    destination: shared/classification-protocol.md
+  - id: e3955f2941
+    line: 124
+    dropped:
+      reason: The 80 % overall threshold is replaced by Gate 3's C1 (every non-external component classified), read from the gates.
+      ref: apps/dethereal/workflow/skills/classify/SKILL.md
+  - id: f2ecf3fc0a
+    line: 126
+    anchor: If C1 fails, or data flows, boundaries or data items are still unclassified
+    destination: skills/classify/SKILL.md
+  - id: c4a1fa31a3
+    line: 127
+    anchor: Classify these elements now, or skip with the gap on record?
+    destination: skills/classify/SKILL.md
+  - id: 8c6160b576
+    line: 133
+    anchor: If unclassified elements exist and `activeModules` is set, check if broadening
+    destination: shared/classification-protocol.md
+  - id: ae5894b775
+    line: 133
+    anchor: that is the module to suggest adding
+    destination: shared/classification-protocol.md
+  - id: ed7f65017e
+    line: 133
+    anchor: When a match comes from a module that is not active
+    destination: skills/classify/SKILL.md
+  - id: 6647b692fc
+    line: 134
+    anchor: Add these modules to the active modules and classify the elements with them?
+    destination: skills/classify/SKILL.md
+  - id: e541f7ebd0
+    line: 137
+    anchor: update activeModules in the scope and classify those elements again
+    destination: skills/classify/SKILL.md
+  - id: 67895880a2
+    line: 139
+    anchor: skip with the gap on record
+    destination: skills/classify/SKILL.md
+  - id: cb1a488fc0
+    line: 143
+    anchor: "`classData` on elements in their home files — `structure.json` (components/boundaries), `dataflows.json` (data flows), `data-items.json` (data items)"
+    destination: shared/classification-protocol.md
+  - id: 423fac0d7d
+    line: 144
+    anchor: — an absent key leaves the platform binding
+    destination: shared/classification-protocol.md
+  - id: 81f3c4dd52
+    line: 145
+    anchor: write class template attribute stubs for all newly classified elements. The tool scans structure.json, dataflows.json and data-items.json
+    destination: shared/classification-protocol.md
+  - id: b9a2bd8df0
+    line: 146
+    anchor: "`crownJewel: true` on each mapped component in `structure.json`"
+    destination: shared/crown-jewels.md
+  - id: 7229365a67
+    line: 147
+    anchor: Binding a data item to a credential-like DATA class (e.g. User Credentials, Authentication Tokens) makes it
+    destination: shared/data-item-gates.md
+  - id: 48b1d58a65
+    line: 151
+    anchor: Classification changes no workflow state.
+    destination: skills/classify/SKILL.md
+  - id: 9cf1dd4850
+    line: 151
+    anchor: Classification changes no workflow state.
+    destination: skills/classify/SKILL.md
+  - id: b4451fbba9
+    line: 151
+    dropped:
+      reason: The quality score and its factor weights are the validator's; the footer reports the score, and C1 is the classification gate.
+      ref: apps/dethereal/workflow/skills/classify/SKILL.md
+  - id: 236ceaffdf
+    line: 155
+    anchor: Validate once per step
+    destination: shared/core-rules.md
+  - id: 7f2295656a
+    line: 157
+    anchor: (populate security attributes)
+    destination: skills/classify/SKILL.md

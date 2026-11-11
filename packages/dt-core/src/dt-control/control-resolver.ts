@@ -31,7 +31,8 @@ export interface UnresolvedControl {
   owner?: ControlOwner
 }
 
-export interface ControlResolution {
+/** What a resolve call attached, and the references it left unattached. */
+export interface ControlReferenceResolution {
   ids: string[]
   unresolved: UnresolvedControl[]
 }
@@ -114,7 +115,7 @@ export class ControlResolver {
     return this.status
   }
 
-  resolve = async (references: ControlReference[]): Promise<ControlResolution> => {
+  resolve = async (references: ControlReference[]): Promise<ControlReferenceResolution> => {
     // A catalogue entry without an id cannot be attached, so it cannot match either.
     const complete = (await this.catalogStatus()) === 'complete'
     const controls = (await this.catalog()).filter((c): c is Control & { id: string } => typeof c.id === 'string' && c.id !== '')

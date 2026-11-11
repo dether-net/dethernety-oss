@@ -235,13 +235,10 @@ export class ControlGapsResolverService {
 
     const session = this.getSession();
     try {
-      // `cc.supportedTypes IS NULL` = compatible with EVERYTHING —
-      // deliberate for this discovery/recommendation surface (no module in
-      // the catalogue populates supportedTypes today; the strict reading
-      // would silence every recommendation). control-candidates-resolver
-      // deliberately uses the strict opposite (coalesce → supports nothing)
-      // for its ranking surface, where a per-class `compatible` flag
-      // carries the nuance. Intentional divergence, ratified 2026-07-18.
+      // `cc.supportedTypes IS NULL` = compatible with every element type (no
+      // module in the catalogue populates supportedTypes today); an explicit
+      // list is read strictly. control-candidates-resolver reads it the same
+      // way.
       const query = `
         MATCH (ctrl:Control)-[:HAS_COUNTERMEASURE]->(cm:Countermeasure)-[:RESPONDS_WITH]->(mit:MitreAttackMitigation)
               -[:MITIGATION_DEFENDS_AGAINST_TECHNIQUE]->(tech:MitreAttackTechnique)

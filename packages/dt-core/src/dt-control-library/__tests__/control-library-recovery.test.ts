@@ -38,7 +38,7 @@ afterEach(async () => {
   await fs.rm(modelDir, { recursive: true, force: true });
 });
 
-describe('pushGreenfieldControl — id-as-resume (P1)', () => {
+describe('pushGreenfieldControl — id-as-resume', () => {
   it('does NOT re-create when a greenfield file already carries a server id (crash-before-flip)', async () => {
     // The resume state: lifecycle still 'greenfield' but id is a server UUID —
     // the create + WAL id-rewrite completed, we crashed before the flip.
@@ -82,17 +82,43 @@ describe('pushGreenfieldControl — id-as-resume (P1)', () => {
     const createSpy = vi.fn().mockResolvedValue({ id: SERVER_ID });
     dtControl(lib).createControl = createSpy;
     dtControl(lib).setInstantiationAttributes = vi.fn().mockResolvedValue({ success: true });
+    const bindingsSpy = vi.fn();
+    dtControl(lib).getControlsByIds = bindingsSpy;
 
     await lib.pushGreenfieldControl({
       modelDir, file, supportingElementIds: [], folderId: undefined, liveAssignedModelIds: [],
     });
 
     expect(createSpy).toHaveBeenCalledTimes(1);
+    // A fresh create bound every class itself: no bindings read.
+    expect(bindingsSpy).not.toHaveBeenCalled();
     // The WAL rewrite renamed the control file to the server id.
     expect(await readControlFile(modelDir, SERVER_ID)).toBeTruthy();
     // …and rewrote the reference a data item holds, as it does an element's.
     const dataItems = JSON.parse(await fs.readFile(join(modelDir, 'data-items.json'), 'utf-8'));
     expect(dataItems.dataItems[0].controls).toEqual([{ id: SERVER_ID }]);
+  });
+
+  it('passes afterOperation to the journal replay: called with the ids once the rewrite is on disk', async () => {
+    const tempId = 'greenfield-def456';
+    await fs.mkdir(join(modelDir, 'controls'), { recursive: true });
+    await fs.writeFile(join(modelDir, 'structure.json'), JSON.stringify({ ref: tempId }));
+    await fs.writeFile(join(modelDir, 'dataflows.json'), JSON.stringify({ ref: tempId }));
+    const file: ControlFile = {
+      id: tempId,
+      name: 'Carried Control',
+      source: 'declared',
+      lifecycle: 'greenfield',
+      classes: [{ classId: CLASS_A, attributes: { a: 1 }, localEditedAt: '2026-01-01T00:00:00Z' }],
+    };
+    dtControl(lib).createControl = vi.fn().mockResolvedValue({ id: SERVER_ID });
+    dtControl(lib).setInstantiationAttributes = vi.fn().mockResolvedValue({ success: true });
+    const seen: Array<{ op: unknown; struct: string }> = [];
+    await lib.pushGreenfieldControl({
+      modelDir, file, supportingElementIds: [], folderId: undefined, liveAssignedModelIds: [],
+      afterOperation: async (op) => { seen.push({ op, struct: await fs.readFile(join(modelDir, 'structure.json'), 'utf-8') }) },
+    });
+    expect(seen).toEqual([{ op: { tempId, serverId: SERVER_ID }, struct: JSON.stringify({ ref: SERVER_ID }) }]);
   });
 });
 
@@ -109,7 +135,7 @@ const brownfield = (classes: ControlFile['classes']): ControlFile => ({
 
 const decision: BrownfieldDecision = { sharedOwnership: 'push-anyway' };
 
-describe('pushBrownfieldControl — idempotent retry / already-applied (P1)', () => {
+describe('pushBrownfieldControl — idempotent retry / already-applied', () => {
   it('does NOT flag a phantom conflict when the server already holds our intended value', async () => {
     // pendingEdit: we intended foo: 'new' (pre-edit 'old'). A prior push landed
     // it; we crashed before clearing pendingEdit. Step B now re-fetches 'new'.
@@ -166,7 +192,7 @@ describe('pushBrownfieldControl — idempotent retry / already-applied (P1)', ()
   });
 });
 
-describe('pushBrownfieldControl — reverted audit is flushed once, on persist (P2)', () => {
+describe('pushBrownfieldControl — reverted audit is flushed once, on persist', () => {
   it('a revert-then-crash writes no audit; the retry writes exactly one reverted entry', async () => {
     // class A reverts (typed back to previous). class B is a real push that
     // fails on the first attempt (crash) and succeeds on retry.
@@ -264,7 +290,7 @@ describe('pushBrownfieldControl — reverted audit is flushed once, on persist (
   });
 });
 
-describe('pullControls — carries over a pendingEdit whose platform binding vanished (P2)', () => {
+describe('pullControls — carries over a pendingEdit whose platform binding vanished', () => {
   it('preserves a local class with an unpushed edit that is no longer on the platform', async () => {
     // Seed a local file: class A is still bound platform-side, class B has a
     // local pendingEdit but its IS_INSTANCE_OF edge was removed platform-side.

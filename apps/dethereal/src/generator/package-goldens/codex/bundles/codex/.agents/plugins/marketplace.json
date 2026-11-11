@@ -1,0 +1,15 @@
+{
+  "name": "dethereal-local",
+  "interface": {
+    "displayName": "Dethereal Local"
+  },
+  "plugins": [
+    {
+      "name": "dethereal",
+      "source": {
+        "source": "local",
+        "path": "./plugins/dethereal"
+      }
+    }
+  ]
+}
