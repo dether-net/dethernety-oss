@@ -2,7 +2,7 @@
 title: 'Agents, Tools, and Hooks'
 description: 'How the 6 AI agents, 30 MCP tools, and 5 lifecycle hooks work together'
 category: 'documentation'
-position: 9
+position: 10
 navigation: true
 tags: ['dethereal', 'agents', 'mcp', 'tools', 'hooks', 'architecture']
 ---

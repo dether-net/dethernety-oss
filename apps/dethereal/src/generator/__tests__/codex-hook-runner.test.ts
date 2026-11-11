@@ -5,7 +5,7 @@
  * the call by name.
  */
 import { spawnSync } from 'node:child_process'
-import { chmodSync, copyFileSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { PACKAGE_GOLDENS } from '../cli.js'
 import { ensureStateRoot, type InstallerEnv, type StatePaths } from '../../installer/core/paths.js'
 import { activateRuntime, installRuntime, type InstalledRuntime, readCurrentRuntime } from '../../installer/core/runtime.js'
+import { checkExecPath } from '../../installer/core/runtime-check.mjs'
 
 const PLUGIN = path.join(PACKAGE_GOLDENS, 'codex', 'bundles', 'codex', 'plugins', 'dethereal')
 const read = (p: string) => readFileSync(path.join(PLUGIN, p), 'utf8')
@@ -136,12 +137,28 @@ describe('the Codex hook runner, run as a process', { timeout: 60_000 }, () => {
     session = realpathSync(mkdtempSync(path.join(tmpdir(), 'codex-runner-session-')))
     home = realpathSync(mkdtempSync(path.join(tmpdir(), 'codex-runner-home-')))
     // The node the runtime is activated with and the runner runs on (its fallback when the recorded one is
-    // gone), under the test's control: a CI runner's own binary may sit group- or world-writable in its
-    // tool cache, which the runtime checks rightly refuse.
-    node = path.join(home, 'node-bin', 'node')
-    mkdirSync(path.dirname(node), { mode: 0o700 })
-    copyFileSync(process.execPath, node)
-    chmodSync(node, 0o755)
+    // gone). The installer's own check decides: when it accepts this process's binary we run on it in place;
+    // only when it refuses — a CI runner's binary may sit group- or world-writable in its tool cache, which
+    // the check rightly refuses — do we copy it to a directory the test owns. A copied binary that links a
+    // shared libnode needs that library beside it (at `../lib`), so we bring any sibling along.
+    try {
+      node = checkExecPath(process.execPath, process.geteuid!())
+    } catch {
+      node = path.join(home, 'node-bin', 'node')
+      mkdirSync(path.dirname(node), { mode: 0o700 })
+      copyFileSync(process.execPath, node)
+      chmodSync(node, 0o755)
+      const srcLib = path.join(path.dirname(path.dirname(realpathSync(process.execPath))), 'lib')
+      if (existsSync(srcLib)) {
+        const destLib = path.join(path.dirname(node), '..', 'lib')
+        for (const f of readdirSync(srcLib)) {
+          if (/^libnode\./.test(f)) {
+            mkdirSync(destLib, { recursive: true })
+            copyFileSync(path.join(srcLib, f), path.join(destLib, f))
+          }
+        }
+      }
+    }
     bin = path.join(home, 'plugin-bin')
     mkdirSync(bin)
     for (const f of ['hook.mjs', 'hook-deadlines.json', 'runtime-check.mjs', 'secret-fallback.mjs', 'shell-check.mjs', 'leaf-allowlist.json']) writeFileSync(path.join(bin, f), read(`bin/${f}`))

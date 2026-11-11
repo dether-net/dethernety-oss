@@ -1,6 +1,6 @@
 {
   "name": "dethereal",
-  "version": "0.6.0-dev.0",
+  "version": "0.6.0-dev.1",
   "description": "Threat modeling with the Dethernety platform — discover infrastructure, build data flow diagrams, enrich and sync.",
   "author": {
     "name": "dether.net",

@@ -2,7 +2,7 @@
 title: 'Discovery and Enrichment'
 description: 'Infrastructure scanning, security attributes, MITRE ATT&CK, credentials, and compliance'
 category: 'documentation'
-position: 6
+position: 7
 navigation: true
 tags: ['dethereal', 'discovery', 'enrichment', 'mitre', 'credentials', 'compliance']
 ---

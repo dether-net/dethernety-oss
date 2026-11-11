@@ -2,7 +2,7 @@
 title: 'Getting Started with Dethereal'
 description: 'Install the plugin, authenticate, and create your first threat model'
 category: 'documentation'
-position: 2
+position: 3
 navigation: true
 tags: ['dethereal', 'getting-started', 'installation', 'tutorial']
 ---
@@ -10,6 +10,8 @@ tags: ['dethereal', 'getting-started', 'installation', 'tutorial']
 # Getting Started with Dethereal
 
 This guide walks you through installing the Dethereal plugin, connecting to the Dethernety platform, and creating your first threat model.
+
+> **In a hurry?** The [Quick Start](QUICK_START.md) gets you to a first threat model in about 15 minutes. This guide is the complete reference.
 
 ---
 

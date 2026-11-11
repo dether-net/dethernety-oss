@@ -2,7 +2,7 @@
 title: 'Sync and Version Control'
 description: 'Push/pull workflow, conflict handling, git integration, and multi-model projects'
 category: 'documentation'
-position: 7
+position: 8
 navigation: true
 tags: ['dethereal', 'sync', 'git', 'version-control', 'push', 'pull']
 ---

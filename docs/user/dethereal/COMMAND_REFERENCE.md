@@ -2,7 +2,7 @@
 title: 'Command Reference'
 description: 'Complete reference for all 14 Dethereal slash commands'
 category: 'documentation'
-position: 4
+position: 5
 navigation: true
 tags: ['dethereal', 'commands', 'reference', 'skills']
 ---

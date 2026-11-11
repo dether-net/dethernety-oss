@@ -2,7 +2,7 @@
 title: 'The 11-Step Guided Workflow'
 description: 'Complete walkthrough of the /dethereal:threat-model guided process'
 category: 'documentation'
-position: 3
+position: 4
 navigation: true
 tags: ['dethereal', 'workflow', 'threat-model', 'guided', 'process']
 ---
