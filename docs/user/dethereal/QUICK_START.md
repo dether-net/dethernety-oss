@@ -35,7 +35,7 @@ flowchart LR
 
 | You need | Details |
 |---|---|
-| **A running Dethernety platform** | On this machine (`http://127.0.0.1:3000`) or on another host reachable over HTTPS. Don't have one? See the platform [Quick Start](../QUICK_START.md). |
+| **A running Dethernety platform** | On this machine (`http://127.0.0.1:3000`, the default) or on another host reachable over HTTPS ([set its URL](#install)). Don't have one? See the platform [Quick Start](../QUICK_START.md). |
 | **Node.js 20.11.1 or later** | The plugin's server needs it; the plugin will not install or start on an older Node. |
 | **One harness, at its minimum version** | Install the plugin into one of the harnesses below. |
 
@@ -66,6 +66,14 @@ For another harness, change the `--harness` value:
 | OpenCode | `opencode` | Read the [known issues](README.md#known-issues-on-opencode) first |
 
 `--scope user` installs the plugin for all your projects; start a new session in the harness after installing. For all install options, see [install options](GETTING_STARTED.md#codex-and-opencode).
+
+**Platform somewhere else?** The plugin uses `http://127.0.0.1:3000` by default. To use another platform, add `--platform-url <url>` to the install command (on a terminal, the installer asks for the URL if you leave the flag out). You can also set `DETHERNETY_URL` in the shell you start the harness from, then start a new session. It wins over the URL the install recorded. The URL must use HTTPS unless the host is `localhost`, `127.0.0.1` or `::1`. Sign-ins are kept per platform URL, so after you switch platforms, sign in again. See [Configuration](GETTING_STARTED.md#configuration).
+
+```bash
+npx @dether.net/dethereal install --harness claude --scope user --platform-url https://dethernety.example.com
+# or, in the shell you start the harness from:
+export DETHERNETY_URL=https://dethernety.example.com
+```
 
 ---
 
