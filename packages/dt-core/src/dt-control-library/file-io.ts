@@ -6,10 +6,12 @@
  * machine + GraphQL composition.
  *
  * Writes go through `atomicWriteWithFsync` from the WAL helper for the
- * same POSIX durability guarantees the WAL itself relies on.
+ * same POSIX durability guarantees the WAL itself relies on. Reads, writes and
+ * deletes never follow a link: `controls/` must be a real directory and each
+ * control file a regular file (see the WAL helper's link rules).
  */
 
-import { atomicWriteWithFsync } from './wal-helper.js';
+import { atomicWriteWithFsync, checkRealDirs, readRegularNoFollow, UnsafePathError } from './wal-helper.js';
 
 /** POSIX-style join — see wal-helper.ts header for why static `node:path` is
  *  forbidden, and for the CodeQL js/polynomial-redos rationale behind the
@@ -43,6 +45,9 @@ async function loadFs(): Promise<FsModule> {
 }
 
 const CONTROLS_FOLDER = 'controls';
+
+/** Largest control file read. */
+const MAX_CONTROL_FILE_BYTES = 32 * 1024 * 1024;
 
 /**
  * Defence-in-depth: reject controlIds that could escape the controls/ folder.
@@ -89,15 +94,9 @@ export async function readControlFile(
   modelDir: string,
   controlId: string,
 ): Promise<ControlFile | null> {
-  const fs = await loadFs();
-  const path = getControlFilePath(modelDir, controlId);
-  try {
-    const raw = await fs.readFile(path, 'utf-8');
-    return JSON.parse(raw) as ControlFile;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw err;
-  }
+  getControlFilePath(modelDir, controlId);
+  const raw = await readRegularNoFollow(modelDir, `${CONTROLS_FOLDER}/${controlId}.json`, MAX_CONTROL_FILE_BYTES);
+  return raw === null ? null : (JSON.parse(raw) as ControlFile);
 }
 
 /**
@@ -109,7 +108,7 @@ export async function writeControlFile(
   file: ControlFile,
 ): Promise<void> {
   const path = getControlFilePath(modelDir, file.id);
-  await atomicWriteWithFsync(path, JSON.stringify(file, null, 2) + '\n');
+  await atomicWriteWithFsync(path, JSON.stringify(file, null, 2) + '\n', modelDir);
 }
 
 /**
@@ -121,18 +120,16 @@ export async function writeControlFile(
  */
 export async function listControlFiles(modelDir: string): Promise<string[]> {
   const fs = await loadFs();
+  if (!(await checkRealDirs(modelDir, CONTROLS_FOLDER))) return [];
   const dir = join(modelDir, CONTROLS_FOLDER);
-  let entries: string[];
-  try {
-    entries = await fs.readdir(dir);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
-    throw err;
+  const ids: string[] = [];
+  for (const entry of await fs.readdir(dir)) {
+    if (!entry.endsWith('.json')) continue;
+    // A link or anything but a regular file is not a control file.
+    const st = await fs.lstat(join(dir, entry)).catch(() => null);
+    if (st?.isFile()) ids.push(entry.slice(0, -'.json'.length));
   }
-  return entries
-    .filter(e => e.endsWith('.json'))
-    .map(e => e.slice(0, -'.json'.length))
-    .sort();
+  return ids.sort();
 }
 
 /**
@@ -145,11 +142,11 @@ export async function deleteControlFile(
 ): Promise<boolean> {
   const fs = await loadFs();
   const path = getControlFilePath(modelDir, controlId);
-  try {
-    await fs.unlink(path);
-    return true;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
-    throw err;
-  }
+  if (!(await checkRealDirs(modelDir, CONTROLS_FOLDER))) return false;
+  const st = await fs.lstat(path).catch(() => null);
+  if (!st) return false;
+  if (st.isDirectory()) throw new UnsafePathError('not_regular', `${CONTROLS_FOLDER}/${controlId}.json`);
+  // Unlinking a link removes the link itself, never its target.
+  await fs.unlink(path);
+  return true;
 }

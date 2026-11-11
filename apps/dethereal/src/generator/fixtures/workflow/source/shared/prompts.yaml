@@ -1,0 +1,16 @@
+prompts:
+  - id: survey-confirm
+    skill: orchestrate
+    mandatory: true
+    when: after the scout's survey is reported
+    after: the scout's marker line and the include marker
+    decides: whether the survey stands or is redone
+    options: [keep, redo]
+    requires: ["Keep the survey"]
+  - id: survey-notes
+    skill: orchestrate
+    mandatory: false
+    when: after the survey is kept
+    after: the confirmed survey
+    decides: what is added to the survey
+    free_text: true

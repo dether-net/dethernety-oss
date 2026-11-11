@@ -1,0 +1,14 @@
+{
+  "elementId": "f-orders-idp",
+  "elementType": "dataFlow",
+  "elementName": "Signing key fetch",
+  "classData": {
+    "id": "01170208-db8f-4c1b-8e29-636bf6d220b8",
+    "name": "API Call"
+  },
+  "attributes": {
+    "encryption_in_transit": "TLS",
+    "required_credentials": [],
+    "credential_type": "none"
+  }
+}

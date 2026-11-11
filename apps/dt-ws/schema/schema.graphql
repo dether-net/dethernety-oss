@@ -2174,7 +2174,7 @@ type CoverageSummary {
   mitigated: Int!
   unmitigated: Int!
   unaddressable: Int!
-  "Controls assigned but addressing different techniques than this exposure"
+  "Count of exposures that have at least one ATT&CK technique and a control assigned (SUPPORTS) to their element, or to that element's direct parent boundary (one BELONGS_TO hop), where none of those controls has a countermeasure that responds with (RESPONDS_WITH) an ATT&CK mitigation defending against one of the exposure's techniques. Disjoint from mitigated, unmitigated, unaddressable and noMitreChain; the five sum to totalExposures."
   configuredCoverage: Int!
   "Exposures without ATT&CK technique links (not analyzable through MITRE chain)"
   noMitreChain: Int!
@@ -2199,7 +2199,7 @@ type ControlClassFit {
   moduleId: ID!
   "Module name"
   moduleName: String!
-  "Whether this class's supportedTypes includes any of the queried element types"
+  "Whether this class's supportedTypes includes any of the queried element types, or the class sets none (then it applies to every type)"
   compatible: Boolean!
   "Number of countermeasures generated for this class (>0 means configured)"
   countermeasureCount: Int!

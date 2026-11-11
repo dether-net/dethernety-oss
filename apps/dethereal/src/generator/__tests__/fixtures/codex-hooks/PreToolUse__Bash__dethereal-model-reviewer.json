@@ -1,0 +1,23 @@
+{
+  "argv": [
+    "secret-guard",
+    "--harness",
+    "codex"
+  ],
+  "event": {
+    "session_id": "<session_id>",
+    "turn_id": "<turn_id>",
+    "agent_id": "<agent_id>",
+    "agent_type": "dethereal-model-reviewer",
+    "transcript_path": "<transcript_path>",
+    "cwd": "<project>",
+    "hook_event_name": "PreToolUse",
+    "model": "gpt-6-astra",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "cat <home>/.codex/plugins/cache/dethereal-local/dethereal/0.4.7/skills/review/task.md"
+    },
+    "tool_use_id": "exec-<id>"
+  }
+}

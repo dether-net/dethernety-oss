@@ -1,0 +1,14 @@
+[
+ {
+  "id": "ses_000000000000000000000069",
+  "parent_id": null,
+  "directory": "/work/project",
+  "title": "Online Boutique threat modeling"
+ },
+ {
+  "id": "ses_000000000000000000000063",
+  "parent_id": "ses_000000000000000000000069",
+  "directory": "/work/project",
+  "title": "Classify unclassified elements (@dethereal-security-enricher subagent)"
+ }
+]

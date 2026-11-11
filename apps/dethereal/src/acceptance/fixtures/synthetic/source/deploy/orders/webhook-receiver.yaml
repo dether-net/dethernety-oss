@@ -1,0 +1,91 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: webhook-receiver
+  namespace: orders
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webhook-receiver
+  namespace: orders
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: webhook-receiver
+  template:
+    metadata:
+      labels:
+        app: webhook-receiver
+    spec:
+      serviceAccountName: webhook-receiver
+      containers:
+        - name: webhook-receiver
+          image: registry.orderdesk.example/webhook-receiver@sha256:2c5f8a1e4b7d0c3f6a9e2b5d8c1f4a7e0b3d6c9f2a5e8b1d4c7f0a3e6b9d2c5f
+          env:
+            - name: DB_HOST
+              value: orders-db.internal.orderdesk.example
+            - name: DB_NAME
+              value: orders
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: orders-db-credentials
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: orders-db-credentials
+                  key: password
+            - name: WEBHOOK_SIGNING_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: payvendor-webhook
+                  key: signing-secret
+            - name: LOG_INGEST_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: webhook-log-ingest
+                  key: key
+            - name: APP_ENV
+              value: production
+          ports:
+            - name: https
+              containerPort: 8443
+          volumeMounts:
+            - name: db-ca
+              mountPath: /etc/db-ca
+              readOnly: true
+            - name: webhook-tls
+              mountPath: /etc/webhook-tls
+              readOnly: true
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: db-ca
+          configMap:
+            name: rds-ca-bundle
+        - name: webhook-tls
+          secret:
+            secretName: webhook-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webhook-receiver
+  namespace: orders
+spec:
+  type: LoadBalancer
+  selector:
+    app: webhook-receiver
+  loadBalancerSourceRanges:
+    - 198.51.100.0/24
+    - 203.0.113.0/24
+  ports:
+    - name: https
+      port: 443
+      targetPort: 8443

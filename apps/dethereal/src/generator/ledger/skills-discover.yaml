@@ -1,0 +1,214 @@
+source: skills/discover/SKILL.md
+blob: 04d7f026b053b4c89de7460ac288e05dc14e21a1
+migrated: true
+rules:
+  - id: d1611fc6c1
+    line: 8
+    anchor: "Scan the codebase for infrastructure components, trust boundaries and data flows, and add what the operator confirms"
+    destination: skills/discover/SKILL.md
+  - id: a7a43bbac7
+    line: 10
+    dropped:
+      reason: "The inert agent field is gone: the skill runs in the main conversation, which writes the model files and delegates the scan."
+      ref: apps/dethereal/workflow/skills/discover/SKILL.md
+  - id: 3d0f56daf4
+    line: 10
+    anchor: "Delegate scanning — the scout is read-only, all file writes happen here, not in the scout"
+    destination: shared/discovery-protocol.md
+  - id: 3db907463a
+    line: 14
+    anchor: "**Resolve model path** using the Model Resolution Protocol"
+    destination: skills/discover/SKILL.md
+  - id: bfaf1dbe68
+    line: 15
+    anchor: "With none, suggest"
+    destination: shared/model-resolution.md
+  - id: 700b6db740
+    line: 16
+    anchor: "Read .dethereal/scope.json if it exists — pass scope context to the scout"
+    destination: shared/discovery-protocol.md
+  - id: e3e84d6d01
+    line: 22
+    anchor: "Check for discovery cache at .dethernety/discovery-cache.json"
+    destination: shared/discovery-protocol.md
+  - id: 16c9152ea1
+    line: 23
+    anchor: "If a cache exists and a decomposition plan is active, the scan's results are filtered by the cache's assignedTo map"
+    destination: shared/discovery-protocol.md
+  - id: c330471870
+    line: 24
+    anchor: "filter the cache to exclude components already assigned to other models via the assignedTo map"
+    destination: shared/decomposition.md
+  - id: ab7ca895d0
+    line: 25
+    anchor: "show \"N components pre-filtered for other models.\""
+    destination: skills/discover/SKILL.md
+  - id: 0c6776156e
+    line: 26
+    anchor: "a decomposition plan's filter, never a replacement for the scan"
+    destination: skills/discover/SKILL.md
+  - id: 281918bfe3
+    line: 30
+    anchor: "Delegate scanning — the scout is read-only"
+    destination: shared/discovery-protocol.md
+  - id: df5b26871b
+    line: 31
+    anchor: "Scope summary: <system name, description, crown jewels, exclusions>"
+    destination: shared/discovery-protocol.md
+  - id: ceba890409
+    line: 32
+    anchor: "Return the full discovery report with the sources-checked summary"
+    destination: shared/discovery-protocol.md
+  - id: 08055654aa
+    line: 33
+    anchor: "the scout is read-only, all file writes happen here, not in the scout"
+    destination: shared/discovery-protocol.md
+  - id: 8364b51db1
+    line: 37
+    anchor: "Receive the discovery report"
+    destination: shared/discovery-protocol.md
+  - id: aaf3dea3e3
+    line: 38
+    anchor: "The scout has pre-classified from its IaC mapping — do not map again"
+    destination: shared/discovery-protocol.md
+  - id: e6077520fb
+    line: 39
+    anchor: "but check each suggested class by its id with"
+    destination: shared/discovery-protocol.md
+  - id: a3acc73b04
+    line: 40
+    anchor: "mark the ones it could not pre-classify for the operator's review in the confirmation table"
+    destination: shared/discovery-protocol.md
+  - id: 5f170d1d9f
+    line: 44
+    anchor: "Render the discovery report as markdown — sources-checked summary"
+    destination: shared/discovery-protocol.md
+  - id: d5e1181543
+    line: 46
+    anchor: "Render the discovery report as markdown — sources-checked summary"
+    destination: shared/discovery-protocol.md
+  - id: 1e7afd02ba
+    line: 52
+    anchor: "Render the discovery report as markdown"
+    destination: shared/discovery-protocol.md
+  - id: ff1b537d19
+    line: 54
+    anchor: Respond with changes or "looks good" to confirm.
+    destination: skills/discover/SKILL.md
+  - id: 5d0472d8c1
+    line: 69
+    anchor: "suggested boundaries with proposed zones, inferred flows"
+    destination: shared/discovery-protocol.md
+  - id: 753406358c
+    line: 73
+    anchor: "run the blind-spot interview as one consolidated question"
+    destination: shared/discovery-protocol.md
+  - id: b500c7adca
+    line: 75
+    anchor: "list]. Code analysis systematically misses certain elements"
+    destination: skills/discover/SKILL.md
+  - id: 56d14990fd
+    line: 90
+    anchor: "Add each element the operator names to the proposal"
+    destination: shared/discovery-protocol.md
+  - id: daaa255fba
+    line: 90
+    anchor: "Backup destinations and CI/CD registries or artifact stores enter as components"
+    destination: shared/discovery-protocol.md
+  - id: f8110aeb09
+    line: 94
+    anchor: "check if the validated inventory exceeds complexity thresholds"
+    destination: shared/decomposition.md
+  - id: 969cb1f3f7
+    line: 95
+    anchor: "| Components | 21+ |"
+    destination: shared/decomposition.md
+  - id: 5993a3ad3c
+    line: 96
+    anchor: "| Trust boundaries | 9+ |"
+    destination: shared/decomposition.md
+  - id: 63cadf625f
+    line: 97
+    anchor: "| Data flows | 36+ |"
+    destination: shared/decomposition.md
+  - id: 407850bd52
+    line: 98
+    anchor: "| Cross-boundary flows | 19+ |"
+    destination: shared/decomposition.md
+  - id: 0c17aaa64a
+    line: 100
+    anchor: "Run the Decomposition Protocol on the confirmed proposal"
+    destination: shared/discovery-protocol.md
+  - id: 751725c9f8
+    line: 101
+    anchor: "Default recommendation: scope narrowing"
+    destination: shared/decomposition.md
+  - id: d6446dff3c
+    line: 102
+    anchor: "offer a decomposition plan instead"
+    destination: shared/decomposition.md
+  - id: fa6dd9ea67
+    line: 104
+    anchor: "The recommendation is advisory only"
+    destination: shared/decomposition.md
+  - id: 19fef992ff
+    line: 108
+    anchor: "in its envelope: version: 1, timestamp, sourcesChecked"
+    destination: shared/discovery-protocol.md
+  - id: 0acc73b449
+    line: 110
+    anchor: "in its envelope: version: 1, timestamp, sourcesChecked"
+    destination: shared/discovery-protocol.md
+  - id: 0a1fef8a3e
+    line: 121
+    anchor: "After the operator's confirmation, write the confirmed elements"
+    destination: shared/discovery-protocol.md
+  - id: 79f8ef9179
+    line: 122
+    anchor: "structure.json (components + boundaries with coordinates"
+    destination: shared/discovery-protocol.md
+  - id: 341449eae6
+    line: 123
+    anchor: "dataflows.json (confirmed flows)"
+    destination: shared/discovery-protocol.md
+  - id: 0fff242094
+    line: 125
+    anchor: "a proposed zone or plane stays in discovery.json as suggestedZone / suggestedPlane until the operator ratifies it"
+    destination: shared/discovery-protocol.md
+  - id: cdcb58f113
+    line: 125
+    anchor: "a proposed zone or plane stays in discovery.json as suggestedZone / suggestedPlane until the operator ratifies it"
+    destination: shared/discovery-protocol.md
+  - id: 9ac0f9533f
+    line: 127
+    anchor: "Written after the first discovery in a project"
+    destination: shared/decomposition.md
+  - id: a6ad89a1f4
+    line: 131
+    anchor: "Record the state with"
+    destination: shared/discovery-protocol.md
+  - id: 9cf4dc06d7
+    line: 132
+    anchor: "at SCOPE_DEFINED: action: 'transition', to: 'DISCOVERED'"
+    destination: shared/discovery-protocol.md
+  - id: bd1f0befed
+    line: 133
+    anchor: "at SCOPE_DEFINED: action: 'transition', to: 'DISCOVERED'"
+    destination: shared/discovery-protocol.md
+  - id: 89aee7e2af
+    line: 134
+    dropped:
+      reason: "The state tool keeps its own timestamps; nothing edits the state file by hand."
+      ref: apps/dethereal/workflow/shared/discovery-protocol.md
+  - id: b2369a80c4
+    line: 135
+    anchor: "and never retry through a shell"
+    destination: skills/discover/SKILL.md
+  - id: 236ceaffdf
+    line: 139
+    anchor: "to check structural validity"
+    destination: shared/discovery-protocol.md
+  - id: 12a8d14492
+    line: 141
+    anchor: "[done] Discovery complete. N components, M boundaries, K data flows confirmed. Quality: X/100. [next]"
+    destination: skills/discover/SKILL.md

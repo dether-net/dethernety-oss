@@ -1,0 +1,18 @@
+{
+  "argv": [
+    "session-start",
+    "--source",
+    "startup",
+    "--harness",
+    "codex"
+  ],
+  "event": {
+    "session_id": "<session_id>",
+    "transcript_path": "<transcript_path>",
+    "cwd": "<project>",
+    "hook_event_name": "SessionStart",
+    "model": "gpt-6-astra",
+    "permission_mode": "bypassPermissions",
+    "source": "startup"
+  }
+}

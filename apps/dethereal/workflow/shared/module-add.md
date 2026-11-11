@@ -1,0 +1,5 @@
+When a match comes from a module that is not active, the class is never a row of the confirm table: show the elements and the modules that would classify them as a table — element, current class (if any), module, class — then ask:
+
+{{#ask id=classify-add-module}}Add these modules to the active modules and classify the elements with them? (add / skip){{/ask}}
+
+On `add`, look up each module's id with {{tool:get_classes}} (`view: 'modules'`, `module_name`), then update `activeModules` in the scope and classify those elements again: the modules are written, as `{id, name}`, before anything is classified. The new proposals — a class, or a change from the current class — go through the confirm question the elements came from, for those rows only; the rows confirmed before are kept. On `skip`, the elements keep their classes or stay unclassified, the gap on record. The question is asked once per run: an element still unclassified after `add` goes to the gap question. Only this answer adds a module; with no `activeModules` in the scope, every installed module is already active and the question never arises.

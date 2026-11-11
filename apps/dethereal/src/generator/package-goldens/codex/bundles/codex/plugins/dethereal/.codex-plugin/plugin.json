@@ -1,0 +1,19 @@
+{
+  "name": "dethereal",
+  "version": "<VERSION>",
+  "description": "Threat modeling with the Dethernety platform — discover infrastructure, build data flow diagrams, enrich and sync.",
+  "author": {
+    "name": "dether.net",
+    "url": "https://dether.net"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Dethereal",
+    "shortDescription": "Threat modeling with Dethernety.",
+    "longDescription": "Guided threat modeling of a repository against a Dethernety platform.",
+    "developerName": "dether.net",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Threat-model this repository."
+  }
+}

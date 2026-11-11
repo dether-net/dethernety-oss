@@ -85,13 +85,11 @@ export class ControlCandidatesResolverService {
       // incompatible-configured penalty unreachable — totalClasses must be
       // the control's true class count for honest relevance scoring.
       //
-      // coalesce(supportedTypes, []): the property is optional on
-      // ControlClass; Memgraph raises on membership against a null list
-      // (same guard as control-gaps-resolver). Null/absent means the class
-      // supports nothing — the strict reading, right for a RANKING surface.
-      // control-gaps-resolver's Phase 3 deliberately uses the lenient
-      // opposite (null = everything) for its discovery surface. Intentional
-      // divergence, ratified 2026-07-18.
+      // supportedTypes is optional on ControlClass, and no catalogue class
+      // sets it: an absent (null) list means the class applies to every
+      // element type, as in control-gaps-resolver; an explicit list, empty
+      // included, is read strictly. The IS NULL test comes first because
+      // Memgraph raises on membership against a null list.
       //
       // head(collect(DISTINCT m)): module ingestion MERGEs each class under
       // a single Module, so one HAS_CLASS parent is the invariant — the
@@ -99,7 +97,7 @@ export class ControlCandidatesResolverService {
       // class entry and double-counting countermeasures in totalCm.
       const query = `
         MATCH (ctrl:Control)-[:IS_INSTANCE_OF]->(cc0:ControlClass)<-[:HAS_CLASS]-(m0:Module)
-        WHERE ANY(et IN $elementTypes WHERE et IN coalesce(cc0.supportedTypes, []))
+        WHERE (cc0.supportedTypes IS NULL OR ANY(et IN $elementTypes WHERE et IN cc0.supportedTypes))
           AND (size($moduleIds) = 0 OR m0.id IN $moduleIds)
         WITH DISTINCT ctrl
         MATCH (ctrl)-[:IS_INSTANCE_OF]->(cc:ControlClass)<-[:HAS_CLASS]-(m:Module)
@@ -111,7 +109,7 @@ export class ControlCandidatesResolverService {
              collect({
                classId: cc.id, className: cc.name,
                moduleId: m.id, moduleName: m.name,
-               compatible: ANY(et IN $elementTypes WHERE et IN coalesce(cc.supportedTypes, [])),
+               compatible: cc.supportedTypes IS NULL OR ANY(et IN $elementTypes WHERE et IN cc.supportedTypes),
                countermeasureCount: cmCount
              }) AS classes,
              sum(cmCount) AS totalCm

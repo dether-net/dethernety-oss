@@ -1,0 +1,764 @@
+prompts:
+  # Model resolution, undo, decomposition
+  - id: model-select
+    skill: threat-model
+    mandatory: true
+    when: a request targets a model and several models exist, with no path given
+    after: the numbered list of models (name, path, state)
+    decides: which model directory every later step reads and writes
+    free_text: true
+    requires: ["Which model?"]
+  - id: decomposition
+    skill: threat-model
+    mandatory: true
+    when: after discovery is confirmed, if the inventory exceeds a complexity threshold
+    after: the thresholds the inventory exceeds
+    decides: narrowing the scope, writing a decomposition plan, or continuing with one model
+    options: [narrow, decompose, continue]
+    requires: ["narrow", "decompose", "continue"]
+
+  - id: decomposition-scope
+    skill: threat-model
+    mandatory: true
+    when: after the operator chose to narrow the scope or decompose
+    after: the proposed split as a table (the subsystem's elements, or each planned model with its elements and links)
+    decides: which elements this model's files receive, and the decomposition plan written
+    options: [confirm, change]
+    requires: ["Is this the split you want?"]
+    table: true
+
+  # Discovery and drift
+  - id: discovery-confirm
+    skill: threat-model
+    mandatory: true
+    when: after the scout's discovery report
+    after: the sources-checked summary and the component, boundary and flow tables
+    decides: the confirmed elements written to structure.json and dataflows.json
+    options: [looks good, changes]
+    requires:
+      - "Are any components missing?"
+      - "Should any be removed?"
+      - "Are the suggested types and classes correct?"
+      - "looks good"
+    table: true
+  - id: blind-spots
+    skill: threat-model
+    mandatory: true
+    when: after the component list is confirmed, or with its confirmation in one group
+    after: the component list, and the blind-spot categories with their pre-fills
+    decides: manual elements added to the proposal, and shared credentials carried to enrichment
+    free_text: true
+    requires:
+      - "Shared infrastructure"
+      - "Side-channel data flows"
+      - "Deployment pipeline"
+      - "Third-party SaaS"
+      - "Human actors with privileged access"
+      - "Shared credentials"
+      - "say \"none\""
+  - id: drift-reclassify
+    skill: threat-model
+    mandatory: true
+    when: drift reconciliation finds a changed substrate for an element
+    after: the element, its current class, the proposed class, the evidence and any partial-evidence note, as a table
+    table: true
+    decides: the new class written to structure.json and the element queued as stale
+    options: [reclassify, keep]
+    requires: ["reclassify", "keep"]
+
+  # Guided workflow
+  - id: drift-secret-file
+    skill: threat-model
+    mandatory: true
+    when: drift reconciliation finds a changed secret file, which is never read
+    after: the file, its class and the elements that reference it
+    decides: whether a credential changed and which elements go stale for credential enrichment
+    free_text: true
+    requires: ["(not read)", "\"no change\""]
+  - id: resume-cursor
+    skill: threat-model
+    mandatory: true
+    when: the guided workflow resumes on an existing model
+    after: the progress table with step markers and the display state
+    decides: the step the workflow continues from
+    options: [continue, a step number]
+    requires: ["continue", "a step number"]
+    table: true
+  - id: session-break
+    skill: threat-model
+    mandatory: true
+    when: after Step 5 (data flow mapping) of a full run; a quick model goes on without it
+    after: the saved structure and the commit suggestion
+    decides: whether enrichment starts in this session
+    options: ["yes", later]
+    requires: ["Continue now?", "committing"]
+
+  # Gate 3
+  - id: gate3-loopback
+    skill: threat-model
+    mandatory: true
+    when: Gate 3 does not pass at Step 9; shown again after a loop-back that changed nothing, it says first that only new answers can change the result
+    after: the verdict line, what blocks (each failing criterion with up to 5 elements, its waivable count, headroom and remedy), the waived count, the report line and the limit sentence — or, shown again, what changed in the verdicts (the red flags in full every time)
+    decides: loop back to enrichment, waive named elements, or continue with the model un-REVIEWED
+    options: [skip to sync anyway, loop back, waive]
+    requires: ["skip to sync anyway", "loop back", "waive", "un-REVIEWED"]
+    message: true
+  - id: waiver-accept
+    skill: threat-model
+    mandatory: true
+    when: the operator chose to waive at the Gate 3 question
+    after: the criterion, each element with its detail, the remedy, and what can never be waived
+    decides: whether a waiver is requested for these elements
+    options: [waive, "no"]
+    requires: ["(waive / no)"]
+  - id: waiver-select
+    skill: threat-model
+    mandatory: true
+    when: the operator chose to waive
+    after: the waivable failures by row, with each criterion's headroom, and the unwaivable ones with their reasons
+    decides: which failures are waived
+    free_text: true
+    requires: ["Which failures do you want to waive?"]
+  - id: waiver-basis
+    skill: threat-model
+    mandatory: true
+    when: after the operator picked the failures to waive
+    after: the four bases with their definitions
+    decides: the basis recorded with the waiver
+    options: [not applicable, not observable, accepted risk, platform limitation]
+    requires: ["(not applicable / not observable / accepted risk / platform limitation)"]
+  - id: waiver-reason
+    skill: threat-model
+    mandatory: true
+    when: after the basis is chosen
+    after: the waiver the operator chose
+    decides: the reason recorded with the waiver, quoted verbatim
+    free_text: true
+    requires: ["in your own words", "who accepts it and until when"]
+  - id: waiver-revoke
+    skill: threat-model
+    mandatory: false
+    when: the operator wants to withdraw waivers
+    after: the waivers on record by row and status
+    decides: which waivers are revoked
+    free_text: true
+    requires: ["Which waivers do you want to revoke?"]
+  - id: review-record
+    skill: threat-model
+    mandatory: true
+    when: before every transition to REVIEWED, including a restamp of a stale review, once every precondition is met
+    after: the verdicts with and without waivers, the waivers in use (risk acceptances apart), the unzoned Tier 3 components, the floored-data and at-floor shares, the value shares and the limit sentence, as a table
+    table: true
+    decides: whether the review is recorded
+    options: [record, not now]
+    requires: ["not proven true", "waivers", "(record / not now)"]
+
+  # The guided workflow's steps (asked by its skill once it is in the workflow)
+  - id: scope
+    skill: threat-model
+    mandatory: true
+    when: Step 1 of the guided workflow, and the create skill, the scope interview
+    after: what the operator already said about the system
+    decides: the scope written to .dethereal/scope.json
+    free_text: true
+    requires: ["most valuable assets", "trust", "adversary", "out of scope"]
+  - id: module-select
+    skill: threat-model
+    mandatory: true
+    when: Step 2, after discovery
+    after: the module selection table
+    decides: the active modules used for classification
+    options: ["yes", modify]
+    table: true
+  - id: model-review-confirm
+    skill: threat-model
+    mandatory: true
+    when: Step 3, after the model review table
+    after: the model review table
+    decides: the reviewed structure and classes
+    options: ["yes", modify, skip]
+    table: true
+  - id: boundary-hierarchy
+    skill: threat-model
+    mandatory: true
+    when: Step 4 (and a Step-5 privilege transition), when the hierarchy check finds single-component boundaries, a flat hierarchy or external entities inside internal boundaries, or a privilege transition proposes a sub-boundary
+    after: the proposed hierarchy changes as a table, with the elements moved, why, and the zone a merge keeps
+    decides: the hierarchy changes written to structure.json
+    options: [apply all, adjust]
+    table: true
+  - id: boundary-trust
+    skill: threat-model
+    mandatory: true
+    when: Step 4, the trust skeleton, after any hierarchy change is written
+    after: the boundary trust classification and enforcement tables
+    decides: the ratified zones and planes, and the boundaries' enforcement attributes
+    options: [accept all, adjust]
+    requires: ["Enforcement posture"]
+    table: true
+  - id: operational-flows
+    skill: threat-model
+    mandatory: true
+    when: Step 5, after the data flows
+    after: the components without a flow and the operational flows code analysis misses
+    decides: the flows added
+    free_text: true
+    requires: ["administrative", "monitoring", "backup", "privilege"]
+  - id: approved-channels
+    skill: threat-model
+    mandatory: true
+    when: Step 5, when there are external-ingress findings
+    after: the external-ingress findings as a table (channel, draft justification)
+    decides: the approved channels (conduits) ratified
+    options: [ratify all, adjust]
+    table: true
+  - id: classification-confirm
+    skill: threat-model
+    mandatory: true
+    when: Step 6 and the classify skill, after the classification proposals; Step 6 skips it when the pass proposes no class and no class change, or a quick model runs no pass
+    after: the classification table
+    decides: the classes written
+    options: ["yes", modify, skip]
+    table: true
+  - id: crown-jewel-confirm
+    skill: threat-model
+    mandatory: true
+    when: Step 6 and the classify skill's crown-jewel mapping, again at the close of Step 7, and on a resume whose Gate 3 fails C6
+    after: the proposed mapping of each crown jewel to elements, as a table
+    decides: crownJewel and crown_jewel_elements written
+    options: [confirm, adjust]
+    table: true
+  - id: scope-crown-jewels
+    skill: threat-model
+    mandatory: true
+    when: a crown-jewel mapping (a guided resume whose Gate 3 fails C6, or the classify skill) on a scope that names no crown jewels or no adversary classes (a pulled model keeps neither)
+    after: the C6 failure
+    decides: the crown jewels and adversary classes written to the scope
+    free_text: true
+    requires: ["most valuable assets", "adversary"]
+  - id: restricted-promotion
+    skill: threat-model
+    mandatory: true
+    when: Step 7, when a boundary qualifies for Restricted
+    after: the boundaries that qualify, as a table with the reason
+    decides: the RESTRICTED promotions written
+    options: [promote all, adjust]
+    table: true
+  - id: control-pass-offer
+    skill: threat-model
+    mandatory: true
+    when: Step 8, after enrichment
+    after: the enrichment summary and quality
+    decides: whether the control pass runs now
+    options: [continue, later]
+  - id: linking
+    skill: threat-model
+    mandatory: true
+    when: Step 11, when countermeasures exist
+    after: the linking table of exposures, components and candidate countermeasures
+    decides: which exposures are linked to which countermeasures now
+    options: ["yes", modify, defer]
+    table: true
+
+  # Creating and editing a model
+  - id: create-mode
+    skill: create
+    mandatory: true
+    when: create is started without arguments that decide the way in
+    after: the four ways to start, one line each
+    decides: whether the model is described, built from a template, imported by discovery, or pulled
+    options: [describe, template, import, pull]
+  - id: create-structure
+    skill: create
+    mandatory: true
+    when: a described or template model's structure is proposed
+    after: the proposed components, boundaries and data flows as a table
+    decides: the elements written to structure.json and dataflows.json
+    options: [confirm, adjust]
+    table: true
+  - id: add-element
+    skill: add
+    mandatory: true
+    when: the element to add, its place, or a flow's ends are unclear
+    after: the request as understood so far
+    decides: what is added and where
+    free_text: true
+    requires: ["What do you want to add, and where?"]
+  - id: add-confirm
+    skill: add
+    mandatory: true
+    when: before anything is added
+    after: the elements to add as a table (type, place, position or handles, class)
+    decides: the elements written
+    options: [add, adjust]
+    table: true
+  - id: remove-select
+    skill: remove
+    mandatory: true
+    when: several elements match the one to remove
+    after: the matching elements as a numbered list (type, name, boundary)
+    decides: which element is removed
+    free_text: true
+    requires: ["Which one do you want to remove?"]
+  - id: remove-crown-jewel
+    skill: remove
+    mandatory: true
+    when: the element to remove, or a dependent removed with it, is a crown jewel — before the dependencies are shown
+    after: the element and what removing a crown jewel means for the analysis
+    decides: whether the removal goes on
+    options: ["yes", "no"]
+    requires: ["CROWN JEWEL", "genuinely been retired or relocated", "(yes / no)"]
+  - id: remove-confirm
+    skill: remove
+    mandatory: true
+    when: the element to remove has dependencies
+    after: the dependency table (what is removed with it, what is orphaned, the attribute files deleted with it)
+    decides: whether the element and its dependencies are removed, nothing is, or only the component
+    options: ["yes", "no", component only]
+    requires: ["(yes / no / component only)"]
+    table: true
+  - id: prune-confirm
+    skill: remove
+    mandatory: true
+    when: the prune tool refuses because the orphaned attribute files it finds are not the ones named, or its next page holds files the confirmed table did not show
+    after: the orphaned attribute files the server lists, and those it will not delete with their reasons, as a table
+    decides: whether exactly the listed orphaned attribute files are deleted
+    options: [delete, keep]
+    requires: ["Delete exactly these orphaned attribute files?", "(delete / keep)"]
+    table: true
+  - id: remove-simple
+    skill: remove
+    mandatory: true
+    when: the element to remove has no dependencies
+    after: the element, its type and its boundary
+    decides: whether the element is removed
+    options: ["yes", "no"]
+    requires: ["(yes / no)"]
+  - id: classify-add-module
+    skill: classify
+    mandatory: true
+    when: classes for elements come only from modules that are not active (the classify skill; the guided workflow's Steps 6 and 7)
+    after: the elements and the inactive modules that would classify them, as a table
+    decides: the modules added to activeModules
+    options: [add, skip]
+    table: true
+
+  # Classification (asked by the classify skill once it is in the workflow)
+  - id: classification-gap
+    skill: classify
+    mandatory: true
+    when: Gate 3 C1 lists unclassified components, or STOREs, flows, boundaries or data items are unclassified, other than the root boundary and those left unclassified at Step 3
+    after: the unclassified elements by name, STOREs first, and any module that would classify them
+    decides: whether to classify them now or leave them with the gap on record
+    options: [classify, skip]
+  - id: reclassify-late-module
+    skill: classify
+    mandatory: true
+    when: a module added after classification has a more specific class for some elements
+    after: the elements and their proposed classes, as a table
+    decides: whether those elements are reclassified
+    options: [reclassify, skip]
+    table: true
+
+  # Push
+  - id: auth-missing
+    skill: threat-model
+    mandatory: true
+    when: a push needs the platform and the session is not signed in
+    after: the sign-in check result and its detail
+    decides: whether the push continues after the operator signs in, or is skipped
+    options: [signed in, skip]
+    requires: ["Not signed in", "{{cmd:login}}", "skip"]
+  - id: push-empty-model
+    skill: sync
+    mandatory: true
+    when: the model to push has no components and no boundaries beyond the default
+    after: the validation result
+    decides: whether an empty model is pushed
+    options: [continue, stop]
+    requires: ["Model has no components", "Continue?"]
+  - id: push-consent
+    skill: threat-model
+    mandatory: true
+    when: the guided workflow reaches the sync step
+    after: the platform URL, new or update, the display state and Gate 3 verdict, the counts, and the REPLACE note for the asset context
+    decides: whether the model is published to the platform
+    options: [push, skip]
+    requires: ["Push to platform now?", "Gate 2"]
+  - id: push-conflict
+    skill: sync
+    mandatory: true
+    when: an update push, or an attribute update, is refused because the platform model changed since the last pull or push
+    after: the platform's changes as a table, grouped — added on the platform (deleted by the push), changed (content, then layout), deleted on the platform — and the baseline note
+    decides: push with deletion, pull first, or cancel
+    options: [push, pull, cancel]
+    requires: ["DELETED", "(push / pull / cancel)"]
+    table: true
+  - id: control-resolve
+    skill: sync
+    mandatory: true
+    when: a push is refused because control references cannot be linked to the catalog
+    after: every entry that cannot be linked as one table — element, entry, problem and numbered candidates
+    decides: for each entry, the Control it links to, a new Control created under its name, or its removal
+    free_text: true
+    requires: ["Every row needs an answer", "`not now` cancels the push"]
+  - id: stale-controls
+    skill: sync
+    mandatory: true
+    when: after a push, local control references carry ids the platform no longer has
+    after: the stale references as a table — name and id
+    table: true
+    decides: whether the stale ids are cleared from the local model
+    options: [clear ids, keep]
+    requires: ["clear ids", "keep"]
+
+  # Enrichment
+  - id: enrich-scope
+    skill: enrich
+    mandatory: true
+    when: the enrichment worklist is computed and the arguments did not set the scope
+    after: the worklist by name (crown jewels, the rest of the snapshot, flows, others; stale elements first) and the tier sizes from the Gate 3 report
+    decides: which elements this run enriches
+    options: [all, priority, pick]
+    requires: ["(all / priority / pick)", "priority set"]
+  - id: enrich-pick
+    skill: enrich
+    mandatory: true
+    when: the operator chose to pick elements
+    after: the full element list
+    decides: which elements this run enriches
+    free_text: true
+    requires: ["Which elements?"]
+  - id: admin-access-paths
+    skill: enrich
+    mandatory: true
+    when: the enrich skill runs and the scope declares the insider adversary class (after the guided workflow's agent runs, its text is a clause of enrichment-relay)
+    after: the elements the question covers
+    decides: the administrative access paths recorded per element
+    free_text: true
+    requires: ["SSH", "RDP", "bastion", "break-glass", "\"none\""]
+  - id: supply-chain
+    skill: enrich
+    mandatory: true
+    when: the enrich skill runs and the scope declares the supply-chain adversary class (after the guided workflow's agent runs, its text is a clause of enrichment-relay)
+    after: the CI/CD and registry evidence found in the source
+    decides: the build, deploy and registry facts and credentials recorded
+    free_text: true
+    requires: ["CI/CD", "registries", "who can push"]
+  - id: enrich-questions
+    skill: enrich
+    mandatory: true
+    when: each enrichment batch has fields the source does not settle
+    after: the batch's questions as one table grouped by element
+    decides: the operator's values for those fields; a "not sure" leaves the field empty
+    free_text: true
+    requires: ["by row number", "\"not sure\"", "never a guess"]
+  - id: enrich-attributes
+    skill: enrich
+    mandatory: true
+    when: each enrichment batch of the enrich skill is ready to write
+    after: the divergence table, the red flags, and the proposed values with their sources, proposed defaults listed by element and field
+    decides: which values are written, including any accepted proposed default
+    free_text: true
+    requires: ["Give row numbers", "type-default share"]
+  - id: claim-confirm
+    skill: enrich
+    mandatory: true
+    when: the enrich skill finds values only a document (a README, a runbook) states; asked once per document (after the guided workflow's agent runs, the documents are named in the enrichment-relay reply)
+    after: the document's claimed values as a table — element, field, value, line
+    table: true
+    decides: whether the document describes the deployed system, so its values are written citing it
+    options: [yes, no, some rows]
+    requires: ["describe the deployed system", "(yes / no / some rows)"]
+  - id: credential-flows
+    skill: enrich
+    mandatory: true
+    when: the credential step, after the cross-boundary flows are listed
+    after: one line per flow (F#, flow, credential, also reaches, on failure), pre-fills marked with their source, all-unknown flows folded into one line with their ids and names; at most 15 flows
+    decides: the credential ids per flow, the auth failure mode of each authenticated flow, and the credentials no flow surfaced
+    free_text: true
+    requires: ["what else does that credential reach", "deny, fall back or fail open", "\"none\" only for a flow that is unauthenticated", "\"not sure\"", "break-glass"]
+  - id: credential-mapping
+    skill: enrich
+    mandatory: true
+    when: after the credential answers are consolidated; after an agent's run, only when the relay's answers change the mapping shown
+    after: the mapping as a confirm table pivoted by credential (type, flows, stores that yield it, shared), with every credential_name it writes
+    decides: required_credentials, credential_name and credential_type written on the flows; stores_credentials and credential_scope on the stores
+    options: [apply, modify]
+    requires: ["(apply / modify)"]
+    table: true
+  - id: data-item-handlers
+    skill: enrich
+    mandatory: true
+    when: the data-item step, for sensitive data types not yet classified and linked
+    after: the boundary-crossing flows without data items, and the sensitive data types found
+    decides: the data crossing each flow, and the elements that handle each data type across its lifecycle
+    free_text: true
+    requires: ["What data crosses each of these flows?", "originate, carry, process, store or contain"]
+  - id: data-items-confirm
+    skill: threat-model
+    mandatory: true
+    when: data items are proposed (guided workflow Step 7, and the enrich skill's data-item step)
+    after: the proposed data items as one confirm table, with sensitivity at no less than its floor, regulatory flags, every handling element grouped by role, an origin column, the DATA class (exact or near) and a credential column
+    decides: the data items created and their links, the classData written on them, their origin and their is_credential
+    options: [accept all, adjust]
+    requires: ["their DATA class", "their origin column", "their credential column", "(accept all / adjust)"]
+    table: true
+  - id: data-item-gap
+    skill: enrich
+    mandatory: true
+    when: Gate 3 C4 still lists failing flows after the data-items write, or the advisory lifecycle checks find gaps not already offered as gap-fill rows
+    after: the gaps by element, as a display table
+    decides: whether the missing data items are classified now
+    options: [classify, skip]
+    requires: ["(classify / skip)"]
+    table: true
+  - id: sensitivity-floor
+    skill: enrich
+    mandatory: true
+    when: Gate 3 C7 fails — a data item's sensitivity is below the floor its data class or a regulatory flag sets
+    after: the items below their floor as a table — item, current sensitivity, floor and what sets it
+    table: true
+    decides: whether the items are raised to their floor sensitivity; kept below it, Gate 3 keeps failing and the model cannot be recorded as REVIEWED
+    options: [raise, keep]
+    requires: ["cannot be waived", "(raise / keep)"]
+  - id: flag-spelling
+    skill: enrich
+    mandatory: false
+    when: the validator suggests other spellings for regulatory flags (an advisory; nothing is blocked)
+    after: the items as a table — the flag as written and the suggested spelling
+    table: true
+    decides: whether the flags are replaced with the suggested spellings or kept as the operator wrote them
+    options: [replace, keep]
+    requires: ["Nothing is blocked", "(replace / keep)"]
+  - id: boundary-enforcement
+    skill: enrich
+    mandatory: true
+    when: boundaries lack enforcement attributes
+    after: the enforcement table for those boundaries
+    decides: implicit_deny_enabled, allow_any_inbound and egress_filtering written on the boundaries
+    options: [confirm, modify]
+    requires: ["(confirm / modify)"]
+    table: true
+  - id: enrichment-relay
+    skill: threat-model
+    mandatory: true
+    when: the guided workflow's enrichment agent has returned its last run
+    after: in one message, the relay file the last run wrote, verbatim — the summary, the divergences and red flags, the written values with their rows and basis, the question tables (Credentials, Credential mapping, Boundary enforcement, Open fields) and the documentation claims per document
+    decides: which written values stay, which are reverted, and the adjusted values; the credentials, auth failure modes, boundary enforcement and open fields the operator answers; the pre-fills the reply names; the documents whose claims are written
+    free_text: true
+    requires: ["Accept, reject or adjust specific rows?", "describe the deployed system", "accept the pre-fills", "credential, boundary and open-field rows", "what else does that credential reach", "deny, fall back or fail open", "\"none\" only for a flow that is unauthenticated", "never a guess", "break-glass"]
+
+  # Control pass
+  - id: controls-global-enforcement
+    skill: enrich-controls
+    mandatory: true
+    when: the control pass runs on a model with no boundaries
+    after: the model summary
+    decides: the enforcement controls recorded for the whole system
+    free_text: true
+    requires: ["\"none\""]
+  - id: controls-large-model
+    skill: enrich-controls
+    mandatory: true
+    when: more than six boundaries have no enforcement controls
+    after: the count of boundaries without enforcement controls
+    decides: which boundaries the control pass reviews
+    options: [crown-jewel boundaries only, all boundaries, skip]
+    requires: ["crown-jewel boundaries only", "all boundaries", "skip"]
+  - id: controls-boundary-confirm
+    skill: enrich-controls
+    mandatory: true
+    when: a boundary has a pre-ranked batch table of library candidates
+    after: the boundary's pre-ranked candidate table with Y marks
+    decides: the library controls assigned to the boundary
+    options: [assign as marked, change marks, skip]
+    requires: ["assign as marked", "change marks", "skip"]
+    table: true
+  - id: controls-boundary-additional
+    skill: enrich-controls
+    mandatory: false
+    when: after a boundary's batch table is answered
+    after: the boundary's confirmed controls
+    decides: further controls recorded for the boundary
+    free_text: true
+    requires: ["\"none\""]
+  - id: controls-boundary-bindings
+    skill: enrich-controls
+    mandatory: true
+    when: a boundary has a greenfield table (no candidates, or the platform is unreachable)
+    after: the boundary's greenfield table with the proposed ControlClass bindings
+    decides: the new controls and bindings created for the boundary
+    options: [assign, change, skip]
+    requires: ["ControlClass bindings", "assign", "change", "skip"]
+    table: true
+  - id: controls-boundary-new
+    skill: enrich-controls
+    mandatory: false
+    when: after a boundary's greenfield table is answered
+    after: the boundary's confirmed controls
+    decides: further enforcement controls recorded for the boundary
+    free_text: true
+    requires: ["\"none\""]
+  - id: controls-continue
+    skill: enrich-controls
+    mandatory: true
+    when: the crown-jewel boundaries are done and other boundaries remain
+    after: the controls assigned so far
+    decides: whether the pass continues to the remaining boundaries
+    options: [continue, stop]
+    requires: ["continue", "stop"]
+  - id: controls-crown-jewel-sweep
+    skill: enrich-controls
+    mandatory: true
+    when: for each crown-jewel component
+    after: the proposed component-scoped control, or the one-line reason boundary-level protection suffices
+    decides: a component-scoped control assigned, or the reason recorded
+    options: [assign, record reason, change]
+    requires: ["crown jewel", "assign", "record reason", "change"]
+  - id: controls-detection
+    skill: enrich-controls
+    mandatory: true
+    when: the detection step of the control pass
+    after: the monitoring-tool table with Y marks
+    decides: the monitoring tools assigned as detection controls
+    options: [assign as marked, change marks]
+    requires: ["assign as marked", "change marks"]
+    table: true
+  - id: controls-detection-additional
+    skill: enrich-controls
+    mandatory: false
+    when: after the detection table is answered
+    after: the confirmed detection controls
+    decides: further detection controls recorded
+    free_text: true
+    requires: ["\"none\""]
+  - id: controls-governance
+    skill: enrich-controls
+    mandatory: false
+    when: the governance step of the control pass
+    after: the controls assigned so far
+    decides: the governance controls recorded
+    free_text: true
+    requires: ["\"none\""]
+  - id: control-library-sparse
+    skill: enrich-controls
+    mandatory: true
+    when: after the control pass, when referenced Controls have sparse class attributes
+    after: the control library attribute coverage table
+    decides: which Controls get their sparse attributes enriched
+    options: ["yes", pick, skip]
+    requires: ["(yes / pick / skip)"]
+    table: true
+  - id: control-library-pick
+    skill: enrich-controls
+    mandatory: true
+    when: the operator chose to pick Controls
+    after: the control library attribute coverage table
+    decides: which Controls get their sparse attributes enriched
+    free_text: true
+    requires: ["Which Controls?"]
+  - id: control-library-edits
+    skill: enrich-controls
+    mandatory: true
+    when: for the Controls chosen for attribute enrichment
+    after: one table per Control with every proposed key (value and source, or "ask") and the Control's assignedModelCount
+    decides: the per-instance attribute values applied through the engine action, evidence-settled ones included
+    free_text: true
+    requires: ["confirm or correct the proposed ones", "\"not sure\""]
+  - id: controls-rerun
+    skill: enrich-controls
+    mandatory: true
+    when: the control pass reaches a boundary that already has controls
+    after: the boundary's currently assigned controls
+    decides: whether controls are added or modified
+    options: [add, modify, skip]
+    requires: ["add", "modify", "skip"]
+  - id: pull-model-choice
+    skill: sync-pull
+    mandatory: true
+    when: a pull names no platform model, or a name that matches none or several
+    after: the numbered list of platform models
+    decides: which platform model is pulled
+    free_text: true
+    requires: ["Which platform model?"]
+  - id: pull-overwrite
+    skill: sync-pull
+    mandatory: true
+    when: the target directory has local changes, was never synced, cannot be compared, or has control work not pushed
+    after: what the local-change check reported
+    decides: push first, pull with a backup, pull over the local files, or cancel
+    options: [push first, backup, overwrite, cancel]
+    requires: ["OVERWRITE", "(push first / backup / overwrite / cancel)"]
+  - id: shared-control
+    skill: sync-controls
+    mandatory: true
+    when: exactly one control needs a decision, it is shared, has no conflicting keys and its ownership is known
+    after: the single-control prompt — every key to change as a table (platform value, your value) and every model the change reaches
+    table: true
+    decides: whether the change is pushed to every model that uses the control
+    options: [cancel, push-anyway]
+    requires: ["used by other models", "all of them", "(cancel / push-anyway)"]
+  - id: shared-control-review
+    skill: sync-controls
+    mandatory: true
+    when: two or more controls need a decision, any row has conflicting keys, or a control's ownership is unknown
+    after: the review screen with its rows and verbs, and again after each set of decisions
+    decides: the per-row and per-key decisions, until done
+    free_text: true
+    requires: ["type done to push"]
+  - id: greenfield-no-elements
+    skill: sync-controls
+    mandatory: true
+    when: a greenfield control has no supporting elements in structure or dataflows
+    after: the greenfield control's name
+    decides: whether it is created with no SUPPORTS edges
+    options: [continue, skip]
+    requires: ["no SUPPORTS edges", "(continue / skip)"]
+  - id: tombstone-confirm
+    skill: sync-controls
+    mandatory: true
+    when: the tombstone verb names a local control
+    after: the control's name and lifecycle
+    decides: whether the control is marked tombstoned
+    options: [tombstone, cancel]
+    requires: ["a later pull brings it back", "(tombstone / cancel)"]
+  - id: repair-wal-choice
+    skill: sync-controls
+    mandatory: true
+    when: the repair-wal verb finds a recovery journal
+    after: every journal operation in a code block, whether it is verified, and its rejected codes
+    decides: keep the journal, replay it, or delete it (never replay one this machine did not write)
+    options: [cancel, retry, clear]
+    requires: ["(cancel / retry / clear)"]
+  - id: clear-journal-confirm
+    skill: sync-controls
+    mandatory: true
+    when: the operator chose to clear the recovery journal
+    after: what deleting it leaves for the operator to reconcile
+    decides: whether the journal is deleted; only the exact text clear-journal deletes
+    free_text: true
+    requires: ["Type clear-journal to confirm"]
+  - id: promote-confirm
+    skill: sync-controls
+    mandatory: true
+    when: the promote-external-edit verb finds a local divergence from the platform
+    after: every diverging key as a table — key, platform value, local value
+    table: true
+    decides: whether the local values are recorded as an edit to push
+    options: [promote, cancel]
+    requires: ["(promote / cancel)"]
+
+# Questions a phase asks together, in one dialog (the phase files name each group where it is asked). A question
+# that ratifies trust or crown jewels — boundary-trust, approved-channels, crown-jewel-confirm,
+# restricted-promotion — is never grouped: its answer is the record of that decision, and stays the operator's
+# reply to that question alone.
+groups:
+  - name: discovery
+    harnesses: [claude]
+    members: [discovery-confirm, blind-spots, module-select]
+  - name: review
+    harnesses: [claude]
+    members: [model-review-confirm, boundary-hierarchy, operational-flows]
+  - name: data-items
+    harnesses: [claude]
+    members: [data-item-handlers, data-item-gap, data-items-confirm]

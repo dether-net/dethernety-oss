@@ -1,0 +1,33 @@
+{
+  "elementId": "d-logs",
+  "elementType": "dataItem",
+  "elementName": "Application and access logs",
+  "classData": {
+    "id": "5e0eb7c5-6a23-496f-82be-e98e12f252af",
+    "name": "Security Logs"
+  },
+  "attributes": {
+    "audit_log_tamper_evident": null,
+    "file_integrity_monitoring_enabled": null,
+    "logs_stored_on_separate_system": null,
+    "centralized_log_aggregation": null,
+    "least_privilege_access_enforced": null,
+    "audit_management_restricted_to_privileged_subset": null,
+    "log_access_monitored": null,
+    "security_events_fully_logged": null,
+    "required_record_fields_complete": null,
+    "clocks_synced_to_trusted_time_source": null,
+    "timestamps_in_utc": null,
+    "time_source_access_restricted": null,
+    "log_retention_days": null,
+    "log_storage_sized_for_retention": null,
+    "log_flood_overflow_protection": null,
+    "tls_only_transport": null,
+    "encrypted_at_rest": null,
+    "pii_excluded_from_logs": false,
+    "secrets_masked_in_logs": null,
+    "logging_failure_alerting_enabled": null,
+    "log_review_cadence_defined": null
+  },
+  "modifiedAt": "2026-09-27T22:56:32.675Z"
+}

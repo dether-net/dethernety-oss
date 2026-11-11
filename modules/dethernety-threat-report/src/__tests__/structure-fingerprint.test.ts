@@ -47,7 +47,7 @@ const answers = (query: string): Array<Record<string, unknown>> => {
 };
 
 describe('the structure fingerprint', () => {
-  it('hashes a model that declares nothing byte-identically to before', async () => {
+  it('hashes the same signatures byte-identically to before the op key when nothing declares', async () => {
     const out = await moduleAnswering(answers).computeStructure('m');
     expect(out).toEqual({ fingerprint: '4cbf6b1a3db28bb0', componentCount: 2, boundaryCount: 2 });
   });

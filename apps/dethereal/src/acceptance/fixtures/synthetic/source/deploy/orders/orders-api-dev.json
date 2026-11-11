@@ -1,0 +1,12 @@
+{
+  "apiVersion": "v1",
+  "kind": "Secret",
+  "metadata": {
+    "name": "orders-api-dev",
+    "namespace": "orders-dev"
+  },
+  "type": "Opaque",
+  "stringData": {
+    "session-key": "tallow-banner-hollow-anna-66"
+  }
+}

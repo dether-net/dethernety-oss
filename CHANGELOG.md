@@ -9,6 +9,232 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`dt-core`: opt-in strict control resolution for import and update.** `ImportOptions`,
+  `UpdateOptions` and their Split variants take `controlResolution: 'lenient' | 'strict'`. The
+  default, `'lenient'`, attaches a reference by its id, its exact name, or a name a single control
+  matches when case and surrounding spaces are ignored, with no partial match (see Fixed in
+  0.12.0); a
+  reference it cannot resolve is listed under `unresolvedControls` and named in a warning, and the
+  rest is written. `'strict'` links a reference only by its id, or by
+  a name exactly one catalog control has (compared after NFC normalisation, zero-width removal and
+  trimming; case matters). Every controls list is resolved against one catalog snapshot before the
+  first write, and any reference that does not resolve refuses the whole push with a code
+  (`control_id_not_found`, `control_name_not_found`, `control_name_ambiguous`,
+  `control_entry_invalid`, `control_catalog_unavailable`), the list's ref and the entry's index.
+  Strict mode also refuses duplicate element ids, defers greenfield control-library entries to the
+  control library's own push, treats a failed control write as an error, and returns the controls
+  it linked as `resolvedControls`. See the import/export architecture reference.
+- **`@dether.net/dethereal` 0.5.0 was published on 2026-11-10 and withdrawn the same day.** 0.5.1
+  is the first 0.5 release of the plugin to ship; it fixes a check in the Codex hook that a crafted
+  `sed` script could stall.
+- **`@dether.net/dethereal` 0.5.1: Claude Code is Stable, Codex Experimental, OpenCode
+  Preview.** Besides Claude Code, the plugin installs on Codex and OpenCode with `dethereal
+  install`. Each status says how far the harness is tested. Claude Code is the main target; the
+  full workflow is tested on every release. Codex runs the workflow end to end in our tests;
+  expect rough edges. OpenCode runs end to end, but in our tests the model can skip a checkpoint
+  question (seen at the data-items step), write a value different from the one confirmed (seen
+  with a boundary's trust zone), or stop enrichment early on some components. Codex and OpenCode
+  lack the Claude Code-only features, such as asking some questions together and the
+  threat-modeler starting the specialist agents. See the Dethereal Getting Started guide,
+  *Codex and OpenCode*.
+- **`@dether.net/dethereal` 0.5.1: the server keeps the workflow state and computes the gates; five
+  tools are new.** In 0.4.x the skills edited `.dethereal/state.json` themselves, ran a script
+  through the shell to find drift, and judged the quality gates from their own reading of the
+  model. `model_state` now reads and changes a model's workflow state, and the workflow changes it
+  only through this tool (`get`, `transition`, `set_baseline`, `stale`, `merge_pulled`,
+  `loop_back`, `mode`): a move to REVIEWED needs Gates 2 and 3 to pass and no queued stale
+  element, and a move back removes the quality cache, clears the review's sign-off and queues the
+  stale ids. `validate_model_json` gains the `gates` action, which computes Gates 1 to 3 (Gate 3's
+  criteria C1 to C9) with the failing elements, and a push (`create_threat_model`,
+  `import_model`, `update_model`, `update_attributes`) is refused before anything reaches the
+  platform while Gate 2 fails. `model_state_waive` waives one Gate 3 criterion for up to five
+  named elements with your reason, or revokes such a waiver; some gaps can never be waived, a
+  criterion stops passing when more than a quarter of what it assesses is waived, and a waiver
+  lapses when its element changes. `model_state_prune` deletes the attribute files of elements
+  the model no longer has, once you approve the list (at most 50 a call; a refused call deletes
+  nothing). `workspace_status` reports the registered models with their state and quality, and for
+  one model its sync record and local control library; `/dethereal:status` and `/dethereal:help`
+  read it. `detect_drift` lists the files discovery reads that changed since the model's drift
+  baseline, as git sees them, in place of the 0.4.x script. The five work on local files only and
+  never contact the platform; `model_state_waive` and `model_state_prune` always ask for approval.
+- **`@dether.net/dethereal` 0.5.1: the hooks run as `dethereal hook`, and three are new.** 0.4.x
+  ran three bash scripts as Claude Code hooks: a note at session start, a validation hint after a
+  model file was written, and a model summary before a compaction. On Claude Code every hook now
+  runs `node` on the plugin's own server file (`dethereal hook <name>`), with no shell; Codex runs
+  the plugin's `bin/hook.mjs`, which starts the installed runtime once its check passes, and
+  OpenCode's plugin starts the runtime copy itself. The session note and the validation hint
+  stay; the model summary now comes from a `SessionStart` hook once the compaction is done, since
+  a `PreCompact` hook's output never reaches the model. New: the **config guard** refuses an
+  agent's edit of a harness's settings that would widen what runs without asking you, and the
+  **secret guard** keeps an agent's reads, searches and shell commands away from secret files and
+  sign-ins (both under Security); on Claude Code, the **approve hook** approves the 16 plugin
+  tools that only read or whose every change the server validates, so Claude Code asks for them no
+  more than Codex or OpenCode do. The other tools still ask, and your own deny and ask rules still
+  apply. The guards and the validation hint run on Codex (once you trust the plugin's hooks) and
+  OpenCode too.
+- **`@dether.net/dethereal` 0.5.1: the settlement is reserved, and off by default.** The
+  settlement holds each value in the model files to the operator's registrations. It is on only
+  when the server's environment sets `DETHEREAL_SETTLEMENT` to exactly `on`; unset, empty or any
+  other value is off. With it off, `model_state_settle` is not served, and `model_state` does not
+  offer its settlement-only inputs (`include`, `pending_from`, `pending_limit`, `pending_render`;
+  a call that names one is refused as an unknown input). A pull or a push registers nothing (an
+  import still writes the control ids it linked into the files). Neither pending enrichment nor a
+  value the operator has not confirmed holds back REVIEWED or a push: Gate 2 alone decides a push.
+  The Claude Code approve hook approves no settle action. Gates 1 to 3, the Gate 3 waivers, the
+  orphaned-file prune and the secret guard stay in both modes. When the variable is set
+  to anything but `on`, the server says once at startup that the settlement is off, and the
+  session's orientation adds one fixed line; neither shows the value, since a repository's own
+  settings can set it. A model whose `.dethereal/` holds settlement records is flagged `settled
+  with the settlement on, which is now off`, and the config guard refuses an agent's change to the
+  variable. The entries below on registering values on pull and push, on `model_state_settle`
+  (`set`, the echo, the rule that decides what can be registered, `prepare` and `commit`) and
+  on the approve hook's `prepare` describe the settlement switched on. See the MCP server
+  architecture, *Settlement Switch*.
+- **`@dether.net/dethereal` 0.5.1: pulling and pushing register the values they bring in.** A pull
+  (`export_model`) registers the platform's values, as written, for that platform model. An import
+  (`import_model`) registers the controls lists it pinned (see Changed: `import_model` resolves
+  controls strictly). A local control created on the platform (`manage_controls`
+  `push-greenfield`, or a replay of its recovery journal) carries its registrations to its new id;
+  a carry that fails never fails the action, and leaves a warning to confirm the new id with
+  `model_state_settle`. Results report the outcome as `settlement_registration` when something was
+  registered or the registration failed; `registered` still means the project's model registry. In
+  `dt-core`, `applyPendingRewrites` and `pushGreenfieldControl` take an `afterOperation` callback,
+  awaited after each operation's id rewrite with `{ tempId, serverId }`; a throw keeps the journal
+  for the next replay, so the callback must be idempotent.
+- **`@dether.net/dethereal` 0.5.1: settling can write a confirmed value, and every settle reports
+  what it registered.** `model_state_settle` takes a `set` decision: a value the operator confirmed
+  in the chat is written and registered in one approved call. Each `set` item names the element's
+  current name (`name_mismatch` otherwise). An attribute value is held to the rule every decision
+  shares (below); an element with no attribute file is refused `no_attribute_file`. Record values
+  are settable only on their own group — `zone`, `domains` and `planes` on boundaries, `crownJewel`
+  on components, `sensitivity`, `regulatory_flags`, `origin` and `is_credential` on data items —
+  and are written to `structure.json` or `data-items.json` (`changed` if the field moved since the
+  call was planned); `classData`, `placement`, `controls`, `conduits` and `dataItemIds` are
+  refused `record_field`. `absent: true` removes a field, and a field with a pending row is refused
+  `duplicate_pending`. Every settle result carries `echo`, one entry per registration for every
+  decision, with the value, the value it replaced (`{value}`, `{absent: true}`, or
+  `{undisplayable: true, sha256}` for text that cannot be shown safely) and how that one was
+  registered, plus `revision`, the baseline revision the call signed; a call whose result would
+  exceed 24,000 characters is refused `echo_too_large` before anything is written. An undo is an
+  ordinary `set` batch built from the echo's previous values; a value that was unregistered comes
+  back registered, which the echo shows so the operator can decline it.
+
+  **Every decision holds a value to the same rule.** `set`, `confirm`, `accept` and
+  `modify` register an attribute value only when its field is a field of the element's class
+  template and the value fits the template's schema, or when the field is a key the gates read or
+  the workflow asks for on that kind of element (such as `stores_credentials` on a component,
+  `egress_filtering` on a boundary, `auth_failure_mode` on a data flow, `crown_jewel` on any
+  element) and the value has that key's type. A field the class declares is judged by the class's
+  schema. Refusals are `off_template_field` (the class has a template, and neither it nor the
+  workflow's keys have the field), `no_template` (the element is unclassified, its class is not
+  cached, or its cache entry cannot be used; only the workflow's keys register) and
+  `invalid_value`; `unlisted_field` is a field name with characters other than letters, digits,
+  `_` or `-`. `confirm` and `accept` hold `zone`, `domains`, `planes`, `crownJewel`, `sensitivity`
+  (any case), `regulatory_flags`, `origin` and `is_credential` to the values `set` takes. Removing
+  a value never needs the rule: `set` with `absent: true` drops a field no decision could register,
+  `confirm` with `removed: true` registers a removal, and `reject` answers a pending row even on a
+  field that can no longer be registered. A retried call for a value already registered is
+  reported in `already_settled`. `model_state` `get` codes each unregistered value no decision
+  could register as it stands (`off_template_field`, `no_template`, `invalid_value`) and gives it
+  no `key`; a value already registered is never listed again, so a pulled model lists nothing to
+  register until a value changes locally. What a pull, a push or a greenfield control push
+  registers is not held to this rule.
+
+  **The approval dialog is not a trusted display on every harness.** As measured on 2026-09-28,
+  Claude Code 2.1.283's shows every value of a settle call and its reply; Codex 0.158.0's cuts each
+  argument to one line and does not show the reply; OpenCode 1.18.33's shows the reply but omits
+  `items` entirely. Later versions may differ. On Codex and OpenCode — for `set` and for every
+  other settle call — the protection is the confirmation table in the chat and the echo. The
+  operator reads the model's rendering of the echo: it catches an honest model's mistakes, not a
+  dishonest model that also fakes the table. See the MCP server architecture and the sync user
+  guide.
+- **`@dether.net/dethereal` 0.5.1: settling can be prepared, then committed, and a range of pending
+  rows accepted as shown.** `model_state_settle` `prepare` checks a call as `settle` would, records
+  nothing in the model, and returns a `plan_id` and server-rendered `lines` to show the operator; `commit`
+  `{ plan_id, lines, reply }` records that plan once, with the operator's reply. `lines` must be the
+  plan's lines exactly as `prepare` returned them, so the approval dialog shows what is recorded;
+  anything else is refused `lines_differ`, and the plan stays committable. A plan lives only in the
+  server's memory, expires after 30 minutes, and is refused `plan_stale` when the model changed
+  since `prepare`; zone, planes, conduits and crown-jewel decisions are never prepared
+  (`trust_field`). A second commit says how the plan ended (`plan_used`, `plan_stale` or
+  `plan_failed`), one sent while the first is still running is refused `busy`, and a commit refused
+  on this machine's own state leaves the plan committable.
+  `accept_rows { from, to, digest, except }` accepts one range of the pending file by the row
+  numbers of a table page the server rendered (`rows_not_rendered` otherwise), bound to the file's
+  digest; every row of a field goes the same way, and each
+  row counts against the 250-decision limit. `model_state` `get` with `pending_render: 'table'`
+  gives `pending_table`, a printable table of the pending rows (up to `pending_limit` 250), every
+  cell neutralised and a `Note` on each row that cannot be accepted as shown, judged as the range
+  is (`unknown_field` for a field the element's file, its class template and the workflow's keys
+  all lack). Orphaned registrations
+  carry a `cause` (`removed`, `moved`, `reclassified`, `re-pointed` or `changed`; a rename reads as
+  `removed`). A `set` of a record without `record: true` is refused `record_flag` with the `fix` to
+  send, a name an attribute or class template shares with a record is refused `ambiguous_field`, and
+  a differing placement confirm gives the `expected` value. Accepts of unchanged values on
+  unregistered fields are counted in `accepted_unchanged` instead of listed in
+  `registered_unchanged`. See the MCP server architecture.
+- **`@dether.net/dethereal` 0.5.1: `get_classes` gives compact views for enriching and for telling
+  classes apart.** `fields`
+  takes `enrich`: each template field, in the template's order, with its `value_type`,
+  `typical_values`, `enum`, `description` (the guide's full option description, else the schema's)
+  and `how_to_obtain`, whose steps keep only `type`, `instruction`, `file_path`, `navigation` and
+  `source` (a plain-text step is kept as `{ instruction }`). The guide's commands, expected outputs
+  and security impact are left out, as is a guide entry for a field the template lacks; a field
+  without a guide entry keeps its type and allowed values. A guide entry names its field by
+  `attribute_name` where it has one, else by `option_name`, and the first entry for a field counts.
+  Like `attributes` and `guide`, it needs `class_id`, `name` or `category`; it is never part of the
+  default all-fields listing, and is refused together with `attributes` or `guide`, as it is the
+  compact view of them. Each entry carries `enrich_total`, the template fields in all. A class whose
+  view is larger than a page comes back alone, with as many fields as fit and `enrich_next_offset`,
+  and the page's note names the call for the rest (`class_id` and `enrich_offset`); `next_offset`
+  still goes on to the next class. `enrich_offset` is refused without `class_id` and `enrich`, when
+  the `class_id` matches more than one class, or past the class's fields. A single field larger
+  than a page is sent alone as `oversized`. For the median shipped `dethernety-general` class
+  the view is about a third of the template plus guide; large classes page. `fields: ['id',
+  'name', 'template_keys']` with a `class_id` gives the template's field names alone, to tell close
+  classes apart; it is refused without `class_id`, beside `attributes`, `guide` or `enrich`, and
+  is not part of the default listing either. See the MCP server architecture.
+- **`@dether.net/dethereal` 0.5.1: a state move can record the mode and the drift baseline, and a
+  validate can return the gates and the zoning.** `model_state` `transition` (see above)
+  also takes `mode`, `quick_through` and `commit` (`'HEAD'`, or a full commit id that is an
+  ancestor of HEAD, recorded as the drift baseline) and records them with the move in one write:
+  each is checked against the state after the transition before anything is written, and a refusal
+  refuses the whole call. A transition to the state the model holds records them alone, and
+  `quick_through: 8` also returns the quick model's `priority_gaps`. `validate_model_json`
+  `validate` with a `directory_path` takes `include: ['gates']`, `['zoning']` or both, and returns
+  each part as its own action returns it (`detail` applies to the gates, `assets` to the zoning); a
+  part that cannot be computed comes back as `gates_unavailable` or `zoning_unavailable` with its
+  reason while the rest still comes, and `include` on any other call is refused `include_scope`.
+  The guided workflow uses both.
+- **`@dether.net/dethereal` 0.5.1: a review goes stale when any control link changes.** The review
+  hash, which REVIEWED records and `model_state` compares to tell a stale review, covers the
+  controls on every element, data items included, and those linked to the model and to its root
+  boundary. It reads each control by its name, compared as strict control resolution compares names
+  (after NFC normalisation, zero-width removal and trimming; case kept), each distinct name once,
+  and never by its id, which a push may change. So a push that writes back the platform's spelling
+  of a name, or a control listed twice, leaves a review standing, while a case-only rename moves it.
+  Each entry with no usable name counts on its own; an absent or empty list reads as no controls.
+- **`@dether.net/dethereal` 0.5.1: a quick model's review shows its top findings.** The model
+  reviewer composes up to five attack chains through the model (the entry, each hop by its existing
+  flow id, the target) and ranks them: a chain that reaches a crown jewel first, then by entry zone,
+  then by the number of controls not in force on the chain. Each finding states its facts as fields
+  and values read from the model files, with no ATT&CK, CWE or CAPEC ids and no numeric severity. A
+  quick run shows them at Step 9 and again after the push.
+- **`@dether.net/dethereal` 0.5.1: a quick run skips the second classification pass when nothing
+  is left to classify.** `validate_model_json`'s quality result gains
+  `attribute_residual.unclassified_open`: the unclassified elements still open to classification,
+  leaving out the model's root boundary and the elements `.dethereal/discovery.json` lists as
+  `left_unclassified` (a missing or unreadable file leaves none out); `elements_unclassified`, the
+  completion ratio and the quality score are unchanged. On a quick model, Step 6 runs no pass when
+  `unclassified_open` is 0 and Step 3 dropped no class from a module that is not active: the class
+  confirmation, the module step and the class write are skipped, and the crown-jewel mapping is
+  still proposed and confirmed. A full model always runs the pass. Step 3 records each element left
+  unclassified as `{ id, words }` (your words, verbatim) and each class it dropped from an inactive
+  module in `dropped_classes` as `{ id, class, module }`, so a compaction or resume before Step 6
+  keeps the pass. Deepening a quick model (a run with `--full`) runs Step 6's pass in its
+  own phase before taking up Step 7 or a later step, so the skipped look is made up; one that takes
+  up Step 6 or earlier runs its own pass, neither skipped nor doubled.
+
 - **Two boundary classes in `dethernety-general` 1.1.0.** **SaaS Tenant** is the organization's own
   tenant of a vendor-run SaaS service, and **Managed Runtime** is a vendor-run environment that the
   organization deploys its own code, containers or agents into. The module now has 83 classes (77
@@ -21,12 +247,236 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   detail and the HTML export show them, and the JSON export carries them through the snapshot
   (`snapshot.operation`). The version is not read. A report from before 2.2.0 asks to be recreated.
   When the rules cannot load or zoning failed, the report is still written, and says who runs it
-  could not be worked out instead of showing a default. The only new staleness input is the
-  declaration: changing an operator or product makes a report stale, and a version edit does not. A
-  model that declares nothing keeps its fingerprint, so its existing reports stay fresh. See the
-  threat report's *Reading the Report*, *Who runs an element*.
+  could not be worked out instead of showing a default. The fingerprint now also takes each
+  component's class (for an unclassified component, its name and type), so a report from before
+  2.2.0 reads stale once after the upgrade, on every model with components, whether or not it
+  declares an operator. After that, changing an operator, a product or a component's class makes a
+  report stale, and a version edit does not. See the threat report's *Reading the Report*, *Who
+  runs an element*.
 
 ### Changed
+
+- **`dt-core`: `external-ingress` sees through load balancers and proxies.** The finding used to fire
+  only when a flow ran straight from an external (`UNTRUSTED` or `VENDOR`) boundary into a tier
+  resolving to `INTERNAL` or `RESTRICTED`. It now also fires when the external boundary reaches that
+  tier only through one or more forwarders, each hop a modelled flow in direction. A forwarder is a
+  component of the stock Load Balancer, Reverse Proxy / WAF Appliance, VPN Gateway, Firewall or
+  Network Router class (by class id, or by that exact class name under another id), or an
+  unclassified process named as a load balancer or proxy (`LB`, `ALB`, `NLB`, `ELB`, `WAF`, load
+  balancer, reverse proxy, ingress controller, as whole words); an API gateway or a web server
+  terminates the request and is not one, and a classified component is judged by its class, never
+  its name. Each forwarder sits in a tier that is not external, not the source, not the model's root
+  and not trusted — a forwarder inside a trusted tier is already a direct ingress onto it. There is
+  one finding per external boundary and tier reached, with `boundaryId` and `peerId` as for a direct
+  crossing plus `via` and `viaIds`, the forwarders in order along the shortest path; its detail
+  names the hops and the remedies: ratify a conduit to the tier, route through an approved path, or
+  declare the tier Exposed. A direct flow between the two still gives only the direct finding. Only
+  a conduit from the external boundary to the tier behind the forwarders ratifies the crossing — one
+  to the forwarder's tier does not — and such a conduit is no longer reported as dead intent. The
+  forwarder tier's own crossing into an asset-bearing tier still raises its own `flow-channel`
+  finding. `@dether.net/dethereal`'s `validate_model_json` `zoning` action reports these findings in
+  both the skeleton and full phases, and the threat-report module now passes each component's class
+  id and name to the engine, so the report's zoning findings recognise forwarders by class. See the
+  trust-zoning architecture reference.
+
+  **Upgrading:** a model that had no `external-ingress` finding may now have one. Ratify a conduit
+  from the external boundary to the tier behind the forwarder, or declare that tier Exposed. Every
+  existing threat-report snapshot of a model with components also reads as stale once after the
+  upgrade, even with no change to the model: the report's staleness fingerprint now includes each
+  component's class (for an unclassified component, its name and type). Regenerate the report to
+  clear it. See the threat-report 2.2.0 entry under Added.
+- **`@dether.net/dethereal` 0.5.1: the plugin runs its own server with `node`; there is no `npx`
+  launch.** 0.4.x started the server with `npx @dether.net/dethereal@0.4.20`. The server is now
+  built into the plugin, with every runtime dependency bundled, and Claude Code starts it with
+  `node ${CLAUDE_PLUGIN_ROOT}/dist/index.js`, so the plugin and its server are always the same
+  version and starting it fetches nothing. The same file is the `dethereal` command: the server
+  with no arguments, and the installer with `install`, `uninstall` or `doctor`. Codex and OpenCode
+  run the server from a copy the installer keeps in `~/.dethernety/runtime/`.
+
+  **Upgrading from 0.4.x:** check your Node.js version and platform URL first (see the two entries
+  below). Then update with `npx @dether.net/dethereal install --harness claude --scope user`, which
+  needs Claude Code 2.1.295 or later, or run `claude plugin marketplace update dether.net` and then
+  `claude plugin update dethereal@dether.net --scope user`, and start a new session. A model made
+  with 0.4.x records no mode, so it continues as a full model. A model 0.4.x left at REVIEWED stays
+  REVIEWED only when the server's Gates 2 and 3 pass and no stale element is queued, and then reads
+  as a stale review, since 0.4.x recorded no review hash; otherwise it reads as ENRICHING. Either
+  way, the next `/dethereal:threat-model` run takes it up again. See the Dethereal Getting Started
+  guide, [*Upgrading from 0.4.x*](docs/user/dethereal/GETTING_STARTED.md#upgrading-from-04x).
+- **`@dether.net/dethereal` 0.5.1: Node.js 20.11.1 or later.** 0.4.x asked for Node.js 20.0.0. On
+  an older Node, the `dethereal` command — the server, the installer and every hook but the two
+  guards — prints "Dethereal needs Node.js 20.11.1 or newer (running <version>)" (on Node 14.8 or
+  later; an older Node cannot load Dethereal at all) and exits without starting; the two guards
+  block the call (below). Claude Code starts the server and the hooks with the `node` on its
+  `PATH`.
+
+  **The secret and config guards block a call they cannot check.** On Claude Code 2.1.295 or
+  later, both guard hooks block the call whenever they cannot answer: no usable Node, the guard
+  process crashes or times out, or it prints invalid JSON output. On any Claude Code version they
+  also block it on a Node from 14.8 up to 20.11.0, with the Node message: "Dethereal needs Node.js
+  20.11.1 or newer (found <version>), so its secret-guard can't check this call and blocks it.
+  Update Node, or turn the Dethereal plugin off with /plugin." (`config-guard` for the config
+  guard). On such a Node every guarded call (Read, Grep, Bash and every file write) is blocked
+  until Node is updated or the plugin is turned off. Older Claude Code versions ignore the setting
+  that makes a guard's failure block, so before 2.1.295 a guard that cannot start, crashes or
+  times out, or a Node older than 14.8, still lets the call through: Claude Code 2.1.295 or later
+  is required. On Codex and OpenCode a guard that fails refuses the call. When Codex's hook
+  runner finds Dethereal's runtime unusable (tampered, missing or unverifiable), it judges a shell
+  command by name; OpenCode does so when the guard cannot start at all, and then refuses a read, a
+  search or a write (see the two guard entries under Security).
+- **`@dether.net/dethereal` 0.5.1: the platform URL is a plugin setting, and its default is now
+  `http://127.0.0.1:3000`.** 0.4.x read `DETHERNETY_URL` and otherwise used
+  `http://localhost:3003`. On Claude Code the plugin now has a `platform_url` option, which Claude
+  Code keeps in its settings for every project of the user and passes to the server; it defaults
+  to `http://127.0.0.1:3000`, and the installer sets it with `--platform-url`. On Codex and
+  OpenCode the installer writes the URL into the server's configuration. A `DETHERNETY_URL` set in
+  the environment still wins everywhere. `auth_status` says where the URL came from (`env`,
+  `user_config` or `default`). Plain `http://` is still accepted only for `localhost`,
+  `127.0.0.1` and `::1`. Sign-ins are still kept per platform address (scheme, host and port), so
+  if the address the server now uses is not the one you signed in to, `localhost` and `127.0.0.1`
+  counting as different, sign in again with `/dethereal:login`.
+- **`@dether.net/dethereal` 0.5.1: `logout` also revokes the session at the identity provider.**
+  0.4.x deleted only the local copy of the session, which stayed valid until its refresh token
+  expired. `logout` now removes the local session first, then revokes its refresh token at the
+  identity provider of the session's own platform, and reports each session in `revocation` as
+  `revoked`, `skipped` or `failed`, with the reason. It skips the revocation, and says so, when the
+  platform's configuration cannot be fetched, or when the server's configuration or runtime cannot
+  be trusted with the session. A revocation call that is refused or fails is reported as `failed`,
+  and the session stays valid at the provider until it expires.
+- **`@dether.net/dethereal` 0.5.1: `import_model` resolves controls strictly.** A push used to
+  link a control reference to a loose name match — case-insensitive or partial — or drop a
+  reference it could not resolve with only a warning. It now links a reference only by its id or by
+  a name exactly one catalog control has, and otherwise refuses the push before anything is
+  written: the error reads "Control references could not be resolved; nothing was pushed" (or
+  "Element ids must be unique in the model; nothing was pushed"), with `codes` and up to 100
+  `control_errors` naming each entry. A successful push returns `resolved_controls`, the controls
+  linked to each element. `create_threat_model` and `update_model` push the same way. `import_model`
+  then writes the ids it linked into each controls list the files still hold as pushed; nothing is
+  pinned when the files keep their reference ids or the id write-back failed.
+
+  **Upgrading:** a model that pushed before may now be refused. Give an ambiguous or loosely named
+  reference the control's id, or its exact catalog name, and push again.
+- **`@dether.net/dethereal` 0.5.1: reading security data has its own read-only tools.**
+  `query_controls` (`list`, `get`, `rank`), `query_exposures` (`list`, `get`) and
+  `query_countermeasures` (`list`, `get`) never change the platform, so they run without an
+  approval prompt. `manage_exposures` is removed; `manage_controls` no longer takes `list`, `get`
+  or `rank`, and `manage_countermeasures` no longer takes `list` or `get`. Their write actions are
+  unchanged and still ask for approval.
+
+  **Upgrading:** the plugin's own skills and agents already use the new tools. Another MCP client
+  that called a removed action should call the matching `query_*` tool with the same inputs; the query tools check ids and filters more strictly and reject unknown fields. Each
+  `list` also takes an optional `limit` (default 100, at most 500), reports the full count as
+  `total`, and sets `truncated` when it cut the list.
+- **`@dether.net/dethereal` 0.5.1: `get_classes` answers in pages, and `match_classes` no longer
+  counts a match by type alone.** `get_classes` used to return every matching class at once. It now
+  returns a page of at most `limit` classes (default 100, at most 200), which also stops at 24,000
+  characters, in a stable order, with `total`, `truncated`, `next_offset` and `listing`, a short
+  hash of the matching class ids that changes when the catalogue does; call again with `offset` set
+  to `next_offset`. A truncated page also gives `remaining_modules`, the modules the later pages
+  hold classes of, and a `note` naming them (up to ten) with the call for the rest. A class larger
+  than a page comes alone, marked `oversized`. `attributes` and `guide`, asked for or implied by
+  leaving out `fields`, need `class_id`, `name` or `category`; `view: 'modules'` lists the installed
+  modules with their class counts per type; and `PROCESS`, `EXTERNAL_ENTITY` or `STORE` as
+  `class_type` selects component classes of that type. In `match_classes`, an element whose only
+  candidates are classes of its type is listed in `unmatched` and, with the `class_type` to list
+  its candidates by, in `unmatched_type_only`, beside a `hint` to choose among the module's classes
+  or leave the element unclassified; `matched_count` no longer counts it. Each candidate's
+  description is cut to its first sentence, and the module is said once at the top when every
+  candidate shares it.
+
+  **Upgrading:** another MCP client that read every class in one call should follow `next_offset`
+  until `truncated` is false, and fetch `attributes` or `guide` by `class_id`.
+- **`@dether.net/dethereal` 0.5.1: the server derives `manifest.json`'s `modules`.** The list is
+  the modules `manifest.json` already lists, the scope's `activeModules`, and the module of every
+  class the model uses, deduplicated by id. Derivation only adds: a module leaves the list only when
+  it is edited out, and an update push sets the platform model's modules to exactly this list. A
+  class's module comes from its class-cache entry, which `generate_attribute_stubs` now records as
+  `module: { id, name }`, else from the elements' `classData.module` (a pulled model carries it).
+  Every gate reads the derived list without writing the file; `model_state` `get` reports
+  `manifest_modules: { on_disk, derived }` when they differ. `import_model` and `update_model` send
+  the derived list and write it into `manifest.json` only after every refusal has passed and after
+  the backup, and only if the file has not changed since the push read it, so a refused push
+  leaves the directory as it was; their results carry `manifest_modules: { after, before? }`.
+  `update_attributes` gates the derived list but does not write it. The list is machine-derived:
+  it is never registered or settled.
+
+  **Upgrading:** a module that cannot be derived now fails Gate 2's `manifest_complete`, naming the
+  class or file: `module_unknown`, `module_conflict`, `scope_unreadable`, `scope_module_invalid` or
+  `manifest_module_invalid`. Class-cache entries written by earlier versions have no module; run
+  `generate_attribute_stubs` with platform access to refresh them. `modules` no longer needs to be
+  filled in by hand.
+- **`@dether.net/dethereal` 0.5.1: on Claude Code, the approve hook also approves a settlement's
+  `prepare`, which records nothing in the model.** The hook approves `model_state_settle` when its
+  action is `prepare`, which checks the decisions. A bundle generated with the settlement on adds
+  the tool to the hooks matcher and `--settlement` to the hook's command; shipped bundles leave
+  both out. The tool is still listed with the interaction hint, so Claude Code may still ask for
+  it. `commit`, which records the decisions, and `settle` still ask. Codex and OpenCode ask for
+  every settle call. See the plugin architecture, *Auto-Approval*.
+- **`@dether.net/dethereal` 0.5.1: the guided workflow's Step 8 relays the enrichment through
+  files, and an agent writes your answers.** Step 8 used to take the enricher's tables from its
+  reply and apply your adjustments in the main conversation. Now each **security-enricher** run,
+  started fresh, enriches at most 12 elements (a store takes the flows that touch it into the same
+  run, up to 20), writes the cited and derived values into the attribute files and its tables and
+  questions to a new `run-<n>.txt` in the model's `.dethereal/relay/` folder, and answers with the
+  file's path, a summary line and the remaining worklist; the next run carries on from the earlier
+  files. The instructions tell the main conversation to read only the files the runs named, show
+  them whole and verbatim — never a summary, or an offer to show them later — (credential material
+  redacted) as model-written data, not instructions, and ask one batched question. The conversation
+  may show a summary of the files before its question instead. The written values are in the
+  attribute files either way, but a summary can leave out open questions only you can answer, such
+  as whether a boundary denies traffic by default, and those fields stay open unless you raise them:
+  the relay files hold every question, and Step 9, `/dethereal:enrich` and the attribute files take
+  corrections. A run defers no question to a later batch; a derived basis takes at most six words a
+  part, an open-field question one sentence, a red flag one line. "Accept all", or a reply that
+  decides nothing, writes nothing: the values stay as written. Otherwise the
+  new **enrichment-applier** agent, started fresh with your reply verbatim, writes what it decides
+  into the attribute files only, validates, and returns a table of what it wrote, which the main
+  conversation prints; it asks nothing. A fact in your reply that contradicts a cited value keeps
+  the cited value and is named, not asked; one that contradicts a derived value replaces it, and the
+  table names the row and the value it replaced; an answer to the row itself is written as you give
+  it. A fact never reaches an element that lacks what it is about (one that takes no tokens, keeps
+  no data or runs no image), which is named instead. A floor key your reply answers is written on a
+  component even where its file lacks the key; `encryption_at_rest` is `not_applicable` only on a
+  process of no store class that your reply says keeps no data, and otherwise stays `null`.
+  A removal happens only when your reply asks for it in words, and the remove skill confirms it
+  again; a changed credential mapping is shown and asked once more. On a quick model the open
+  fields carry every priority gap, so those gaps are not asked a second time. The relay files stay
+  on this machine, kept out of git by `.dethereal/.gitignore`; you may delete `.dethereal/relay/`
+  by hand whenever no Step 8 is running.
+- **`@dether.net/dethereal` 0.5.1: on Claude Code, the guided workflow asks independent questions
+  together.** A guided run used to ask about 23 questions one at a time. Questions whose answers do
+  not depend on each other now come as one dialog, with every member's table shown first:
+  discovery's list confirmation, blind spots and module selection; review's model confirmation,
+  boundary hierarchy and operational flows; a data-item gap with its gap-fill confirmation; and
+  documentation claims, three documents to a dialog, each document's answer registered on its own. A
+  dialog that would exceed 800 characters a question or 2,400 in all is asked one question at a
+  time. The answers apply in order: an unanswered member stops the rest and is asked again alone, a
+  dismissed dialog is asked again one question at a time, and a member whose table or question an
+  earlier answer changes is asked again alone. The trust, crown-jewel, approved-channel and
+  restricted questions are never grouped. A dialog's question is the workflow's question text word
+  for word, never shortened, and is not repeated in the message. Codex and OpenCode still ask one
+  question at a time.
+- **`@dether.net/dethereal` 0.5.1: a new threat model is a quick model by default.** A model
+  that a `/dethereal:threat-model` run starts (from a system description or with no model at all),
+  or that `/dethereal:create` makes by describing, from a template or by import, is a quick model
+  unless the run has `--full`; a model pulled from the platform is a full model. A quick model is a
+  first pass you deepen later: Steps 1–7 of the guided workflow run in full, Step 8 enriches only
+  the priority set with the control pass deferred, and Step 9 is read-only, with no Gate 3 verdict.
+  It is marked quick (its state reads, for example, `ENRICHING (quick)`), is never REVIEWED, and
+  can be pushed; its README opens with a "Quick model, not reviewed" banner. `--full`, on either
+  command, gives the full run from the start; `/dethereal:create` now takes it, and on a quick
+  model its footer adds an `[info]` line naming `/dethereal:threat-model` to continue it and
+  `--full` to build it in full. On a quick model, `/dethereal:threat-model --full` deepens it: the
+  mark is cleared and, once the quick run has passed Step 7, the run resumes at Step 8 with the
+  full scope, then the full review; a quick run stopped before that resumes where it stopped. When
+  the step it takes up is Step 7 or later, a Step 6 classification pass runs first. A
+  run without a mode flag on an existing model keeps its mode, so a quick model, created or paused,
+  continues as a quick run, and an earlier full model continues as a full run.
+  `/dethereal:threat-model --quick` makes a quick model explicitly, also by marking an existing
+  model when the run starts; on a REVIEWED model it is refused. `--full-scan`, a full discovery in
+  place of the drift check, is a separate flag.
+
+  **Upgrading:** add `--full` to start a model with the full run, whether with
+  `/dethereal:threat-model` or `/dethereal:create`, or to deepen a quick model.
 
 - **The operation category comes first on the Attributes tab.** On a component or boundary,
   **Operation & version** or **Operation** now comes first on the **Attributes** tab rather than
@@ -47,7 +497,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `DtFileOpaModule`, a template that parses but cannot be extended now fails the read rather than
   being served unread; text that does not parse is still returned as it is.
 
+### Removed
+
+- **`@dether.net/dethereal` 0.5.1: the `merge-from-file` verb is gone from the `/dethereal:sync`
+  control-library review.** Reading a staged file into the session could bring key material or
+  other secrets into it, and the checks on that file could not be done safely without a shell. The
+  `.dethereal/merge-staging/` folder is no longer used; if you created one, you can delete it and
+  its `.gitignore` entry.
+
+  **Instead:** give a long value with `merge <n>.<key> = <json>`, pasted as one JSON literal; a
+  multi-line paste carries it whole.
+
 ### Fixed
+
+- **`@dether.net/dethereal` 0.5.1: enrichment keeps to its evidence rules, and a quick run reads
+  less.** A control is written as not in force only when the condition it guards occurs on the
+  element and the complete enforcement point for the path (the plugin list, the middleware, the
+  handler with its exception branches) was read without the check. A check another component on the
+  path may hold, such as a gateway or a sidecar, stays `null` until that component is read too; a
+  check that some path skips is not in force, with the bypass cited; a search that found nothing
+  proves nothing. A data item is enriched with the store that persists it, reading the code that
+  writes it. A volume's encryption (`encrypted_at_rest`) and the item's own unreadability (such as
+  `pan_rendered_unreadable`) are separate fields: card numbers kept as plaintext in an encrypted
+  database are encrypted at rest and not rendered unreadable. Across several stores the weakest
+  wins, and a store whose value is unknown leaves the item's value `null`. The priority set includes
+  every data item with a regulatory flag, and a quick run's worklist names the data items mapped to
+  a crown jewel or carrying one. Two opposite values read from the same cited line are a divergence,
+  and neither is written. A component split out of a process, such as a second listener, an admin
+  interface or a worker, gets the outbound calls its own code makes as its flows, and Step 5 lists
+  every process with inbound flows and no outbound flow. A manifest outside its kustomization's
+  `resources`, or commented out, is not modelled. On a full model, Step 6's classification pass runs
+  also when every element is classified (a quick model may skip it, see Added), and proposes a
+  reclassification only where cited evidence contradicts the current class. Step 6 never lists the
+  model's root boundary, and asks the classification-gap question only for elements other than it
+  and those left unclassified at Step 3. A discovery re-run keeps the keys an earlier run wrote to
+  `.dethereal/discovery.json` beside its own (`left_unclassified`, `dropped_classes`,
+  `shared_credentials`, `privilege_transitions`). A log or metrics destination, or a log-watching
+  tool, the source configures for a component is written to `monitoring_tools` as the source names
+  it, cited, and whether anyone watches it is not asked. The enricher reads a class's fields from
+  `get_classes`' `enrich` view instead of the class cache. A quick model's build reads no worked
+  examples, and a phase re-entry reads a model file again only after a compaction, a write the edit
+  tool did not make, or a fix made by hand. At a question that removes, deletes or publishes, a
+  reply that picks no choice, a dismissal included, now declines it and is not asked again.
 
 - **dt-ui reads the zone the model's root boundary declares.** `DtModel.dumpModelData` left the
   root boundary's `zone` out of what it returned, so when dt-ui loaded a model, every boundary
@@ -55,6 +546,102 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default Internal* in the boundary zoning overview. The threat report read the root's declared
   zone, so the two disagreed. These boundaries now read what the root declares. A root that declares
   nothing still reads the default.
+
+### Security
+
+- **`@dether.net/dethereal` 0.5.1: the control audit log no longer records attribute values, and
+  is no longer committed.** `.dethereal/control-audit.log` used to record the Control attribute
+  values a shared-ownership push touched verbatim, and was meant to be committed — so a secret
+  written as a Control attribute ended up in the repository's history. Each entry now keeps a tag in
+  place of every value: an HMAC-SHA256 under a key that exists only on this machine, which tells
+  "changed / same value as that entry" there and nothing anywhere else. Entries carry
+  `schemaVersion: 2`; with no usable machine key the values are left out and the push goes ahead.
+  The entries a push returns as `auditEntries` are the same tagged entries. The log now stays on the
+  machine, ignored like the other per-machine files in `.dethereal/`; the platform keeps the
+  authoritative record of a cross-model write. The Control files (`controls/<id>.json`) still hold
+  the attribute values, as part of the model.
+
+  **An older `.dethereal/control-audit.log` may hold values verbatim** (entries without
+  `schemaVersion`); they are never rewritten. Delete or rotate it. If it was committed, untrack it
+  with `git rm --cached .dethereal/control-audit.log` — an ignore rule does not untrack a file that
+  is already committed — and note that the old values remain in the repository's history.
+- **`@dether.net/dethereal` 0.5.1: the control audit log no longer records your git email or local
+  user name.** Each `.dethereal/control-audit.log` entry, and each entry a push returns as
+  `auditEntries`, used to carry an `operator` field: the model repository's `git config user.email`,
+  or `<user>@unknown` from the local user name when none was set. The log stays on your machine, so
+  that self-asserted identity added nothing over the platform login; the only attribution now is
+  `authnOperator`, the platform login's email (or subject), or `unauthenticated` when there was no
+  usable token. The plugin no longer reads git's `user.email` at all. In `dt-core`,
+  `getOperatorEmail` is no longer exported and `pushBrownfieldControl` no longer takes `operator`.
+  Older entries are not rewritten and may still carry `operator`; `schemaVersion` stays `2`.
+- **`@dether.net/dethereal` 0.5.1: a new config guard keeps an agent from widening what runs, git's
+  configuration included.** 0.4.x had no such hook. On every harness, an agent's write, edit or
+  patch of a harness's configuration (Claude Code's settings, Codex's `config.toml`, OpenCode's
+  `opencode.json`), at project and user level, is denied when it adds a Dethereal or wildcard
+  allow rule or a bypass mode, weakens a deny or ask rule, changes the hooks or the MCP servers, or
+  disables the plugin. A skill, command or agent definition under `.claude/`, `.codex/` or
+  `.opencode/` that would grant a Dethereal tool or a wildcard of tools is denied, and so is any
+  write into OpenCode's plugin folders. Claude Code's settings (`settings.json`,
+  `settings.local.json`, and the per-project settings in `.claude.json`) are held further: an edit
+  is also denied when it changes anything in `env`, which every process Claude Code starts reads,
+  the plugin's server and hooks among them (a change to `DETHEREAL_SETTLEMENT`, in any spelling,
+  gets its own refusal); changes a setting that runs a command or decides what runs
+  (`statusLine`, `apiKeyHelper`, `otelHeadersHelper`, `awsAuthRefresh`, `awsCredentialExport`,
+  `fileSuggestion`, `sandbox`, `extraKnownMarketplaces`); adds an allow rule for Bash in any form,
+  `Bash(npm test)` included (rules already in the file stay); enables a plugin, or changes whether
+  the Dethereal plugin is enabled; changes the Dethereal plugin's options in `pluginConfigs`, its
+  platform URL among them; or sets the permission mode `auto`, `bypassPermissions`, `acceptEdits`
+  or `dontAsk`. Claude Code's plugin cache (`.claude/plugins/`, and `plugins/` under
+  `CLAUDE_CONFIG_DIR`) is denied by path, whatever the file. On every harness, so is git's
+  configuration: below a `.git` folder, `config`,
+  `config.worktree`, `commondir`, `gitdir`, anything under `hooks` and `info/attributes` (a
+  submodule's and a work tree's too), a `.git` file itself, and the user's `~/.gitconfig` and
+  `git/config` and `git/attributes` in XDG's configuration folder; `.gitattributes` and the
+  project's own files are not affected. Paths are judged as written and through links, with letter
+  case folded as macOS and Windows disks fold it. Beside it, the secret guard refuses a shell
+  command whose `git` sets a key that makes git run a program, now or when the operator next runs
+  it: a `git -c` or `--config-env`, a `git config` write or `--edit`, `--exec-path`, an `init` or
+  `clone` with `--template`, or an environment equivalent such as `GIT_PAGER`, `GIT_EDITOR` or
+  `GIT_SSH_COMMAND`, for keys such as `core.pager`, `core.fsmonitor`, `core.hooksPath`,
+  `diff.external`, `filter.*`, `credential.helper` and an `alias.*` that runs a shell (`!…`). A
+  read or a removal of a key passes, and so does a value that runs nothing
+  (`git -c core.pager=cat log`). See the plugin architecture, *Config Guard* and *Secret Guard*.
+- **`@dether.net/dethereal` 0.5.1: a new secret guard keeps an agent away from secret files, the
+  sign-ins and the macOS keychain.** 0.4.x had no such hook. On every harness, the guard denies a
+  file read, a search or a shell command that reaches one of the project's secret files (a listed
+  name in any case, a `kind: Secret` manifest, or a file a kustomization `secretGenerator` or a
+  compose file names as a secret source); the file is reported by name only. It also denies one
+  that reaches `~/.dethernety`, the server's own folder, which holds its sign-in, or a
+  harness's own sign-in: Claude Code's `.credentials.json` (in `~/.claude` and an absolute
+  `CLAUDE_CONFIG_DIR`), Codex's `auth.json` and `.credentials.json` (in `~/.codex` and an absolute
+  `CODEX_HOME`), and OpenCode's `auth.json` and `mcp-auth.json` in its data folder. It holds
+  outside any project too. A shell command reaches them through the home in any spelling (`~`,
+  `~user`, `$HOME`, in full), a link, a `cd` or `pushd` (also where `CDPATH` leads), a `sh -c`
+  script, a glob, brace sequence or zsh pattern that spells them, or a second path to the same
+  folder, such as macOS's data volume (compared by identity); an assignment before the command
+  hides none of these, and after a `cd` the guard cannot follow, later relative paths are judged by
+  their text. A folder that holds one, such as the home directory, is open only to commands that
+  list names (`ls`, `stat`, `du`, `find` without an action): a content search, copy, archive or
+  link of it, or a command that reads what another prints (`ls ~ | xargs cat`), is denied, and so
+  is a Grep over it in every output mode, names-only included, since a names-only search's
+  patterns can spell out a file's content. The guard also denies a shell command that runs macOS's
+  `security` in a way that can print a secret or runs what it is sent: `find-generic-password` or
+  `find-internet-password` with `-w` or `-g`, interactive mode, a subcommand the shell builds, and
+  every subcommand but those that find or verify certificates and identities, list or show
+  keychains, or print help. On OpenCode, when the guard cannot be started at all, a read, a search
+  or a write is refused, and a shell command is judged by name inside OpenCode's own process: one
+  that names `dethernety`, a guarded folder or a secret file, or that can build such a name with a
+  glob or brace near the home, is refused. The project's own `.dethernety/` registry is unaffected.
+  The guards judge a shell command by the names it spells; they are not a sandbox: an interpreter,
+  a variable, `$(…)` or a file of names can reach a file by a name the guard never sees. See the
+  plugin architecture, *Secret Guard* and *OpenCode Plugin*.
+- **`@dether.net/dethereal` 0.5.1: on OpenCode, a file a delegation names with `@` is checked like
+  any other read.** OpenCode reads each file a delegation's prompt names with `@` itself, when the
+  subagent starts, and that read does not pass through a tool the guards see. The plugin checks
+  each such file as a read of it would be: the project's secret files, the server's own folder, the
+  harnesses' homes, OpenCode's data folder and anything outside the project are refused. A
+  delegation that names such a file is not run, and neither is one that names more files than can
+  be checked. See the plugin architecture, *OpenCode Plugin*.
 
 ## [0.15.0] - 2026-11-04
 

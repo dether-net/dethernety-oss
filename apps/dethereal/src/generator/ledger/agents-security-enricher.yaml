@@ -1,0 +1,1143 @@
+source: agents/security-enricher.md
+blob: db32bc750daf815d6a80bdf89e5e0a03937b45c7
+migrated: true
+rules:
+  - id: cbc508ba6d
+    line: 16
+    anchor: You are a security enrichment agent for Dethernety threat models.
+    destination: agents/security-enricher.md
+  - id: 83e043f4d5
+    line: 16
+    anchor: You classify model elements, add security-relevant attributes, credential topology, and security
+    destination: agents/security-enricher.md
+  - id: 76233fa1cd
+    line: 16
+    anchor: MITRE ATT&CK coverage is derived on the platform from analysis exposures — do not annotate MITRE
+    destination: agents/security-enricher.md
+  - id: dd35884b16
+    line: 20
+    anchor: Present what you found in batches, as tables; never auto-classify data sensitivity.
+    destination: agents/security-enricher.md
+  - id: 60ee3782bc
+    line: 21
+    anchor: "**Read model files from disk at the start**"
+    destination: shared/model-resolution.md
+  - id: 14b66ec65a
+    line: 22
+    anchor: writing only credential_name silently breaks lateral-movement analysis
+    destination: shared/enrichment-protocol.md
+  - id: 9bb6ccdddf
+    line: 23
+    anchor: Read each attribute file whole
+    destination: shared/enrichment-protocol.md
+  - id: a190845365
+    line: 24
+    anchor: Read each attribute file whole
+    destination: shared/enrichment-protocol.md
+  - id: 0b8f106a5b
+    line: 25
+    anchor: with a search across attributes/, not a shell loop over the files
+    destination: shared/enrichment-protocol.md
+  - id: d6985e6604
+    line: 26
+    anchor: for the score and attribute_residual
+    destination: shared/enrichment-protocol.md
+  - id: 39134ed32a
+    line: 27
+    anchor: "action: 'coverage' for control gaps"
+    destination: shared/enrichment-protocol.md
+  - id: 5690d3c823
+    line: 31
+    anchor: A `directory-path` argument is used directly
+    destination: shared/model-resolution.md
+  - id: 72e7de6dc1
+    line: 33
+    anchor: A `directory-path` argument is used directly
+    destination: shared/model-resolution.md
+  - id: 736478f2f9
+    line: 34
+    anchor: If `.dethernety/models.json` lists exactly one model, use it implicitly
+    destination: shared/model-resolution.md
+  - id: fd781d618d
+    line: 35
+    anchor: show them as a numbered list (name, path, and `display_state`
+    destination: shared/model-resolution.md
+  - id: 2de075fd4f
+    line: 36
+    anchor: With none, suggest
+    destination: shared/model-resolution.md
+  - id: f0d99f4b92
+    line: 38
+    anchor: Read model files from disk at the start of each operation
+    destination: shared/model-resolution.md
+  - id: 6eaea77e4d
+    line: 42
+    dropped:
+      reason: The old four-tier enrichment order (crown jewels numbered Tier 1) is replaced by a worklist taken from the server's Gate 3 results, so no tier is assigned by hand; tiers follow the server's definition.
+      ref: apps/dethereal/workflow/shared/tiers.md
+  - id: c9573a89de
+    line: 42
+    dropped:
+      reason: The old four-tier enrichment order (crown jewels numbered Tier 1) is replaced by a worklist taken from the server's Gate 3 results, so no tier is assigned by hand; tiers follow the server's definition.
+      ref: apps/dethereal/workflow/shared/tiers.md
+  - id: 6bae8ea04a
+    line: 44
+    anchor: crown jewels and their mapped elements first
+    destination: shared/enrichment-protocol.md
+  - id: 1725735c87
+    line: 45
+    dropped:
+      reason: The old four-tier enrichment order (crown jewels numbered Tier 1) is replaced by a worklist taken from the server's Gate 3 results, so no tier is assigned by hand; tiers follow the server's definition.
+      ref: apps/dethereal/workflow/shared/tiers.md
+  - id: 2687692cfb
+    line: 46
+    dropped:
+      reason: The old four-tier enrichment order (crown jewels numbered Tier 1) is replaced by a worklist taken from the server's Gate 3 results, so no tier is assigned by hand; tiers follow the server's definition.
+      ref: apps/dethereal/workflow/shared/tiers.md
+  - id: 05223c3d1e
+    line: 47
+    dropped:
+      reason: The old four-tier enrichment order (crown jewels numbered Tier 1) is replaced by a worklist taken from the server's Gate 3 results, so no tier is assigned by hand; tiers follow the server's definition.
+      ref: apps/dethereal/workflow/shared/tiers.md
+  - id: 1014a4094e
+    line: 49
+    dropped:
+      reason: The old four-tier enrichment order (crown jewels numbered Tier 1) is replaced by a worklist taken from the server's Gate 3 results, so no tier is assigned by hand; tiers follow the server's definition.
+      ref: apps/dethereal/workflow/shared/tiers.md
+  - id: e504399fcd
+    line: 49
+    dropped:
+      reason: The old four-tier enrichment order (crown jewels numbered Tier 1) is replaced by a worklist taken from the server's Gate 3 results, so no tier is assigned by hand; tiers follow the server's definition.
+      ref: apps/dethereal/workflow/shared/tiers.md
+  - id: 9c29165fef
+    line: 51
+    dropped:
+      reason: The old four-tier enrichment order (crown jewels numbered Tier 1) is replaced by a worklist taken from the server's Gate 3 results, so no tier is assigned by hand; tiers follow the server's definition.
+      ref: apps/dethereal/workflow/shared/tiers.md
+  - id: 3ab55d6218
+    line: 55
+    anchor: for each classified component and classified data
+    destination: shared/enrichment-protocol.md
+  - id: 8b1284e031
+    line: 55
+    anchor: These null fields are the checklist.
+    destination: shared/enrichment-protocol.md
+  - id: 5208cc7afe
+    line: 57
+    anchor: Never read .dethereal/class-cache
+    destination: shared/enrichment-protocol.md
+  - id: 451c74075e
+    line: 58
+    anchor: Discover values from the source using each field's
+    destination: shared/enrichment-protocol.md
+  - id: 9439146c38
+    line: 59
+    anchor: prepare targeted questions from each field's description
+    destination: shared/enrichment-protocol.md
+  - id: c237a3f29d
+    line: 60
+    dropped:
+      reason: "Intended behaviour change: filling every template field is what produced invented values. A field is resolved from evidence or the operator's answer; otherwise it stays null and becomes a question, and an accepted gap a per-element waiver."
+      ref: apps/dethereal/workflow/shared/enrichment-invariants.md
+  - id: f3e8b94754
+    line: 61
+    anchor: read the existing attribute file before writing. Merge
+    destination: agents/security-enricher.md
+  - id: 5ed99036b6
+    line: 62
+    anchor: to disk before starting the next
+    destination: shared/enrichment-protocol.md
+  - id: 0f0a412b5b
+    line: 63
+    dropped:
+      reason: "Intended behaviour change: a declined field stays null. The template's unknown value is a stand-in the gates count as unresolved, so writing it would hide the gap; an accepted gap becomes a per-element waiver."
+      ref: apps/dethereal/workflow/shared/guidelines-schema.md
+  - id: b8cec1cd86
+    line: 64
+    anchor: enrichment for that class and note "platform-unreachable — template unavailable"
+    destination: shared/enrichment-protocol.md
+  - id: 9cf3bafd45
+    line: 65
+    anchor: for any the template omitted. Use these EXACT keys and value shapes — Gate 3 and the scorer match
+    destination: shared/enrichment-protocol.md
+  - id: f616fb5e72
+    line: 69
+    anchor: "| 1 | Authentication | `authentication_type` | component |"
+    destination: shared/enrichment-protocol.md
+  - id: 67e4732d7c
+    line: 70
+    anchor: "| 2 | Encryption in transit | `encryption_in_transit` | **data flow** and component |"
+    destination: shared/enrichment-protocol.md
+  - id: e909b24e75
+    line: 71
+    anchor: "| 3 | Encryption at rest | `encryption_at_rest` | component |"
+    destination: shared/enrichment-protocol.md
+  - id: a6b58ff53f
+    line: 72
+    anchor: "| 4 | Logging | *(no scored key)* | — | — | Capture per the class template;"
+    destination: shared/enrichment-protocol.md
+  - id: 92ab06833e
+    line: 73
+    anchor: "| 5 | Access control | `implicit_deny_enabled` | component (boundaries too, but only the component value"
+    destination: shared/enrichment-protocol.md
+  - id: cd74d7179d
+    line: 74
+    anchor: "| 6 | Log telemetry | `monitoring_tools` | component | a list of strings, `[]` included |"
+    destination: shared/enrichment-protocol.md
+  - id: 2b353155ea
+    line: 76
+    anchor: Write the exact key names above.
+    destination: shared/enrichment-protocol.md
+  - id: 1d1bbb43f7
+    line: 76
+    anchor: and the surface report's encryption/auth coverage read these literal keys and no others, so a semantically-equivalent
+    destination: shared/enrichment-protocol.md
+  - id: 7be41899af
+    line: 76
+    anchor: "Types are strict: a boolean `true` for `encryption_at_rest` scores as absent — these want the concrete"
+    destination: shared/enrichment-protocol.md
+  - id: f28d963858
+    line: 79
+    anchor: skip template-driven enrichment (the six-attribute floor still applies to unclassified
+    destination: shared/enrichment-protocol.md
+  - id: 3885141ece
+    line: 79
+    anchor: elements skipped — unclassified (no class template available)
+    destination: shared/enrichment-protocol.md
+  - id: 4950e0f15d
+    line: 85
+    dropped:
+      reason: "Intended behaviour change: auth_failure_mode takes deny, fallback or fail_open; a field nothing settles stays null (declined), never the stand-in unknown, which the gates count as unresolved."
+      ref: apps/dethereal/workflow/shared/enrichment-protocol.md (Auth failure mode)
+  - id: 8335e96aea
+    line: 86
+    anchor: Credentials the flow carries to authenticate at this hop or any later hop it is forwarded to (engine key)
+    destination: shared/enrichment-protocol.md
+  - id: 9708d4ea17
+    line: 88
+    anchor: writing only credential_name silently breaks lateral-movement analysis
+    destination: shared/enrichment-protocol.md
+  - id: d2ee28d928
+    line: 88
+    anchor: required_credentials on a flow gates lateral movement in the analysis engine
+    destination: shared/enrichment-protocol.md
+  - id: 062d18163e
+    line: 88
+    anchor: writing only credential_name silently breaks lateral-movement analysis
+    destination: shared/enrichment-protocol.md
+  - id: 1f3fe85917
+    line: 88
+    anchor: credential_name — a human-readable label only
+    destination: shared/enrichment-protocol.md
+  - id: 7dec6479d3
+    line: 92
+    anchor: do not annotate mitre techniques on
+    destination: agents/security-enricher.md
+  - id: 46182a9593
+    line: 92
+    anchor: Technique coverage is derived on the platform from the exposures of an analysis run
+    destination: shared/enrichment-protocol.md
+  - id: f8338ef138
+    line: 92
+    anchor: Technique coverage is derived on the platform from the exposures of an analysis run
+    destination: shared/enrichment-protocol.md
+  - id: a6b6a0ba0e
+    line: 94
+    anchor: If an exposure you expect is missing, the fix is a module policy
+    destination: shared/enrichment-protocol.md
+  - id: 2ad374acef
+    line: 94
+    dropped:
+      reason: The link points into the repository documentation, which a generated bundle does not contain; the rule it supported is carried by the workflow itself.
+      ref: docs/architecture/dethereal/
+  - id: 56edb71813
+    line: 96
+    anchor: remain for explaining a technique an exposure names
+    destination: shared/enrichment-protocol.md
+  - id: b74bd77c73
+    line: 96
+    anchor: remain for explaining a technique an exposure names
+    destination: shared/enrichment-protocol.md
+  - id: 31de6ea669
+    line: 100
+    anchor: Two-pass classification for assigning platform module classes to model elements.
+    destination: shared/classification-protocol.md
+  - id: e51e99da48
+    line: 104
+    anchor: Read `activeModules` from `.dethereal/scope.json`
+    destination: shared/classification-protocol.md
+  - id: 8cdb5d199b
+    line: 105
+    anchor: Extract `moduleIds` from `activeModules` (order matters — see tiebreaking). If `activeModules` is absent, omit `moduleIds` from
+    destination: shared/classification-protocol.md
+  - id: 7f769ac204
+    line: 106
+    anchor: "[{name, type?, description?}, ...], classLabel: <label>, moduleIds: [...], topN: 3, fields: ['description', 'category',"
+    destination: shared/classification-protocol.md
+  - id: ccca7dcff8
+    line: 108
+    anchor: "Cross-module tiebreaking: Candidates at the same confidence from different modules"
+    destination: shared/classification-protocol.md
+  - id: acc9a4d071
+    line: 109
+    anchor: For IaC-discovered elements, check `discovery.json` — if pre-classification matches a
+    destination: shared/classification-protocol.md
+  - id: 3cf9c64aee
+    line: 110
+    anchor: Mark exact_name matches (high confidence) as accepted in the proposal table
+    destination: shared/classification-protocol.md
+  - id: b38d024caa
+    line: 112
+    anchor: "**Offline fallback chain:**"
+    destination: shared/classification-protocol.md
+  - id: 91395a83f2
+    line: 113
+    anchor: "If the result contains { success: false } or an error"
+    destination: shared/classification-protocol.md
+  - id: 2dc579495b
+    line: 114
+    anchor: "result contains { success: false } or"
+    destination: shared/classification-protocol.md
+  - id: 50418e8dd4
+    line: 115
+    anchor: If that listing also errors → skip Pass 1, all classification in Pass 2
+    destination: shared/classification-protocol.md
+  - id: 7b3b3fdd76
+    line: 116
+    anchor: 'Warning: "Platform connectivity issues — classification running in LLM-only mode."'
+    destination: shared/classification-protocol.md
+  - id: c3a024270d
+    line: 120
+    anchor: "For remaining unclassified elements:"
+    destination: shared/classification-protocol.md
+  - id: f2fc629a21
+    line: 121
+    anchor: Use boundary context (which boundary contains the element, what flows connect to it)
+    destination: shared/classification-protocol.md
+  - id: f7aa23b84a
+    line: 122
+    anchor: Consider connected flows and peer components for contextual inference
+    destination: shared/classification-protocol.md
+  - id: b18e5765a3
+    line: 123
+    anchor: Use the closest available class from active modules — never fabricate class IDs
+    destination: shared/classification-protocol.md
+  - id: a34ca32712
+    line: 124
+    anchor: For each candidate, its module is the candidate's `moduleName`, or the reply's `module` when all candidates share one.
+    destination: shared/classification-protocol.md
+  - id: 6264f4124b
+    line: 125
+    anchor: If still no match, leave unclassified and note the gap
+    destination: shared/classification-protocol.md
+  - id: 4d3a8ae713
+    line: 129
+    anchor: "When a module is added to `activeModules` after initial classification:"
+    destination: shared/classification-protocol.md
+  - id: a9634e7b6c
+    line: 130
+    anchor: Do NOT auto-reclassify existing elements
+    destination: shared/classification-protocol.md
+  - id: e9953179a5
+    line: 131
+    anchor: Flag elements whose baseline-module class has a more specific equivalent in the newly added module
+    destination: shared/classification-protocol.md
+  - id: c772db8583
+    line: 132
+    anchor: "\"Module 'Kubernetes' added. 3 elements may benefit from reclassification: [list]."
+    destination: shared/classification-protocol.md
+  - id: 48b09ac18b
+    line: 133
+    anchor: old class removed, new class fields added)
+    destination: shared/classification-protocol.md
+  - id: 21823d0a31
+    line: 137
+    anchor: to model elements, as a proposal
+    destination: shared/classification-protocol.md
+  - id: e92c2a7b3b
+    line: 138
+    anchor: Fuzzy-match `crown_jewels[]` entries from scope against component names; on no match, also
+    destination: shared/classification-protocol.md
+  - id: 66dec4f924
+    line: 139
+    anchor: A snake_case `crown_jewel` in a component's attribute file is a derived/legacy copy
+    destination: shared/classification-protocol.md
+  - id: 7296178d9f
+    line: 140
+    anchor: "for confirmation: \"You declared 'Payment Database' as a crown jewel. Matching"
+    destination: shared/classification-protocol.md
+  - id: ee1370e158
+    line: 141
+    anchor: an unresolved crown-jewel declaration is a blocking
+    destination: shared/classification-protocol.md
+  - id: 155f272de8
+    line: 143
+    anchor: Full asset_criticality enrichment happens later, during enrichment.
+    destination: shared/classification-protocol.md
+  - id: 3a2b8eeb6a
+    line: 143
+    anchor: Full asset_criticality enrichment happens later, during enrichment.
+    destination: shared/classification-protocol.md
+  - id: d929c64a81
+    line: 147
+    anchor: The gate is Gate 3's C1 — every non-external component is classified.
+    destination: shared/classification-protocol.md
+  - id: 96d43aee89
+    line: 148
+    anchor: "list the failures STOREs first: STOREs drive data sensitivity analysis"
+    destination: shared/classification-protocol.md
+  - id: e3955f2941
+    line: 149
+    dropped:
+      reason: "The model-computed 80% classification share is gone: Gate 3's C1 (every non-external component classified) is the gate, read from the server; unclassified flows and boundaries are an advisory list."
+      ref: apps/dethereal/workflow/shared/classification-protocol.md
+  - id: b8f17a4d51
+    line: 151
+    anchor: the main conversation shows the elements and asks its `classification-gap` question
+    destination: shared/classification-protocol.md
+  - id: 9ca02edcde
+    line: 153
+    anchor: "If unclassified elements exist and `activeModules` is set, check if broadening would help: call"
+    destination: shared/classification-protocol.md
+  - id: f8c86ebd37
+    line: 153
+    anchor: that is the module to suggest adding
+    destination: shared/classification-protocol.md
+  - id: cb1a488fc0
+    line: 157
+    anchor: "`classData` on elements in their home files — `structure.json` (components/boundaries), `dataflows.json` (data flows), `data-items.json` (data items)"
+    destination: shared/classification-protocol.md
+  - id: "7007406475"
+    line: 158
+    anchor: write class template attribute stubs for all newly classified elements. The tool scans structure.json, dataflows.json and data-items.json
+    destination: shared/classification-protocol.md
+  - id: eb833f2f8b
+    line: 159
+    anchor: "Writes the confirmed crown-jewel mapping (crownJewel: true and crown_jewel_elements)"
+    destination: shared/classification-protocol.md
+  - id: ccd416cbe6
+    line: 163
+    anchor: so the questions are anchored to the flows
+    destination: shared/enrichment-protocol.md
+  - id: 68340bf272
+    line: 163
+    anchor: reliably misses the shared service accounts that are the lateral-movement
+    destination: shared/enrichment-protocol.md
+  - id: 842912f9cd
+    line: 167
+    anchor: Enumerate the cross-boundary flows, and the flows recorded as privilege_transitions
+    destination: shared/enrichment-protocol.md
+  - id: ba16767b4b
+    line: 169
+    anchor: "| 1 | API Server → PostgreSQL | db-admin-account | Worker → PostgreSQL | | 2"
+    destination: shared/enrichment-protocol.md
+  - id: 6c9ac8c121
+    line: 179
+    anchor: "then sweep for credentials no flow surfaced:"
+    destination: shared/enrichment-protocol.md
+  - id: 38cbe2321e
+    line: 179
+    anchor: break-glass accounts, CI deploy keys
+    destination: shared/enrichment-protocol.md
+  - id: b7a5728990
+    line: 183
+    anchor: Map credentials to flows as a table
+    destination: shared/enrichment-protocol.md
+  - id: 728651ab0b
+    line: 184
+    anchor: Map credentials to flows as a table
+    destination: shared/enrichment-protocol.md
+  - id: ddd0356b9f
+    line: 185
+    anchor: then write to attributes/dataFlows/<id>.json
+    destination: shared/enrichment-protocol.md
+  - id: 15970266a5
+    line: 186
+    anchor: Map credentials to flows as a table
+    destination: shared/enrichment-protocol.md
+  - id: cd92b107ea
+    line: 190
+    anchor: For each STORE that holds credential material
+    destination: shared/enrichment-protocol.md
+  - id: e6bfb8b177
+    line: 191
+    anchor: (a secrets vault, a config store, a database with credential tables, or a database whose migrations or IaC create login roles
+    destination: shared/enrichment-protocol.md
+  - id: b2eb0ed836
+    line: 192
+    anchor: the credential ids an attacker acquires by compromising it
+    destination: shared/enrichment-protocol.md
+  - id: cf61999a2a
+    line: 193
+    anchor: that is how the engine links a store compromise to flow traversal
+    destination: shared/enrichment-protocol.md
+  - id: ca8b788d1d
+    line: 197
+    anchor: If discovery scanned Kubernetes sources
+    destination: shared/enrichment-protocol.md
+  - id: c43ad4acff
+    line: 198
+    anchor: find the Secrets mounted in several workloads
+    destination: shared/enrichment-protocol.md
+  - id: 62116623b5
+    line: 199
+    anchor: find the Secrets mounted in several workloads
+    destination: shared/enrichment-protocol.md
+  - id: 8e0cf4520e
+    line: 200
+    anchor: Pre-fill rows from the source
+    destination: shared/enrichment-protocol.md
+  - id: 90eebc11f3
+    line: 201
+    anchor: "\"SECRET 'db-credentials' is mounted in 3 workloads: api-server, worker,"
+    destination: shared/enrichment-protocol.md
+  - id: 61db3d1abb
+    line: 207
+    anchor: Credentials the flow carries to authenticate at this hop or any later hop it is forwarded to (engine key)
+    destination: shared/enrichment-protocol.md
+  - id: 8b42450075
+    line: 208
+    anchor: "| credential_name | string | human-readable label"
+    destination: shared/enrichment-protocol.md
+  - id: 400d24da89
+    line: 209
+    anchor: service_account, api_key, oauth_token, ssh_key, certificate, password, none
+    destination: shared/enrichment-protocol.md
+  - id: 42385b9345
+    line: 210
+    anchor: "| STORE component | `stores_credentials` | `boolean` | Whether"
+    destination: shared/enrichment-protocol.md
+  - id: 2baf9ff6dc
+    line: 211
+    anchor: "| STORE component | `credential_scope` | `string[]` | Credential"
+    destination: shared/enrichment-protocol.md
+  - id: 46cc74f8cd
+    line: 215
+    anchor: From compliance_drivers in .dethereal/scope.json, by depth level
+    destination: shared/enrichment-protocol.md
+  - id: 09c6436308
+    line: 219
+    anchor: ask for the value in the floor's shape
+    destination: shared/enrichment-protocol.md
+  - id: 39a095c929
+    line: 221
+    anchor: "SOC2: CC6.1 access control, CC6.7 encryption in transit, CC7.2 monitoring"
+    destination: shared/enrichment-protocol.md
+  - id: ea548a7230
+    line: 222
+    anchor: "SOC2: CC6.1 access control, CC6.7 encryption in transit, CC7.2 monitoring"
+    destination: shared/enrichment-protocol.md
+  - id: f68f78ff44
+    line: 223
+    anchor: "SOC2: CC6.1 access control, CC6.7 encryption in transit, CC7.2 monitoring"
+    destination: shared/enrichment-protocol.md
+  - id: 0dac6cc136
+    line: 224
+    anchor: "SOC2: CC6.1 access control, CC6.7 encryption in transit, CC7.2 monitoring"
+    destination: shared/enrichment-protocol.md
+  - id: bdfcdfaced
+    line: 226
+    anchor: "ISO 27001: A.8.2 asset classification, A.10.1 cryptographic controls, A.12.4 logging"
+    destination: shared/enrichment-protocol.md
+  - id: 42686b26bc
+    line: 227
+    anchor: "ISO 27001: A.8.2 asset classification, A.10.1 cryptographic controls, A.12.4 logging"
+    destination: shared/enrichment-protocol.md
+  - id: 6e98faa4f1
+    line: 228
+    anchor: "ISO 27001: A.8.2 asset classification, A.10.1 cryptographic controls, A.12.4 logging"
+    destination: shared/enrichment-protocol.md
+  - id: ef44f8a1a8
+    line: 229
+    anchor: "ISO 27001: A.8.2 asset classification, A.10.1 cryptographic controls, A.12.4 logging"
+    destination: shared/enrichment-protocol.md
+  - id: cdc4e88a05
+    line: 233
+    anchor: Data classification questions (PCI-DSS, HIPAA, GDPR)
+    destination: shared/enrichment-protocol.md
+  - id: 5d268d3a8f
+    line: 235
+    anchor: '"Does [component] process, store, or transmit cardholder data (PAN, CVV, expiry)?"'
+    destination: shared/enrichment-protocol.md
+  - id: 1e73086d35
+    line: 236
+    anchor: '"does [component] handle protected health information (phi)?"'
+    destination: shared/enrichment-protocol.md
+  - id: c033162803
+    line: 237
+    anchor: '"Does [component] process personal data of EU residents?"'
+    destination: shared/enrichment-protocol.md
+  - id: 73b62439af
+    line: 241
+    anchor: no framework-specific questions. Show once
+    destination: shared/enrichment-protocol.md
+  - id: 83deb50662
+    line: 241
+    anchor: no framework-specific questions. Show once
+    destination: shared/enrichment-protocol.md
+  - id: 06d2148c94
+    line: 243
+    anchor: deep domain expertise — incorrect mappings create false compliance confidence). Recorded in scope for documentation purposes.
+    destination: shared/enrichment-protocol.md
+  - id: b85d3587a0
+    line: 251
+    anchor: a static lookup, never an estimate
+    destination: shared/enrichment-protocol.md
+  - id: 3b52eb3eca
+    line: 255
+    anchor: "| `PCI cardholder` | restricted | PCI-DSS |"
+    destination: shared/enrichment-protocol.md
+  - id: aa2fbc1e7b
+    line: 256
+    anchor: "| `PHI` | restricted | HIPAA |"
+    destination: shared/enrichment-protocol.md
+  - id: 0791e2e953
+    line: 257
+    anchor: confidential (special-category data → restricted)
+    destination: shared/enrichment-protocol.md
+  - id: 5ee3997cdc
+    line: 258
+    anchor: "| `PII` | confidential | General |"
+    destination: shared/enrichment-protocol.md
+  - id: 93ac8a7e71
+    line: 259
+    anchor: "| `SOX financial` | confidential | SOX |"
+    destination: shared/enrichment-protocol.md
+  - id: bd9f305248
+    line: 260
+    anchor: "| `CCPA personal` | confidential | CCPA |"
+    destination: shared/enrichment-protocol.md
+  - id: ef3336e292
+    line: 262
+    anchor: Emit the flags exactly as written (the platform matches them case-sensitively)
+    destination: shared/enrichment-protocol.md
+  - id: afcf23dfa0
+    line: 262
+    anchor: an item with several flags takes the highest sensitivity
+    destination: shared/enrichment-protocol.md
+  - id: 79180f6701
+    line: 268
+    anchor: For each sensitive data type not yet classified and fully linked, propose
+    destination: shared/enrichment-protocol.md
+  - id: 175677d4bb
+    line: 269
+    anchor: For each sensitive data type not yet classified and fully linked, propose
+    destination: shared/enrichment-protocol.md
+  - id: 1bfd2e9fa1
+    line: 270
+    anchor: and `origin` where the source of the content is known
+    destination: shared/enrichment-protocol.md
+  - id: 1013b964b4
+    line: 271
+    anchor: "its DATA class: call"
+    destination: shared/enrichment-protocol.md
+  - id: 4f5e34f838
+    line: 272
+    anchor: and fill the new data-item stubs in the same run
+    destination: shared/enrichment-protocol.md
+  - id: a7c6ad1ade
+    line: 273
+    anchor: and link each item through dataItemIds on every handling element
+    destination: shared/enrichment-protocol.md
+  - id: 3680833ba9
+    line: 277
+    anchor: "Sensitivity uses four levels: public, internal, confidential, restricted."
+    destination: shared/enrichment-protocol.md
+  - id: f547e39026
+    line: 279
+    anchor: Regulatory labels are regulatory_flags, never sensitivity levels
+    destination: shared/enrichment-protocol.md
+  - id: 688588ca70
+    line: 279
+    anchor: Regulatory labels are regulatory_flags, never sensitivity levels
+    destination: shared/enrichment-protocol.md
+  - id: 5f6ec5a65c
+    line: 279
+    anchor: a static lookup, never an estimate
+    destination: shared/enrichment-protocol.md
+  - id: 7d175cfdbe
+    line: 283
+    anchor: Two more author-asserted fields sit beside `sensitivity` on a data item.
+    destination: shared/enrichment-protocol.md
+  - id: 0135e47dcb
+    line: 283
+    anchor: Both are optional; absent means unanswered.
+    destination: shared/enrichment-protocol.md
+  - id: f3f30b7fcb
+    line: 283
+    anchor: Never set either silently — propose, and write only what the
+    destination: shared/enrichment-protocol.md
+  - id: 51ffbc6a66
+    line: 285
+    anchor: "**`origin`** — who can write the item's content (not the element where it enters the system)."
+    destination: shared/enrichment-protocol.md
+  - id: bbe5c54e39
+    line: 285
+    anchor: Ask for it where the source of the content is known; leave it absent otherwise.
+    destination: shared/enrichment-protocol.md
+  - id: 6ae2429720
+    line: 285
+    anchor: "Tokens, most to least trusted:"
+    destination: shared/enrichment-protocol.md
+  - id: b3099eb0f9
+    line: 289
+    anchor: "| `authenticated_first_party` | Written only by the operator's own authenticated users or systems |"
+    destination: shared/enrichment-protocol.md
+  - id: de4125a681
+    line: 290
+    anchor: "| `curated_internal` | Internal content that passed a review or curation step |"
+    destination: shared/enrichment-protocol.md
+  - id: fd3eab5e7f
+    line: 291
+    anchor: "| `agent_relayed` | Produced or forwarded by another agent (at most this trusted) |"
+    destination: shared/enrichment-protocol.md
+  - id: a427d2b881
+    line: 292
+    anchor: "| `model_generated` | Written by a model and later read as input (at most this trusted)"
+    destination: shared/enrichment-protocol.md
+  - id: aae28a55da
+    line: 293
+    anchor: "| `third_party` | Written by a known external party under an agreement — **untrusted** |"
+    destination: shared/enrichment-protocol.md
+  - id: f1bb7ee9c3
+    line: 294
+    anchor: "| `arbitrary_public` | Anyone can write it (web pages, inbound email, public issues, public forms) —"
+    destination: shared/enrichment-protocol.md
+  - id: 9aa525aa92
+    line: 295
+    anchor: "| `not_assessed` | Answered as not established — **untrusted** |"
+    destination: shared/enrichment-protocol.md
+  - id: 6061869f00
+    line: 297
+    anchor: "Origin is the least-trusted origin of what the item holds: one public source makes it `arbitrary_public`."
+    destination: shared/enrichment-protocol.md
+  - id: f03c1827c3
+    line: 299
+    anchor: "**`is_credential`** — the item is a credential (password, token, key, secret, certificate)."
+    destination: shared/enrichment-protocol.md
+  - id: 48f9fec146
+    line: 299
+    anchor: "returns `credential_hints: [{ id, name, class, reason }]` for items bound to a credential-like DATA class"
+    destination: shared/enrichment-protocol.md
+  - id: a0bf5efd87
+    line: 299
+    anchor: "Propose `is_credential: true` for each hint in the batch"
+    destination: shared/enrichment-protocol.md
+  - id: c7b192b55f
+    line: 299
+    anchor: An answered `false` is respected and never re-proposed.
+    destination: shared/enrichment-protocol.md
+  - id: c605c55fd4
+    line: 299
+    anchor: The hint does not affect the quality score.
+    destination: shared/enrichment-protocol.md
+  - id: 9f1423ef2a
+    line: 303
+    anchor: carries a classified data item with a sensitivity
+    destination: shared/enrichment-protocol.md
+  - id: 6b747f274b
+    line: 304
+    anchor: every crown-jewel store has classified data items
+    destination: shared/enrichment-protocol.md
+  - id: 892a819038
+    line: 305
+    anchor: or caches a sensitive data item references it
+    destination: shared/enrichment-protocol.md
+  - id: f5a8307ae1
+    line: 306
+    anchor: The boundary containing a crown-jewel data item references it
+    destination: shared/enrichment-protocol.md
+  - id: 34715b6d60
+    line: 310
+    anchor: Full asset_criticality enrichment happens later, during enrichment.
+    destination: shared/classification-protocol.md
+  - id: "6634830241"
+    line: 312
+    anchor: to model elements, as a proposal
+    destination: shared/classification-protocol.md
+  - id: ba480a7004
+    line: 312
+    anchor: An unresolved crown-jewel declaration is a blocking confirmation
+    destination: shared/classification-protocol.md
+  - id: 0c5be9beba
+    line: 314
+    anchor: "For components with crownJewel: true in structure.json"
+    destination: shared/enrichment-protocol.md
+  - id: e6a36f3647
+    line: 315
+    anchor: 'asset_criticality: "high" | "medium" | "low"'
+    destination: shared/enrichment-protocol.md
+  - id: 3ae2052598
+    line: 316
+    anchor: "is a crown jewel — proposed asset_criticality: high"
+    destination: shared/enrichment-protocol.md
+  - id: a75ca5159e
+    line: 317
+    anchor: the plugin provides the signals, not the computation
+    destination: shared/enrichment-protocol.md
+  - id: da1845212a
+    line: 321
+    anchor: For boundaries whose attributes/boundaries/<id>.json lacks them, capture
+    destination: shared/enrichment-protocol.md
+  - id: 387bc070ed
+    line: 325
+    anchor: Does this boundary enforce implicit deny (firewall, NACLs, security groups)?
+    destination: shared/enrichment-protocol.md
+  - id: faf1af15d5
+    line: 326
+    anchor: this boundary allow any inbound traffic without
+    destination: shared/enrichment-protocol.md
+  - id: 7414a4fa10
+    line: 327
+    anchor: deny_all, allow_list, allow_all
+    destination: shared/enrichment-protocol.md
+  - id: 0ec46dc5cf
+    line: 329
+    anchor: For boundaries whose attributes/boundaries/<id>.json lacks them, capture
+    destination: shared/enrichment-protocol.md
+  - id: f74a343967
+    line: 331
+    anchor: in an Internal or Restricted zone is a coherence gap the
+    destination: shared/enrichment-protocol.md
+  - id: 2189f2cc14
+    line: 331
+    anchor: capture these even while the zone is undecided
+    destination: shared/enrichment-protocol.md
+  - id: 0ff37278af
+    line: 333
+    anchor: "Flag unenforced boundaries:"
+    destination: shared/enrichment-protocol.md
+  - id: a2832944eb
+    line: 334
+    anchor: 'WARNING: Boundary "Internal Network" has no implicit deny and allows any inbound. Components within are reachable'
+    destination: shared/enrichment-protocol.md
+  - id: 297114caee
+    line: 341
+    anchor: "For each component: which monitoring tools cover it"
+    destination: shared/enrichment-protocol.md
+  - id: e3e1b4f321
+    line: 343
+    anchor: "Write monitoring_tools: string[]"
+    destination: shared/enrichment-protocol.md
+  - id: cf45ffd5d4
+    line: 343
+    anchor: (SIEM, EDR, NDR, APM, cloud-native)
+    destination: shared/enrichment-protocol.md
+  - id: a94fed5d8d
+    line: 343
+    anchor: as "monitored", so a ["none"] sentinel
+    destination: shared/enrichment-protocol.md
+  - id: 1af61bbcfc
+    line: 343
+    anchor: coverage counts a non-empty array as
+    destination: shared/enrichment-protocol.md
+  - id: a3324183d9
+    line: 345
+    anchor: Captured for human review; the engine does not score detection coverage.
+    destination: shared/enrichment-protocol.md
+  - id: 163c5215be
+    line: 352
+    anchor: controls do NOT go in attribute files
+    destination: shared/controls-enrichment.md
+  - id: 485bd9429f
+    line: 352
+    anchor: the sync pipeline only reads controls[] from
+    destination: shared/controls-enrichment.md
+  - id: 2b66e6e6f9
+    line: 356
+    anchor: Walk the defaultBoundary tree to find the target boundary or component by id
+    destination: shared/controls-enrichment.md
+  - id: 7f5807d19e
+    line: 357
+    anchor: Walk the defaultBoundary tree to find the target boundary or component by id
+    destination: shared/controls-enrichment.md
+  - id: 2ef8b17427
+    line: 358
+    anchor: controls do NOT go in attribute files
+    destination: shared/controls-enrichment.md
+  - id: 89abd7140b
+    line: 360
+    anchor: and never become Control relationships on the platform.
+    destination: shared/controls-enrichment.md
+  - id: a531a89eb5
+    line: 360
+    anchor: other enrichment data (encryption_in_transit, monitoring_tools, auth_failure_mode, etc.)
+    destination: shared/controls-enrichment.md
+  - id: 147d9595eb
+    line: 362
+    anchor: Every controls[] entry carries a source field
+    destination: shared/controls-enrichment.md
+  - id: e0f0041b48
+    line: 366
+    anchor: "| `discovered` | Inferred from IaC/code attributes | Attribute evidence: `encryption_in_transit`, `authentication_type`, `implicit_deny_enabled`, `tls_enabled`, etc. |"
+    destination: shared/controls-enrichment.md
+  - id: 422657c00b
+    line: 367
+    anchor: Operator stated during the control pass
+    destination: shared/controls-enrichment.md
+  - id: 96a2131f06
+    line: 368
+    anchor: confirmed a control that code/IaC also supports |
+    destination: shared/controls-enrichment.md
+  - id: ca8c71d277
+    line: 370
+    anchor: controls do NOT go in attribute files
+    destination: shared/controls-enrichment.md
+  - id: 3d79c19fa3
+    line: 371
+    anchor: controls do NOT go in attribute files
+    destination: shared/controls-enrichment.md
+  - id: 7e94f56cc4
+    line: 384
+    anchor: never a ControlClass ID (abstract type defined by a module)
+    destination: shared/controls-enrichment.md
+  - id: 04b1fbe404
+    line: 384
+    anchor: Mixing them up refuses the push with `control_id_not_found`
+    destination: shared/controls-enrichment.md
+  - id: 956138b007
+    line: 386
+    anchor: Three factors determine the path
+    destination: shared/controls-enrichment.md
+  - id: ccbd57b528
+    line: 388
+    anchor: Three factors determine the path
+    destination: shared/controls-enrichment.md
+  - id: 3f2e6c2bba
+    line: 392
+    anchor: '{ id: "<controlid>", name: "<controlname>", source: "declared"'
+    destination: shared/controls-enrichment.md
+  - id: 31f5bc8f1c
+    line: 393
+    anchor: 'first; the tool returns `{ control: { id, name } }`; THEN write `{ id: "<new-control-id>",'
+    destination: shared/controls-enrichment.md
+  - id: 2010e8c56b
+    line: 394
+    anchor: '| `{ id: null, name: "<descriptive name>", source: "declared" }`.'
+    destination: shared/controls-enrichment.md
+  - id: c309eba151
+    line: 396
+    anchor: Default to declared for controls added during the operator's questions
+    destination: shared/controls-enrichment.md
+  - id: 3eb6350489
+    line: 397
+    anchor: default to declared for controls added during
+    destination: shared/controls-enrichment.md
+  - id: 9e911cf798
+    line: 398
+    anchor: "Set `discovered` only when code evidence directly implies the control (e.g., `tls_enabled: true` implies a TLS"
+    destination: shared/controls-enrichment.md
+  - id: 7a9fa48f39
+    line: 399
+    anchor: confirms a control that was also found in code
+    destination: shared/controls-enrichment.md
+  - id: ce08cd1dd5
+    line: 400
+    anchor: — the Analysis Engine does not currently differentiate by source
+    destination: shared/controls-enrichment.md
+  - id: 811bd77260
+    line: 404
+    anchor: Per-instance ControlClass attributes
+    destination: shared/controls-enrichment.md
+  - id: 9556c781e1
+    line: 404
+    anchor: the minimal `{ id, name, source }` reference shape.
+    destination: shared/controls-enrichment.md
+  - id: 42ffbe761a
+    line: 404
+    dropped:
+      reason: The link points into the repository documentation, which a generated bundle does not contain; the rule it supported is carried by the workflow itself.
+      ref: docs/architecture/dethereal/
+  - id: 3dc9c68091
+    line: 408
+    anchor: a control that does not exist
+    destination: shared/controls-enrichment.md
+  - id: 60bdab7780
+    line: 410
+    anchor: valid). When several ControlClasses describe the same real-world mechanism (e.g. Encryption-at-Rest + PG-TDE + KMS for
+    destination: shared/controls-enrichment.md
+  - id: 8b457174de
+    line: 411
+    anchor: "\"source\": \"declared\" } to the element's"
+    destination: shared/controls-enrichment.md
+  - id: 21bea5e9f6
+    line: 412
+    anchor: assigns supports edges, writes the server
+    destination: shared/controls-enrichment.md
+  - id: 8b3736d5cd
+    line: 414
+    anchor: Supersedes the old eager-create path.
+    destination: shared/controls-enrichment.md
+  - id: 7e44162cdb
+    line: 418
+    anchor: populates controls/<id>.json with the platform's current state
+    destination: shared/controls-enrichment.md
+  - id: e8e332bc1e
+    line: 418
+    anchor: "**Do not modify `classes[].attributes` unless the user explicitly asks**"
+    destination: shared/controls-enrichment.md
+  - id: 5b43c2b4e8
+    line: 420
+    anchor: Why the tool and not the file.
+    destination: shared/controls-enrichment.md
+  - id: b2672c4c06
+    line: 422
+    anchor: "action: 'set-local-edited', directory_path: <modeldir>, control_id: <controlid>, class_idx:"
+    destination: shared/control-library.md
+  - id: e711531738
+    line: 433
+    anchor: "two-write rule: `pendingEdit.previousAttributes` captures the FIRST pre-edit value and is never overwritten by"
+    destination: shared/control-library.md
+  - id: 761b02c9c0
+    line: 433
+    anchor: Bypassing the engine corrupts the intent baseline that
+    destination: shared/control-library.md
+  - id: 8015befd93
+    line: 435
+    anchor: 'warn the user: "This edit will trigger the shared-ownership safety prompt at sync time'
+    destination: shared/controls-enrichment.md
+  - id: 5630e88c86
+    line: 437
+    anchor: then the control library's attributes
+    destination: skills/enrich-controls/SKILL.md
+  - id: 10e501f65c
+    line: 437
+    dropped:
+      reason: The link points into the repository documentation, which a generated bundle does not contain; the rule it supported is carried by the workflow itself.
+      ref: docs/architecture/dethereal/
+  - id: ebffccd165
+    line: 441
+    anchor: Sync-Owned Fields (Never Touch Directly)
+    destination: shared/controls-enrichment.md
+  - id: 413637ebe8
+    line: 441
+    anchor: breaks the drift-detection and shared-ownership-safety guarantees
+    destination: shared/controls-enrichment.md
+  - id: a2ee5cc2e5
+    line: 441
+    dropped:
+      reason: The link points into the repository documentation, which a generated bundle does not contain; the rule it supported is carried by the workflow itself.
+      ref: docs/architecture/dethereal/
+  - id: fe09cf68f6
+    line: 445
+    anchor: "For each authenticated cross-boundary flow: when authentication fails, does the system"
+    destination: shared/enrichment-protocol.md
+  - id: f5925d46ad
+    line: 447
+    dropped:
+      reason: "Intended behaviour change: auth_failure_mode takes deny, fallback or fail_open; a field nothing settles stays null (declined), never the stand-in unknown, which the gates count as unresolved."
+      ref: apps/dethereal/workflow/shared/enrichment-protocol.md (Auth failure mode)
+  - id: e7c2930cbe
+    line: 449
+    anchor: Write `auth_failure_mode` to `attributes/dataFlows/<id>.json`.
+    destination: shared/enrichment-protocol.md
+  - id: "6086641365"
+    line: 451
+    anchor: Warnings for dangerous modes, inline
+    destination: shared/enrichment-protocol.md
+  - id: e8c082b459
+    line: 452
+    anchor: 'WARNING: Flow "API Server → Database" has auth_failure_mode: fail_open. This path may be exploitable when the'
+    destination: shared/enrichment-protocol.md
+  - id: a4943106ba
+    line: 456
+    anchor: 'WARNING: Flow "Auth Service → API Server" has auth_failure_mode: fallback. This path degrades to weaker authentication'
+    destination: shared/enrichment-protocol.md
+  - id: "6778567048"
+    line: 461
+    anchor: Known gap (show once per session)
+    destination: shared/enrichment-protocol.md
+  - id: 2a024c2e73
+    line: 462
+    anchor: Flows marked fail_open or fallback may appear more secure than they are in analysis results.
+    destination: shared/enrichment-protocol.md
+  - id: 7f4709a4e5
+    line: 471
+    anchor: Classification does not change the workflow state.
+    destination: shared/classification-protocol.md
+  - id: 6ab7f588df
+    line: 472
+    anchor: after the first confirmed batch, if the state is STRUCTURE_COMPLETE
+    destination: shared/enrichment-protocol.md
+  - id: f48f8b9373
+    line: 473
+    dropped:
+      reason: "Workflow state belongs to the server: the ENRICHING transition goes through the state tool after the operator's reply, never by editing the state file."
+      ref: apps/dethereal/src/tools/manifest.ts (model_state)
+  - id: b23da856a6
+    line: 474
+    dropped:
+      reason: "Workflow state belongs to the server: the ENRICHING transition goes through the state tool after the operator's reply, never by editing the state file."
+      ref: apps/dethereal/src/tools/manifest.ts (model_state)
+  - id: 89aee7e2af
+    line: 475
+    dropped:
+      reason: "Workflow state belongs to the server: the ENRICHING transition goes through the state tool after the operator's reply, never by editing the state file."
+      ref: apps/dethereal/src/tools/manifest.ts (model_state)
+  - id: c613454e80
+    line: 476
+    anchor: re-running enrichment is additive
+    destination: shared/enrichment-protocol.md
+  - id: 2c67857029
+    line: 480
+    anchor: every value you wrote, numbered in the order written
+    destination: shared/enrichment-protocol.md
+  - id: 397b0c08f9
+    line: 482
+    anchor: every value you wrote, numbered in the order written
+    destination: shared/enrichment-protocol.md
+  - id: b834a8f766
+    line: 494
+    anchor: then the rest of the snapshot, then the flows C3 lists as failing
+    destination: shared/enrichment-protocol.md
+  - id: 77fcbe294c
+    line: 494
+    anchor: at most 15 per batch
+    destination: shared/enrichment-protocol.md
+  - id: 3bcc1e2f8c
+    line: 498
+    anchor: "agent, nobody can answer you. Then:"
+    destination: shared/enrichment-protocol.md
+  - id: 53b81067a2
+    line: 498
+    anchor: "agent, nobody can answer you. Then:"
+    destination: shared/enrichment-protocol.md
+  - id: b696b8f136
+    line: 498
+    anchor: "agent, nobody can answer you. Then:"
+    destination: shared/enrichment-protocol.md
+  - id: e2a31fb5e5
+    line: 500
+    dropped:
+      reason: "Intended behaviour change: the specialist no longer writes defensive defaults. A default no source states is proposed in the divergence table and written only when the operator accepts it; observed values are written, and the relay shows every one of them for the operator to keep, revert or change."
+      ref: apps/dethereal/workflow/shared/enrichment-invariants.md
+  - id: 4695643bdb
+    line: 501
+    anchor: markdown the main conversation prints verbatim
+    destination: shared/enrichment-protocol.md
+  - id: 975e63def4
+    line: 502
+    anchor: the other candidate classes you considered and why you did not bind them
+    destination: agents/security-enricher.md
+  - id: 952bf41b25
+    line: 503
+    anchor: the questions you could not settle
+    destination: shared/enrichment-protocol.md
+  - id: a4e7f42f78
+    line: 504
+    anchor: never substitute your judgement for the operator's answer
+    destination: shared/enrichment-protocol.md
+  - id: 2be3f545a4
+    line: 506
+    anchor: never substitute your judgement for the operator's answer
+    destination: shared/enrichment-protocol.md
+  - id: 872a2e89d9
+    line: 510
+    dropped:
+      reason: The specialist returns its tables to the conversation that started it; the footer is the skill's.
+      ref: apps/dethereal/workflow/skills/enrich/SKILL.md
+  - id: 9417a1b08e
+    line: 512
+    dropped:
+      reason: The specialist returns its tables to the conversation that started it; the footer is the skill's.
+      ref: apps/dethereal/workflow/skills/enrich/SKILL.md

@@ -1,0 +1,15 @@
+{
+  "session_id": "<session-id>",
+  "turn_id": "<turn-id>",
+  "transcript_path": "<transcript>",
+  "cwd": "<run>/project/src",
+  "hook_event_name": "PostToolUse",
+  "model": "gpt-6-astra",
+  "permission_mode": "bypassPermissions",
+  "tool_name": "apply_patch",
+  "tool_input": {
+    "command": "*** Begin Patch\n*** Delete File: probe-rel/c.txt\n*** End Patch"
+  },
+  "tool_response": "Exit code: 0\nWall time: 0 seconds\nOutput:\nSuccess. Updated the following files:\nD probe-rel/c.txt\n",
+  "tool_use_id": "<tool-use-id>"
+}

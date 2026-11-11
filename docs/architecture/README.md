@@ -680,9 +680,22 @@ docs/architecture/
 │   ├── DEVELOPMENT_GUIDE.md           # Development guide
 │   └── MODULE_PACKAGE_DESIGN.md       # Module packaging and deployment
 │
-├── dethereal/                         # MCP Server (AI integration)
-│   ├── README.md                      # Quick reference
-│   └── ARCHITECTURE.md                # Complete technical reference
+├── dethereal/                         # Dethereal plugin (Claude Code, Codex, OpenCode); index: dethereal/README.md
+│   ├── README.md                      # Overview and document index
+│   ├── PLUGIN_ARCHITECTURE.md         # Bundles, generator, installer, skills, agents, hooks
+│   ├── MCP_ARCHITECTURE.md            # MCP server technical reference
+│   ├── THREAT_MODELING_WORKFLOW.md    # Guided workflow, quality gates, quick mode
+│   ├── USER_EXPERIENCE.md             # User journey and interaction patterns
+│   ├── SYNC_AND_SOURCE_OF_TRUTH.md    # Push and pull, conflict taxonomy
+│   ├── DRIFT_DETECTION.md             # Model drift after code changes
+│   ├── TRUST_ZONING.md                # Trust zones, planes, domains, conduits
+│   ├── TEMPLATE_STUB_GENERATION.md    # generate_attribute_stubs
+│   ├── CONTROL_INTEGRATION.md         # Control assignment
+│   ├── CONTROL_LIBRARY.md             # Control configuration storage
+│   ├── OPERATIONAL_REQUIREMENTS.md    # Attack surface, detection, compliance
+│   ├── BACKEND_DELEGATION.md          # Server-side vs client-side computation
+│   ├── DECISIONS.md                   # Architecture decisions (D1-D73)
+│   └── ARCHITECTURE.md                # Retired pre-upgrade snapshot (pointer)
 │
 ├── dethernety-threat-report/          # Threat Report module (reporting)
 │   ├── README.md                      # Module overview + doc index
@@ -713,7 +726,7 @@ docs/architecture/
 | **Backend Technical Overview** | [backend/TECHNICAL_OVERVIEW.md](./backend/TECHNICAL_OVERVIEW.md) |
 | **dt-core Package** | [dt-core/](./dt-core/) |
 | **Module System** | [modules/](./modules/) |
-| **MCP Server (Dethereal)** | [dethereal/ARCHITECTURE.md](./dethereal/ARCHITECTURE.md) |
+| **MCP Server (Dethereal)** | [dethereal/](./dethereal/README.md) |
 | **Threat Report Module** | [dethernety-threat-report/](./dethernety-threat-report/README.md) |
 | **Coverage Tools Module** | [dethernety-coverage-tools/](./dethernety-coverage-tools/README.md) |
 

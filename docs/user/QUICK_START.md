@@ -318,4 +318,4 @@ Later starts take well under a minute.
 - **[Managing Findings](MANAGING_FINDINGS.md)**: affirm the findings that are real and dispose of the ones that aren't.
 - **[Component Configuration Guide](COMPONENT_CONFIGURATION_GUIDE.md)**: answer attributes and classify the data your components handle.
 - **[Installing the BYODt Deployment](byodt/INSTALLATION.md)**: every install option.
-- **[Dethereal plugin](dethereal/README.md)**: build models in conversation with Claude Code.
+- **[Dethereal plugin](dethereal/README.md)**: build models in conversation with Claude Code, Codex or OpenCode.

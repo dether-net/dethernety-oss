@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { promises as fs } from 'fs'
 import path from 'path'
+import { execFileSync } from 'child_process'
 import { generateAttributeStubsTool } from '../generate-attribute-stubs.tool.js'
 import type { ToolContext } from '../base-tool.js'
 
@@ -135,6 +136,24 @@ describe('GenerateAttributeStubsTool', () => {
   // -------------------------------------------------------------------------
   // Basic stub generation — no existing file
   // -------------------------------------------------------------------------
+
+  it("records the class's module in its cache entry, and leaves a malformed one out", async () => {
+    await writeModel(tmpDir, makeStructure([
+      { id: 'c-redis', name: 'Redis', type: 'STORE', classData: { id: 'class-redis', name: 'Redis' } },
+      { id: 'c-api', name: 'API', type: 'PROCESS', classData: { id: 'class-api', name: 'API' } },
+    ]))
+    mockGetClassById.mockImplementation(async ({ classId }: { classId: string }) => ({
+      id: classId,
+      name: classId,
+      template: makeClassTemplate({ tls_enabled: { type: 'boolean' } }),
+      module: classId === 'class-redis' ? { id: 'mod-general', name: 'dethernety-general' } : { id: 'bad id', name: 'x' },
+    }))
+    const result = await generateAttributeStubsTool.run({ directory_path: tmpDir }, contextWithClient)
+    expect(result.success).toBe(true)
+    const cached = async (id: string) => JSON.parse(await fs.readFile(path.join(tmpDir, '.dethereal', 'class-cache', `${id}.json`), 'utf-8'))
+    expect((await cached('class-redis')).module).toEqual({ id: 'mod-general', name: 'dethernety-general' })
+    expect(await cached('class-api')).not.toHaveProperty('module')
+  })
 
   it('should create new attribute file from template when none exists', async () => {
     const classId = 'class-redis'
@@ -1091,6 +1110,64 @@ describe('GenerateAttributeStubsTool', () => {
       expect(result.data!.failed[0]!.element_id).toBe('c-ok')
       expect(result.data!.failed[0]!.reason).toContain('disallowed characters')
       expect(mockGetClassById).not.toHaveBeenCalled()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Files the tool cannot read safely
+  // -------------------------------------------------------------------------
+
+  describe('files it cannot read safely', () => {
+    const classId = 'class-redis'
+    beforeEach(async () => {
+      await writeModel(tmpDir, makeStructure([
+        { id: 'c-redis', name: 'Redis', type: 'STORE', classData: { id: classId, name: 'Redis' } },
+      ]))
+      mockGetClassById.mockResolvedValue({
+        id: classId,
+        name: 'Redis',
+        template: makeClassTemplate({ tls_enabled: { type: 'boolean' } }),
+        guide: [],
+      })
+    })
+    const attrPath = () => path.join(tmpDir, 'attributes', 'components', 'c-redis.json')
+
+    it('never overwrites an attribute file too large to read', async () => {
+      const big = JSON.stringify({ elementId: 'c-redis', attributes: { note: 'x'.repeat(1024 * 1024) } })
+      await fs.writeFile(attrPath(), big)
+      const result = await generateAttributeStubsTool.run({ directory_path: tmpDir }, contextWithClient)
+      expect(result.data!.failed).toEqual([
+        { element_id: 'c-redis', reason: 'attributes/components/c-redis.json could not be read (too_large); left unchanged' },
+      ])
+      expect(await fs.readFile(attrPath(), 'utf-8')).toBe(big)
+    })
+
+    it('never overwrites an attribute file that is not valid JSON', async () => {
+      await fs.writeFile(attrPath(), '{ half-edited')
+      const result = await generateAttributeStubsTool.run({ directory_path: tmpDir }, contextWithClient)
+      expect(result.data!.failed[0]!.reason).toContain('not valid JSON')
+      expect(await fs.readFile(attrPath(), 'utf-8')).toBe('{ half-edited')
+    })
+
+    it('does not hang on a FIFO where the attribute file goes', async () => {
+      execFileSync('mkfifo', [attrPath()])
+      const result = await Promise.race([
+        generateAttributeStubsTool.run({ directory_path: tmpDir }, contextWithClient),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('hung')), 2000)),
+      ])
+      expect(result.data!.failed[0]!.reason).toContain('(not_regular)')
+    })
+
+    it('reports a linked cache entry instead of failing the run, and never writes through it', async () => {
+      const target = path.join(tmpDir, 'outside.json')
+      await fs.writeFile(target, 'untouched')
+      await fs.mkdir(path.join(tmpDir, '.dethereal', 'class-cache'), { recursive: true })
+      await fs.symlink(target, path.join(tmpDir, '.dethereal', 'class-cache', `${classId}.json`))
+      const result = await generateAttributeStubsTool.run({ directory_path: tmpDir }, contextWithClient)
+      expect(result.success).toBe(true)
+      expect(result.data!.generated).toBe(1)
+      expect(result.data!.warnings.some((w: string) => w.includes(`class-cache/${classId}.json was not updated (symlink)`))).toBe(true)
+      expect(await fs.readFile(target, 'utf-8')).toBe('untouched')
     })
   })
 })

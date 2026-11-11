@@ -1,0 +1,28 @@
+{
+  "system_name": "OrderDesk",
+  "description": "An online order service for a small shop, running on a managed Kubernetes cluster with a managed PostgreSQL database.",
+  "depth": "architecture",
+  "modeling_intent": "initial",
+  "compliance_drivers": [
+    "PCI-DSS",
+    "GDPR"
+  ],
+  "crown_jewels": [
+    "Customer order records with payment card data"
+  ],
+  "crown_jewel_elements": {
+    "Customer order records with payment card data": [
+      "c-orders-db",
+      "d-order",
+      "d-card"
+    ]
+  },
+  "exclusions": [
+    "Cloud provider internals (the managed Kubernetes control plane and the managed database service)",
+    "The build pipeline"
+  ],
+  "trust_assumptions": [
+    "The payment vendor, the identity provider and the hosted log platform are vetted partners under contract",
+    "The managed Kubernetes control plane and the cloud provider's managed database service are trusted"
+  ]
+}

@@ -4,6 +4,7 @@ import path from 'path'
 import os from 'os'
 import { validateModelTool } from '../validate-model.tool.js'
 import type { ToolContext } from '../base-tool.js'
+import { gateModel, writeGateModel, type GateModel } from '../../utils/__tests__/fixtures/gate-model.js'
 
 const context: ToolContext = { debug: false }
 
@@ -747,5 +748,204 @@ describe('Control Coverage', () => {
     const answered = (await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)).data as any
     expect(answered.credential_hints).toBeUndefined()
     expect(answered.quality_score).toBe(withHints.quality_score)
+  })
+})
+
+describe('Stand-ins in the quality score', () => {
+  let tmpDir: string
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(process.cwd(), '.test-standin-'))
+  })
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true })
+  })
+
+  async function quality(mutate?: (m: GateModel) => void): Promise<any> {
+    const m = gateModel()
+    mutate?.(m)
+    const dir = await fs.mkdtemp(path.join(tmpDir, 'm-'))
+    await writeGateModel(dir, m)
+    return (await validateModelTool.run({ action: 'quality', directory_path: dir }, context)).data
+  }
+
+  const everyValue = (m: GateModel, to: (v: unknown) => unknown) => {
+    for (const group of Object.values(m.attributes)) {
+      for (const file of Object.values(group)) for (const k of Object.keys(file.attributes)) file.attributes[k] = to(file.attributes[k])
+    }
+  }
+
+  it('does not count "unknown" or a blank string as an answer in completion, credentials or controls', async () => {
+    const honest = await quality()
+    const hollow = await quality((m) => everyValue(m, (v) => (typeof v === 'string' ? 'unknown' : Array.isArray(v) ? [''] : v)))
+    expect(hollow.factors.attribute_completion_rate.value).toBeLessThan(honest.factors.attribute_completion_rate.value)
+    expect(honest.factors.credential_coverage_rate.value).toBeGreaterThan(0)
+    expect(hollow.factors.credential_coverage_rate.value).toBe(0)
+    // Only implicit_deny_enabled (a boolean) still evidences a control.
+    const noDeny = await quality((m) => {
+      everyValue(m, (v) => (typeof v === 'string' ? ' Unknown ' : v))
+      for (const f of Object.values(m.attributes.components)) { f.attributes.implicit_deny_enabled = false; f.attributes.monitoring_tools = ['unknown'] }
+    })
+    expect(noDeny.factors.control_coverage_rate.value).toBe(0)
+  })
+
+  it('scores honest "none", false and [] exactly as before', async () => {
+    const r = await quality((m) => Object.assign(m.attributes.components['c-web']!.attributes, { input_validation: 'none', runs_as_root: false }))
+    const base = await quality()
+    expect(r.factors.attribute_completion_rate.value).toBe(base.factors.attribute_completion_rate.value)
+  })
+})
+
+describe('Quality — unreadable model files', () => {
+  it('names the file and a code, never its content or path', async () => {
+    const dir = await fs.mkdtemp(path.join(process.cwd(), '.test-quality-garbage-'))
+    try {
+      await writeGateModel(dir, gateModel())
+      await fs.writeFile(path.join(dir, 'structure.json'), 'needle-quality-7c1d')
+      const result = await validateModelTool.run({ action: 'quality', directory_path: dir }, context)
+      expect(result.success).toBe(false)
+      expect(result.error).toBe('structure.json: invalid json')
+      const zoning = await validateModelTool.run({ action: 'zoning', directory_path: dir }, context)
+      expect(JSON.stringify(zoning)).not.toContain('needle-quality-7c1d')
+      const validate = await validateModelTool.run({ directory_path: dir }, context)
+      expect(JSON.stringify(validate)).not.toContain('needle-quality-7c1d')
+      expect(JSON.stringify(validate)).not.toContain(dir)
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('Credential factor', () => {
+  async function factor(mutate?: (m: GateModel) => void): Promise<any> {
+    const dir = await fs.mkdtemp(path.join(process.cwd(), '.test-credfactor-'))
+    try {
+      const m = gateModel()
+      mutate?.(m)
+      await writeGateModel(dir, m)
+      return ((await validateModelTool.run({ action: 'quality', directory_path: dir }, context)).data as any).factors.credential_coverage_rate
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  }
+
+  it('counts every cross-boundary flow whose credentials are recorded, [] included', async () => {
+    const f = await factor()
+    expect(f.value).toBe(1)
+    expect(f.note).toBe('2 of 6 answered flows record no credential ([])')
+  })
+
+  it('does not count a missing list or a list of placeholders', async () => {
+    const f = await factor((m) => {
+      delete m.attributes.dataFlows['f-submit']!.attributes.required_credentials
+      m.attributes.dataFlows['f-write']!.attributes.required_credentials = ['none']
+    })
+    expect(f.value).toBeCloseTo(4 / 6)
+  })
+})
+
+describe('Quality Score: the elements still open to classification', () => {
+  let tmpDir: string
+  const manifest = { schemaVersion: '2.0.0', format: 'split', model: { id: null, name: 'M', defaultBoundaryId: 'b-1' } }
+  // Unclassified: the internet and partner boundaries, one component, one flow and one data item; classified: the rest.
+  const structure = {
+    defaultBoundary: {
+      id: 'b-1', name: 'System', classData: { id: 'cls-zone', name: 'Zone' }, components: [],
+      boundaries: [
+        { id: 'b-internet', name: 'Internet', components: [{ id: 'c-user', name: 'User', type: 'EXTERNAL_ENTITY', classData: { id: 'cls-user', name: 'User' } }] },
+        { id: 'b-partner', name: 'Partner', components: [] },
+        { id: 'b-app', name: 'App', classData: { id: 'cls-zone', name: 'Zone' }, components: [
+          { id: 'c-web', name: 'Web', type: 'PROCESS', classData: { id: 'cls-web', name: 'Web' } },
+          { id: 'c-legacy', name: 'Legacy', type: 'PROCESS' },
+        ] },
+      ],
+    },
+  }
+  const flows = [
+    { id: 'f-1', name: 'HTTP', source: { id: 'c-user' }, target: { id: 'c-web' }, classData: { id: 'cls-http', name: 'HTTP' } },
+    { id: 'f-2', name: 'Batch', source: { id: 'c-web' }, target: { id: 'c-legacy' } },
+  ]
+  const items = [{ id: 'd-1', name: 'Orders' }]
+  const OPEN = ['b-internet', 'b-partner', 'c-legacy', 'f-2', 'd-1']
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(process.cwd(), '.test-quality-open-'))
+    await fs.writeFile(path.join(tmpDir, 'manifest.json'), JSON.stringify(manifest))
+    await fs.writeFile(path.join(tmpDir, 'structure.json'), JSON.stringify(structure))
+    await fs.writeFile(path.join(tmpDir, 'dataflows.json'), JSON.stringify({ dataFlows: flows }))
+    await fs.writeFile(path.join(tmpDir, 'data-items.json'), JSON.stringify({ dataItems: items }))
+    await fs.mkdir(path.join(tmpDir, '.dethereal'), { recursive: true })
+  })
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true })
+  })
+
+  const discovery = (v: unknown) => fs.writeFile(path.join(tmpDir, '.dethereal', 'discovery.json'), typeof v === 'string' ? v : JSON.stringify(v))
+  const quality = async (detail?: 'summary') => (await validateModelTool.run({ action: 'quality', directory_path: tmpDir, ...(detail ? { detail } : {}) } as never, context)).data as any
+
+  it('counts every unclassified element of the four groups when nothing was left unclassified', async () => {
+    const data = await quality()
+    expect(data.attribute_residual.elements_unclassified).toBe(OPEN.length)
+    expect(data.attribute_residual.unclassified_open).toBe(OPEN.length)
+  })
+
+  it("leaves out the elements discovery.json lists as left_unclassified, by `id`, `element_id` or a bare id", async () => {
+    const before = await quality()
+    await discovery({ version: 1, left_unclassified: [{ id: 'b-internet', reason: 'operator' }, { element_id: 'b-partner', words: 'leave it' }, 'c-legacy'] })
+    const after = await quality()
+    expect(after.attribute_residual.unclassified_open).toBe(2)
+    // The rest of the result does not move.
+    expect(after.attribute_residual.elements_unclassified).toBe(before.attribute_residual.elements_unclassified)
+    expect(after.quality_score).toBe(before.quality_score)
+    expect(after.factors).toEqual(before.factors)
+  })
+
+  it('reaches 0 when every unclassified element was left unclassified, and a classified one listed changes nothing', async () => {
+    await discovery({ left_unclassified: [...OPEN.map((id) => ({ id })), { id: 'c-web' }] })
+    expect((await quality()).attribute_residual.unclassified_open).toBe(0)
+  })
+
+  it('never counts the root container, which is not a classified segment', async () => {
+    // The root unclassified as well: elements_unclassified counts it, unclassified_open does not.
+    const unclassifiedRoot = { defaultBoundary: { ...structure.defaultBoundary, classData: undefined } }
+    await fs.writeFile(path.join(tmpDir, 'structure.json'), JSON.stringify(unclassifiedRoot))
+    let data = await quality()
+    expect(data.attribute_residual.elements_unclassified).toBe(OPEN.length + 1)
+    expect(data.attribute_residual.unclassified_open).toBe(OPEN.length)
+    // Only the root and the elements left unclassified are unclassified: nothing is left to classify.
+    await discovery({ left_unclassified: OPEN.map((id) => ({ id, reason: 'operator' })) })
+    data = await quality()
+    expect(data.attribute_residual.elements_unclassified).toBe(OPEN.length + 1)
+    expect(data.attribute_residual.unclassified_open).toBe(0)
+  })
+
+  it('keeps the field in the summary', async () => {
+    await discovery({ left_unclassified: OPEN })
+    const data = await quality('summary')
+    expect(data.detail).toBe('summary')
+    expect(data.attribute_residual.unclassified_open).toBe(0)
+  })
+
+  it('excludes nothing from a discovery.json it cannot read, or an entry it cannot name', async () => {
+    for (const bad of [
+      '{ not json',
+      [{ id: 'b-internet' }],
+      { left_unclassified: 'b-internet' },
+      { left_unclassified: { 'b-internet': 'operator' } },
+      { left_unclassified: [{ name: 'Internet' }, { id: 7 }, { id: 7, element_id: 'b-internet' }, '', null] },
+      { elements: [], nested: { left_unclassified: [{ id: 'b-internet' }] } },
+    ]) {
+      await discovery(bad)
+      expect((await quality()).attribute_residual.unclassified_open, JSON.stringify(bad)).toBe(OPEN.length)
+    }
+  })
+
+  it('excludes nothing through a discovery.json that is a symlink', async () => {
+    const outside = path.join(tmpDir, 'elsewhere.json')
+    await fs.writeFile(outside, JSON.stringify({ left_unclassified: OPEN }))
+    await fs.symlink(outside, path.join(tmpDir, '.dethereal', 'discovery.json'))
+    expect((await quality()).attribute_residual.unclassified_open).toBe(OPEN.length)
   })
 })

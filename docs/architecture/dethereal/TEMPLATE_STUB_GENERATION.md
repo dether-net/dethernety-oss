@@ -7,7 +7,7 @@ The `generate_attribute_stubs` MCP tool deterministically writes class template 
 Attribute files are a union of two field sources:
 
 1. **Class template fields** — defined by the platform module's JSON Schema (e.g., `ssl_enabled`, `requirepass_present`). OPA policies evaluate these fields to compute exposures.
-2. **Plugin-enrichment fields** — written by the security-enricher agent (e.g., `crown_jewel`, `credential_scope`, `monitoring_tools`). The Analysis Engine reads these for graph algorithms. MITRE ATT&CK tactic coverage is **not** a plugin-enrichment field — it is derived server-side from `Exposure.exploitedBy` after analysis (see [BACKEND_DELEGATION.md §3](BACKEND_DELEGATION.md#mitre-tactic-coverage-derivation)).
+2. **Plugin-enrichment fields** — written during enrichment, from the enricher's observations and the operator's answers (e.g., `credential_scope`, `monitoring_tools`, and `crown_jewel` on non-component elements). A push sends them to the platform with the template fields. MITRE ATT&CK tactic coverage is **not** a plugin-enrichment field — it is derived server-side from `Exposure.exploitedBy` after analysis (see [BACKEND_DELEGATION.md §3](BACKEND_DELEGATION.md#mitre-tactic-coverage-derivation)).
 
 Without template fields on disk, OPA never fires and no exposures are created. The `generate_attribute_stubs` tool closes this gap with a single deterministic call after classification.
 
@@ -16,7 +16,7 @@ Without template fields on disk, OPA never fires and no exposures are created. T
 | Alternative | Why rejected |
 |-------------|-------------|
 | Side-effect in `update_model` | Couples structural editing to template materialization. Classification happens locally long before any `update_model` call. |
-| Hook on Write/Edit | Hooks run as shell scripts — cannot access the Apollo client for GraphQL. Cannot distinguish `classData` changes from name edits without parsing JSON diffs. |
+| Hook on Write/Edit | Hooks run as a separate process with no platform session and never contact the platform — they cannot query class templates over GraphQL. Cannot distinguish `classData` changes from name edits without parsing JSON diffs. |
 | Enhancement to `get_classes` | `get_classes` is a read-only query tool. Writing files is a different concern. |
 | Agent instructions | A 5-step instruction sequence (fetch → extract → read → merge → write) is fragile — may be skipped, produce hallucinated field names, or lose context mid-sequence. |
 
@@ -117,7 +117,6 @@ The tool always writes **structured format** (`ElementAttributes`):
   "elementName": "Redis",
   "classData": { "id": "class-uuid", "name": "Redis" },
   "attributes": {
-    "crown_jewel": true,
     "requirepass_present": null,
     "tls_enabled": null,
     "acl_enabled": null
@@ -126,6 +125,8 @@ The tool always writes **structured format** (`ElementAttributes`):
 ```
 
 Pre-import flat-format files are normalized via `normalizeFlatAttribute()` before merging.
+
+A component's crown-jewel mark is `crownJewel: true` in `structure.json`, the authoritative source; the attribute-file key `crown_jewel` is the plugin field for data items, boundaries and data flows, which have no first-class `crownJewel`.
 
 ## Class Cache
 
@@ -137,6 +138,7 @@ Location: `.dethereal/class-cache/<classId>.json`
   "className": "Redis",
   "classType": "component",
   "componentType": "STORE",
+  "module": { "id": "4f0a1c9e-...", "name": "dethernety-general" },
   "cachedAt": "2026-03-28T20:00:00Z",
   "template": { "schema": { "properties": { ... } } },
   "guide": [{ "option_name": "bind_addresses", "how_to_obtain": "..." }]
@@ -146,11 +148,13 @@ Location: `.dethereal/class-cache/<classId>.json`
 | Concern | Detail |
 |---------|--------|
 | **Written by** | `generate_attribute_stubs` (side-effect of template fetching) |
-| **Read by** | Enrichment agent (guide from disk instead of re-calling `get_classes`), stub generation (offline fallback), `validate_model_json` for both `attribute_completion_rate` and the component-type check below |
+| **Read by** | Enrichment agent (guide from disk instead of re-calling `get_classes`), stub generation (fallback when the platform fetch fails), `validate_model_json` for `attribute_completion_rate`, the component-type check below and Gate 3's C2 (template fields answered on Tier 1–2 components — a component with no usable cached template fails C2 structurally), the registration of the operator's attribute values (whether a field is a template field and the value fits its schema), and the derivation of `manifest.json`'s module list |
 | **Staleness** | >7 days produces advisory warning. Stale cache still usable — template JSON is small and changes only on module version bumps. |
 | **Keyed by** | CLASS id, which survives the local-id → platform-id remap on push. This is why the quality score measures enrichment from the cache rather than from the element-keyed template-field manifests. |
 
 `componentType` is written whenever the fetched class reports a `type`, and omitted otherwise. For a component class it is the declared `PROCESS | STORE | EXTERNAL_ENTITY` — distinct from `classType` above, which is the element category (`component`, `boundary`, `dataflow`, `data`). Only components consume it. Nothing else on disk carries it, so persisting it is what lets `validate_model_json(action: 'validate')` warn offline when a component's own type disagrees with the type its assigned class describes. That mismatch matters because the class's Rego policy is written for the type it declares — see [THREAT_MODELING_WORKFLOW.md §4](THREAT_MODELING_WORKFLOW.md#classification-flow) for the `componentType` filter that prevents it at classification time.
+
+`module` is the `{ id, name }` of the module the platform says provides the class, written when the fetched class reports a well-formed one. It is what lets the server derive `manifest.json`'s module list offline ([MCP_ARCHITECTURE.md §Manifest Modules](MCP_ARCHITECTURE.md#manifest-modules)). An entry cached before the cache recorded modules has none, and a class used only through such an entry fails Gate 2 with `module_unknown` unless its elements carry `classData.module`; running `generate_attribute_stubs` with platform access refreshes the entry.
 
 ## Template Field Manifest
 
@@ -201,15 +205,18 @@ N elements with K unique classes result in K GraphQL fetches, not N. The tool bu
 
 ## Workflow Integration
 
-The tool is called at two points in the threat modeling workflow:
+In the guided workflow, the tool is called after each write of confirmed classes:
 
 1. **Step 3 (Model Review)** — after deterministic classification confirms class assignments
 2. **Step 6 (Classification Pass 2)** — after LLM-assisted classification of remaining elements
+3. **Step 7 (Data Item Classification)** — after the confirmed data items are written, so their attribute files exist before Step 8
+
+Outside those steps, `/dethereal:add`, `/dethereal:classify` and the enrichment protocol (when it creates data items) call it after they write confirmed classes.
 
 The enrichment workflow (Step 8) then reads the template stubs as its checklist: null fields are the values to discover. The enricher reads class guides from the cache rather than re-fetching via `get_classes`.
 
 ## Implementation
 
 - Tool: `src/tools/generate-attribute-stubs.tool.ts` (extends `ClientDependentTool`)
-- Tests: `src/tools/__tests__/generate-attribute-stubs.tool.test.ts` (25 test cases)
-- Registration: `src/tools/index.ts` (tool #20, in `allTools[]` and `clientDependentTools[]`)
+- Tests: `src/tools/__tests__/generate-attribute-stubs.tool.test.ts`
+- Registration: `src/tools/index.ts` (in `allTools[]` and `clientDependentTools[]`)

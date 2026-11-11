@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "harness": "opencode",
+  "version": "<VERSION>",
+  "generatedFrom": "59708494500ba79a9f0642def6442660eb88b6049e1a079633f1c86214c380a5",
+  "contentHash": "a91de5cc3d6eaadc69749795699d4e63304b3d85ff9618aa0fa1fcd26ffc70dd",
+  "files": [
+    {
+      "path": "bundles/opencode/agents/dethereal-enricher.md",
+      "sha256": "ed3500f46be2873d53c634ffd31bd314c00afce57c1b792a985c542511ecae12"
+    },
+    {
+      "path": "bundles/opencode/agents/dethereal-lead.md",
+      "sha256": "e0547ed52534676ee478c2699ba7d3a5af2a0b7113c6740ec87780cb6fd4a84c"
+    },
+    {
+      "path": "bundles/opencode/agents/dethereal-reviewer.md",
+      "sha256": "8011fad6bfc83772b7eba49e5367877a00ce86b4f1072c7b4e208d8c89fc16fc"
+    },
+    {
+      "path": "bundles/opencode/agents/dethereal-scout.md",
+      "sha256": "bfffa5f59a28539f150db112550e8479670d9112bc8cb18ed332b9a0a0e655c8"
+    },
+    {
+      "path": "bundles/opencode/commands/dethereal-audit.md",
+      "sha256": "408f038e757dcdbdbde3fb33c69f80c88d097150e9e95b6d7753956a4c37ec37"
+    },
+    {
+      "path": "bundles/opencode/mcp.fragment.json",
+      "sha256": "49d918e169a990574b5e4b2e21fdd390def3675c4935ffe41a122404c0b2f7d2"
+    },
+    {
+      "path": "bundles/opencode/plugins/dethereal.ts",
+      "sha256": "f3e02fbe1c32083f9911443efd8e171d221ebe2c917f3e96d70dc6c60691dd8c"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-audit/SKILL.md",
+      "sha256": "98589f949f1c2b4b6899c106ab4ec01819c5eae00a775a5ed159df3be87f9548"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-audit/task.md",
+      "sha256": "b965916435f654fed889365f884b88debd2ed8d82a20bc36da95bd88f4d69faa"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-guide/SKILL.md",
+      "sha256": "2f8d1e89e2f3f4a3d6aeeedff83c9713ffa0fb53c372e7bf5adb97a28c56795e"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-guide/reference.md",
+      "sha256": "2b2b74c18bd4aa352b0cb61b9d7b6fd99b5183838e62744312c443c36ed1fd1c"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-orchestrate/SKILL.md",
+      "sha256": "0d303f83aae8ea027153b1fd60a86789af2932a831524cafa88d14369c2479b8"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-status/SKILL.md",
+      "sha256": "c205ab33b3587bb5664ee4edb39f03e86fb51107bc48bb4127b1ce557b0c80e7"
+    }
+  ],
+  "placeholders": [
+    "<node-abs>",
+    "<platform-url>",
+    "<runtime>"
+  ],
+  "runtimePathContract": "~/.dethernety/runtime/current.json"
+}

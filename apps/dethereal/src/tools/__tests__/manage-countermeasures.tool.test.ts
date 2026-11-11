@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { z } from 'zod'
 import type { ToolContext } from '../base-tool.js'
 
-const { mockGetCountermeasure, mockUpdateCountermeasure, mockDeleteCountermeasure } = vi.hoisted(() => ({
+const { mockGetCountermeasure, mockUpdateCountermeasure, mockDeleteCountermeasure, mockCreateCountermeasure } = vi.hoisted(() => ({
   mockGetCountermeasure: vi.fn(),
   mockUpdateCountermeasure: vi.fn(),
   mockDeleteCountermeasure: vi.fn(),
+  mockCreateCountermeasure: vi.fn(),
 }))
 
 vi.mock('@dethernety/dt-core', async (importOriginal) => {
@@ -16,6 +18,7 @@ vi.mock('@dethernety/dt-core', async (importOriginal) => {
       getCountermeasure = mockGetCountermeasure
       updateCountermeasure = mockUpdateCountermeasure
       deleteCountermeasure = mockDeleteCountermeasure
+      createCountermeasure = mockCreateCountermeasure
     },
   }
 })
@@ -31,12 +34,9 @@ describe('ManageCountermeasuresTool', () => {
     expect(manageCountermeasuresTool.requiresClient).toBe(true)
   })
 
-  it('should accept list action with control_id', () => {
-    const result = manageCountermeasuresTool.inputSchema.safeParse({
-      action: 'list',
-      control_id: 'ctrl-123'
-    })
-    expect(result.success).toBe(true)
+  it('refuses the read actions: listing and reading countermeasures is query_countermeasures\'', () => {
+    expect(manageCountermeasuresTool.inputSchema.safeParse({ action: 'list', control_id: 'ctrl-123' }).success).toBe(false)
+    expect(manageCountermeasuresTool.inputSchema.safeParse({ action: 'get', countermeasure_id: 'cm-1' }).success).toBe(false)
   })
 
   it('should reject list action without control_id', () => {
@@ -54,8 +54,8 @@ describe('ManageCountermeasuresTool', () => {
       description: 'Encrypt data in transit',
       score: 80,
       exposure_ids: ['exp-1', 'exp-2'],
-      defend_technique_ids: ['D3-AL'],
-      mitigations: [{ id: 'M1036' }],
+      defend_technique_ids: ['def-node-al'],
+      mitigations: [{ id: 'mit-node-1036' }],
       references: 'https://example.com'
     })
     expect(result.success).toBe(true)
@@ -113,8 +113,8 @@ describe('ManageCountermeasuresTool.execute — update merge-defaults', () => {
     references: 'https://example.com',
     addressedExposures: ['exp-1', 'exp-2'],
     tags: [],
-    defendedTechniques: [{ id: 'D3-AL' }],
-    mitigations: [{ id: 'M1036' }],
+    defendedTechniques: [{ id: 'def-node-al' }],
+    mitigations: [{ id: 'mit-node-1036' }],
     createdBy: 'USER',
   }
 
@@ -143,8 +143,8 @@ describe('ManageCountermeasuresTool.execute — update merge-defaults', () => {
         score: 80,
         references: 'https://example.com',
         addressedExposures: ['exp-1', 'exp-2'],
-        defendedTechniques: [{ id: 'D3-AL' }],
-        mitigations: [{ id: 'M1036' }],
+        defendedTechniques: [{ id: 'def-node-al' }],
+        mitigations: [{ id: 'mit-node-1036' }],
       }),
     })
   })
@@ -158,7 +158,7 @@ describe('ManageCountermeasuresTool.execute — update merge-defaults', () => {
         action: 'update',
         countermeasure_id: 'cm-1',
         exposure_ids: ['exp-9'],
-        defend_technique_ids: ['D3-NTA'],
+        defend_technique_ids: ['def-node-nta'],
       } as never,
       context,
     )
@@ -167,8 +167,8 @@ describe('ManageCountermeasuresTool.execute — update merge-defaults', () => {
       countermeasureId: 'cm-1',
       countermeasure: expect.objectContaining({
         addressedExposures: ['exp-9'],
-        defendedTechniques: [{ id: 'D3-NTA' }],
-        mitigations: [{ id: 'M1036' }],
+        defendedTechniques: [{ id: 'def-node-nta' }],
+        mitigations: [{ id: 'mit-node-1036' }],
       }),
     })
   })
@@ -200,7 +200,7 @@ describe('ManageCountermeasuresTool.execute — a SYSTEM countermeasure is not u
     addressedExposures: [],
     tags: [],
     defendedTechniques: [],
-    mitigations: [{ id: 'M1030' }],
+    mitigations: [{ id: 'mit-node-1030' }],
     createdBy: 'SYSTEM',
   }
 
@@ -211,8 +211,8 @@ describe('ManageCountermeasuresTool.execute — a SYSTEM countermeasure is not u
 
   // Link edits, the exposure list and the plain fields alike: the next save of the control would undo each.
   const edits: Array<[string, Record<string, unknown>]> = [
-    ['mitigations', { mitigations: [{ id: 'M1032' }] }],
-    ['defend_technique_ids', { defend_technique_ids: ['D3-MFA'] }],
+    ['mitigations', { mitigations: [{ id: 'mit-node-1032' }] }],
+    ['defend_technique_ids', { defend_technique_ids: ['def-node-mfa'] }],
     ['exposure_ids', { exposure_ids: ['exp-1'] }],
     ['description', { description: 'Edited' }],
     ['score', { score: 90 }],
@@ -315,6 +315,83 @@ describe('ManageCountermeasuresTool — delete reports the outcome it actually g
     expect(res.success).toBe(false)
     expect(res.error).toMatch(/not found/i)
     expect(mockDeleteCountermeasure).not.toHaveBeenCalled()
+  })
+})
+
+describe('ManageCountermeasuresTool — links take node ids, never MITRE codes', () => {
+  const context: ToolContext = { debug: false, apolloClient: {} as never }
+
+  beforeEach(() => {
+    mockGetCountermeasure.mockReset()
+    mockUpdateCountermeasure.mockReset()
+    mockCreateCountermeasure.mockReset()
+  })
+
+  it('says in both link fields that they take node ids, and how to find one', () => {
+    const props = (z.toJSONSchema(manageCountermeasuresTool.inputSchema, { target: 'draft-07' }) as { properties: Record<string, { description?: string }> }).properties
+    for (const [field, lookup, code] of [['mitigations', 'search_mitre_attack', 'M1032'], ['defend_technique_ids', 'get_mitre_defend', 'D3-MFA']] as const) {
+      const text = props[field]!.description as string
+      expect(text).toContain("node id")
+      expect(text).toContain(lookup)
+      expect(text).toContain(code)
+    }
+  })
+
+  it.each([
+    ['an ATT&CK mitigation code', { mitigations: [{ id: 'M1032' }] }, 'M1032'],
+    ['a D3FEND code', { defend_technique_ids: ['D3-MFA'] }, 'D3-MFA'],
+    ['an ATT&CK technique code', { defend_technique_ids: ['T1078.004'] }, 'T1078.004'],
+    ['a code in lower case', { mitigations: [{ id: 'm1032' }] }, 'm1032'],
+  ])('refuses %s on create, before anything is read or written', async (_what, links, code) => {
+    const result = await manageCountermeasuresTool.execute({ action: 'create', control_id: 'ctrl-1', name: 'MFA', ...links } as never, context)
+    expect(result.success).toBe(false)
+    expect(result.data).toEqual({ code: 'mitre_code_not_node_id', codes: [code] })
+    expect(result.error).toContain('search_mitre_attack')
+    expect(result.error).toContain('get_mitre_defend')
+    expect(result.error).toContain('Nothing was written')
+    expect(mockCreateCountermeasure).not.toHaveBeenCalled()
+  })
+
+  it('refuses a code on update before reading the countermeasure', async () => {
+    const result = await manageCountermeasuresTool.execute({ action: 'update', countermeasure_id: 'cm-1', defend_technique_ids: ['def-node-1', 'D3-NTA'] } as never, context)
+    expect(result.success).toBe(false)
+    expect((result.data as any).codes).toEqual(['D3-NTA'])
+    expect(mockGetCountermeasure).not.toHaveBeenCalled()
+    expect(mockUpdateCountermeasure).not.toHaveBeenCalled()
+  })
+
+  it('links node ids and reports success when every requested link is held', async () => {
+    mockCreateCountermeasure.mockResolvedValueOnce({ id: 'cm-9', name: 'MFA', mitigations: [{ id: 'mit-node-1032' }], defendedTechniques: [{ id: 'def-node-mfa' }] })
+    const result = await manageCountermeasuresTool.execute({ action: 'create', control_id: 'ctrl-1', name: 'MFA', mitigations: [{ id: 'mit-node-1032' }], defend_technique_ids: ['def-node-mfa'] } as never, context)
+    expect(result.success).toBe(true)
+    expect(mockCreateCountermeasure).toHaveBeenCalledWith(expect.objectContaining({
+      countermeasure: expect.objectContaining({ mitigations: [{ id: 'mit-node-1032' }], defendedTechniques: [{ id: 'def-node-mfa' }] }),
+    }))
+  })
+
+  it('reports ids that linked nothing on create, with success false and the created countermeasure', async () => {
+    mockCreateCountermeasure.mockResolvedValueOnce({ id: 'cm-9', name: 'MFA', mitigations: [], defendedTechniques: [{ id: 'def-node-mfa' }] })
+    const result = await manageCountermeasuresTool.execute({ action: 'create', control_id: 'ctrl-1', name: 'MFA', mitigations: [{ id: 'not-a-node' }], defend_technique_ids: ['def-node-mfa'] } as never, context)
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('cm-9')
+    expect(result.error).toContain('not-a-node')
+    expect((result.data as any).not_linked).toEqual({ mitigations: ['not-a-node'], defend_technique_ids: [] })
+    expect((result.data as any).countermeasure.id).toBe('cm-9')
+  })
+
+  it('checks only the lists an update gave, not the links it preserved', async () => {
+    const current = { id: 'cm-1', name: 'TLS', createdBy: 'USER', mitigations: [{ id: 'mit-node-1' }], defendedTechniques: [{ id: 'def-node-1' }] }
+    mockGetCountermeasure.mockResolvedValueOnce(current)
+    // The platform answers without the preserved mitigation: not this call's to report.
+    mockUpdateCountermeasure.mockResolvedValueOnce({ ...current, mitigations: [], defendedTechniques: [{ id: 'def-node-2' }] })
+    const ok = await manageCountermeasuresTool.execute({ action: 'update', countermeasure_id: 'cm-1', defend_technique_ids: ['def-node-2'] } as never, context)
+    expect(ok.success).toBe(true)
+
+    mockGetCountermeasure.mockResolvedValueOnce(current)
+    mockUpdateCountermeasure.mockResolvedValueOnce({ ...current, defendedTechniques: [] })
+    const missing = await manageCountermeasuresTool.execute({ action: 'update', countermeasure_id: 'cm-1', defend_technique_ids: ['def-node-gone'] } as never, context)
+    expect(missing.success).toBe(false)
+    expect((missing.data as any).not_linked).toEqual({ mitigations: [], defend_technique_ids: ['def-node-gone'] })
   })
 })
 

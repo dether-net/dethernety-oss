@@ -1,0 +1,57 @@
+{
+  "elementId": "c-orders-db",
+  "elementType": "component",
+  "elementName": "Orders database",
+  "classData": {
+    "id": "1a92b7a3-eaf7-4f25-8702-77c3044cf735",
+    "name": "Relational Database"
+  },
+  "attributes": {
+    "parameterized_queries_used": true,
+    "dynamic_sql_avoided": true,
+    "app_role_not_superuser_or_ddl": true,
+    "strong_db_auth_method_enforced": true,
+    "no_blank_or_default_db_passwords": true,
+    "anonymous_db_accounts_removed": true,
+    "default_accounts_removed_or_changed": true,
+    "least_privilege_access_enforced": true,
+    "role_grants_least_privilege": true,
+    "public_schema_create_revoked": true,
+    "db_not_publicly_accessible": true,
+    "listen_addresses_restricted": true,
+    "host_access_rules_scoped": true,
+    "network_firewall_restricts_db_port": true,
+    "tls_only_transport": false,
+    "server_certificate_validated": false,
+    "weak_tls_versions_enabled": false,
+    "min_tls_version": "TLSv1.2",
+    "storage_encryption_enabled": true,
+    "encrypted_at_rest": true,
+    "customer_managed_key_used": true,
+    "db_credentials_in_secret_manager": false,
+    "dynamic_short_lived_db_credentials_used": false,
+    "db_credentials_not_in_code_or_repo": false,
+    "db_credentials_rotated_regularly": false,
+    "backups_encrypted": true,
+    "point_in_time_recovery_enabled": true,
+    "backup_access_restricted": true,
+    "backup_immutability_enabled": false,
+    "database_audit_logging_enabled": true,
+    "log_connections_enabled": true,
+    "logs_stored_on_separate_system": true,
+    "log_retention_days": 30,
+    "unpatched_known_rce_cve": false,
+    "authentication_type": "password (scram-sha-256)",
+    "encryption_in_transit": "TLS optional (not enforced)",
+    "encryption_at_rest": "AES-256 with a customer-managed KMS key",
+    "implicit_deny_enabled": true,
+    "monitoring_tools": [
+      "CloudWatch Logs",
+      "pgaudit"
+    ],
+    "credential_scope": [
+      "orders-db-credentials",
+      "orders-db-admin"
+    ]
+  }
+}

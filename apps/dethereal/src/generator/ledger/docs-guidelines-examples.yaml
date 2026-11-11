@@ -1,0 +1,104 @@
+source: docs/guidelines-examples.md
+blob: fc962b5cc393f2974512b714afde21ab2a8b2a27
+migrated: true
+rules:
+  - id: da5c500a35
+    line: 5
+    anchor: A web application with a React frontend, Node.js API, and PostgreSQL database.
+    destination: shared/guidelines-examples.md
+  - id: 407b617c8d
+    line: 5
+    anchor: "Three trust boundaries: Internet Zone, DMZ, Internal Network."
+    destination: shared/guidelines-examples.md
+  - id: 96d986ee01
+    line: 9
+    anchor: '{ "schemaVersion": "2.0.0", "format": "split", "model": { "id": null, "name": "Web Application", "description": "React frontend with'
+    destination: shared/guidelines-examples.md
+  - id: dd7e294c64
+    line: 31
+    anchor: '{ "defaultBoundary": { "id": "b-system", "name": "Web Application System", "description": "Root boundary for the web application",'
+    destination: shared/guidelines-examples.md
+  - id: 7cdd8a9c0b
+    line: 139
+    anchor: '{ "dataFlows": [ { "id": "f-users-frontend", "name": "HTTPS requests", "description": "User browser requests to the web'
+    destination: shared/guidelines-examples.md
+  - id: 367c7a34a7
+    line: 175
+    anchor: '{ "dataItems": [ { "id": "di-user-credentials", "name": "User Credentials", "description": "Usernames, passwords, and session tokens" },'
+    destination: shared/guidelines-examples.md
+  - id: 94cb193958
+    line: 194
+    anchor: "`generate_attribute_stubs` writes this file at classification time in the structured `ElementAttributes` format, with every class-template field"
+    destination: shared/guidelines-examples.md
+  - id: 52c06536cb
+    line: 194
+    anchor: Enrichment resolves those nulls in place and adds plugin-enrichment fields.
+    destination: shared/guidelines-examples.md
+  - id: b6149d21f9
+    line: 194
+    anchor: Always merge — never overwrite.
+    destination: shared/guidelines-examples.md
+  - id: 9ef4608059
+    line: 196
+    anchor: '{ "elementId": "c-db", "elementType": "component", "elementName": "PostgreSQL", "classData": { "id": "<class-uuid>", "name": "PostgreSQL Database" }, "attributes":'
+    destination: shared/guidelines-examples.md
+  - id: a4ceb43e66
+    line: 223
+    anchor: "`row_level_security_policies` is still `null` — a template field nobody has answered yet."
+    destination: shared/guidelines-examples.md
+  - id: 35f36bd769
+    line: 223
+    anchor: It is withheld from the push and counts against `attribute_completion_rate` until it is resolved to a
+    destination: shared/guidelines-examples.md
+  - id: 385450d2d4
+    line: 225
+    anchor: "**Class-template fields** (top of `attributes`): `ssl_enabled`, `password_encryption`, `hba_auth_method`, etc. — discovered from `postgresql.conf`, `pg_hba.conf`, and IaC."
+    destination: shared/guidelines-examples.md
+  - id: 5b0b80cc1c
+    line: 225
+    anchor: The class template defines these; the guide's `how_to_obtain` tells the agent where to find values.
+    destination: shared/guidelines-examples.md
+  - id: 87e8d740e6
+    line: 227
+    anchor: "**Plugin-enrichment fields** (bottom of `attributes`): `credential_scope`, `monitoring_tools` — added by the agent for the platform's analysis."
+    destination: shared/guidelines-examples.md
+  - id: 40ab860851
+    line: 227
+    anchor: Not evaluated by OPA but preserved alongside template fields.
+    destination: shared/guidelines-examples.md
+  - id: cbd90a6bf9
+    line: 227
+    anchor: (Crown-jewel tagging is the first-class `crownJewel` field on the component in `structure.json`, not an attribute-file field.)
+    destination: shared/guidelines-examples.md
+  - id: fff81a95da
+    line: 231
+    anchor: "**IDs** use descriptive prefixes (`b-`, `c-`, `f-`, `di-`) during creation. The platform replaces them with UUIDs"
+    destination: shared/guidelines-examples.md
+  - id: e28d10f3ce
+    line: 232
+    anchor: "**`model.id`** is `null` for new models. Set after first platform import."
+    destination: shared/guidelines-examples.md
+  - id: 589315bb09
+    line: 233
+    anchor: "stays `[]` in a new model: the server derives it"
+    destination: shared/guidelines-examples.md
+  - id: f6b0371f50
+    line: 234
+    anchor: "**`parentBoundary`** references link each element to its containing boundary."
+    destination: shared/guidelines-examples.md
+  - id: 3b0bd5d76e
+    line: 235
+    anchor: "**Positions** are relative to the parent boundary, not the canvas root."
+    destination: shared/guidelines-examples.md
+  - id: 8a202bb8f5
+    line: 236
+    anchor: "**STORE handles** are `left`/`right` only (see `f-api-db` using `right` on the STORE target)."
+    destination: shared/guidelines-examples.md
+  - id: 75ccbece7c
+    line: 237
+    anchor: "**Attribute files** contain both class-template and plugin fields, nested under `attributes`. Always read before writing; merge,"
+    destination: shared/guidelines-examples.md
+  - id: 85db30c3a9
+    line: 238
+    anchor: "**Asset signals** are first-class structural fields, not attributes: `crownJewel` on a component in `structure.json`, `sensitivity` and"
+    destination: shared/guidelines-examples.md

@@ -1,0 +1,18 @@
+{
+  "elementId": "f-orders-db",
+  "elementType": "dataFlow",
+  "elementName": "Orders queries",
+  "classData": {
+    "id": "9b29a354-9ad5-408b-85c3-2da624d935b1",
+    "name": "Database Query"
+  },
+  "attributes": {
+    "auth_failure_mode": "deny",
+    "encryption_in_transit": "none",
+    "flow_tls_encrypted": false,
+    "required_credentials": [
+      "orders-db-credentials"
+    ],
+    "credential_type": "password"
+  }
+}

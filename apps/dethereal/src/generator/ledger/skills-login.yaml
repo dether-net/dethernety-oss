@@ -1,0 +1,45 @@
+source: skills/login/SKILL.md
+blob: 7c6d3bd58fbdea8d6ed9f7fc9b32db7e7021ab54
+migrated: true
+rules:
+  - id: 5e70043fe2
+    line: 6
+    anchor: sign in to the dethernety platform
+    destination: skills/login/SKILL.md
+  - id: 8c6e839491
+    line: 10
+    anchor: a fresh sign-in even when a session exists
+    destination: skills/login/SKILL.md
+  - id: 512ac22a15
+    line: 12
+    anchor: session credentials never appear in the result
+    destination: skills/login/SKILL.md
+  - id: 3c6e960802
+    line: 14
+    anchor: means the session was already valid
+    destination: skills/login/SKILL.md
+  - id: a603b077a1
+    line: 22
+    anchor: that it was renewed
+    destination: skills/login/SKILL.md
+  - id: 75eff0ad69
+    line: 30
+    dropped:
+      reason: "Superseded: a sign-in is reported by its outcome (signed in, already signed in, session renewed) with the account; session credentials and their lifetime never appear in the result."
+      ref: apps/dethereal/workflow/skills/login/SKILL.md
+  - id: a0e4fa46c7
+    line: 38
+    anchor: every tool works without signing in
+    destination: skills/login/SKILL.md
+  - id: bdda62e540
+    line: 44
+    anchor: is set correctly and the platform is reachable. ```
+    destination: skills/login/SKILL.md
+  - id: 4fe708986c
+    line: 50
+    anchor: after signing in, a renewed session or disabled authentication
+    destination: skills/login/SKILL.md
+  - id: cfb0b8b72e
+    line: 51
+    anchor: to check your models, or
+    destination: skills/login/SKILL.md

@@ -31,12 +31,17 @@ import { promises as fs } from 'fs'
 const { mockHome, harness } = vi.hoisted(() => ({
   // Redirect the token store's hardcoded ~/.dethernety into a sandbox dir.
   // CONFIG_DIR is computed at module load, so the mock must be in place first.
-  mockHome: { dir: `${process.cwd()}/.test-oauth-scope-home` },
+  mockHome: { // Unique per run: two runs of one checkout must not share a sandbox.
+  dir: `${process.cwd()}/.test-oauth-scope-home-${process.pid}-${Math.random().toString(36).slice(2, 10)}` },
   harness: {
     /** What the platform advertises as `oidcScope`; undefined = advertises none. */
     oidcScope: undefined as string | undefined,
-    /** The authorization URL production actually opened. */
+    /** The authorization URL production registered for the local /start redirect. */
     authUrl: undefined as string | undefined,
+    /** The URL production handed to the browser launcher. */
+    openedUrl: undefined as string | undefined,
+    /** The state production handed to the callback server. */
+    serverState: undefined as string | undefined,
     /** How many times a browser was opened. */
     browserOpens: 0,
     /** Every form body POSTed to the token endpoint, in order. */
@@ -85,7 +90,7 @@ vi.mock('../browser.js', async (importOriginal) => {
     ...actual,
     openBrowser: vi.fn(async (url: string) => {
       harness.browserOpens += 1
-      harness.authUrl = url
+      harness.openedUrl = url
     }),
   }
 })
@@ -94,10 +99,15 @@ vi.mock('../oauth-server.js', async (importOriginal) => {
   const actual = (await importOriginal()) as typeof import('../oauth-server.js')
   return {
     ...actual,
-    startCallbackServer: vi.fn(async () => ({
+    startCallbackServer: vi.fn(async (options: { state: string }) => ({
       port: 9876,
       callbackUrl: 'http://localhost:9876/callback',
-      // Echo the state back off the URL production opened, so the flow's own
+      startUrl: 'http://127.0.0.1:9876/start',
+      setAuthorizationUrl: (url: string) => {
+        harness.serverState = options.state
+        harness.authUrl = url
+      },
+      // Echo the state back off the URL production registered, so the flow's own
       // CSRF check passes without this test ever knowing the state value.
       waitForCallback: async () => ({
         code: 'test-authorization-code',
@@ -177,6 +187,8 @@ describe('performLogin — OAuth scope', () => {
     process.env.DETHERNETY_URL = BASE_URL
     harness.oidcScope = undefined
     harness.authUrl = undefined
+    harness.openedUrl = undefined
+    harness.serverState = undefined
     harness.browserOpens = 0
     harness.tokenBodies = []
     harness.tokenResponse = tokenEndpointGrants(WIDE_SCOPE)
@@ -187,6 +199,21 @@ describe('performLogin — OAuth scope', () => {
     if (originalUrl === undefined) delete process.env.DETHERNETY_URL
     else process.env.DETHERNETY_URL = originalUrl
     await fs.rm(mockHome.dir, { recursive: true, force: true })
+  })
+
+  describe('the browser step', () => {
+    it('opens the local /start route, never the authorization URL itself', async () => {
+      const result = await performLogin()
+
+      expect(result.success).toBe(true)
+      expect(harness.openedUrl).toBe('http://127.0.0.1:9876/start')
+      const auth = new URL(harness.authUrl!)
+      expect(auth.searchParams.get('code_challenge_method')).toBe('S256')
+      expect(auth.searchParams.get('redirect_uri')).toBe('http://localhost:9876/callback')
+      // The server is told the same state the authorization request carries.
+      expect(harness.serverState).toBeTruthy()
+      expect(auth.searchParams.get('state')).toBe(harness.serverState)
+    })
   })
 
   describe('the scope is requested', () => {
@@ -246,8 +273,8 @@ describe('performLogin — OAuth scope', () => {
       await seedStoredSession({
         grantedScope: BASE_SCOPE,
         expiresAt: Date.now() - 1000, // expired
-        // saveTokens stamps a fresh issuedAt, so the refresh token is valid —
-        // the refresh arm is genuinely reachable and genuinely declined.
+        // The session has a refresh token the provider never rejected, so the
+        // refresh arm is genuinely reachable and genuinely declined.
       })
 
       const result = await performLogin()

@@ -20,5 +20,6 @@
     "exactOptionalPropertyTypes": false
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  // The generator goldens are byte copies of generator output; their sources are type-checked.
+  "exclude": ["node_modules", "dist", "src/generator/goldens", "src/generator/package-goldens"]
 }

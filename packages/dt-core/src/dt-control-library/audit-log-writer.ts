@@ -25,9 +25,9 @@
  *   appears as a sibling field so the first-write information is still
  *   captured without losing the higher-stakes governance discriminator.
  *
- * Path: `<modelDir>/.dethereal/control-audit.log` per CL §6 + DEC-CL-12.
- * **Committed to the repository** (not gitignored — overrides the typical
- * `.dethereal/` gitignore convention specifically for this filename).
+ * Path: `<modelDir>/.dethereal/control-audit.log`. **Per-machine and
+ * ignored**, like the other per-machine files in `.dethereal/`; it is no longer
+ * committed with the model.
  *
  * Append happens AFTER the platform mutation has acknowledged success;
  * a crash mid-append leaves the log without the entry but the platform
@@ -35,28 +35,21 @@
  * crash detects the now-applied edit as already-pushed and does not
  * re-prompt.
  *
- * **Secret-handling caveat (CL Appendix A.7).** This writer records
- * `attributesPushed` and `previousAttributes` verbatim — including any
- * secret-like values (`api_key`, `password`, `vault_token_ref`, etc.).
- * Combined with the commit-to-repo convention above, secrets that flow
- * through here become permanent in git history. V1 does NOT auto-redact;
- * operators with secret-bearing Controls should either gitignore
- * `control-audit.log` for that repo OR store secrets out-of-band (vault
- * refs, env-var indirection on the platform side) rather than as literal
- * Control attribute values. The `/dethereal:sync` skill emits a one-time
- * NOTE in the post-push summary pointing at this caveat.
+ * **No values (schemaVersion 2).** An entry never records an attribute value.
+ * Every value field (`attributesPushed`, `previousAttributes`, a conflict's
+ * `ours` / `theirs` / `merged`) holds the value's tag instead: a MAC under this
+ * machine's key over the attribute key and the canonical value, supplied by the
+ * caller (this library holds no key). A tag says "changed / the same value as
+ * that entry" on this machine and is useless anywhere else. With no tagger the
+ * values are omitted (`values: 'omitted'`, with the caller's reason code). The
+ * same tagged entries are what a push returns as `auditEntries`. Entries written
+ * before schemaVersion 2 hold values verbatim; they are never rewritten.
  *
- * **V1 trust model.** Each entry carries two attribution fields:
+ * **Trust model.** Each entry carries one attribution field:
  *
- * - `operator` — locally-claimed identity (from `git config user.email`).
- *   The operator can spoof this by setting any value in their git config
- *   or via `GIT_AUTHOR_EMAIL`. Kept because there's a legitimate use case:
- *   a developer's commit identity legitimately differs from their corp SSO
- *   email.
  * - `authnOperator` — JWT-anchored identity (the `email` / `sub` claim
  *   from the OIDC token that authorised the platform mutation). The
- *   platform-anchored truth. A mismatch with `operator` is a forensic
- *   signal worth investigating. Three states:
+ *   platform-anchored truth. Three states:
  *     - field **absent** (`undefined`) → older entry, pre-dates the
  *       field. Treat as "attribution unknown for back-compat reasons."
  *     - field **present** with an email/sub value → JWT decode succeeded;
@@ -66,34 +59,28 @@
  *       impossible from this side. Distinct from the back-compat absence
  *       so an auditor can tell "no token" apart from "old entry."
  *
- * **What V1 does NOT provide:** tamper-evidence on the log file itself.
- * The "git history is the second layer" defence relies on the operator
- * actually committing `.dethereal/control-audit.log`, which the skill
- * recommends but does not enforce. A malicious operator with write access
- * to the file can `sed -i` an entry out without breaking the log; only
- * external git history (already pushed to the remote) catches that.
- * V1.1 closes this gap with `prevEntryHash: sha256(prevEntry)` chaining.
- * Until then, treat the log as "honest under cooperative operators",
- * not as a tamper-resistant store.
+ * Older entries may also carry `operator`, a self-asserted identity (a git
+ * `user.email`, or `<user>@unknown`). It is no longer written: in a log kept
+ * on the operator's own machine it adds nothing over `authnOperator`.
+ *
+ * **What it does NOT provide:** tamper-evidence. The log is a local record
+ * on the operator's own machine: anyone with write access to the file can
+ * edit it. The authoritative record of a cross-model write is the platform's.
  */
 
 /**
  * Lazy Node-module loaders — see wal-helper.ts header for why static
- * `node:fs/promises`, `node:child_process`, and `node:path` are forbidden
- * at the top level (they would tag the @dethernety/dt-core barrel
- * browser-incompatible and break the studio bundle).
+ * `node:fs/promises` and `node:path` are forbidden at the top level (they
+ * would tag the @dethernety/dt-core barrel browser-incompatible and break
+ * the studio bundle). This module starts no process.
  */
+import { ensureRealDirs, UnsafePathError } from './wal-helper.js';
+
 type FsModule = typeof import('node:fs/promises');
 let _fs: FsModule | undefined;
 async function loadFs(): Promise<FsModule> {
   if (!_fs) _fs = await import('node:fs/promises');
   return _fs;
-}
-type ChildProcessModule = typeof import('node:child_process');
-let _cp: ChildProcessModule | undefined;
-async function loadChildProcess(): Promise<ChildProcessModule> {
-  if (!_cp) _cp = await import('node:child_process');
-  return _cp;
 }
 
 /** POSIX-style path helpers — see wal-helper.ts for why we don't use `node:path`,
@@ -112,14 +99,30 @@ function join(...parts: string[]): string {
     .filter(p => p.length > 0)
     .join('/');
 }
-function dirname(p: string): string {
-  const idx = p.lastIndexOf('/');
-  if (idx < 0) return '.';
-  if (idx === 0) return '/';
-  return p.slice(0, idx);
-}
 
 const AUDIT_LOG_RELATIVE_PATH = '.dethereal/control-audit.log';
+
+/** How an entry records values: tagged with this machine's key, or left out. */
+export type AuditValues = 'hmac' | 'omitted';
+
+/** The tag of one value under one attribute key (`undefined`: the value is absent). */
+export type AuditValueTagger = (attrKey: string, value: unknown) => string;
+
+/** What the caller supplies to tag values: a tagger, or why there is none. */
+export interface AuditValueTags {
+  tag?: AuditValueTagger;
+  /** Why values are omitted, when there is no tagger (the caller's key refusal code) */
+  omittedCode?: string;
+}
+
+/** A conflict resolution as the log records it: its values as tags, or left out. */
+export interface RecordedConflictResolution {
+  key: string;
+  chosen: 'ours' | 'theirs' | 'merge';
+  ours?: string;
+  theirs?: string;
+  merged?: string;
+}
 
 /**
  * One conflict-resolution decision recorded per per-key conflict during
@@ -143,7 +146,7 @@ export interface ConflictResolution {
  * preserve readability of older entries that the writer has appended in
  * past releases:
  *
- * - `editedBy?` — CL §4 attribution discriminator. Earlier entries lack
+ * - `editedBy?` — CONTROL_LIBRARY.md §4 attribution discriminator. Earlier entries lack
  *   it; readers MUST tolerate absence (treat as "attribution unknown —
  *   could be agent or operator").
  * - `authnOperator?` — JWT anchor. Older entries lack it; see the
@@ -151,16 +154,17 @@ export interface ConflictResolution {
  *   (absent / present-as-claim / present-as-`'unauthenticated'`).
  *
  * Future cleanups MUST NOT promote either field to required without a
- * documented migration step. The audit log is append-only and is committed
- * to the repository (DEC-CL-12); historic entries persist forever.
+ * documented migration step. The audit log is append-only: entries already
+ * written stay as they were (older ones may predate schemaVersion 2).
  */
 export interface AuditLogEntry {
+  /** 2: values are tags or omitted, never verbatim. Entries without it are older and may hold values. */
+  schemaVersion: 2;
+  /** How this entry records values. */
+  values: AuditValues;
+  /** With `values: 'omitted'`: why there was no tagger. */
+  valuesOmittedCode?: string;
   timestamp: string;
-  /**
-   * Locally-claimed operator identity (from `git config user.email`).
-   * Spoofable; see {@link authnOperator} for the platform-anchored truth.
-   */
-  operator: string;
   /**
    * JWT-anchored operator identity (the `email` / `sub` claim from the
    * OIDC token that authorised the platform mutation that drove this
@@ -172,10 +176,6 @@ export interface AuditLogEntry {
    * - **present** as the sentinel `'unauthenticated'` → MCP entry had no
    *   token or an unparseable token. Distinct from back-compat absence
    *   so the audit reader can tell them apart.
-   *
-   * A mismatch with {@link operator} is a forensic signal — the operator
-   * may have set a different `git config user.email` than the corp SSO
-   * identity (legitimate, but worth flagging for investigation).
    */
   authnOperator?: string;
   kind: 'force-shared' | 'force-unverified' | 'reverted' | 'first-write';
@@ -192,10 +192,10 @@ export interface AuditLogEntry {
    * no prior value but were intended to be set."
    */
   intendedKeys: string[];
-  /** `intendedKeys` projected through `attributes` after Step D resolution. */
-  attributesPushed: Record<string, unknown>;
-  /** Pre-edit snapshot from `pendingEdit.previousAttributes`. */
-  previousAttributes: Record<string, unknown>;
+  /** `intendedKeys` projected through `attributes` after Step D resolution: key → the value's tag (null when omitted). */
+  attributesPushed: Record<string, string | null>;
+  /** Pre-edit snapshot from `pendingEdit.previousAttributes`: key → the value's tag (null when omitted). */
+  previousAttributes: Record<string, string | null>;
   /**
    * Subset of `intendedKeys` that had no prior value at the time of the
    * first `setLocalEdited` call (no entry in `previousAttributes` because
@@ -212,7 +212,7 @@ export interface AuditLogEntry {
   /** Derived field for cheap auditor readability. See {@link computeEffective}. */
   effective: 'ours' | 'theirs' | 'novel' | null;
   /**
-   * Author of the originating `pendingEdit` block (CL §4 — `agent` |
+   * Author of the originating `pendingEdit` block (CONTROL_LIBRARY.md §4 — `agent` |
    * `operator` | `external`). Critical for distinguishing a genuine
    * `force-shared` (operator deliberately overwriting another team's
    * keys) from a reconciliation push following a Step A
@@ -223,8 +223,8 @@ export interface AuditLogEntry {
    * in the wild.
    */
   editedBy?: 'agent' | 'operator' | 'external';
-  /** Populated only when Step D Case 3 detected per-key conflicts. */
-  conflictResolutions?: ConflictResolution[];
+  /** Populated only when Step D Case 3 detected per-key conflicts; values as tags. */
+  conflictResolutions?: RecordedConflictResolution[];
   /** Step D Case 1 — `absent-and-unknown` keys that aborted push. */
   blockedKeys?: string[];
   /** Step D Case 2 → operator chose `keep`. */
@@ -254,13 +254,30 @@ export async function appendAuditEntry(
   entry: AuditLogEntry,
 ): Promise<void> {
   const fs = await loadFs();
+  const { constants: c } = await import('node:fs');
   const logPath = join(modelDir, AUDIT_LOG_RELATIVE_PATH);
-  await fs.mkdir(dirname(logPath), { recursive: true });
+  // The log lives in the model directory, so a link can be planted in its
+  // place: `.dethereal/` must be a real directory, and the log a regular
+  // single-link file opened without following a link or blocking on a FIFO.
+  await ensureRealDirs(modelDir, '.dethereal');
 
   const line = JSON.stringify(entry) + '\n';
 
-  const fileFd = await fs.open(logPath, 'a');
+  let fileFd;
   try {
+    fileFd = await fs.open(
+      logPath,
+      c.O_WRONLY | c.O_APPEND | c.O_CREAT | (c.O_NOFOLLOW ?? 0) | (c.O_NONBLOCK ?? 0),
+      0o644,
+    );
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ELOOP') throw new UnsafePathError('symlink', AUDIT_LOG_RELATIVE_PATH);
+    throw err;
+  }
+  try {
+    const st = await fileFd.stat();
+    if (!st.isFile()) throw new UnsafePathError('not_regular', AUDIT_LOG_RELATIVE_PATH);
+    if (st.nlink !== 1) throw new UnsafePathError('hardlinked', AUDIT_LOG_RELATIVE_PATH);
     await fileFd.write(line, null, 'utf-8');
     await fileFd.datasync();
   } finally {
@@ -269,7 +286,7 @@ export async function appendAuditEntry(
 }
 
 /**
- * Compute the `effective` derived field per CL §6 field semantics.
+ * Compute the `effective` derived field per CONTROL_LIBRARY.md §6 field semantics.
  *
  * - `'theirs'` if every conflicting key resolved to `accept-theirs`
  *   AND no non-conflicting keys were pushed (the push is purely a
@@ -360,29 +377,6 @@ function canonicalStringify(value: unknown): string {
 }
 
 /**
- * Resolve the operator email for audit attribution.
- *
- * Tries `git config user.email` first (the authoritative attribution per
- * CL §6 / DEC-CL-12). Falls back to `${USER}@unknown` so the writer never
- * throws on a non-git environment (CI, restricted shells). The fallback
- * marker `@unknown` makes un-attributable entries trivially greppable.
- */
-export async function getOperatorEmail(): Promise<string> {
-  try {
-    const { execSync } = await loadChildProcess();
-    const email = execSync('git config user.email', {
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-    if (email) return email;
-  } catch {
-    // git not installed, no config, etc — fall through.
-  }
-  const user = process.env.USER ?? process.env.USERNAME ?? 'unknown';
-  return `${user}@unknown`;
-}
-
-/**
  * Resolve the absolute path to a model directory's audit log.
  * Exposed for tests and operator tooling.
  */
@@ -395,15 +389,42 @@ export function getAuditLogPath(modelDir: string): string {
  * `effective` automatically. Convenience wrapper so callers don't have to
  * remember to call `computeEffective`.
  */
-export async function buildAuditEntry(
-  partial: Omit<AuditLogEntry, 'timestamp' | 'operator' | 'effective'> & {
-    timestamp?: string;
-    operator?: string;
-  },
-): Promise<AuditLogEntry> {
+/** A free-text reason as recorded: one line of printable characters, at most 120. */
+function reasonText(reason: string | undefined): string | undefined {
+  if (reason === undefined) return undefined;
+  const line = String(reason).replace(/[^\x20-\x7E]+/g, ' ').trim();
+  return line.length > 120 ? `${line.slice(0, 117)}...` : line;
+}
+
+type RawEntry = Omit<AuditLogEntry, 'schemaVersion' | 'values' | 'valuesOmittedCode' | 'timestamp' | 'effective' | 'attributesPushed' | 'previousAttributes' | 'conflictResolutions'> & {
+  timestamp?: string;
+  attributesPushed: Record<string, unknown>;
+  previousAttributes: Record<string, unknown>;
+  conflictResolutions?: ConflictResolution[];
+  /** How values are tagged (or why they are omitted); absent: omitted */
+  valueTags?: AuditValueTags;
+};
+
+/**
+ * Build a complete `AuditLogEntry` from the call-site context. `effective` is
+ * derived from the raw values first; then every value is replaced by its tag
+ * (or left out when there is no tagger), so no value reaches the entry.
+ */
+export async function buildAuditEntry(partial: RawEntry): Promise<AuditLogEntry> {
+  const effective = computeEffective(partial.kind, partial.conflictResolutions);
+  const tag = partial.valueTags?.tag;
+  const tagged = (values: Record<string, unknown>): Record<string, string | null> =>
+    Object.fromEntries(Object.keys(values).sort().map((k) => [k, tag ? tag(k, values[k]) : null]));
+  const conflicts = partial.conflictResolutions?.map((r): RecordedConflictResolution => ({
+    key: r.key,
+    chosen: r.chosen,
+    ...(tag ? { ours: tag(r.key, r.ours), theirs: tag(r.key, r.theirs), ...(r.chosen === 'merge' ? { merged: tag(r.key, r.merged) } : {}) } : {}),
+  }));
   return {
+    schemaVersion: 2,
+    values: tag ? 'hmac' : 'omitted',
+    ...(tag ? {} : { valuesOmittedCode: partial.valueTags?.omittedCode ?? 'no_tagger' }),
     timestamp: partial.timestamp ?? new Date().toISOString(),
-    operator: partial.operator ?? (await getOperatorEmail()),
     authnOperator: partial.authnOperator,
     kind: partial.kind,
     controlId: partial.controlId,
@@ -413,16 +434,16 @@ export async function buildAuditEntry(
     modelId: partial.modelId,
     liveAssignedModelIds: partial.liveAssignedModelIds,
     intendedKeys: partial.intendedKeys,
-    attributesPushed: partial.attributesPushed,
-    previousAttributes: partial.previousAttributes,
+    attributesPushed: tagged(partial.attributesPushed),
+    previousAttributes: tagged(partial.previousAttributes),
     firstWriteKeys: partial.firstWriteKeys,
-    effective: computeEffective(partial.kind, partial.conflictResolutions),
+    effective,
     editedBy: partial.editedBy,
-    conflictResolutions: partial.conflictResolutions,
+    conflictResolutions: conflicts,
     blockedKeys: partial.blockedKeys,
     readdedKeys: partial.readdedKeys,
     droppedKeys: partial.droppedKeys,
-    queryFailureReason: partial.queryFailureReason,
+    queryFailureReason: reasonText(partial.queryFailureReason),
     queryAttempts: partial.queryAttempts,
   };
 }

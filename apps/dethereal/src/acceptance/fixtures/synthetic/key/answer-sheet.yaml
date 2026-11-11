@@ -1,0 +1,479 @@
+# Answer sheet — OrderDesk synthetic fixture, every harness.
+#
+# The operator never improvises. Every question carries a prompt id; paste the reply listed for it and
+# log the id and the time. A question with no id, or an id not listed here, gets the `off-sheet` reply,
+# and the question text is logged.
+#
+# how:
+#   typed            type or paste the reply as free text; in a question dialog, into its free-text (Other) answer
+#   option-or-typed  select the option whose meaning equals the reply; if none does, paste the reply
+#   picks: on an option-or-typed prompt, the menu labels whose meaning equals the reply. A picked label
+#   that is neither the reply nor listed in picks is an off-sheet answer.
+#   The ratification questions (those with `ratifies`) are always typed: what a reply ratifies is known
+#   only from the sheet's own reply text, so it is pasted as written.
+#
+# Reply modes: every run is answered in one mode, which the run kit records.
+#   bar       the acceptance runs: the Step 8 relay gives the operator's facts its tables ask for
+#   loopback  the loop-back regression run: the relay gives only the document facts; the first Gate 3 loop-back gives the rest
+#   quick     a quick run
+#
+# variants: a prompt with variants gets the first variant whose condition holds, else `reply`.
+#   if_table_contains_any: case-insensitive substring match against the markdown table rows (lines that
+#   start with `|`) of the assistant's turn before the question: its messages since the operator's last
+#   input. Text anywhere else does not count. Log which reply was pasted.
+#   from_showing: N selects the variant at the prompt's Nth showing and every later one (a showing that
+#   was dismissed counts). A from_showing variant may list its own picks. A prompt whose `reply` lists no
+#   picks is answered with that reply as typed text at every showing its variants do not cover, even where
+#   the question offers options.
+#   if_mode: the variant holds in that reply mode.
+#
+# only_modes: the reply modes whose runs may ask the prompt; a run of another mode never shows it.
+#
+# facts: operator facts a reply gives only when the question asks for them. The `{facts}` line of the
+#   reply holds, as `- ` bullets in the order listed, every fact whose if_table_contains_any matches a table
+#   row as above, in the modes its only_modes names (every mode when it names none); with none, the line
+#   is dropped. Never give a fact the rows do not ask for. Log which facts were given.
+#
+# required_by_mode: the prompt's `required` in the reply modes it names.
+#
+# Approval prompts for tool calls are not questions: approve every one except a waiver tool call, which is
+# declined. Push consent is `push-consent` below, never a tool approval.
+
+version: 1
+
+invocation:
+  claude: "/dethereal:threat-model Threat-model this repository: the OrderDesk service in the current directory."
+  codex: "$dethereal:threat-model Threat-model this repository: the OrderDesk service in the current directory."
+  opencode: "Use the dethereal-threat-model skill. Threat-model this repository: the OrderDesk service in the current directory."
+
+# A quick run opens on its own invocation; every other part of the sheet is shared, a prompt's only_modes naming the
+# reply modes that may ask it.
+modes:
+  quick:
+    invocation:
+      claude: "/dethereal:threat-model Threat-model this repository: the OrderDesk service in the current directory. --quick"
+      codex: "$dethereal:threat-model Threat-model this repository: the OrderDesk service in the current directory. --quick"
+      opencode: "Use the dethereal-threat-model skill with --quick. Threat-model this repository: the OrderDesk service in the current directory."
+  # The earlier release a baseline runs: its plugin and skill are named as this release's, without --quick.
+  baseline:
+    invocation:
+      claude: "/dethereal:threat-model Threat-model this repository: the OrderDesk service in the current directory."
+
+fixed:
+  off-sheet: "I have no more information on that beyond what I have told you. Continue from what the source shows and what I have told you, and record anything else as unknown."
+  after-compact: "Continue the threat-model workflow."
+  fail-closed-retry: "Retry the delegation once."
+  also: "every automatic compaction opens a post-compaction segment scored the same way; do not intervene"
+
+compaction:
+  trigger: "after pasting the first `crown-jewel-confirm` reply, wait until the harness is idle"
+  steps:
+    - "run the harness's compact command"
+    - "paste `after-compact`"
+
+prompts:
+  - id: scope
+    trigger: "Step 1, the first question about scope (and any follow-up scope question)"
+    mandatory: true
+    required: always
+    how: typed
+    reply: |
+      system_name: OrderDesk
+      description: An online order service for a small shop, running on a managed Kubernetes cluster with a managed PostgreSQL database. Customers sign in at a hosted identity provider, card payments go through a payment vendor, and logs go to a hosted log platform.
+      depth: architecture
+      modeling_intent: initial
+      compliance_drivers: PCI-DSS, GDPR
+      crown_jewels: Customer order records with payment card data
+      exclusions: Cloud provider internals (the managed Kubernetes control plane and the managed database service); the build pipeline
+      trust_assumptions: The payment vendor, the identity provider and the hosted log platform are vetted partners under contract; The managed Kubernetes control plane and the cloud provider's managed database service are trusted
+      adversary_classes: none
+  - id: discovery-confirm
+    trigger: "Step 2, after the discovery table"
+    mandatory: true
+    required: always
+    how: option-or-typed
+    reply: "Confirmed as shown."
+    picks: ["looks good"]
+  - id: blind-spots
+    trigger: "Step 2, the consolidated blind-spots question"
+    mandatory: true
+    required: always
+    how: typed
+    reply: "I can't confirm anything beyond what the repository shows."
+  - id: module-select
+    trigger: "Step 2, module selection table"
+    mandatory: true
+    required: always
+    how: typed
+    reply: "Use only the dethernety-general module."
+    note: "typed, never picked: the recommended set can hold modules the key does not allow, and a bare yes would accept them"
+  - id: decomposition
+    trigger: "Step 3, only if the decomposition threshold is exceeded"
+    mandatory: true
+    required: if_shown
+    how: option-or-typed
+    reply: "One model, no decomposition."
+    picks: ["continue"]
+  - id: model-review-confirm
+    trigger: "Step 3, after the model review table"
+    mandatory: true
+    required: always
+    how: option-or-typed
+    reply: "yes, except: classify the edge and orders namespaces and the database subnet as Network Segment, and leave the internet and the partner boundaries unclassified. Keep to the dethernety-general module; leave what it has no class for unclassified."
+    note: "Step 3 sets the first classes, boundaries included, so the boundary classes the key expects are given here as well as at classification-confirm. The operations subnet is named only where the table shows the bastion: the source names it only beside the bastion, so a run that finds the bastion later leaves it unclassified. A Step 3 table that lists no boundaries, with classification-confirm never shown, never receives the boundary classes (a known limit)"
+    variants:
+      - if_table_contains_any: ["bastion", "jump host", "jumphost", "jump box", "jumpbox", "ssh gateway", "ops-bastion"]
+        reply: "yes, except: classify the bastion as a VPN Gateway, it is our remote-access entry point; classify the edge and orders namespaces, the database subnet and the operations subnet as Network Segment; and leave the internet and the partner boundaries unclassified. Keep to the dethernety-general module; leave what it has no class for unclassified."
+  - id: boundary-hierarchy
+    trigger: "Step 4, when the hierarchy check has findings (rows it keeps as they are included)"
+    mandatory: true
+    required: fixture
+    how: typed
+    reply: "Keep the boundaries as they are; apply none of these changes."
+  - id: boundary-trust
+    trigger: "Step 4, trust classification + enforcement tables"
+    mandatory: true
+    required: always
+    how: typed
+    reply: "Accept all, except: the orders application segment is Internal, and so are the orders API and the webhook receiver, including any boundary drawn around the webhook receiver or its load balancer — their only inbound path from outside is the payment vendor's webhook, limited to the vendor's address ranges. The payment vendor, the identity provider and the log platform are vetted partners. Keep the boundaries as they are."
+    ratifies: all
+    ratifies_except: {"x-payvendor": {"zone": "VENDOR"}, "x-idp": {"zone": "VENDOR"}, "x-logplatform": {"zone": "VENDOR"}, "c-orders-api": {"zone": "INTERNAL"}, "c-webhook-receiver": {"zone": "INTERNAL"}}
+  - id: operational-flows
+    trigger: "Step 5, orphans + operational flows question"
+    mandatory: true
+    required: always
+    how: typed
+    reply: "I can't confirm anything beyond what the repository shows. Leave components the repository shows no flow for unconnected."
+  - id: approved-channels
+    trigger: "Step 5, only if there are external-ingress findings"
+    mandatory: true
+    required: if_external_ingress
+    how: typed
+    reply: "Ratify the payment vendor's webhook channel into the orders application. Ratify nothing else."
+    ratifies: none
+    ratifies_except: {"x-payvendor": {"conduits": [{"to_boundary_of": "c-webhook-receiver", "direction": "OUTBOUND"}]}}
+  - id: session-break
+    trigger: "after Step 5, in a full run only (a quick run goes on without it)"
+    mandatory: true
+    required: always
+    only_modes: ["bar", "loopback"]
+    how: option-or-typed
+    reply: "yes"
+  - id: classification-confirm
+    trigger: "Step 6, only if the classification pass proposes classes"
+    mandatory: true
+    required: if_shown
+    how: option-or-typed
+    reply: "yes, except: classify the edge and orders namespaces and the database subnet as Network Segment, and leave the internet and the partner boundaries unclassified. Keep to the dethernety-general module; leave what it has no class for unclassified."
+    note: "the key classifies the four internal boundaries as Network Segment (see class_basis) and leaves the external ones unclassified"
+    variants:
+      - if_table_contains_any: ["bastion", "jump host", "jumphost", "jump box", "jumpbox", "ssh gateway", "ops-bastion"]
+        reply: "yes, except: classify the bastion as a VPN Gateway, it is our remote-access entry point; classify the edge and orders namespaces, the database subnet and the operations subnet as Network Segment; and leave the internet and the partner boundaries unclassified. Keep to the dethernety-general module; leave what it has no class for unclassified."
+  - id: classification-gap
+    trigger: "Step 6, only if a boundary or component is left unclassified"
+    mandatory: true
+    required: if_shown
+    how: option-or-typed
+    reply: "skip"
+    note: "the internet and partner boundaries stay unclassified on purpose (they are external); a component the dethernety-general module has no class for also stays unclassified"
+  - id: classify-add-module
+    trigger: "Step 6 or Step 7, only if other modules' candidates are shown"
+    mandatory: true
+    required: if_shown
+    how: option-or-typed
+    reply: "skip"
+    picks: ["skip"]
+    note: "the fixture keeps to the dethernety-general module: the key's classes all come from it, and a module added here would bring classes the pinned module does not hold"
+  - id: resume-cursor
+    trigger: "only if the workflow re-enters its skill and offers to continue from a step (after a compaction)"
+    mandatory: true
+    required: if_shown
+    how: option-or-typed
+    reply: "continue"
+  - id: scope-crown-jewels
+    trigger: "Step 6, only if the crown-jewel mapping finds the scope naming no crown jewels or no adversary classes"
+    mandatory: true
+    required: if_shown
+    how: typed
+    reply: "Crown jewels: Customer order records with payment card data. Adversary classes: none."
+    note: "same reply every time it is asked"
+  - id: crown-jewel-confirm
+    trigger: "Step 6, crown-jewel mapping, and again at the close of Step 7 (same reply)"
+    mandatory: true
+    required: always
+    how: typed
+    reply: "Confirmed: the customer order records and the payment card data live in the orders database."
+    ratifies: all
+    ratifies_except: {"c-orders-db": {"crownJewel": true}}
+  - id: data-item-handlers
+    trigger: "Step 7 or Step 8, only if flows or elements handle sensitive data without a classified data item"
+    mandatory: true
+    required: fixture
+    how: typed
+    reply: "I can't confirm anything beyond what the repository shows and what I have told you."
+    note: "same reply every time it is asked"
+  - id: data-items-confirm
+    trigger: "Step 7, data item proposals"
+    mandatory: true
+    required: always
+    how: option-or-typed
+    reply: "Accept all, the DATA class, origin and credential columns included."
+  - id: data-item-gap
+    trigger: "Step 7 or Step 8, only if C4 fails or a lifecycle check finds gaps"
+    mandatory: true
+    required: if_shown
+    how: option-or-typed
+    reply: "classify"
+    note: "same reply every time it is asked"
+  - id: sensitivity-floor
+    trigger: "Step 7 or Step 8, only if Gate 3 C7 fails: a data item's sensitivity is below the floor its data class or a regulatory flag sets"
+    mandatory: true
+    required: if_shown
+    how: option-or-typed
+    reply: "raise"
+    note: "the key's sensitivity floors are the fixture's truth; same reply every time it is asked"
+  - id: flag-spelling
+    trigger: "Step 7 or Step 8, only if the validator suggests other spellings for regulatory flags"
+    mandatory: false
+    required: if_shown
+    how: option-or-typed
+    reply: "replace"
+    note: "the key's flag labels (PII, GDPR personal, PCI cardholder) are the fixture's truth"
+  - id: restricted-promotion
+    trigger: "Step 7, only if a boundary qualifies for Restricted (not expected for this system)"
+    mandatory: true
+    required: if_shown
+    how: typed
+    reply: "Do not promote anything; keep every zone as it is."
+    ratifies: none
+  - id: enrich-scope
+    trigger: "Step 8, only if asked which part of the worklist to enrich"
+    mandatory: true
+    required: if_shown
+    only_modes: ["bar", "loopback"]
+    how: option-or-typed
+    reply: "all"
+  - id: claim-confirm
+    trigger: "only from the enrich skill on its own: the guided Step 8 does not ask it, the enrichment-relay reply names the documents that describe the deployed system (its F6 and F7 facts)"
+    mandatory: true
+    required: if_shown
+    how: option-or-typed
+    reply: "yes"
+    note: "both documents describe the deployed system: the key takes values from them as source evidence (the runbook for the bastion and its four flows, the README for the customer sign-in flow); the misleading statement in this source is a code comment, not a document"
+  - id: credential-flows
+    trigger: "standalone enrich only, if the credential flow table is shown with its question (the guided Step 8 asks it in enrichment-relay)"
+    mandatory: true
+    required: if_shown
+    how: typed
+    reply: "I can't confirm anything beyond what the repository shows and what I have told you. Where neither shows how a flow authenticates or what happens when authentication fails: not sure. Other service accounts, keys or shared secrets: not sure."
+  - id: credential-mapping
+    trigger: "Step 8 after enrichment-relay, only if the relay reply changed a credential; standalone enrich, if a mapping is proposed"
+    mandatory: true
+    required: if_shown
+    how: option-or-typed
+    reply: "apply"
+  - id: enrich-questions
+    trigger: "Step 9 when Gate 3 is not computed, or standalone enrich, if a batch's questions are shown (same reply for every batch; the guided Step 8 asks them in enrichment-relay)"
+    mandatory: true
+    required: if_shown
+    how: typed
+    reply: |
+      What I can add:
+      - Gateway: the public load balancer in front of the gateway has the cloud provider's DDoS protection. Our last penetration test found that the gateway rebuilds request framing towards the services, rejects requests that carry conflicting length headers, and normalises HTTP/2 requests before it forwards them. The gateway's request logs strip the Authorization header.
+      - Container images: we do not sign our images, and nothing verifies signatures or provenance at deploy time.
+      - Orders API and webhook receiver: we alert on bursts of 401 and 403 responses. Our container baseline (non-root, read-only filesystem) is documented in the platform handbook. Dependencies are scanned every week in CI, and the last scan found nothing. Customer access tokens cannot be revoked before they expire.
+      - Database: nothing inside the database builds SQL dynamically, and there are no stored procedures. The application's database password has never been rotated. Only the two platform leads hold admin rights on the cloud account; they alone can restore, copy or delete snapshots. Snapshots are not kept in a locked vault. The engine takes minor updates automatically and has no known unpatched vulnerability.
+      - The gateway, both services and the bastion keep no data on disk.
+      - Bastion: its image is rebuilt on the first of every month, most recently 12 days ago, and has no known unpatched vulnerability. SSH sessions are not recorded. Nobody is alerted on failed SSH logins. Engineers connect from any machine; nothing checks the device, and we use plain SSH keys, not certificates.
+      Judge each value by what it rests on, not by its label. Accept a value I have told you, or one the files show: a setting a file states, read with the documented behaviour of software the files show reading it; or a check that the code, or a list of enabled features a file states in full, does not make on traffic or data the files show reaching it. Reject a value that rests on a platform setting that no file states and I have not told you — including whether a platform the files do not name enforces a setting they do state, and how a partner's service handles a request it cannot authenticate — on the default a setting takes because a file leaves it out, or on the contents of a secret file beyond what I have told you, such as which account a credential kept in one signs in as. That a secret file exists, what kind of file it is, that git tracks it and which Secret names it mentions, the files show; which document in it holds a credential, they do not.
+      For every other row: not sure, unless I have already told you.
+  - id: enrich-attributes
+    trigger: "Step 8, only if proposed values are shown for apply / modify / reject / skip"
+    mandatory: true
+    required: if_shown
+    how: typed
+    reply: "Apply the values found in the source and the answers I gave. Reject every other value, including any that rests on a platform setting that no file states and I have not told you (how a partner's service handles a request it cannot authenticate among them), on the default a setting takes because a file leaves it out, or on the contents of a secret file beyond what I have told you, such as which account a credential kept in one signs in as. That a secret file exists, what kind of file it is, that git tracks it and which Secret names it mentions, the files show; which document in it holds a credential, they do not."
+  - id: boundary-enforcement
+    trigger: "standalone enrich only, if boundaries lacking enforcement attributes are shown (the guided Step 8 asks it in enrichment-relay)"
+    mandatory: true
+    required: if_shown
+    how: option-or-typed
+    reply: "confirm"
+  - id: enrichment-relay
+    trigger: "Step 8, after the enrichment proposal table and confirmations list"
+    mandatory: true
+    required: always
+    how: typed
+    reply: |
+      Accept all and accept the pre-fills, judged as below: the values found in the source and in what I have told you. What I can add:
+      - Gateway: the public load balancer in front of the gateway has the cloud provider's DDoS protection. Our last penetration test found that the gateway rebuilds request framing towards the services, rejects requests that carry conflicting length headers, and normalises HTTP/2 requests before it forwards them. The gateway's request logs strip the Authorization header.
+      - Container images: we do not sign our images, and nothing verifies signatures or provenance at deploy time.
+      - Orders API and webhook receiver: we alert on bursts of 401 and 403 responses. Our container baseline (non-root, read-only filesystem) is documented in the platform handbook. Dependencies are scanned every week in CI, and the last scan found nothing. Customer access tokens cannot be revoked before they expire.
+      - Database: nothing inside the database builds SQL dynamically, and there are no stored procedures. The application's database password has never been rotated. Only the two platform leads hold admin rights on the cloud account; they alone can restore, copy or delete snapshots. Snapshots are not kept in a locked vault. The engine takes minor updates automatically and has no known unpatched vulnerability.
+      - The gateway, both services and the bastion keep no data on disk.
+      - Bastion: its image is rebuilt on the first of every month, most recently 12 days ago, and has no known unpatched vulnerability. SSH sessions are not recorded. Nobody is alerted on failed SSH logins. Engineers connect from any machine; nothing checks the device, and we use plain SSH keys, not certificates.
+      - Credentials: where neither the repository nor what I have told you shows how a flow authenticates or what happens when authentication fails, not sure. Other service accounts, keys or shared secrets: not sure.
+      {facts}
+      Judge each value by what it rests on, not by its label. Accept a value I have told you, or one the files show: a setting a file states, read with the documented behaviour of software the files show reading it; or a check that the code, or a list of enabled features a file states in full, does not make on traffic or data the files show reaching it. Reject a value that rests on a platform setting that no file states and I have not told you — including whether a platform the files do not name enforces a setting they do state, and how a partner's service handles a request it cannot authenticate — on the default a setting takes because a file leaves it out, or on the contents of a secret file beyond what I have told you, such as which account a credential kept in one signs in as. That a secret file exists, what kind of file it is, that git tracks it and which Secret names it mentions, the files show; which document in it holds a credential, they do not.
+      Anything I have not told you stays unknown.
+    note: "F1 to F5 are the facts the first Gate 3 loop-back gives in the loopback mode; in the bar mode they come here, each only when a row of the relay's tables asks for it. The document facts (F6, F7) come here in every mode, each when the relay's tables name its document"
+    facts:
+      - id: F1
+        if_table_contains_any: ["implicit_deny_enabled", "metadata_endpoint", "metadata_targets", "egress_filtering"]
+        text: "The cluster's network plugin enforces the NetworkPolicies in this repository, ingress and egress, default-deny included."
+        only_modes: ["bar", "quick"]
+      - id: F2
+        if_table_contains_any: ["on failure", "auth_failure_mode"]
+        text: "The log platform rejects any request whose ingest key is missing or invalid; the payment vendor rejects any request whose API key is missing or invalid."
+        only_modes: ["bar", "quick"]
+      - id: F3
+        if_table_contains_any: ["least_privilege", "app_role_not_superuser", "role_grants"]
+        text: "The orders API and the webhook receiver log in to the database as orders_app."
+        only_modes: ["bar", "quick"]
+      - id: F4
+        if_table_contains_any: ["secret_manager", "credentials_not_in_code"]
+        text: "The database password the orders API and the webhook receiver use, orders-db-credentials, is kept in the committed Secret manifest, not in the cloud secret manager."
+        only_modes: ["bar", "quick"]
+      - id: F5
+        if_table_contains_any: ["cloud-secrets", "secret store", "externalsecret"]
+        text: "The ExternalSecret sync from the cloud secret manager (`cloud-secrets`) is cluster plumbing that the external-secrets operator runs, and the gateway never calls that store: it is out of scope for this model, so if you modelled it, remove the secret store and every flow to or from it; the Secret it creates, and the key the gateway reads from it, stay as the source shows them."
+        only_modes: ["bar", "quick"]
+      - id: F6
+        if_table_contains_any: ["| document: docs/runbooks/database-maintenance.md"]
+        text: "docs/runbooks/database-maintenance.md describes the deployed system: write its values."
+      - id: F7
+        if_table_contains_any: ["| document: readme.md"]
+        text: "README.md describes the deployed system: write its values."
+  - id: remove-confirm
+    trigger: "Step 8, only if a removal the operator's reply asks for has dependencies"
+    mandatory: true
+    required: if_shown
+    how: option-or-typed
+    reply: "I have no more information on that beyond what I have told you. Continue from what the source shows and what I have told you, and record anything else as unknown."
+    note: "yes only for the removal F5 asks for: the dependency table names the cloud secret store (its name or id as runs have written it). For any other element the sheet gives no answer: the reply is the off-sheet line, word for word, and a non-answer to a destructive confirmation means no. A table that names the store only as another element's dependency matches too (a known limit of a table-row match)."
+    variants:
+      - if_table_contains_any: ["cloud-secret", "cloudsecret", "cloud secret", "secret-store", "secrets-store", "secret store", "secrets store", "externalsecret"]
+        reply: "yes"
+  - id: prune-confirm
+    trigger: "Step 8, only if the prune tool lists orphaned attribute files other than the confirmed ones"
+    mandatory: true
+    required: if_shown
+    how: option-or-typed
+    reply: "I have no more information on that beyond what I have told you. Continue from what the source shows and what I have told you, and record anything else as unknown."
+    note: "delete only when the table names the files of the cloud secret store removed under F5 (their paths carry its id); otherwise the off-sheet line, as for remove-confirm. The files a prune lists are attribute files of elements no longer in the model, so a delete changes no element."
+    variants:
+      - if_table_contains_any: ["cloud-secret", "cloudsecret", "cloud secret", "secret-store", "secrets-store", "secret store", "secrets store", "externalsecret"]
+        reply: "delete"
+  - id: control-pass-offer
+    trigger: "Step 8, control pass offer"
+    mandatory: true
+    required: always
+    only_modes: ["bar", "loopback"]
+    how: option-or-typed
+    reply: "later"
+  - id: gate3-loopback
+    trigger: "Step 9, when Gate 3 fails: on this fixture the first Gate 3 always does, since platform facts it needs are unknown until the operator states them here"
+    mandatory: true
+    required: fixture
+    required_by_mode: {"bar": "if_shown"}
+    only_modes: ["bar", "loopback"]
+    how: typed
+    reply: |
+      loop back. I checked with the platform team: the cluster's network plugin enforces the NetworkPolicies in this repository, ingress and egress, default-deny included; the log platform rejects any request whose ingest key is missing or invalid; the payment vendor rejects any request whose API key is missing or invalid; the orders API and the webhook receiver log in to the database as orders_app; and the database password they use, orders-db-credentials, is kept in the committed Secret manifest, not in the cloud secret manager.
+      The ExternalSecret sync from the cloud secret manager (`cloud-secrets`) is cluster plumbing that the external-secrets operator runs, and the gateway never calls that store: it is out of scope for this model, so if you modelled it, remove the secret store and every flow to or from it; the Secret it creates, and the key the gateway reads from it, stay as the source shows them.
+      Fix what the source and my answers support, then check again. Do not waive anything and do not fill in anything else.
+    note: "asked as a message, never a dialog. In the loopback mode the first showing is answered with this reply, which states the facts, and the second showing ends the loop. In the bar mode the facts came at the relay: Gate 3 may pass without the question, and any showing ends the loop"
+    variants:
+      - from_showing: 2
+        reply: "skip to sync anyway"
+      - if_mode: bar
+        reply: "skip to sync anyway"
+  - id: waiver-accept
+    trigger: "Step 9, only if the operator chose waive at gate3-loopback (never, on this sheet)"
+    mandatory: true
+    required: if_shown
+    only_modes: ["bar", "loopback"]
+    how: option-or-typed
+    reply: "no"
+  - id: review-record
+    trigger: "Step 9, before the model is recorded as REVIEWED"
+    mandatory: true
+    required: if_reviewable
+    only_modes: ["bar", "loopback"]
+    how: option-or-typed
+    reply: "record"
+  - id: auth-missing
+    trigger: "Step 10, only if not signed in (runs are signed in before launch)"
+    mandatory: true
+    required: if_shown
+    how: option-or-typed
+    reply: "skip"
+    note: "the run ends after README generation; logged as an incident"
+  - id: push-consent
+    trigger: "Step 10, push consent"
+    mandatory: true
+    required: always
+    how: option-or-typed
+    reply: "push"
+  - id: linking
+    trigger: "Step 11, only if countermeasures exist"
+    mandatory: true
+    required: if_shown
+    how: option-or-typed
+    reply: "defer"
+  - id: pull-model-choice
+    trigger: "the skills tail's sync pull, only if it asks which platform model to pull"
+    mandatory: true
+    required: if_shown
+    how: typed
+    reply: "The one whose id I gave in the command."
+  - id: pull-overwrite
+    trigger: "the skills tail's sync pull, only if the directory has local changes or cannot be compared"
+    mandatory: true
+    required: if_shown
+    how: option-or-typed
+    reply: "backup"
+    picks: ["backup"]
+
+# Registry prompts the guided flow cannot reach on this fixture. The fixture test fails when a prompt the
+# guided flow can show has neither a sheet entry nor a reason here.
+not_on_fixture:
+  model-select: "the project holds one model"
+  decomposition-scope: "the system is below every decomposition threshold, so no split is proposed"
+  drift-reclassify: "the source does not change during the run"
+  drift-secret-file: "the source does not change during the run"
+  waiver-select: "waiver-accept is always answered no"
+  waiver-basis: "waiver-accept is always answered no"
+  waiver-reason: "waiver-accept is always answered no"
+  waiver-revoke: "no waiver is ever recorded"
+  remove-select: "reached only through the remove skill's handover, which Step 8 does not use: its removals are asked as remove-confirm"
+  remove-crown-jewel: "reached only through the remove skill's handover, which Step 8 does not use; the store F5 removes is no crown jewel"
+  remove-simple: "reached only through the remove skill's handover, which Step 8 does not use: it removes an element with no dependencies with no confirm"
+  push-empty-model: "the model is not empty when it is pushed"
+  push-conflict: "the first push of a new model has nothing on the platform to conflict with"
+  stale-controls: "no control is recorded, so none can go stale"
+  control-resolve: "no control is recorded, so a push carries no control reference"
+  enrich-pick: "enrich-scope is always answered all"
+  admin-access-paths: "the scope declares no adversary class, so the insider question is never asked"
+  supply-chain: "the scope declares no adversary class, so the supply-chain question is never asked"
+
+# The skills tail: after the walk's push-consent turn ends and the harness is idle, in the same session, each
+# command is sent in this order through the invocation path and logged as `tail:<id>` with the text exactly as
+# sent. A question a tail command raises takes its sheet reply, or the fixed `off-sheet` reply.
+tail:
+  - id: status
+    claude: "/dethereal:status"
+  - id: view
+    claude: "/dethereal:view"
+  - id: surface
+    claude: "/dethereal:surface"
+  - id: review
+    claude: "/dethereal:review"
+  - id: sync
+    claude: "/dethereal:sync pull <platform model id> <model directory>"
+    note: "the walk's own model: its platform model id from the model directory's .dethereal/sync.json, and that directory, project-relative"
+  - id: login
+    claude: "/dethereal:login --new"
+    note: "a new sign-in left pending: the server opens its start page in the default browser and holds port 9876 for up to 5 minutes; the operator must be signed out of the platform in that browser, and the platform must have authentication enabled"
+  - id: threat-modeler
+    claude: "@agent-dethereal:threat-modeler Re-check the Ops Bastion's security attributes against the repository."

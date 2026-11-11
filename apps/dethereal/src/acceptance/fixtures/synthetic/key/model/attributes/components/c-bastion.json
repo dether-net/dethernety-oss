@@ -1,0 +1,43 @@
+{
+  "elementId": "c-bastion",
+  "elementType": "component",
+  "elementName": "Ops bastion",
+  "classData": {
+    "id": "5ea503cc-b336-4f9d-8ae3-69ae06e76666",
+    "name": "VPN Gateway"
+  },
+  "attributes": {
+    "unpatched_known_rce_cve": false,
+    "firmware_end_of_support": false,
+    "days_since_last_firmware_update": 12,
+    "session_idle_timeout_minutes": 15,
+    "session_monitoring_enabled": false,
+    "concurrent_session_limit_enforced": true,
+    "mfa_enforced_for_vpn_login": false,
+    "rate_limiting_or_lockout_enabled": true,
+    "failed_auth_alerting_enabled": false,
+    "vpn_auth_source": "local_appliance_accounts",
+    "vpn_cipher_suites_strong_only": true,
+    "perfect_forward_secrecy_enabled": true,
+    "strong_dh_group_enforced": true,
+    "least_privilege_access_enforced": false,
+    "permit_any_from_vpn_pool": true,
+    "vpn_pool_to_trust_segmentation_enforced": false,
+    "management_ui_internet_exposed": true,
+    "default_accounts_removed_or_changed": true,
+    "admin_access_ip_restricted": false,
+    "auth_events_logged": true,
+    "external_siem_forwarding_enabled": true,
+    "client_posture_check_enabled": false,
+    "vpn_ztna_posture_gating_enabled": false,
+    "managed_certificate_required_for_admission": false,
+    "authentication_type": "ssh public key",
+    "encryption_in_transit": "SSH",
+    "encryption_at_rest": "not_applicable",
+    "implicit_deny_enabled": true,
+    "monitoring_tools": [
+      "fail2ban",
+      "log platform (auth.log)"
+    ]
+  }
+}

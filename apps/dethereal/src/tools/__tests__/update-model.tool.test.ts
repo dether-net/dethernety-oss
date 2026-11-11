@@ -2,17 +2,25 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { promises as fs } from 'fs'
 import path from 'path'
 import { updateModelTool } from '../update-model.tool.js'
+import { exportModelTool } from '../export-model.tool.js'
+import { richExport } from './fixtures/platform-export.js'
+import { initProjectRoot, resetProjectRoot } from '../../utils/project-root.js'
 import { readSyncJson, writeSyncJson } from '../../utils/sync-utils.js'
 import type { ToolContext } from '../base-tool.js'
+import { registerAll } from './helpers/settle.js'
+
+// Each test registers, gates and pushes whole models: slow under a full-suite load.
+vi.setConfig({ testTimeout: 30_000 })
 
 // =============================================================================
 // Mock dt-core — intercept DtUpdateSplit (the push) and DtExportSplit (the
 // re-export of post-push platform state). mergeAttributes is a passthrough.
 // =============================================================================
 
-const { mockUpdateFromSplitModel, mockExportModelToSplit } = vi.hoisted(() => ({
+const { mockUpdateFromSplitModel, mockExportModelToSplit, realMerge } = vi.hoisted(() => ({
   mockUpdateFromSplitModel: vi.fn(),
   mockExportModelToSplit: vi.fn(),
+  realMerge: { on: false },
 }))
 
 vi.mock('@dethernety/dt-core', async (importOriginal) => {
@@ -27,7 +35,32 @@ vi.mock('@dethernety/dt-core', async (importOriginal) => {
       constructor(_apolloClient: any) {}
       exportModelToSplit = mockExportModelToSplit
     },
-    mergeAttributes: (_local: unknown, exported: unknown) => exported,
+    mergeAttributes: (...sources: unknown[]) => (realMerge.on ? (actual.mergeAttributes as (...a: unknown[]) => unknown)(...sources) : sources[sources.length - 1]),
+  }
+})
+
+// The push gate has its own tests at the end; the others are about the push itself.
+const { pushGate } = vi.hoisted(() => ({ pushGate: { real: false } }))
+vi.mock('../../utils/gates.js', async (importOriginal) => {
+  const actual = await importOriginal() as typeof import('../../utils/gates.js')
+  return {
+    ...actual,
+    directoryPushRefusal: (...args: Parameters<typeof actual.directoryPushRefusal>) =>
+      pushGate.real ? actual.directoryPushRefusal(...args) : Promise.resolve(null),
+  }
+})
+
+// The platform-change check has its own tests at the end; elsewhere it passes and
+// reads nothing, so DtExportSplit sees only the re-export.
+const { platformCheck } = vi.hoisted(() => ({ platformCheck: { real: false } }))
+vi.mock('../../utils/platform-baseline.js', async (importOriginal) => {
+  const actual = await importOriginal() as typeof import('../../utils/platform-baseline.js')
+  return {
+    ...actual,
+    exportPlatformPrints: (...args: Parameters<typeof actual.exportPlatformPrints>) =>
+      platformCheck.real ? actual.exportPlatformPrints(...args) : Promise.resolve({}),
+    checkPlatformChanges: (...args: Parameters<typeof actual.checkPlatformChanges>) =>
+      platformCheck.real ? actual.checkPlatformChanges(...args) : Promise.resolve({}),
   }
 })
 
@@ -259,8 +292,11 @@ describe('UpdateModelTool — the re-export path fixes up what it invalidates', 
 
     expect(res.success).toBe(true)
     expect((await fs.readdir(path.join(deth, 'template-fields'))).sort()).toEqual(['CNEW-uuid.json'])
-    // The scope failure is still reported — it is not swallowed by the reorder.
-    expect(res.data!.warnings.join(' ')).toMatch(/scope\.json/i)
+    // The scope failure is still reported — it is not swallowed by the reorder —
+    // as a scope warning: the model files themselves were updated.
+    expect(res.data!.warnings.join(' ')).toMatch(/\.dethereal\/scope\.json could not be updated \(/)
+    expect(res.data!.warnings.join(' ')).not.toMatch(/Could not update source directory/)
+    expect(res.data!.source_files_updated).toBe(true)
   })
 
   it('leaves the sidecars alone when source-file update is disabled', async () => {
@@ -324,8 +360,8 @@ describe('UpdateModelTool — the re-export path fixes up what it invalidates', 
       { model_id: 'model-1', directory_path: tmpDir, create_backup: false, disable_source_file_update: true }, contextWithClient)
 
     expect(res.success).toBe(false)
-    expect(res.error).toBe(
-      'Update failed: DB: write boom, retry later; Failed to set the answers of "API" for class k1: class "k1" not found; Model model-1 not found',
+    expect(res.error).toMatch(
+      /^Update failed: DB: write boom, retry later; Failed to set the answers of "API" for class k1: class "k1" not found; Model model-1 not found\. The record of the platform model from before this push was kept/,
     )
   })
 
@@ -401,7 +437,8 @@ describe('UpdateModelTool — the re-export path fixes up what it invalidates', 
     expect(res.data!.warnings.join(' ')).toContain('Component "DB": Could not resolve')
   })
 
-  it('keeps a control reference the push could not attach in the model files; attached ones come from the platform', async () => {
+  // A strict push links every reference or refuses, so dt-core never reports these after a write; this pins the guard.
+  it('keeps a control reference the update reports as unattached in the model files; attached ones come from the platform', async () => {
     const local = {
       defaultBoundary: {
         id: 'b-1', name: 'System', boundaries: [],
@@ -473,5 +510,372 @@ describe('UpdateModelTool — the re-export path fixes up what it invalidates', 
 
     expect(res.success).toBe(true)
     expect(res.data!.warnings.some(w => w.includes('NOT pushed'))).toBe(true)
+  })
+})
+
+describe('UpdateModelTool — the push gate and the merge-back', () => {
+  let tmpDir: string
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(process.cwd(), '.test-update-gate-'))
+    mockUpdateFromSplitModel.mockReset()
+    mockExportModelToSplit.mockReset()
+    pushGate.real = true
+  })
+  afterEach(async () => {
+    pushGate.real = false
+    realMerge.on = false
+    await fs.rm(tmpDir, { recursive: true, force: true })
+  })
+
+  it('refuses a push that fails Gate 2 before any backup or platform call', async () => {
+    await writeModelDir(tmpDir, makeStructure([{ id: 'c-A', name: 'A' }]), [], [])
+    const res = await updateModelTool.run({ model_id: 'model-1', directory_path: tmpDir }, contextWithClient)
+    expect(res.success).toBe(false)
+    expect(res.error).toMatch(/^Push refused: Gate 2 fails \(/)
+    expect(res.error).not.toContain(tmpDir)
+    expect(mockUpdateFromSplitModel).not.toHaveBeenCalled()
+    // Backups are made beside the model directory, not inside it.
+    expect((await fs.readdir(path.dirname(tmpDir))).some((f) => f.startsWith(`${path.basename(tmpDir)}.backup-`))).toBe(false)
+  })
+
+  it('refuses a push while an enrichment value awaits the operator, before any backup or platform call', async () => {
+    const { gateModel, writeGateModel } = await import('../../utils/__tests__/fixtures/gate-model.js')
+    await writeGateModel(tmpDir, gateModel())
+    await fs.writeFile(path.join(tmpDir, '.dethereal', 'enrichment-pending.json'), JSON.stringify({ version: 1, entries: [
+      { batch: 'b1', element_id: 'c-web', group: 'components', field: 'input_validation', value: 'schema', source: 'app.py:3', previous: 'null' },
+    ] }))
+    const res = await updateModelTool.run({ model_id: 'model-1', directory_path: tmpDir }, contextWithClient)
+    expect(res.error).toMatch(/^Push refused: 1 enrichment value awaits the operator's confirmation \(pending_enrichment\)/)
+    expect(mockUpdateFromSplitModel).not.toHaveBeenCalled()
+    expect((await fs.readdir(path.dirname(tmpDir))).some((f) => f.startsWith(`${path.basename(tmpDir)}.backup-`))).toBe(false)
+  })
+
+  it('refuses a push whose scope.json cannot be read, before any backup or platform call', async () => {
+    const { gateModel, writeGateModel } = await import('../../utils/__tests__/fixtures/gate-model.js')
+    await writeGateModel(tmpDir, gateModel())
+    await fs.writeFile(path.join(tmpDir, 'outside-scope.json'), '{}')
+    await fs.rm(path.join(tmpDir, '.dethereal', 'scope.json'), { force: true })
+    await fs.symlink(path.join(tmpDir, 'outside-scope.json'), path.join(tmpDir, '.dethereal', 'scope.json'))
+    const res = await updateModelTool.run({ model_id: 'model-1', directory_path: tmpDir }, contextWithClient)
+    expect(res.success).toBe(false)
+    expect(res.error).toBe('.dethereal/scope.json could not be read (symlink); fix or remove it, then push again')
+    expect(mockUpdateFromSplitModel).not.toHaveBeenCalled()
+    expect((await fs.readdir(path.dirname(tmpDir))).some((f) => f.startsWith(`${path.basename(tmpDir)}.backup-`))).toBe(false)
+  })
+
+  it('refuses a model it cannot read in the same words as the other pushes, before any backup or platform call', async () => {
+    const { gateModel, writeGateModel } = await import('../../utils/__tests__/fixtures/gate-model.js')
+    await writeGateModel(tmpDir, gateModel())
+    await fs.writeFile(path.join(tmpDir, 'structure.json'), 'not json')
+    const res = await updateModelTool.run({ model_id: 'model-1', directory_path: tmpDir }, contextWithClient)
+    expect(res.success).toBe(false)
+    expect(res.error).toMatch(/^Push refused: the model could not be read \(.+\)\.$/)
+    expect(res.error).not.toContain(tmpDir)
+    expect(mockUpdateFromSplitModel).not.toHaveBeenCalled()
+    expect((await fs.readdir(path.dirname(tmpDir))).some((f) => f.startsWith(`${path.basename(tmpDir)}.backup-`))).toBe(false)
+  })
+
+  it('pushes the model the gate judged, not what the directory holds after', async () => {
+    const { gateModel, writeGateModel } = await import('../../utils/__tests__/fixtures/gate-model.js')
+    const { directoryPushRefusal } = await import('../../utils/gates.js')
+    await writeGateModel(tmpDir, gateModel())
+    await registerAll(tmpDir)
+    let gated = 0
+    updateModelTool.gate = async (dir, payload) => {
+      const refusal = await directoryPushRefusal(dir, payload)
+      gated += 1
+      const p = path.join(tmpDir, 'attributes', 'components', 'c-web.json')
+      const doc = JSON.parse(await fs.readFile(p, 'utf8'))
+      doc.attributes.session_timeout = 900
+      await fs.writeFile(p, JSON.stringify(doc))
+      return refusal
+    }
+    mockUpdateFromSplitModel.mockResolvedValue({ success: false, errors: [{ error: 'stopped by the test' }], warnings: [] })
+    try {
+      await updateModelTool.run({ model_id: 'model-1', directory_path: tmpDir, create_backup: false }, contextWithClient)
+    } finally {
+      updateModelTool.gate = undefined
+    }
+    expect(gated).toBe(1)
+    expect(mockUpdateFromSplitModel).toHaveBeenCalledOnce()
+    const pushed = mockUpdateFromSplitModel.mock.calls[0]![1]
+    expect(pushed.attributes.components['c-web'].attributes).not.toHaveProperty('session_timeout')
+    expect(pushed.attributes.components['c-web'].attributes.input_validation).toBe('schema')
+  })
+
+  it('a re-export that rewrites values the platform\'s way leaves them unregistered', async () => {
+    const { gateModel, writeGateModel } = await import('../../utils/__tests__/fixtures/gate-model.js')
+    const { modelStateTool } = await import('../model-state.tool.js')
+    const m = gateModel()
+    // Fields of c-web's class, so they register (the platform's '900' then reads as an ill-typed value).
+    Object.assign(m.classCache['cls-service']!.template.schema.properties, { session_timeout: { type: 'integer' }, logging_enabled: { type: 'boolean' } })
+    m.attributes.components['c-web']!.attributes.session_timeout = 900
+    m.attributes.components['c-web']!.attributes.monitoring_tools = ['cloud audit log', 'waf log']
+    await writeGateModel(tmpDir, m)
+    await registerAll(tmpDir)
+    realMerge.on = true
+    mockUpdateFromSplitModel.mockResolvedValue({ ...okResult, idMapping: new Map() })
+    // The platform returns a number as a string, an array in its own order, and a template default filled in.
+    const exported = JSON.parse(JSON.stringify(m.attributes))
+    Object.assign(exported.components['c-web'].attributes, { session_timeout: '900', monitoring_tools: ['waf log', 'cloud audit log'], logging_enabled: false })
+    // Records come back in the platform's own forms too: sensitivity upper-cased, flags and item lists reordered.
+    const exportedItems = m.dataItems.map((i) => ({ ...i, sensitivity: typeof i.sensitivity === 'string' ? i.sensitivity.toUpperCase() : i.sensitivity, regulatory_flags: [...(i.regulatory_flags ?? [])].reverse() }))
+    const exportedFlows = m.dataFlows.map((f) => ({ ...f, dataItemIds: [...(f.dataItemIds ?? [])].reverse() }))
+    mockExportModelToSplit.mockResolvedValue({ manifest: m.manifest, structure: m.structure, dataFlows: exportedFlows, dataItems: exportedItems, attributes: exported })
+    const res = await updateModelTool.run({ model_id: 'model-1', directory_path: tmpDir, create_backup: false }, contextWithClient)
+    expect(res.success, res.error).toBe(true)
+    const g = (await modelStateTool.run({ action: 'get', directory_path: tmpDir, include: ['unregistered_rows'] } as never, contextWithClient) as any).data
+    expect(g.baseline).toBe('verified')
+    // Only the attribute rewrites: the records are compared in their normalised forms.
+    expect(g.unregistered_changes.rows.map((r: any) => `${r.element_id}.${r.record ? 'record:' : ''}${r.field}`).sort())
+      .toEqual(['c-web.logging_enabled', 'c-web.monitoring_tools', 'c-web.session_timeout'])
+  })
+
+  it('the backup check can see a backup (positive control)', async () => {
+    const { gateModel, writeGateModel } = await import('../../utils/__tests__/fixtures/gate-model.js')
+    await writeGateModel(tmpDir, gateModel())
+    await registerAll(tmpDir)
+    mockUpdateFromSplitModel.mockResolvedValue({ success: false, errors: [{ error: 'stopped by the test' }], warnings: [] })
+    await updateModelTool.run({ model_id: 'model-1', directory_path: tmpDir }, contextWithClient)
+    const backups = (await fs.readdir(path.dirname(tmpDir))).filter((f) => f.startsWith(`${path.basename(tmpDir)}.backup-`))
+    expect(backups.length).toBeGreaterThan(0)
+    for (const b of backups) await fs.rm(path.join(path.dirname(tmpDir), b), { recursive: true, force: true })
+  })
+
+  it('pushes a model that passes Gate 2, and re-keys local attributes of elements the push created', async () => {
+    const { gateModel, writeGateModel } = await import('../../utils/__tests__/fixtures/gate-model.js')
+    const m = gateModel()
+    await writeGateModel(tmpDir, m)
+    await registerAll(tmpDir)
+    realMerge.on = true
+    mockUpdateFromSplitModel.mockResolvedValue({ ...okResult, idMapping: new Map([['c-web', 'CWEB-uuid']]) })
+    // The platform returns c-web under its new id, without the local-only attribute keys.
+    const exportedStructure = JSON.parse(JSON.stringify(m.structure))
+    const walk = (b: any) => { for (const c of b.components ?? []) if (c.id === 'c-web') c.id = 'CWEB-uuid'; (b.boundaries ?? []).forEach(walk) }
+    walk(exportedStructure)
+    mockExportModelToSplit.mockResolvedValue({
+      manifest: m.manifest, structure: exportedStructure,
+      dataFlows: m.dataFlows.map((f) => ({ ...f, source: { id: f.source.id === 'c-web' ? 'CWEB-uuid' : f.source.id }, target: { id: f.target.id === 'c-web' ? 'CWEB-uuid' : f.target.id } })),
+      dataItems: m.dataItems,
+      attributes: { boundaries: {}, components: {}, dataFlows: {}, dataItems: {} },
+    })
+    const res = await updateModelTool.run({ model_id: 'model-1', directory_path: tmpDir, create_backup: false }, contextWithClient)
+    expect(res.success, res.error).toBe(true)
+    expect(mockUpdateFromSplitModel).toHaveBeenCalledOnce()
+    const files = await fs.readdir(path.join(tmpDir, 'attributes', 'components'))
+    expect(files).toContain('CWEB-uuid.json')
+    expect(files).not.toContain('c-web.json')
+    const moved = JSON.parse(await fs.readFile(path.join(tmpDir, 'attributes', 'components', 'CWEB-uuid.json'), 'utf8'))
+    expect(moved.elementId).toBe('CWEB-uuid')
+    expect(moved.attributes.input_validation).toBe('schema')
+  })
+})
+
+// =============================================================================
+// The platform-change check: a push never overwrites what changed on the
+// platform since the last pull or push without the operator naming it.
+// =============================================================================
+
+describe('UpdateModelTool — platform changes since the last pull or push', () => {
+  let parent: string
+  let dir: string
+
+  /** Every file under the parent directory, with its content: a backup, sync.json write or id mapping all show. */
+  async function snapshot(root: string): Promise<Record<string, string>> {
+    const out: Record<string, string> = {}
+    for (const entry of await fs.readdir(root, { recursive: true, withFileTypes: true })) {
+      if (!entry.isFile()) continue
+      const abs = path.join(entry.parentPath, entry.name)
+      out[path.relative(root, abs)] = await fs.readFile(abs, 'utf8')
+    }
+    return out
+  }
+  const assign = (m: any) => { m.structure.defaultBoundary.components[0].controls = [{ id: 'ctl-new' }] }
+  const platform = (change?: (m: any) => void) => {
+    const m = richExport() as any
+    change?.(m)
+    return m
+  }
+  /** The platform as the next exports return it: a fresh copy each time, as a real export is. */
+  const platformIs = (change?: (m: any) => void) => mockExportModelToSplit.mockImplementation(async () => platform(change))
+  const pull = async () => {
+    platformIs()
+    const pulled = await exportModelTool.run({ model_id: 'm-1', directory_path: dir, if_exists: 'update' }, contextWithClient)
+    expect(pulled.success, JSON.stringify(pulled)).toBe(true)
+    expect(pulled.data?.platform_baseline).toBe('recorded')
+    // A pull registers its directory (every successful export does).
+    expect(pulled.data?.registered).toBe(true)
+  }
+  const push = (extra: Record<string, unknown> = {}) =>
+    updateModelTool.run({ model_id: 'm-1', directory_path: dir, ...extra }, contextWithClient)
+
+  beforeEach(async () => {
+    platformCheck.real = true
+    realMerge.on = true
+    parent = await fs.mkdtemp(path.join(process.cwd(), '.test-platform-'))
+    dir = path.join(parent, 'model')
+    // The pull registers the model: its registry goes under this test's own project root.
+    initProjectRoot({ env: { DETHEREAL_PROJECT_ROOT: parent } })
+    mockUpdateFromSplitModel.mockReset()
+    mockExportModelToSplit.mockReset()
+    mockUpdateFromSplitModel.mockResolvedValue({ ...okResult, idMapping: new Map() })
+  })
+  afterEach(async () => {
+    resetProjectRoot()
+    platformCheck.real = false
+    realMerge.on = false
+    await fs.rm(parent, { recursive: true, force: true })
+  })
+
+  it('refuses a stale push after a control was assigned on the platform, before writing anything', async () => {
+    await pull()
+    platformIs(assign)
+    const before = await snapshot(parent)
+
+    const res = await push()
+
+    expect(res.success).toBe(false)
+    expect(res.error).toMatch(/changed since your last pull or push: 1 element/)
+    expect(res.data).toMatchObject({
+      code: 'PLATFORM_CHANGED_SINCE_SYNC',
+      baseline: 'verified',
+      changes: [{ id: 'c-db', kind: 'component', name: 'DB', change: 'modified', fields: ['controls'] }],
+      changed_ids: ['c-db'],
+    })
+    expect(mockUpdateFromSplitModel).not.toHaveBeenCalled()
+    // No backup sibling, no sync.json write, no id mapping: the tree is exactly as it was.
+    expect(await snapshot(parent)).toEqual(before)
+  })
+
+  it('overwrites exactly the named changes, then records the platform as the push left it', async () => {
+    await pull()
+    platformIs(assign)
+    const refused = await push()
+    const { changed_ids, revision } = refused.data as any
+
+    const res = await push({ overwrite_changed: changed_ids, overwrite_revision: revision })
+    expect(res.success, JSON.stringify(res)).toBe(true)
+    expect(res.data).toMatchObject({ acknowledgement: 'accepted', platform_baseline: 'recorded' })
+    expect(mockUpdateFromSplitModel).toHaveBeenCalledTimes(1)
+
+    // The platform now shows what the push wrote; the next push has nothing to name.
+    mockUpdateFromSplitModel.mockClear()
+    const next = await push()
+    expect(next.success, JSON.stringify(next)).toBe(true)
+    expect(next.data).not.toHaveProperty('acknowledgement')
+  })
+
+  it('refuses again when the platform changed again after the refusal', async () => {
+    await pull()
+    platformIs(assign)
+    const { changed_ids, revision } = (await push()).data as any
+    platformIs((m) => { assign(m); m.structure.defaultBoundary.components[0].controls.push({ id: 'ctl-more' }) })
+
+    const res = await push({ overwrite_changed: changed_ids, overwrite_revision: revision })
+    expect(res.success).toBe(false)
+    expect(res.data).toMatchObject({ code: 'PLATFORM_CHANGED_SINCE_SYNC', acknowledgement: 'stale', changed_ids: ['c-db'] })
+    expect(mockUpdateFromSplitModel).not.toHaveBeenCalled()
+  })
+
+  it('lists every element when the record was forged, and when sync.json predates it', async () => {
+    await pull()
+    const syncPath = path.join(dir, '.dethereal', 'sync.json')
+    const sync = JSON.parse(await fs.readFile(syncPath, 'utf8'))
+    sync.platform_baseline.elements['c-db'].f.controls = '0000000000000000'
+    await fs.writeFile(syncPath, JSON.stringify(sync))
+    platformIs()
+    const forged = await push()
+    expect(forged.data).toMatchObject({ baseline: 'unverifiable', changes_total: 8 })
+    expect(new Set((forged.data as any).changes.map((c: any) => c.change))).toEqual(new Set(['no_baseline']))
+
+    delete sync.platform_baseline
+    await fs.writeFile(syncPath, JSON.stringify(sync))
+    const legacy = await push()
+    expect(legacy.data).toMatchObject({ baseline: 'legacy', changes_total: 8 })
+    const { changed_ids, revision } = legacy.data as any
+    const answered = await push({ overwrite_changed: changed_ids, overwrite_revision: revision })
+    expect(answered.success, JSON.stringify(answered)).toBe(true)
+    expect(answered.data).toMatchObject({ acknowledgement: 'accepted', platform_baseline: 'recorded' })
+  })
+
+  it('refuses when the platform model cannot be read for the check', async () => {
+    await pull()
+    mockExportModelToSplit.mockRejectedValue(new Error('network'))
+    const res = await push()
+    expect(res.success).toBe(false)
+    expect(res.error).toMatch(/could not be read to check it for changes/)
+    expect(mockUpdateFromSplitModel).not.toHaveBeenCalled()
+  })
+
+  it('reports an overwrite passed with nothing changed as unused', async () => {
+    await pull()
+    const res = await push({ overwrite_changed: ['c-db'], overwrite_revision: 'a'.repeat(64) })
+    expect(res.success, JSON.stringify(res)).toBe(true)
+    expect(res.data).toMatchObject({ acknowledgement: 'unused' })
+  })
+
+  it('never reads its own writes as platform changes: pull→push→push with every push-written key present locally', async () => {
+    await pull()
+    // Every key the push writes only when the local file carries it is there after
+    // the pull (class, attributes, conduits, model controls, scope, handles, modules);
+    // a local-only attribute file is merged into the re-export on each push.
+    const local = await snapshot(dir)
+    const joined = Object.values(local).join('\n')
+    for (const key of ['classData', 'conduits', 'ctl-model', 'sourceHandle', 'mod-1', 'compliance_drivers', 'ingress']) {
+      expect(joined, key).toContain(key)
+    }
+    await fs.writeFile(
+      path.join(dir, 'attributes', 'components', 'c-db.json'),
+      JSON.stringify({ elementId: 'c-db', elementType: 'component', classData: { id: 'cls-db', name: 'DB' }, attributes: { local_only: true } }, null, 2),
+    )
+
+    for (const round of [1, 2]) {
+      const res = await push()
+      expect(res.success, `push ${round}: ${JSON.stringify(res)}`).toBe(true)
+      expect(res.data?.platform_baseline).toBe('recorded')
+    }
+    expect(mockUpdateFromSplitModel).toHaveBeenCalledTimes(2)
+  })
+
+  it('lists elements added on the platform only when the push would delete them', async () => {
+    await pull()
+    platformIs((m) => { m.dataItems.push({ id: 'd-new', name: 'Added there' }) })
+    const deleting = await push()
+    expect(deleting.data).toMatchObject({ changed_ids: ['d-new'], changes: [expect.objectContaining({ change: 'added_on_platform' })] })
+    const keeping = await push({ delete_orphaned: false })
+    expect(keeping.success, JSON.stringify(keeping)).toBe(true)
+  })
+
+  it('without deleting orphans, ignores a platform change to an element the local model does not hold', async () => {
+    await pull()
+    // Locally the DB component and its flow are gone; on the platform a control was assigned to the DB.
+    const structure = JSON.parse(await fs.readFile(path.join(dir, 'structure.json'), 'utf8'))
+    structure.defaultBoundary.components = []
+    await fs.writeFile(path.join(dir, 'structure.json'), JSON.stringify(structure))
+    await fs.writeFile(path.join(dir, 'dataflows.json'), JSON.stringify({ dataFlows: [] }))
+    platformIs(assign)
+
+    // Deleting orphans would delete the changed DB: refused.
+    const deleting = await push()
+    expect(deleting.data).toMatchObject({ code: 'PLATFORM_CHANGED_SINCE_SYNC', changed_ids: expect.arrayContaining(['c-db']) })
+    expect(mockUpdateFromSplitModel).not.toHaveBeenCalled()
+    // Keeping them, the push leaves the DB alone, so its change is not the push's to overwrite.
+    const keeping = await push({ delete_orphaned: false })
+    expect(keeping.success, JSON.stringify(keeping)).toBe(true)
+  })
+
+  it('without deleting orphans, still refuses a platform change to an element the local model holds', async () => {
+    await pull()
+    platformIs((m) => { m.structure.defaultBoundary.boundaries[0].components[0].positionX = 999 })
+    const res = await push({ delete_orphaned: false })
+    expect(res.data).toMatchObject({ code: 'PLATFORM_CHANGED_SINCE_SYNC', changed_ids: ['c-web'] })
+  })
+
+  it("refuses on a data item's attributes only in update_attributes, never here: update_model does not write them", async () => {
+    await pull()
+    platformIs((m) => { m.attributes.dataItems['d-1'].attributes = { retention: 'colleague' } })
+    const res = await push()
+    expect(res.success, JSON.stringify(res)).toBe(true)
   })
 })

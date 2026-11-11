@@ -71,8 +71,8 @@ describe('DtUpdate — model controls', () => {
     dtUpdate.warnings = []
 
     const owner = { kind: 'BOUNDARY', id: 'b1', name: 'B' }
-    expect(await dtUpdate.resolveControls([{ name: 'perimeter firewall' }, { name: 'Firewall' }], owner)).toEqual(['c-pfw'])
-    expect(await dtUpdate.resolveControls([{ id: 'c-waf' }], owner)).toEqual(['c-waf'])
+    expect(await dtUpdate.resolveControls([{ name: 'perimeter firewall' }, { name: 'Firewall' }], {}, owner)).toEqual(['c-pfw'])
+    expect(await dtUpdate.resolveControls([{ id: 'c-waf' }], {}, owner)).toEqual(['c-waf'])
     expect(dtUpdate.unresolvedControls).toEqual([{ name: 'Firewall', reason: 'not_found', owner }])
     expect(dtUpdate.dtControl.getControls).toHaveBeenCalledTimes(2)
   })

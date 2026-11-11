@@ -1,0 +1,42 @@
+{
+  "session_id": "<session-id>",
+  "transcript_path": "<transcript>",
+  "cwd": "<run>/project",
+  "prompt_id": "<prompt-id>",
+  "permission_mode": "acceptEdits",
+  "effort": {
+    "level": "high"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "<run>/project/probe/a.txt",
+    "old_string": "alpha",
+    "new_string": "beta",
+    "replace_all": false
+  },
+  "tool_response": {
+    "filePath": "<run>/project/probe/a.txt",
+    "oldString": "alpha",
+    "newString": "beta",
+    "originalFile": "alpha",
+    "structuredPatch": [
+      {
+        "oldStart": 1,
+        "oldLines": 1,
+        "newStart": 1,
+        "newLines": 1,
+        "lines": [
+          "-alpha",
+          "\\ No newline at end of file",
+          "+beta",
+          "\\ No newline at end of file"
+        ]
+      }
+    ],
+    "userModified": false,
+    "replaceAll": false
+  },
+  "tool_use_id": "<tool-use-id>",
+  "duration_ms": 5
+}

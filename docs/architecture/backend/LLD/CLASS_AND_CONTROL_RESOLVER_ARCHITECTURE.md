@@ -175,7 +175,7 @@ Pure backend services follow a three-layer call chain:
 MCP tool (dethereal)  →  dt-core method (Apollo Client)  →  Custom resolver (dt-ws, Bolt/Cypher)
 ```
 
-The MCP layer handles input validation and result formatting. The dt-core layer wraps the GraphQL call. The resolver executes the Cypher queries. This is the same pattern used by every existing platform operation (e.g., `manage_exposures` → `DtExposure.getExposures()` → auto-generated resolver).
+The MCP layer handles input validation and result formatting. The dt-core layer wraps the GraphQL call. The resolver executes the Cypher queries. This is the same pattern used by every existing platform operation (e.g., `query_exposures` → `DtExposure.getExposures()` → auto-generated resolver).
 
 ### Resolver infrastructure
 
@@ -257,7 +257,7 @@ Database access uses the Neo4j Bolt driver injected via `@Inject('NEO4J_DRIVER')
 The brownfield control workflow (finding relevant Controls from the org library) decomposes into two existing operations without a separate tool:
 
 1. `match_classes(classLabel: CONTROL)` -> finds relevant ControlClass IDs
-2. `manage_controls(list, class_ids: [...])` -> finds Controls implementing those classes
+2. `query_controls(list, class_ids: [...])` -> finds Controls implementing those classes
 
 ### 4.2 get_control_gaps -- Framework-grounded gap analysis
 
@@ -607,8 +607,8 @@ Backend services are exposed as MCP tools or as new actions on existing tools:
 | Backend service | MCP tool | Integration |
 |----------------|----------|-------------|
 | `match_classes` | New `match_classes` tool | Direct wrapper around `DtClass.matchClasses()` |
-| `get_control_gaps` | New `get_control_gaps` tool | Wrapper around `DtControl.controlGaps()`. Standalone tool (not an action on `manage_exposures`) because the output shape (gaps, recommendations, coverage) is distinct from exposure CRUD. |
-| `findControls` | Existing `manage_controls` (`list` action) | Replaces current `getControls()` call |
+| `get_control_gaps` | New `get_control_gaps` tool | Wrapper around `DtControl.controlGaps()`. Standalone tool (not an action on `manage_exposures`, since retired in favour of `query_exposures`) because the output shape (gaps, recommendations, coverage) is distinct from exposure CRUD. |
+| `findControls` | `query_controls` (`list` action; originally on `manage_controls`) | Replaces current `getControls()` call |
 | `assignControlToElements` | Existing `manage_controls` (new `assign` action) | New action, groups by control_id |
 | `compute_control_coverage` | Existing `validate_model_json` (new `coverage` action) | Hybrid: local file reads + GraphQL |
 

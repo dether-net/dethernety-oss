@@ -1,70 +1,85 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync, readdirSync } from 'fs'
-import path from 'path'
-import { fileURLToPath } from 'url'
+import { execFileSync } from 'node:child_process'
+import { cpSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { committedPackageRootFiles } from '../generator/cli.js'
+import { LEGACY_ROOT_PATHS } from '../generator/targets/claude/index.js'
 
 /**
- * Drift guard: a script that ships must not read a file that doesn't.
+ * What the published package holds, read from the packed file list — the only place an
+ * unpublished runtime file, or a stray path Claude Code would load, is visible: in a checkout
+ * every file is right there.
  *
- * `scripts/` is in package.json's `files`; `src/` is not. `scripts/detect-drift.js`
- * reads `src/utils/source-globs.v1.json` at runtime, so the published package
- * carried the reader without the file and every installed user got an uncaught
- * ENOENT — not even the `{message, hint}` JSON the threat-model skill parses on a
- * non-zero exit, just a Node stack trace. Nothing in the repo could see it: the
- * file is right there in a dev checkout, so tests, lint and a local run all pass.
- *
- * The only place the absence is visible is the packed file list, which is what
- * this test reads.
+ * The plugin root is the package root: the generated manifest and `bundles/claude/`, next to the
+ * server in `dist/`. Claude Code also loads skills, commands, agents, hooks, an MCP config and
+ * settings from their default root paths, on top of what the manifest names; none may ship.
  */
 
 const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
-const pkg = JSON.parse(readFileSync(path.join(pkgRoot, 'package.json'), 'utf-8'))
-const files: string[] = pkg.files ?? []
-
-/** Does `files` publish this package-relative path? */
-function isPublished(relPath: string): boolean {
-  const normalized = relPath.split(path.sep).join('/')
-  return files.some((entry) => {
-    const e = entry.replace(/^\.\//, '').replace(/\/$/, '')
-    return normalized === e || normalized.startsWith(`${e}/`)
-  })
-}
 
 /**
- * Package-relative paths a script resolves at runtime, from
- * `join(__dirname, '..', 'a', 'b')` chains. Only string literals — a computed
- * segment is not something a static check can follow, and pretending otherwise
- * would make this test lie about its own coverage.
+ * What npm never packs from the package root, and what other test files create and delete there while this one
+ * runs: their model directories (`.test-*`), which path confinement keeps inside the project.
  */
-function packageRelativeReads(source: string): string[] {
-  const out: string[] = []
-  const call = /join\(\s*__dirname\s*,\s*'\.\.'\s*((?:,\s*'[^']+'\s*)+)\)/g
-  for (const m of source.matchAll(call)) {
-    const segments = [...m[1]!.matchAll(/'([^']+)'/g)].map((s) => s[1]!)
-    if (segments.length > 0) out.push(segments.join('/'))
+const unpacked = (top: string) => top === 'node_modules' || top === '.turbo' || top.startsWith('.test-')
+
+/**
+ * The package as npm packs it, from a still copy outside the package: npm walks the whole tree it packs from, and a
+ * test folder that appears or goes while it walks fails the pack. Only a copy that fails is tried again, once, with
+ * the first failure printed; a pack that fails, or prints what cannot be read, fails the test.
+ */
+function packedFiles(): string[] {
+  let first: unknown
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const copy = mkdtempSync(path.join(os.tmpdir(), 'dethereal-pack-'))
+    try {
+      try {
+        cpSync(pkgRoot, copy, { recursive: true, verbatimSymlinks: true, filter: (src) => !unpacked(path.relative(pkgRoot, src).split(path.sep)[0] ?? '') })
+      } catch (err) {
+        if (attempt === 2) throw new Error(`the package could not be copied twice; first: ${String(first)}; then: ${String(err)}`, { cause: err })
+        first = err
+        console.warn(`the package copy failed once (${String(err)}): copying again`)
+        continue
+      }
+      let out: string
+      try {
+        out = execFileSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], { cwd: copy, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+      } catch (err) {
+        throw new Error(`npm pack --dry-run failed: ${String((err as { stderr?: unknown }).stderr ?? err)}`, { cause: err })
+      }
+      return (JSON.parse(out) as { files: { path: string }[] }[])[0]!.files.map((f) => f.path)
+    } finally {
+      rmSync(copy, { recursive: true, force: true })
+    }
   }
-  return out
+  throw new Error('unreachable')
 }
 
-describe('published scripts only read published files', () => {
-  const scriptsDir = path.join(pkgRoot, 'scripts')
-  const scripts = readdirSync(scriptsDir).filter((f) => f.endsWith('.js') || f.endsWith('.mjs'))
+const packed: string[] = packedFiles()
 
-  it('ships every runtime file a shipped script resolves against the package root', () => {
-    const unpublished: string[] = []
-    for (const script of scripts) {
-      const source = readFileSync(path.join(scriptsDir, script), 'utf-8')
-      for (const relPath of packageRelativeReads(source)) {
-        if (!isPublished(relPath)) unpublished.push(`${script} reads ${relPath}`)
-      }
-    }
-    expect(unpublished).toEqual([])
+describe('the published package', () => {
+  it('ships the generated plugin, every file of it', () => {
+    const plugin = [...committedPackageRootFiles(pkgRoot).keys()]
+    expect(plugin.length).toBeGreaterThan(20)
+    expect(packed).toEqual(expect.arrayContaining(plugin))
   })
 
-  it('actually finds the reads it is meant to guard', () => {
-    // A regex that silently matches nothing would make the test above pass by
-    // doing nothing at all — the failure mode this whole guard exists to catch.
-    const detectDrift = readFileSync(path.join(scriptsDir, 'detect-drift.js'), 'utf-8')
-    expect(packageRelativeReads(detectDrift)).toContain('src/utils/source-globs.v1.json')
+  it('ships the server when it is built', () => {
+    if (!existsSync(path.join(pkgRoot, 'dist', 'index.js'))) return
+    expect(packed).toContain('dist/index.js')
+  })
+
+  it('ships nothing Claude Code would load beside the manifest, and no legacy tree', () => {
+    const stray = packed.filter((p) => [...LEGACY_ROOT_PATHS, 'docs', 'scripts'].some((legacy) => p === legacy || p.startsWith(`${legacy}/`)))
+    expect(stray).toEqual([])
+    expect(packed.filter((p) => p.startsWith('src/'))).toEqual(['src/utils/source-globs.v1.json'])
+    // One bundle per harness, nothing else under bundles/.
+    expect([...new Set(packed.filter((p) => p.startsWith('bundles/')).map((p) => p.split('/')[1]))].sort()).toEqual(['claude', 'codex', 'opencode'])
+  })
+
+  it('ships no development guide: nothing reads it at run time', () => {
+    expect(packed.filter((p) => !p.includes('/'))).toEqual(['package.json'])
   })
 })
