@@ -256,6 +256,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`@dether.net/dethereal` dependency updates** (`@apollo/client` 4.3.8, `graphql` 16.15.0, one
+  copy in the bundle); they ship with 0.6.0.
 - **`dt-core`: `external-ingress` sees through load balancers and proxies.** The finding used to fire
   only when a flow ran straight from an external (`UNTRUSTED` or `VENDOR`) boundary into a tier
   resolving to `INTERNAL` or `RESTRICTED`. It now also fires when the external boundary reaches that

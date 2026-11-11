@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
   "harness": "claude",
-  "version": "0.5.2",
+  "version": "0.6.0-dev.0",
   "generatedFrom": "7d558ec187d8932972c39a298f2a59f97e464261dd383a848a6d383c003c9d47",
   "contentHash": "a495d5a76d10108603293f07cb188efa9344f50213c925cae7736b53ccbd0d5e",
   "files": [
     {
       "path": ".claude-plugin/plugin.json",
-      "sha256": "c096d77f6e55ad187c8453c399daf0529c2d84bf5dcff70de06a3f6f0ab231bc"
+      "sha256": "630525e381f467516610726bef04a538b28aecf8468b741dba60b3f82cf98820"
     },
     {
       "path": "bundles/claude/.mcp.json",

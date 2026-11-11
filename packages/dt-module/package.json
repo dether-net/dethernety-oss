@@ -95,9 +95,9 @@
   "dependencies": {
     "@dethernety/dt-core": "workspace:*",
     "@dethernety/regorus-wasm": "workspace:*",
-    "@langchain/langgraph-sdk": "^1.12.9",
-    "@nestjs/common": "^11.2.8",
-    "graphql": "^16.14.2",
+    "@langchain/langgraph-sdk": "^1.15.0",
+    "@nestjs/common": "^11.2.9",
+    "graphql": "^16.15.0",
     "graphql-subscriptions": "^3.0.0",
     "uuid": "^11.1.1"
   },
