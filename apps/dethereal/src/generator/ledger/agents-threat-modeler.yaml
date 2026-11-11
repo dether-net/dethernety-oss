@@ -1,0 +1,559 @@
+source: agents/threat-modeler.md
+blob: 06b24b6d2d61de987b86c8304694f49997efd291
+migrated: true
+rules:
+  - id: 7b285ab09f
+    line: 22
+    anchor: You are the primary threat modeling agent for Dethernety.
+    destination: agents/threat-modeler.md
+  - id: e11a672cc7
+    line: 22
+    anchor: You edit and maintain threat model files with the operator
+    destination: agents/threat-modeler.md
+  - id: 3dfd6fc078
+    line: 24
+    anchor: Dethernety Threat Model Guidelines — Core
+    destination: agents/threat-modeler.md
+  - id: 7aa81c07ff
+    line: 29
+    anchor: "**Validate once per step** — after a step's last model-file write, call"
+    destination: shared/core-rules.md
+  - id: b0c048f1bd
+    line: 30
+    anchor: "**Conservative security interpretation** — assume unencrypted until proven encrypted,"
+    destination: shared/core-rules.md
+  - id: f4992f373d
+    line: 31
+    anchor: State assumptions explicitly
+    destination: shared/core-rules.md
+  - id: 7b4eda6da7
+    line: 32
+    anchor: Never silently change operator decisions
+    destination: shared/core-rules.md
+  - id: "96805e0955"
+    line: 33
+    anchor: the modeling guidelines, file format and examples are part of these instructions
+    destination: agents/threat-modeler.md
+  - id: cb2a37a4a1
+    line: 37
+    anchor: A `directory-path` argument is used directly
+    destination: shared/protocols.md
+  - id: 72e7de6dc1
+    line: 39
+    anchor: A `directory-path` argument is used directly
+    destination: shared/protocols.md
+  - id: 736478f2f9
+    line: 40
+    anchor: If `.dethernety/models.json` lists exactly one model, use it implicitly
+    destination: shared/protocols.md
+  - id: fd781d618d
+    line: 41
+    anchor: show them as a numbered list (name, path, and `display_state`
+    destination: shared/protocols.md
+  - id: 2de075fd4f
+    line: 42
+    anchor: With none, suggest
+    destination: shared/protocols.md
+  - id: 9cecde8c93
+    line: 44
+    anchor: Read model files from disk at the start of each operation, never from memory.
+    destination: shared/protocols.md
+  - id: 3b7202a1d8
+    line: 48
+    anchor: It returns the full discovery report
+    destination: shared/delegation.md
+  - id: c3c9c43b55
+    line: 49
+    dropped:
+      reason: "Intended behaviour change: the enrichment agent returns its relay file's path, not a count, and the main conversation never reads the attribute files it wrote: the relay file shows every value written, and the applier and validate replace the read-back. About 46 KB into a 360–480k context would be carried to the last step."
+      ref: apps/dethereal/workflow/shared/delegation.md
+  - id: 54e444129f
+    line: 50
+    anchor: the full review (gate verdicts from the validation tool, top issues, zoning findings)
+    destination: shared/delegation.md
+  - id: 5ece106375
+    line: 52
+    anchor: Pass directory paths, not serialized model content.
+    destination: shared/delegation.md
+  - id: 6697c14330
+    line: 52
+    anchor: Each subagent reads current state from disk independently.
+    destination: shared/delegation.md
+  - id: 872a2e89d9
+    line: 56
+    anchor: After completing a mutating operation, output a footer with the state
+    destination: shared/protocols.md
+  - id: 9417a1b08e
+    line: 58
+    anchor: "[done] Action complete. State:"
+    destination: shared/protocols.md
+  - id: 151678f2cf
+    line: 65
+    anchor: Re-read state before acting.
+    destination: shared/core-rules.md
+  - id: 1b104d35c0
+    line: 65
+    anchor: Every state change goes through
+    destination: shared/guided-workflow.md
+  - id: 63ee3b9012
+    line: 65
+    anchor: Models progress through 6 states
+    destination: shared/guidelines-core.md
+  - id: da94d146e5
+    line: 69
+    anchor: or Step 2 of the guided workflow
+    destination: shared/discovery-protocol.md
+  - id: 5510df258b
+    line: 71
+    anchor: Resolve model path using the Model Resolution Protocol
+    destination: shared/discovery-protocol.md
+  - id: eed9e377ef
+    line: 72
+    anchor: Read `.dethereal/scope.json` if it exists — pass scope context to
+    destination: shared/discovery-protocol.md
+  - id: 2aaeaf83ba
+    line: 73
+    anchor: "Check for discovery cache at `.dethernety/discovery-cache.json`:"
+    destination: shared/discovery-protocol.md
+  - id: eae53c7747
+    line: 74
+    anchor: If a cache exists and a decomposition plan is active, the scan's results are filtered by the cache's assignedTo map
+    destination: shared/discovery-protocol.md
+  - id: ab7ca895d0
+    line: 75
+    anchor: show "N components pre-filtered for other models."
+    destination: shared/discovery-protocol.md
+  - id: 5c5cf0d153
+    line: 76
+    anchor: Delegate scanning — the scout is read-only
+    destination: shared/discovery-protocol.md
+  - id: 17e01267a8
+    line: 77
+    anchor: Receive the discovery report (sources checked, element counts, confidence distribution
+    destination: shared/discovery-protocol.md
+  - id: ad349e5726
+    line: 78
+    anchor: Persist the proposal as provenance, not as a decision.
+    destination: shared/discovery-protocol.md
+  - id: 1b47dda273
+    line: 79
+    anchor: Render the discovery report as markdown
+    destination: shared/discovery-protocol.md
+  - id: bdc3c6176a
+    line: 80
+    anchor: run the blind-spot interview as one consolidated question
+    destination: shared/discovery-protocol.md
+  - id: 3227b17f4f
+    line: 81
+    anchor: After the operator's confirmation, write the confirmed elements
+    destination: shared/discovery-protocol.md
+  - id: 9b37d4081f
+    line: 82
+    anchor: components + boundaries with coordinates
+    destination: shared/discovery-protocol.md
+  - id: 8c322e71fe
+    line: 83
+    anchor: "`dataflows.json` (confirmed flows)"
+    destination: shared/discovery-protocol.md
+  - id: d3377b1002
+    line: 84
+    anchor: Write .dethernety/discovery-cache.json after the first discovery in the project, and update it in a multi-model project
+    destination: shared/discovery-protocol.md
+  - id: a60500476c
+    line: 85
+    anchor: to check structural validity
+    destination: shared/discovery-protocol.md
+  - id: 7e09c62a57
+    line: 86
+    anchor: that is the explicit re-baseline path (e.g., after a history rewrite or a `--full-scan` cycle).
+    destination: shared/discovery-protocol.md
+  - id: e419fdcc16
+    line: 87
+    anchor: In the discover skill, show its footer
+    destination: shared/discovery-protocol.md
+  - id: 9decb3e06f
+    line: 89
+    anchor: all file writes happen here, not in the scout
+    destination: shared/discovery-protocol.md
+  - id: 113ccc8f30
+    line: 93
+    anchor: baseline, run drift detection before computing the step cursor.
+    destination: shared/drift-protocol.md
+  - id: 767c4c0653
+    line: 93
+    dropped:
+      reason: The link points into the repository documentation, which a generated bundle does not contain; the drift procedure is carried by the workflow itself.
+      ref: docs/architecture/dethereal/DRIFT_DETECTION.md
+  - id: 1241af8033
+    line: 95
+    anchor: Resolve the model path (Model Resolution Protocol).
+    destination: shared/drift-protocol.md
+  - id: 12f3e7a617
+    line: 96
+    anchor: is absent, **skip drift logic** — proceed to step-cursor computation
+    destination: shared/drift-protocol.md
+  - id: d8fc1298f6
+    line: 97
+    anchor: Full scan requested; running discovery end-to-end.
+    destination: shared/drift-protocol.md
+  - id: 98a0c436e6
+    line: 98
+    anchor: untouched, and stop drift logic — the operator's next move is what the hint says (e.g.,
+    destination: shared/drift-protocol.md
+  - id: 0c653b20d7
+    line: 99
+    anchor: "`[info] No drift since last reconcile (commit <baseline>).` and proceed to the cursor."
+    destination: shared/drift-protocol.md
+  - id: 764e2ebf3b
+    line: 100
+    anchor: "`[info] No prior discovery provenance; drift detection skipped. Run"
+    destination: shared/drift-protocol.md
+  - id: 878782860e
+    line: 101
+    anchor: an element whose sources are all outside
+    destination: shared/drift-protocol.md
+  - id: 9ce8776f7b
+    line: 102
+    anchor: so the scout can read companion files like `variables.tf` next to `rds.tf`).
+    destination: shared/drift-protocol.md
+  - id: e9db9c53b5
+    line: 103
+    anchor: Compute the four-way delta locally by joining `priorElements_in_scope` and
+    destination: shared/drift-protocol.md
+  - id: a197eccb77
+    line: 104
+    anchor: priorElements_in_scope element with no name match in newElements.
+    destination: shared/drift-protocol.md
+  - id: 732defa146
+    line: 105
+    anchor: newElements entry with no name match in priorElements_in_scope.
+    destination: shared/drift-protocol.md
+  - id: a0ace341fc
+    line: 106
+    anchor: "**CHANGED-substrate** = name matches in both, but **either** `suggestedComponentType` differs (PROCESS↔STORE↔EXTERNAL_ENTITY transitions are always substrate flips)"
+    destination: shared/drift-protocol.md
+  - id: 5d7e4a6364
+    line: 107
+    anchor: "**CHANGED-attribute-only** = name matches in both, both `suggestedComponentType` and `suggestedClass.id` are equal (under the caveat above),"
+    destination: shared/drift-protocol.md
+  - id: d0aa91dd6d
+    line: 108
+    anchor: "**Partial-evidence flag.** If a matched element's prior `sources[].file` set in `discovery.json` includes paths not present in"
+    destination: shared/drift-protocol.md
+  - id: fecfe83fa9
+    line: 109
+    anchor: It is crown-jewel-tagged when that element's id is mapped in the scope's `crown_jewel_elements`
+    destination: shared/drift-protocol.md
+  - id: fc166cee95
+    line: 110
+    anchor: "Emit a one-line pre-loop summary: `[drift] <R> removed (<C> crown-jewel-tagged), <A> added, <S> reclassified, <T> attribute-changed"
+    destination: shared/drift-protocol.md
+  - id: cf2737e2af
+    line: 111
+    anchor: "Iterate the delta items. For each:"
+    destination: shared/drift-protocol.md
+  - id: cd162526ca
+    line: 112
+    anchor: <element-id>`. The remove skill's crown-jewel-aware confirm runs for tagged elements; otherwise the generic confirm runs.
+    destination: shared/drift-protocol.md
+  - id: 01723b63bb
+    line: 113
+    anchor: The add skill confirms the classification
+    destination: shared/drift-protocol.md
+  - id: d0f681529b
+    line: 114
+    anchor: with the existing element id and the new file content from the relevant `sources[].file`
+    destination: shared/drift-protocol.md
+  - id: 085c2e1841
+    line: 115
+    anchor: (enrichment takes stale elements first)
+    destination: shared/drift-protocol.md
+  - id: 14c2e8baab
+    line: 116
+    anchor: Advance the baseline only after a complete reconcile
+    destination: shared/drift-protocol.md
+  - id: 2e5752fb00
+    line: 118
+    anchor: mid-loop, applied items are durably in the model
+    destination: shared/drift-protocol.md
+  - id: 400eef57e9
+    line: 118
+    anchor: re-detects the same diff; step 13 drops the items already applied
+    destination: shared/drift-protocol.md
+  - id: f4859ae17c
+    line: 118
+    anchor: only after a complete reconcile is the whole crash-safety story
+    destination: shared/drift-protocol.md
+  - id: 49fbab2704
+    line: 122
+    anchor: its phase file names its agent
+    destination: shared/guided-workflow.md
+  - id: 6f336f5ae7
+    line: 126
+    anchor: "| 1 | Scope Definition | SCOPE_DEFINED |"
+    destination: shared/guided-workflow.md
+  - id: 358a8a45ac
+    line: 127
+    anchor: Delegate scanning — the scout is read-only
+    destination: shared/discovery-protocol.md
+  - id: f34f7dddd8
+    line: 128
+    anchor: "| 3 | Model Review | DISCOVERED (no transition) |"
+    destination: shared/guided-workflow.md
+  - id: 3c6ffdf1fb
+    line: 129
+    anchor: "| 4 | Boundary Refinement | STRUCTURE_COMPLETE |"
+    destination: shared/guided-workflow.md
+  - id: 35b600f595
+    line: 130
+    anchor: "| 5 | Data Flow Mapping | ENRICHING |"
+    destination: shared/guided-workflow.md
+  - id: 8f6a7452be
+    line: 131
+    anchor: Delegate the second classification pass
+    destination: shared/guided-classify.md
+  - id: 8ed56a14f5
+    line: 132
+    anchor: "| 7 | Data Item Classification | ENRICHING (no state change) |"
+    destination: shared/guided-workflow.md
+  - id: ff0fabc78c
+    line: 133
+    anchor: Run the Enrichment Protocol in its specialist mode
+    destination: shared/guided-enrich.md
+  - id: 5c8ac7ffd8
+    line: 134
+    anchor: REVIEWED, when the server grants it
+    destination: shared/guided-workflow.md
+  - id: 7a65aa382a
+    line: 135
+    anchor: Publish the model as the Push Flow below says
+    destination: shared/guided-publish.md
+  - id: d13ec7b79c
+    line: 136
+    anchor: 11 | Post-Sync Linking | unchanged
+    destination: shared/guided-workflow.md
+  - id: 3b76b532ba
+    line: 138
+    anchor: ratify the trust skeleton (zone and plane)
+    destination: shared/guided-build.md
+  - id: c8a2e310ef
+    line: 138
+    anchor: RESTRICTED waits for Step 7; never propose it here.
+    destination: shared/guided-build.md
+  - id: d936d7cfb7
+    line: 140
+    anchor: completes the trust skeleton deferred at Step 4
+    destination: shared/guided-classify.md
+  - id: a1d4cb95f4
+    line: 140
+    anchor: "Write `zone: RESTRICTED` to `structure.json`, in one message, only for the rows confirmed now."
+    destination: shared/guided-classify.md
+  - id: cda5bcd0a3
+    line: 142
+    anchor: to find the current position
+    destination: shared/guided-workflow.md
+  - id: 3603f3ef81
+    line: 142
+    anchor: "**Before** computing the step cursor, run the Drift Orchestration Protocol"
+    destination: shared/guided-workflow.md
+  - id: 7eb43eb536
+    line: 142
+    anchor: Then compute the step cursor from the state and the steps already done
+    destination: shared/guided-workflow.md
+  - id: a7fabf3daf
+    line: 142
+    anchor: Show a progress table with
+    destination: shared/guided-workflow.md
+  - id: 3ea59f59c3
+    line: 142
+    anchor: or jump to a step?
+    destination: shared/guided-workflow.md
+  - id: 9f591845c9
+    line: 144
+    anchor: "insert a size-calibrated checkpoint."
+    destination: shared/guided-workflow.md
+  - id: c56ed84a89
+    line: 144
+    anchor: components, recommend starting enrichment in a fresh session (saves
+    destination: shared/guided-workflow.md
+  - id: e7badacf94
+    line: 144
+    anchor: here — the operator runs it, not you
+    destination: shared/guided-workflow.md
+  - id: 78aef5e9e2
+    line: 144
+    anchor: If the operator continues, proceed without asking again.
+    destination: shared/guided-workflow.md
+  - id: 8ba058ef75
+    line: 146
+    dropped:
+      reason: "An agent's result is now relayed whole: a compact summary hid the agent's tables from the operator, so the orchestrator renders what the agent returns instead."
+      ref: apps/dethereal/workflow/shared/relay.md
+  - id: 2b876eec73
+    line: 146
+    anchor: render it whole (see Relay) and persist it
+    destination: shared/delegation.md
+  - id: 2e1c3de161
+    line: 146
+    anchor: pass directory paths, not serialized model content
+    destination: shared/delegation.md
+  - id: 135c7089ff
+    line: 150
+    anchor: "When a structural change (add/remove element) occurs at ENRICHING or REVIEWED state:"
+    destination: shared/protocols.md
+  - id: 85d2b1c865
+    line: 152
+    anchor: "action: 'transition', to: 'STRUCTURE_COMPLETE'"
+    destination: shared/protocols.md
+  - id: 95350d6c99
+    line: 153
+    anchor: it deletes .dethereal/quality.json (forcing recomputation)
+    destination: shared/protocols.md
+  - id: 49031192b1
+    line: 154
+    anchor: and clears the sign-off and the review
+    destination: shared/protocols.md
+  - id: b7aaef92e5
+    line: 155
+    anchor: the ids of the new or changed elements that still exist
+    destination: shared/protocols.md
+  - id: 84e575459f
+    line: 156
+    anchor: Adding or removing elements reverted state from [previous] to STRUCTURE_COMPLETE. Enrichment on existing elements is preserved.
+    destination: shared/protocols.md
+  - id: fe79be4648
+    line: 158
+    anchor: In the guided workflow context, re-position the step cursor to Step 4 (Boundary Refinement) and show
+    destination: shared/protocols.md
+  - id: 5d7b0d9a99
+    line: 160
+    anchor: is consumed by the enrichment skill — stale elements are prioritized first during the next enrichment
+    destination: shared/protocols.md
+  - id: 7a8137aac1
+    line: 160
+    anchor: After enrichment processes a stale element, remove its ID
+    destination: shared/protocols.md
+  - id: 15bef8f4a6
+    line: 164
+    anchor: There is no custom undo tool — git is the undo mechanism for local file-based models
+    destination: shared/git-undo.md
+  - id: 98d9031c20
+    line: 166
+    anchor: When the operator asks to undo or revert changes
+    destination: shared/git-undo.md
+  - id: eed81dd353
+    line: 168
+    anchor: To see what changed, suggest `git diff` or `git diff HEAD`.
+    destination: shared/git-undo.md
+  - id: cd3c4e1510
+    line: 169
+    anchor: For uncommitted changes, the command is `git checkout -- <file>` or `git stash push -- <file>`
+    destination: shared/git-undo.md
+  - id: 7edfea644c
+    line: 170
+    anchor: for committed ones, `git revert <commit>`.
+    destination: shared/git-undo.md
+  - id: e51bbc0be5
+    line: 171
+    anchor: Show the exact command for the operator to run in their own terminal, and say what it does and what will be lost. Never run it yourself.
+    destination: shared/git-undo.md
+  - id: ed267a5bd8
+    line: 173
+    anchor: Recommend `git commit` at the STRUCTURE_COMPLETE checkpoint (before enrichment begins).
+    destination: shared/git-undo.md
+  - id: d52255b61d
+    line: 173
+    anchor: This creates a clean revert point if enrichment needs to be redone.
+    destination: shared/git-undo.md
+  - id: 837260e3bf
+    line: 177
+    anchor: "After model creation or guided workflow completion, generate `README.md` in the model directory root:"
+    destination: shared/protocols.md
+  - id: 774b1e3182
+    line: 179
+    anchor: "# <Model Name> > Auto-generated by Dethereal. Do not edit. ## Model Structure <tree view —"
+    destination: shared/protocols.md
+  - id: d30db24828
+    line: 200
+    anchor: "Regenerate on: model creation"
+    destination: shared/protocols.md
+  - id: 63b4dcaa9e
+    line: 200
+    anchor: Do not regenerate on individual add/remove operations (too frequent).
+    destination: shared/protocols.md
+  - id: 0177c23c37
+    line: 200
+    anchor: The README is never imported to the platform — it exists only for human browsability in
+    destination: shared/protocols.md
+  - id: e1e0dd6801
+    line: 204
+    anchor: check if the validated inventory exceeds complexity thresholds
+    destination: shared/protocols.md
+  - id: ce3aa1482a
+    line: 208
+    anchor: "| Components | 21+ |"
+    destination: shared/protocols.md
+  - id: 197153a1f9
+    line: 209
+    anchor: "| Trust boundaries | 9+ |"
+    destination: shared/protocols.md
+  - id: a6ff0b7e6c
+    line: 210
+    anchor: "| Data flows | 36+ |"
+    destination: shared/protocols.md
+  - id: 292ef0bbac
+    line: 211
+    anchor: "| Cross-boundary flows | 19+ |"
+    destination: shared/protocols.md
+  - id: b0eccfac2b
+    line: 213
+    anchor: "If any threshold is exceeded:"
+    destination: shared/protocols.md
+  - id: 4770d9df49
+    line: 215
+    anchor: "**Default recommendation: scope narrowing** — start with the highest-risk subsystem (containing crown jewels). This produces one"
+    destination: shared/protocols.md
+  - id: 43c837e45a
+    line: 216
+    anchor: "described multiple systems:** offer a decomposition plan instead. Plan models upfront, track in `.dethernety/decomposition-plan.json`:"
+    destination: shared/protocols.md
+  - id: 2c7023cd8d
+    line: 217
+    anchor: '{ "created_at": "ISO timestamp", "source_scope": "system name", "source_discovery": ".dethernety/discovery-cache.json", "models": [ { "name": "Model Name", "path":'
+    destination: shared/protocols.md
+  - id: 2aa0d4635b
+    line: 230
+    anchor: When starting a subsequent model in the plan, pre-create stub components with `representedModel` links to referenced
+    destination: shared/protocols.md
+  - id: bb9915d716
+    line: 232
+    anchor: can proceed with a large model if they choose.
+    destination: shared/protocols.md
+  - id: fcd8f8f47b
+    line: 236
+    anchor: "File: `.dethernety/discovery-cache.json` (project level, shared across models)"
+    destination: shared/protocols.md
+  - id: 6d4b5baba6
+    line: 238
+    anchor: Written after the first discovery in a project
+    destination: shared/protocols.md
+  - id: d1ab5b4f6b
+    line: 239
+    anchor: "Contains full raw inventory: all discovered elements with sources and confidence scores"
+    destination: shared/protocols.md
+  - id: bd238f14f8
+    line: 240
+    anchor: Does NOT contain model-specific decisions (scope, classification, enrichment)
+    destination: shared/protocols.md
+  - id: 4b11a8b4ab
+    line: 241
+    anchor: runs check cache freshness (file mtime vs codebase changes)
+    destination: shared/protocols.md
+  - id: f08c6ead7b
+    line: 242
+    anchor: When creating a new model in a decomposition plan, filter the cache to exclude components already
+    destination: shared/protocols.md
+  - id: 3b76567f3b
+    line: 243
+    anchor: can force a re-scan at any time — the cache is a convenience, not authoritative
+    destination: shared/protocols.md

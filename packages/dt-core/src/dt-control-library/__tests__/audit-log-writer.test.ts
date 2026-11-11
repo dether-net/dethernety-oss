@@ -2,8 +2,8 @@
  * Tests for the audit-log writer.
  *
  * Covers: append produces well-formed JSONL; `effective` derivation cases
- * (all-theirs / all-ours / mixed-with-merge); operator-email fallback
- * never throws.
+ * (all-theirs / all-ours / mixed-with-merge); the operator is the caller's,
+ * with a `<user>@unknown` fallback, and no process is started.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -15,7 +15,6 @@ import {
   buildAuditEntry,
   computeEffective,
   getAuditLogPath,
-  getOperatorEmail,
   type AuditLogEntry,
   type ConflictResolution,
 } from '../audit-log-writer.js';
@@ -30,7 +29,7 @@ afterEach(async () => {
   await fs.rm(modelDir, { recursive: true, force: true });
 });
 
-function baseEntry(overrides: Partial<AuditLogEntry> = {}): Promise<AuditLogEntry> {
+function baseEntry(overrides: Partial<Parameters<typeof buildAuditEntry>[0]> = {}): Promise<AuditLogEntry> {
   return buildAuditEntry({
     kind: 'force-shared',
     controlId: 'ctrl-1',
@@ -43,7 +42,6 @@ function baseEntry(overrides: Partial<AuditLogEntry> = {}): Promise<AuditLogEntr
     attributesPushed: { default_inbound_policy: 'log_only' },
     previousAttributes: { default_inbound_policy: 'deny' },
     timestamp: '2026-04-18T12:00:00Z',
-    operator: 'tester@example.com',
     ...overrides,
   });
 }
@@ -58,7 +56,7 @@ describe('audit-log writer — append', () => {
     const parsed = JSON.parse(lines[0]);
     expect(parsed.kind).toBe('force-shared');
     expect(parsed.timestamp).toBe('2026-04-18T12:00:00Z');
-    expect(parsed.operator).toBe('tester@example.com');
+    expect(parsed).not.toHaveProperty('operator');
   });
 
   it('appends multiple entries — one line per call', async () => {
@@ -217,7 +215,6 @@ describe('audit-log writer — buildAuditEntry', () => {
     const ts = Date.parse(entry.timestamp);
     expect(ts).toBeGreaterThanOrEqual(before);
     expect(ts).toBeLessThanOrEqual(after);
-    expect(entry.operator).toBeTruthy();
   });
 
   // First-write entry shape: empty previousAttributes,
@@ -263,7 +260,7 @@ describe('audit-log writer — buildAuditEntry', () => {
     });
     expect(entry.kind).toBe('force-shared');
     expect(entry.firstWriteKeys).toEqual(['new']);
-    expect(entry.previousAttributes).toEqual({ existing: 'old' });
+    expect(entry.previousAttributes).toEqual({ existing: null });
   });
 
   it('reverted entry has effective=null and empty attributesPushed', async () => {
@@ -284,10 +281,26 @@ describe('audit-log writer — buildAuditEntry', () => {
   });
 });
 
-describe('audit-log writer — getOperatorEmail', () => {
-  it('returns a non-empty string (git email or fallback)', async () => {
-    const email = await getOperatorEmail();
-    expect(email).toMatch(/.+@.+/);
+describe('audit-log writer — no local identity', () => {
+  const saved = { USER: process.env.USER, USERNAME: process.env.USERNAME };
+  afterEach(() => {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  });
+
+  it('starts no process: the writer does not import child_process', async () => {
+    const source = await fs.readFile(new URL('../audit-log-writer.ts', import.meta.url), 'utf8');
+    expect(source).not.toMatch(/child_process|execSync|spawn\(/);
+  });
+
+  it('records no operator: neither a supplied one nor the local user name', async () => {
+    process.env.USER = 'local-user-name';
+    process.env.USERNAME = 'local-user-name';
+    const entry = await baseEntry({ operator: 'dev@example.com' } as never);
+    expect(entry).not.toHaveProperty('operator');
+    expect(JSON.stringify(entry)).not.toMatch(/local-user-name|dev@example\.com/);
   });
 });
 
@@ -307,9 +320,7 @@ describe('authnOperator field', () => {
       authnOperator: 'sso.user@corp.example.com',
     });
     expect(entry.authnOperator).toBe('sso.user@corp.example.com');
-    // Local `operator` field stays separate.
-    expect(entry.operator).toBeTruthy();
-    expect(entry.operator).not.toBe('sso.user@corp.example.com');
+    expect(entry).not.toHaveProperty('operator');
   });
 
   it('buildAuditEntry leaves authnOperator undefined when not supplied (back-compat)', async () => {
@@ -352,9 +363,74 @@ describe('authnOperator field', () => {
       const raw = await fs.readFile(getAuditLogPath(dir), 'utf-8');
       const parsed = JSON.parse(raw.trim());
       expect(parsed.authnOperator).toBe('sso.user@corp.example.com');
-      expect(parsed.operator).toBeTruthy();
+      expect(parsed).not.toHaveProperty('operator');
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }
   });
 });
+
+describe('audit-log writer — no values in an entry', () => {
+  const SECRETS = ['s3cr3t-api-key-VALUE', 'hunter2-password-VALUE', 'vault:token/ref-VALUE', 'merged-secret-VALUE']
+  const raw = {
+    kind: 'force-shared' as const,
+    controlId: 'c', controlName: 'C', classId: 'cl', className: 'CL', modelId: 'm',
+    liveAssignedModelIds: ['m', 'other'],
+    intendedKeys: ['api_key', 'password', 'vault_token_ref'],
+    attributesPushed: { api_key: SECRETS[0], password: SECRETS[1] },
+    previousAttributes: { api_key: 'old', vault_token_ref: SECRETS[2] },
+    firstWriteKeys: ['password'],
+    conflictResolutions: [
+      { key: 'api_key', ours: SECRETS[0], theirs: 'theirs-VALUE', chosen: 'merge' as const, merged: SECRETS[3] },
+    ],
+  }
+  const leaks = (entry: unknown) => SECRETS.filter((v) => JSON.stringify(entry).includes(v))
+
+  it('omits every value when no tagger is given, and says why', async () => {
+    const entry = await buildAuditEntry({ ...raw, valueTags: { omittedCode: 'key_mode' } })
+    expect(entry).toMatchObject({ schemaVersion: 2, values: 'omitted', valuesOmittedCode: 'key_mode' })
+    expect(entry.attributesPushed).toEqual({ api_key: null, password: null })
+    expect(entry.previousAttributes).toEqual({ api_key: null, vault_token_ref: null })
+    expect(entry.conflictResolutions).toEqual([{ key: 'api_key', chosen: 'merge' }])
+    expect(leaks(entry)).toEqual([])
+    expect((await buildAuditEntry(raw)).valuesOmittedCode).toBe('no_tagger')
+  })
+
+  it('records each value as its tag, keyed by the attribute', async () => {
+    const tag = (k: string, v: unknown) => `tag(${k})#${v === undefined ? 'absent' : String(JSON.stringify(v)).length}`
+    const entry = await buildAuditEntry({ ...raw, valueTags: { tag } })
+    expect(entry.values).toBe('hmac')
+    expect(entry.valuesOmittedCode).toBeUndefined()
+    expect(entry.attributesPushed.api_key).toBe(tag('api_key', SECRETS[0]))
+    expect(entry.previousAttributes.vault_token_ref).toBe(tag('vault_token_ref', SECRETS[2]))
+    expect(entry.conflictResolutions?.[0]).toEqual({ key: 'api_key', chosen: 'merge', ours: tag('api_key', SECRETS[0]), theirs: tag('api_key', 'theirs-VALUE'), merged: tag('api_key', SECRETS[3]) })
+    expect(leaks(entry)).toEqual([])
+    await appendAuditEntry(modelDir, entry)
+    expect(leaks(await fs.readFile(getAuditLogPath(modelDir), 'utf-8'))).toEqual([])
+  })
+
+  it('derives effective from the values before they are tagged', async () => {
+    const tag = () => 'same-tag'
+    const base = { ...raw, conflictResolutions: undefined }
+    const oursMerge = await buildAuditEntry({ ...base, valueTags: { tag }, conflictResolutions: [{ key: 'k', ours: { a: 1 }, theirs: { b: 2 }, chosen: 'merge', merged: { a: 1 } }] })
+    const theirsMerge = await buildAuditEntry({ ...base, valueTags: { tag }, conflictResolutions: [{ key: 'k', ours: { a: 1 }, theirs: { b: 2 }, chosen: 'merge', merged: { b: 2 } }] })
+    const novel = await buildAuditEntry({ ...base, valueTags: { tag }, conflictResolutions: [{ key: 'k', ours: 'A', theirs: 'B', chosen: 'merge', merged: 'C' }] })
+    expect([oursMerge.effective, theirsMerge.effective, novel.effective]).toEqual(['ours', 'theirs', 'novel'])
+  })
+
+  it('keeps an older verbatim entry as it is', async () => {
+    const logPath = getAuditLogPath(modelDir)
+    await fs.mkdir(join(modelDir, '.dethereal'), { recursive: true })
+    const old = '{"kind":"force-shared","attributesPushed":{"api_key":"old-verbatim"}}\n'
+    await fs.writeFile(logPath, old)
+    await appendAuditEntry(modelDir, await buildAuditEntry(raw))
+    expect((await fs.readFile(logPath, 'utf-8')).startsWith(old)).toBe(true)
+  })
+
+  it('records a failure reason as one short printable line', async () => {
+    const entry = await buildAuditEntry({ ...raw, kind: 'force-unverified', queryFailureReason: `timeout\n\u0007${'x'.repeat(300)}` })
+    expect(entry.queryFailureReason!.length).toBeLessThanOrEqual(120)
+    expect(entry.queryFailureReason).toMatch(/^[\x20-\x7E]+$/)
+  })
+})
+

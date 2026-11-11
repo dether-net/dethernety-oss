@@ -78,6 +78,12 @@ export function emailClaimOf(token?: string): string | undefined {
   return /[\u0000-\u001f\u007f]/.test(email) ? undefined : email
 }
 
+/** The `sub` claim of an identity token (unverified decode, comparison only), or undefined. */
+export function subClaimOf(token?: string): string | undefined {
+  const sub = claimsOf(token)?.sub
+  return typeof sub === 'string' && sub.length > 0 && sub.length <= 256 ? sub : undefined
+}
+
 /** The decoded payload of a JWT, or undefined for anything that is not one. */
 function claimsOf(token?: string): Record<string, unknown> | undefined {
   if (typeof token !== 'string' || !token) return undefined

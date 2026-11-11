@@ -1,0 +1,17 @@
+{
+  "elementId": "f-orders-vendor",
+  "elementType": "dataFlow",
+  "elementName": "Charge request",
+  "classData": {
+    "id": "01170208-db8f-4c1b-8e29-636bf6d220b8",
+    "name": "API Call"
+  },
+  "attributes": {
+    "auth_failure_mode": "deny",
+    "encryption_in_transit": "TLS",
+    "required_credentials": [
+      "payvendor-api-key"
+    ],
+    "credential_type": "api_key"
+  }
+}

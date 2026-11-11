@@ -1,15 +1,9 @@
 import { defineConfig } from 'tsup'
+import { shippedBuild } from './src/packaging/shipped-build.js'
 
 export default defineConfig({
+  ...shippedBuild,
   entry: ['src/index.ts'],
-  format: ['esm'],
-  target: 'node20',
   outDir: 'dist',
   clean: true,
-  sourcemap: true,
-  dts: true,
-  bundle: true,
-  // Bundle only workspace dependencies. npm deps are resolved at runtime
-  // via npx, which installs them in a proper node_modules.
-  noExternal: ['@dethernety/dt-core'],
 })

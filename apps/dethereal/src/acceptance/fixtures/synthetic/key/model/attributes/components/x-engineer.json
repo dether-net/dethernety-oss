@@ -1,0 +1,28 @@
+{
+  "elementId": "x-engineer",
+  "elementType": "component",
+  "elementName": "On-call engineer",
+  "classData": {
+    "id": "4eb36223-154f-4fa2-9965-bdb6d67dca35",
+    "name": "Administrator"
+  },
+  "attributes": {
+    "mfa_enforced_for_admin": null,
+    "phishing_resistant_authenticator_required": null,
+    "admin_credential_hygiene": null,
+    "no_shared_privileged_credentials": null,
+    "privileged_session_anomaly_monitoring": null,
+    "no_standing_admin_privileges_jit_required": null,
+    "least_privilege_admin_scoping": null,
+    "privileged_access_via_pam_with_session_recording": null,
+    "periodic_privilege_recertification": null,
+    "dormant_admin_accounts_disabled": null,
+    "shared_admin_accounts": null,
+    "operators_hold_raw_longlived_admin_secrets": null,
+    "control_plane_api_not_publicly_exposed": null,
+    "remote_admin_access_requires_mfa": null,
+    "remote_access_via_ztna_or_mfa_vpn": null,
+    "audit_log_tamper_evident": null
+  },
+  "modifiedAt": "2026-09-27T22:22:53.907Z"
+}

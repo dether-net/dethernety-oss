@@ -1,0 +1,806 @@
+source: docs/controls-enrichment.md
+blob: 1b4449944ea46d27933b0ac955e5a06bdf112f51
+migrated: true
+rules:
+  - id: b32a63102e
+    line: 5
+    anchor: "In any other enrichment, IGNORE the rest of this file entirely."
+    destination: shared/controls-enrichment.md
+  - id: 9ce9281c4e
+    line: 5
+    anchor: These instructions apply only to the control assignment pass
+    destination: shared/controls-enrichment.md
+  - id: 19021fe9f0
+    line: 9
+    anchor: The control pass assigns security controls to model elements in three steps, ordered by control category.
+    destination: shared/controls-enrichment.md
+  - id: 55683491f6
+    line: 9
+    anchor: invocation** with its own 40-turn budget — it does NOT share the main enrichment session's budget.
+    destination: shared/controls-enrichment.md
+  - id: c83c93f328
+    line: 11
+    anchor: "Three-step sequence: 1. Enforcement controls"
+    destination: shared/controls-enrichment.md
+  - id: f7adf7c4cc
+    line: 12
+    anchor: Enforcement controls (Category 2) — batched per boundary
+    destination: shared/controls-enrichment.md
+  - id: d95e17ada7
+    line: 13
+    anchor: Detection controls (Category 3) — one global prompt
+    destination: shared/controls-enrichment.md
+  - id: 3afc818e0d
+    line: 14
+    anchor: Governance placeholder (Category 4) — single prompt
+    destination: shared/controls-enrichment.md
+  - id: 79f09e85ed
+    line: 18
+    anchor: "Before starting the control pass:"
+    destination: shared/controls-enrichment.md
+  - id: c35dd4ca79
+    line: 20
+    anchor: Read `structure.json` — count boundaries (B), extract element types per boundary
+    destination: shared/controls-enrichment.md
+  - id: 79bf833d78
+    line: 21
+    anchor: Read existing `controls[]` arrays on boundaries, components, data flows, and data items
+    destination: shared/controls-enrichment.md
+  - id: 74f0527daf
+    line: 22
+    anchor: Read component attribute files — collect `monitoring_tools` values (seeds detection controls)
+    destination: shared/controls-enrichment.md
+  - id: 5fed4caa9e
+    line: 23
+    anchor: "**Harvest control-implying attribute evidence** — before prompting each boundary, search `attributes/` for evidence the main enrichment"
+    destination: shared/controls-enrichment.md
+  - id: 80aa0820aa
+    line: 24
+    anchor: "'list')`. If it succeeds, use the **brownfield** path. If it fails, use the **greenfield** path."
+    destination: shared/controls-enrichment.md
+  - id: 99f08cebd4
+    line: 28
+    anchor: Enforcement controls protect boundaries and their components.
+    destination: shared/controls-enrichment.md
+  - id: 973d100f0f
+    line: 28
+    anchor: Process **one boundary at a time** with incremental persistence.
+    destination: shared/controls-enrichment.md
+  - id: 18999dabb5
+    line: 32
+    anchor: "Three factors determine the path: **platform reachability**, **`rank` outcome**, and **whether the element has an assigned"
+    destination: shared/controls-enrichment.md
+  - id: 7b2fe19fb4
+    line: 36
+    anchor: "| no | n/a | n/a | **Path 3** (name-only `{id: null}`) — records nothing on"
+    destination: shared/controls-enrichment.md
+  - id: 57bcb6722c
+    line: 37
+    anchor: "| yes | ≥1 candidate | n/a | **Path 1** (brownfield) — use the candidate's `controlId`"
+    destination: shared/controls-enrichment.md
+  - id: 936fb899db
+    line: 38
+    anchor: "| yes | empty | **yes** | **Path 2** (file-first greenfield) — write `controls/<temp-id>.json` with `lifecycle:"
+    destination: shared/controls-enrichment.md
+  - id: a06cb1c9b1
+    line: 39
+    anchor: "| yes | empty | no | **Path 3** (name-only `{id: null}`) |"
+    destination: shared/controls-enrichment.md
+  - id: b81782b642
+    line: 41
+    anchor: "**Why row 3 matters.** The empty-`rank` case used to fall through to Path 3 by default,"
+    destination: shared/controls-enrichment.md
+  - id: 6c499aee64
+    line: 41
+    anchor: For class-bound elements, Path 2 (file-first) is the correct default — it preserves the binding while
+    destination: shared/controls-enrichment.md
+  - id: 2e8c02515f
+    line: 43
+    anchor: "**Path 1 procedure (brownfield):**"
+    destination: shared/controls-enrichment.md
+  - id: 7d73be0a78
+    line: 44
+    anchor: For each boundary, collect all element types within it (PROCESS, STORE, EXTERNAL_ENTITY, etc.)
+    destination: shared/controls-enrichment.md
+  - id: 7c5bc65649
+    line: 45
+    anchor: "'rank', element_types: [...], module_id: '<active-module-id>')"
+    destination: shared/controls-enrichment.md
+  - id: c2e13f9c33
+    line: 46
+    anchor: Build the pre-ranked batch table (see format below) and return it
+    destination: shared/controls-enrichment.md
+  - id: b62e624776
+    line: 47
+    anchor: If all candidates are `weak`, recommend creating a new control rather than reusing a poor match
+    destination: shared/controls-enrichment.md
+  - id: 912c484b93
+    line: 49
+    anchor: "**Path 2 procedure (file-first greenfield with class binding):**"
+    destination: shared/controls-enrichment.md
+  - id: 30781c790e
+    line: 50
+    anchor: The id shape is mandatory and the filename must equal the id
+    destination: shared/controls-enrichment.md
+  - id: 5a26793c53
+    line: 51
+    anchor: Discover candidate ControlClasses. An element's own class assignment is a **ComponentClass**, NOT a ControlClass — never
+    destination: shared/controls-enrichment.md
+  - id: 636ad181da
+    line: 52
+    anchor: 'Write `controls/<temp-id>.json` with `lifecycle: "greenfield"`, **one `classes[]` entry per applicable ControlClass**, and `attributes` populated from observed'
+    destination: shared/controls-enrichment.md
+  - id: 19f82effb6
+    line: 53
+    anchor: "Write `{ id: \"<temp-id>\", name: \"...\", source: \"declared\" }` to the element's `controls[]` in `structure.json` /"
+    destination: shared/controls-enrichment.md
+  - id: 7ed4bea49a
+    line: 54
+    anchor: Full layout in [Per-Control Configuration Files](#per-control-configuration-files-controlsidjson) below.
+    destination: shared/controls-enrichment.md
+  - id: a618b186d5
+    line: 56
+    anchor: "**Path 3 procedure (name-only):**"
+    destination: shared/controls-enrichment.md
+  - id: 81f488bc84
+    line: 57
+    anchor: Return the greenfield table (see format below)
+    destination: shared/controls-enrichment.md
+  - id: 5f8a62374e
+    line: 58
+    anchor: "Write `{ id: null, name: \"...\", source: \"declared\" }` to the element's `controls[]`."
+    destination: shared/controls-enrichment.md
+  - id: eea8f9729a
+    line: 59
+    anchor: "**No Control is created by this.** On the next push the entry must link to a Control"
+    destination: shared/controls-enrichment.md
+  - id: 4e6de83171
+    line: 60
+    dropped:
+      reason: "Intended change: the push links a name only to a Control of exactly that name, so no substring match can bind an unrelated Control; the rule that remains is to use the library's exact name."
+      ref: apps/dethereal/workflow/shared/controls-enrichment.md
+  - id: 72a121a5d6
+    line: 61
+    anchor: Treat Path 3 as a **deferral, not a record**. Report these entries as "captured locally, not
+    destination: shared/controls-enrichment.md
+  - id: 0106244ca6
+    line: 63
+    anchor: "**Error recovery:** If `rank` fails for a boundary (network error, auth expired), treat the platform as"
+    destination: shared/controls-enrichment.md
+  - id: 084661d57b
+    line: 63
+    anchor: Do not retry or stall.
+    destination: shared/controls-enrichment.md
+  - id: e13f55d44a
+    line: 63
+    anchor: 'Log: "Platform unreachable — switching to local control entry for this boundary."'
+    destination: shared/controls-enrichment.md
+  - id: 90609f8044
+    line: 65
+    anchor: '**Offline ≠ blocked.** "Platform unreachable" only means `rank` cannot pre-suggest matches and `push` cannot persist right'
+    destination: shared/controls-enrichment.md
+  - id: c04e206ee7
+    line: 65
+    anchor: Offline, a boundary's controls are recorded by name (Path 3, as the table says) and promoted
+    destination: shared/controls-enrichment.md
+  - id: 548d0a2b73
+    line: 65
+    anchor: choose Path 2 (file-first) whenever attributes matter and the element has a class
+    destination: shared/controls-enrichment.md
+  - id: 702f0c2130
+    line: 65
+    anchor: Choose Path 3 only when the element has no class **and** you expect a Control of
+    destination: shared/controls-enrichment.md
+  - id: 0567205f33
+    line: 67
+    anchor: "Offline coverage is assignment, not mitigation."
+    destination: shared/controls-enrichment.md
+  - id: 97d2206c48
+    line: 67
+    anchor: A control with zero countermeasures still counts.
+    destination: shared/controls-enrichment.md
+  - id: d3bfc56c40
+    line: 67
+    anchor: Never report an offline "N/N, 100%" result as "N exposures mitigated"; label it "assignment coverage (offline
+    destination: shared/controls-enrichment.md
+  - id: c31c254289
+    line: 67
+    anchor: Real mitigation coverage requires the platform's MITRE-chain analysis (`model_id` + auth).
+    destination: shared/controls-enrichment.md
+  - id: ca13375a72
+    line: 69
+    anchor: "**Push-failure recovery (sanctioned path).** A `push-greenfield` that fails at the per-class `setInstantiationAttributes` step leaves the control"
+    destination: shared/controls-enrichment.md
+  - id: 18f8d4823a
+    line: 69
+    anchor: "Recover in one of two ways, never by deleting and recreating:"
+    destination: shared/controls-enrichment.md
+  - id: a57954295a
+    line: 71
+    anchor: "**Fix the cause, then re-run `push-greenfield` with the SAME control id.** The pipeline resumes from `partially-pushed`,"
+    destination: shared/controls-enrichment.md
+  - id: "4851709955"
+    line: 72
+    anchor: If the control already exists on the platform and only its local state is wrong, use
+    destination: shared/controls-enrichment.md
+  - id: "8795318250"
+    line: 74
+    anchor: "that orphans the partially-pushed file"
+    destination: shared/controls-enrichment.md
+  - id: 5116b5931d
+    line: 74
+    anchor: After any class re-bind, the binding's instantiation attributes must be re-populated from the new class's template
+    destination: shared/controls-enrichment.md
+  - id: 8a1d3d9533
+    line: 78
+    anchor: Return a single global enforcement proposal
+    destination: shared/controls-enrichment.md
+  - id: 0b64afb9ce
+    line: 80
+    anchor: What enforcement controls protect this system? (Firewalls, WAFs, IDS/IPS, network access controls, or "none")
+    destination: shared/controls-gates.md
+  - id: 4202e155c4
+    line: 84
+    anchor: Assign controls to the model root or individual components.
+    destination: shared/controls-enrichment.md
+  - id: b46d9e475f
+    line: 86
+    anchor: "**Standard (1 <= B <= 6):** One prompt per boundary, sequential."
+    destination: shared/controls-enrichment.md
+  - id: edd7c5d1bb
+    line: 86
+    anchor: Write controls after each boundary confirmation.
+    destination: shared/controls-enrichment.md
+  - id: fde12229ed
+    line: 89
+    anchor: Offer staged options — (1) crown-jewel boundaries only
+    destination: shared/controls-enrichment.md
+  - id: 08491a931e
+    line: 91
+    anchor: "N boundaries have no enforcement controls. Review: (1) crown-jewel boundaries only, (2) all boundaries, (3) skip."
+    destination: shared/controls-gates.md
+  - id: 35da25e2df
+    line: 95
+    anchor: "If option 1: identify crown-jewel boundaries (those containing components with `crownJewel: true` in `structure.json`)."
+    destination: shared/controls-enrichment.md
+  - id: 1771d1defb
+    line: 95
+    anchor: Process these first (reduces effective B to ~3-4).
+    destination: shared/controls-enrichment.md
+  - id: 0cf98fac2a
+    line: 95
+    anchor: the orchestrating skill offers to continue with the remaining boundaries
+    destination: shared/controls-enrichment.md
+  - id: a41f82fc6c
+    line: 97
+    anchor: "Crown-jewel component sweep. After the per-boundary enforcement pass, for each crownJewel: true component propose at least"
+    destination: shared/controls-enrichment.md
+  - id: da4dd492a3
+    line: 97
+    anchor: The surface report measures coverage per component per tier — a crown jewel that merely inherits
+    destination: shared/controls-enrichment.md
+  - id: 8015da4f5a
+    line: 101
+    anchor: "## Control Assignment — [Boundary Name] Components: [list component names and types in this boundary] Existing"
+    destination: shared/controls-enrichment.md
+  - id: ff13006359
+    line: 119
+    anchor: "## Enforcement Controls — [Boundary Name] Components: [list component names and types] What enforcement controls protect"
+    destination: shared/controls-enrichment.md
+  - id: 9cdab4aaf1
+    line: 136
+    anchor: The `id` in a `controls[]` entry is a **Control ID** (instance from the org's control library),
+    destination: shared/controls-enrichment.md
+  - id: 560200e0f2
+    line: 136
+    anchor: "Mixing them up refuses the push with `control_id_not_found`"
+    destination: shared/controls-enrichment.md
+  - id: de87ca2130
+    line: 140
+    anchor: "| Path 1 — Brownfield (`rank` returned candidates) | `controlId` from a candidate row | `{"
+    destination: shared/controls-enrichment.md
+  - id: 22e98c811f
+    line: 141
+    anchor: "| Path 2 — Greenfield with class binding (`rank` empty AND element has assigned class) |"
+    destination: shared/controls-enrichment.md
+  - id: 0c73ac17c7
+    line: 142
+    anchor: "| Path 3 — Greenfield name-only (`rank` empty AND element has no class, OR platform unreachable)"
+    destination: shared/controls-enrichment.md
+  - id: 480af0f89c
+    line: 144
+    anchor: '**Never** write `{ id: "<controlClassId>", name: "..." }` — the ID lookup will fail.'
+    destination: shared/controls-enrichment.md
+  - id: 97d95a08c2
+    line: 148
+    anchor: "Decide where to write control references based on what the control protects:"
+    destination: shared/controls-enrichment.md
+  - id: 0aa66f1238
+    line: 152
+    anchor: "| Firewall, WAF, IDS/IPS | Boundary `controls[]` in `structure.json` | Protects the entire zone |"
+    destination: shared/controls-enrichment.md
+  - id: 88431f4413
+    line: 153
+    anchor: "| Database encryption, application auth | Component `controls[]` in `structure.json` | Specific to the element |"
+    destination: shared/controls-enrichment.md
+  - id: 0eac7a851c
+    line: 154
+    anchor: "| TLS, mTLS | Data flow `controls[]` in `dataflows.json` | Protects a communication path |"
+    destination: shared/controls-enrichment.md
+  - id: 8a6c4a8da3
+    line: 155
+    anchor: "| SIEM, monitoring | Boundary or component | Depends on coverage scope |"
+    destination: shared/controls-enrichment.md
+  - id: 3c5aa85fb4
+    line: 157
+    anchor: For boundary-scoped controls, write to the boundary's `controls[]` — not to each component individually.
+    destination: shared/controls-enrichment.md
+  - id: df8a72760f
+    line: 157
+    anchor: This avoids stale fan-out when components are added later.
+    destination: shared/controls-enrichment.md
+  - id: 40cc423611
+    line: 161
+    anchor: "After each boundary confirmation, write controls immediately:"
+    destination: shared/controls-enrichment.md
+  - id: ab1e67945e
+    line: 162
+    anchor: Read current `structure.json`
+    destination: shared/controls-enrichment.md
+  - id: ce79e69b0a
+    line: 163
+    anchor: Walk the `defaultBoundary` tree to find the target boundary or component by id
+    destination: shared/controls-enrichment.md
+  - id: 23d91cfbdf
+    line: 164
+    anchor: Merge new control references into the **boundary's or component's `controls[]` field on the structural object itself**
+    destination: shared/controls-enrichment.md
+  - id: 960b134e67
+    line: 165
+    anchor: Write updated `structure.json`
+    destination: shared/controls-enrichment.md
+  - id: 8e92b83833
+    line: 167
+    anchor: keeps the confirmed controls if the pass stops early
+    destination: shared/controls-enrichment.md
+  - id: 36f9cfd73e
+    line: 169
+    anchor: "**Critical — controls do NOT go in attribute files:** Other enrichment data (encryption_in_transit, monitoring_tools, auth_failure_mode, etc.)"
+    destination: shared/controls-enrichment.md
+  - id: 53e3d9c7b6
+    line: 169
+    anchor: Controls are different — they go in `structure.json` as a top-level field on the element.
+    destination: shared/controls-enrichment.md
+  - id: 6fb184a832
+    line: 169
+    anchor: The sync pipeline only reads `controls[]` from `structure.json` (boundaries and components), `dataflows.json` (data flows) and `data-items.json` (data items).
+    destination: shared/controls-enrichment.md
+  - id: 1f798b46ab
+    line: 169
+    anchor: Controls written to attribute files are silently ignored at sync time and never become Control relationships
+    destination: shared/controls-enrichment.md
+  - id: a402cd8341
+    line: 171
+    anchor: "Example — correct placement in `structure.json`:"
+    destination: shared/controls-enrichment.md
+  - id: a3802ae7da
+    line: 172
+    anchor: '{ "defaultBoundary": { "id": "root", "boundaries": [ { "id": "dmz-uuid", "name": "DMZ", "controls": [ // ←'
+    destination: shared/controls-enrichment.md
+  - id: 0edfbbf37f
+    line: 200
+    anchor: One global prompt.
+    destination: shared/controls-enrichment.md
+  - id: 2288f74d63
+    line: 200
+    anchor: Pre-populate from `monitoring_tools` attribute data captured during main enrichment.
+    destination: shared/controls-enrichment.md
+  - id: d15a494605
+    line: 202
+    anchor: Read all component attribute files and collect `monitoring_tools` values
+    destination: shared/controls-enrichment.md
+  - id: fb28357f74
+    line: 203
+    anchor: "Build a pre-populated table of detection controls:"
+    destination: shared/controls-enrichment.md
+  - id: f8ddde1377
+    line: 205
+    anchor: "## Detection & Response Coverage Monitoring tools captured during enrichment: | # | Tool | Components"
+    destination: shared/controls-enrichment.md
+  - id: 02097eecfe
+    line: 218
+    anchor: 'For confirmed tools from attribute files: `source: "discovered"`'
+    destination: shared/controls-enrichment.md
+  - id: 797897d337
+    line: 219
+    anchor: 'For user-added detection tools: `source: "declared"`'
+    destination: shared/controls-enrichment.md
+  - id: 6a0cac4c88
+    line: 220
+    anchor: Write detection controls to the appropriate element's `controls[]` field in `structure.json` (boundary or component), `dataflows.json`
+    destination: shared/controls-enrichment.md
+  - id: 505da1c178
+    line: 221
+    anchor: "**Class binding:** apply the same Path Selection as Step 1 — when a matching ControlClass exists"
+    destination: shared/controls-enrichment.md
+  - id: b8bbe0c8b5
+    line: 225
+    anchor: Single prompt, free-text, asked by the orchestrating skill
+    destination: shared/controls-enrichment.md
+  - id: b88173b284
+    line: 225
+    anchor: No graph entities created — documentation only.
+    destination: shared/controls-enrichment.md
+  - id: e94d8add2a
+    line: 227
+    anchor: "Any governance controls to record — patch management, access reviews, change control, incident response?"
+    destination: shared/controls-gates.md
+  - id: cd5dfd7ef0
+    line: 234
+    anchor: "write the responses to .dethereal/scope.json as declared_governance_controls: string[]"
+    destination: shared/controls-enrichment.md
+  - id: ac1a6c5df2
+    line: 238
+    anchor: "When controls already exist on model elements:"
+    destination: shared/controls-enrichment.md
+  - id: b0e85bba3d
+    line: 240
+    anchor: Read existing `controls[]` from all boundaries, components, data flows, and data items
+    destination: shared/controls-enrichment.md
+  - id: f6d478b48e
+    line: 241
+    anchor: 'Present as "currently assigned" before prompting for changes:'
+    destination: shared/controls-enrichment.md
+  - id: 7ef259f47d
+    line: 242
+    anchor: "Currently assigned controls for [Boundary Name]: - WAF Protection (declared) - Perimeter Firewall (declared)"
+    destination: shared/controls-enrichment.md
+  - id: c0bb7e0289
+    line: 249
+    anchor: New controls are additive — never remove existing controls silently
+    destination: shared/controls-enrichment.md
+  - id: c45abdd0e0
+    line: 250
+    anchor: Skip boundaries/components that already have controls unless the user requests modification
+    destination: shared/controls-enrichment.md
+  - id: c6eb3127eb
+    line: 254
+    anchor: Per-instance ControlClass attributes (the values on each `IS_INSTANCE_OF` edge between a Control and its ControlClass) do
+    destination: shared/controls-enrichment.md
+  - id: 193f672ba8
+    line: 254
+    anchor: They live in a separate `controls/<control-id>.json` file per Control.
+    destination: shared/controls-enrichment.md
+  - id: 843efc8c3a
+    line: 254
+    anchor: The `controls[]` arrays in `structure.json` / `dataflows.json` / `data-items.json` continue to carry only the minimal `{ id, name,
+    destination: shared/controls-enrichment.md
+  - id: d7dd95c393
+    line: 256
+    anchor: The full layout is in the Dethereal architecture document
+    destination: shared/controls-enrichment.md
+  - id: c09c5cc82b
+    line: 260
+    anchor: When you need a Control that does not exist in the org's control library and that
+    destination: shared/controls-enrichment.md
+  - id: 9e7df6a535
+    line: 262
+    anchor: "**Grouping rule.** A Control models one real-world mechanism, and one mechanism is often described by several"
+    destination: shared/controls-enrichment.md
+  - id: 435d0f9510
+    line: 262
+    anchor: When multiple ControlClasses apply to the same mechanism (e.g.
+    destination: shared/controls-enrichment.md
+  - id: f53691a79a
+    line: 262
+    anchor: Encryption-at-Rest + PG-TDE + KMS for one database encryption setup, or WAF + Rate Limiting for
+    destination: shared/controls-enrichment.md
+  - id: 698319331b
+    line: 262
+    anchor: "as described in Path 2 above"
+    destination: shared/controls-enrichment.md
+  - id: 8ef0c0d3cb
+    line: 264
+    anchor: "Choose a temporary local id: `greenfield-<short-uuid>`."
+    destination: shared/controls-enrichment.md
+  - id: 4d6e8f3c43
+    line: 265
+    anchor: "2. Write controls/<temp-id>.json:"
+    destination: shared/controls-enrichment.md
+  - id: de066bc71c
+    line: 266
+    anchor: '{ "id": "greenfield-abc", "name": "Customer WAF Policy", "source": "declared", "lifecycle": "greenfield", "classes": [ { "classId": "<controlClass-uuid-1>",'
+    destination: shared/controls-enrichment.md
+  - id: 34d7ab4060
+    line: 293
+    anchor: "Write `{ \"id\": \"greenfield-abc\", \"name\": \"Customer WAF Policy\", \"source\": \"declared\" }` to the element's `controls[]` in"
+    destination: shared/controls-enrichment.md
+  - id: 7ff6a22921
+    line: 294
+    anchor: Populate `attributes` from observed code/IaC evidence; empty object `{}` is valid if nothing is observed yet.
+    destination: shared/controls-enrichment.md
+  - id: 490bd16a96
+    line: 296
+    anchor: push`**, the pipeline creates the Control on the platform, sets attributes per class, assigns SUPPORTS edges,
+    destination: shared/controls-enrichment.md
+  - id: 914acb7c98
+    line: 298
+    anchor: "**Atomic ID rebinding.** A naive implementation of the above leaves the operator's local `controls/greenfield-abc.json` file orphaned"
+    destination: shared/controls-enrichment.md
+  - id: 5ef21b17c1
+    line: 298
+    anchor: "the `pending-id-rewrite.json` journal) closes this seam: the engine invokes `createControl`, then writes a journal entry and applies it"
+    destination: shared/controls-enrichment.md
+  - id: 7f91b25b75
+    line: 298
+    anchor: A crash after the journal is written leaves it on disk; the next push (or
+    destination: shared/controls-enrichment.md
+  - id: fd4b4548b7
+    line: 298
+    dropped:
+      reason: "Corrected to the engine: createControl runs before the journal is written, so a crash between them can leave a duplicate platform Control; the text now names that gap instead of promising no orphan."
+      ref: apps/dethereal/workflow/shared/controls-enrichment.md
+  - id: 424c46dac2
+    line: 300
+    anchor: "'create', class_ids: [...])` during the control pass and writing the returned id — is retained only"
+    destination: shared/controls-enrichment.md
+  - id: c6e018c55d
+    line: 300
+    anchor: For greenfield Controls **with** class bindings, use the file-first path above; it lets you iterate on
+    destination: shared/controls-enrichment.md
+  - id: f281a9e22b
+    line: 304
+    anchor: When you assign an existing platform Control to a model element, the control-library pull that follows
+    destination: shared/controls-enrichment.md
+  - id: 43a5557d85
+    line: 304
+    anchor: Treat this file as a **read-only cache by default**.
+    destination: shared/controls-enrichment.md
+  - id: 727eec6d8d
+    line: 306
+    anchor: "**Do not modify `classes[].attributes` unless the user explicitly asks.** Controls are reusable entities — the same"
+    destination: shared/controls-enrichment.md
+  - id: 8cda408bf3
+    line: 306
+    anchor: Your local edit will trigger a platform mutation that changes the Control for every model that
+    destination: shared/controls-enrichment.md
+  - id: a026cfaa5f
+    line: 308
+    anchor: If the user asks to update attributes (e.g.
+    destination: shared/controls-enrichment.md
+  - id: 441833b7cf
+    line: 308
+    anchor: "\"the firewall's default policy is actually `log_only`, not `deny`\"), **never hand-edit `controls/<id>.json`.** Apply the edit through"
+    destination: shared/controls-enrichment.md
+  - id: e29d85c3b5
+    line: 310
+    anchor: "action: 'set-local-edited', directory_path: '<model-dir>', control_id: '<control-id>', class_idx: <index into classes[]>, new_attributes: { \"default_inbound_policy\": \"log_only\" }, edited_by:"
+    destination: shared/controls-enrichment.md
+  - id: 9e99f95f00
+    line: 321
+    anchor: The tool owns `classes[<idx>].attributes`, `classes[<idx>].localEditedAt`, and `classes[<idx>].pendingEdit`.
+    destination: shared/controls-enrichment.md
+  - id: c7b0ddb686
+    line: 321
+    anchor: 'Then warn the user: "This edit will trigger the shared-ownership safety prompt at sync time.'
+    destination: shared/controls-enrichment.md
+  - id: b0c794a01d
+    line: 321
+    anchor: Push-anyway writes to every model that references this Control."
+    destination: shared/controls-enrichment.md
+  - id: d7148a0eb2
+    line: 323
+    anchor: "**Why the tool and not the file.** The push payload is keyed by `pendingEdit.previousAttributes` keys **plus**"
+    destination: shared/controls-enrichment.md
+  - id: 7a1f340d27
+    line: 323
+    anchor: A key with no prior value on disk cannot go in `previousAttributes` — its pre-edit value
+    destination: shared/controls-enrichment.md
+  - id: 28a9b25c12
+    line: 323
+    anchor: "Hand-write the block and such a key lands in neither array: the local file shows the"
+    destination: shared/controls-enrichment.md
+  - id: 3c8e33034e
+    line: 323
+    anchor: The two arrays are mutually exclusive, and the validator rejects overlap.
+    destination: shared/controls-enrichment.md
+  - id: 29fa490884
+    line: 325
+    anchor: "The resulting block (written by the tool, shown here so you can read the file):"
+    destination: shared/controls-enrichment.md
+  - id: 2b1624f484
+    line: 326
+    anchor: '{ "editedBy": "agent", "editedAt": "<iso-timestamp>", "previousAttributes": { "default_inbound_policy": "deny" }, "firstWriteKeys": ["rate_limit_enabled"] }'
+    destination: shared/controls-enrichment.md
+  - id: e7cb241b6b
+    line: 334
+    anchor: "`firstWriteKeys` is present only when non-empty."
+    destination: shared/controls-enrichment.md
+  - id: e24b992130
+    line: 336
+    anchor: "**Two-write rule.** Within one `pendingEdit` lifecycle, a key already pinned in `previousAttributes` or `firstWriteKeys` is never"
+    destination: shared/controls-enrichment.md
+  - id: 147b7323cd
+    line: 336
+    anchor: "`set-local-edited` enforces this; do not reimplement it."
+    destination: shared/controls-enrichment.md
+  - id: 30052cac3e
+    line: 340
+    anchor: "The agent **must not** directly mutate these fields on `controls/<id>.json`:"
+    destination: shared/controls-enrichment.md
+  - id: 9ed64694c9
+    line: 344
+    anchor: "| `classes[].attributes` on an **existing** file | `set-local-edited` (the only path that keeps `pendingEdit` in step)."
+    destination: shared/controls-enrichment.md
+  - id: 5266b0b7cf
+    line: 345
+    anchor: "| `classes[].localEditedAt` | `set-local-edited` |"
+    destination: shared/controls-enrichment.md
+  - id: 504b417620
+    line: 346
+    anchor: "| `classes[].pendingEdit` | `set-local-edited` (and `promote-external-edit` for the recovery case) |"
+    destination: shared/controls-enrichment.md
+  - id: b34369fd4b
+    line: 347
+    anchor: "| `classes[].pushedAt` | Push path (set on successful `setInstantiationAttributes`) |"
+    destination: shared/controls-enrichment.md
+  - id: 2e3c256f6b
+    line: 348
+    anchor: "| `classes[].platformAttributes` | Pull path (snapshot of last-known-server payload) |"
+    destination: shared/controls-enrichment.md
+  - id: aacb6456ba
+    line: 349
+    anchor: "| `platformState.lastPushedAt` | Push path |"
+    destination: shared/controls-enrichment.md
+  - id: 0afdfcb8cd
+    line: 350
+    anchor: "| `platformState.lastSyncedAt` | Pull path (never bumped by push) |"
+    destination: shared/controls-enrichment.md
+  - id: acdfb6e929
+    line: 351
+    anchor: "| `platformState.assignedModelIds` / `assignedModelCount` | Pull path (cached; never used as source of truth by the"
+    destination: shared/controls-enrichment.md
+  - id: d495aae073
+    line: 352
+    anchor: "| `lifecycle` | Sync state machine (transitions documented in"
+    destination: shared/controls-enrichment.md
+  - id: 5f14338b75
+    line: 354
+    anchor: Touching these fields directly breaks the drift-detection and shared-ownership-safety guarantees the sync pipeline depends on.
+    destination: shared/controls-enrichment.md
+  - id: f9d593cdc4
+    line: 354
+    anchor: In particular, **never hand-edit `lifecycle` or `platformState`** to "fix" a control after a platform-side change —
+    destination: shared/controls-enrichment.md
+  - id: 3f1d203e48
+    line: 354
+    anchor: '`lifecycle: "pushed"`, which is not a valid state) only produces validation friction.'
+    destination: shared/controls-enrichment.md
+  - id: 91dad23156
+    line: 354
+    anchor: Run `manage_controls pull-controls` to regenerate canonical files instead; it is the only sanctioned way to reconcile
+    destination: shared/controls-enrichment.md
+  - id: 0f2b55607f
+    line: 358
+    anchor: "`controls/<id>.json` exists for every Control (greenfield or brownfield) that any element in this model references."
+    destination: shared/controls-enrichment.md
+  - id: b163b13f68
+    line: 359
+    anchor: If a `controls[]` entry in `structure.json` / `dataflows.json` / `data-items.json` has an `id` but no corresponding `controls/<id>.json` file,
+    destination: shared/controls-enrichment.md
+  - id: b5bb99b94b
+    line: 360
+    anchor: Orphan `controls/<id>.json` files (no element references the id) produce a validator warning, not an error —
+    destination: shared/controls-enrichment.md
+  - id: 9738272b22
+    line: 364
+    anchor: "The per-Control file lifecycle is owned jointly by two skills:"
+    destination: shared/controls-enrichment.md
+  - id: ecbf9e992d
+    line: 368
+    anchor: "| Every pull | Calls `pull-controls` for every Control id discovered in the freshly-pulled `structure.json` +"
+    destination: shared/controls-enrichment.md
+  - id: 8da3a20794
+    line: 369
+    anchor: --focus controls` (its control-library step, after the three-step pass) | Operator-initiated enrichment pass | Calls `pull-controls` for the same id set
+    destination: shared/controls-enrichment.md
+  - id: 4dcd31778f
+    line: 370
+    anchor: "| Every push | Auto-detects local edits / external drift / partial-pushed state. Uses local `controls/<id>.json`"
+    destination: shared/controls-enrichment.md
+  - id: 443e5cf651
+    line: 372
+    anchor: step, `sync pull` would refresh structure/dataflows but leave `controls/` stale, so the operator's local view would
+    destination: shared/controls-enrichment.md
+  - id: 9e29a67981
+    line: 372
+    anchor: With it, `sync pull` returns a self-consistent directory.
+    destination: shared/controls-enrichment.md
+  - id: 033f953307
+    line: 376
+    anchor: "When the `rank` action returns candidates, the scoring is pre-computed:"
+    destination: shared/controls-enrichment.md
+  - id: c099fd848a
+    line: 378
+    anchor: "`score = (compatible_configured / total_classes) - (incompatible_configured / total_classes)`"
+    destination: shared/controls-enrichment.md
+  - id: a96b56b5eb
+    line: 379
+    anchor: "**strong** (score >= 0.8 AND zero incompatible configured): all relevant classes fit, no wrong countermeasures"
+    destination: shared/controls-enrichment.md
+  - id: 2ce32663ff
+    line: 380
+    anchor: "**good** (score >= 0.5): majority of classes fit, minor gaps"
+    destination: shared/controls-enrichment.md
+  - id: 0d5665476d
+    line: 381
+    anchor: "**weak** (score < 0.5): more noise than signal — recommend creating a new control"
+    destination: shared/controls-enrichment.md
+  - id: eabe74c1ae
+    line: 383
+    anchor: Present relevance labels in the batch table.
+    destination: shared/controls-enrichment.md
+  - id: 683c86f3e3
+    line: 383
+    anchor: The user can always override by choosing a `weak` candidate or rejecting a `strong` one.
+    destination: shared/controls-enrichment.md
+  - id: 02c3564398
+    line: 385
+    anchor: "**Class-selection audit (report contract).** A Control binding exactly one class is legitimate (one mechanism, one good-fit"
+    destination: shared/controls-enrichment.md
+  - id: 5ca7f51e4f
+    line: 385
+    anchor: For each control, the control-pass report (and the relay table the orchestrator renders before confirmation) names
+    destination: shared/controls-enrichment.md
+  - id: 03ad5fe34e
+    line: 385
+    anchor: '"bound Identity & Access Management; considered MFA Enforcement and RBAC but the evidence shows neither mechanism".'
+    destination: shared/controls-enrichment.md
+  - id: d5509bc250
+    line: 385
+    anchor: "This keeps the multi-class grouping rule auditable without changing behavior: a single-class binding made after weighing"
+    destination: shared/controls-enrichment.md
+  - id: 654e5780aa
+    line: 389
+    anchor: This table budgets ONLY the control pass.
+    destination: shared/controls-enrichment.md
+  - id: 6aea45d8b7
+    line: 389
+    anchor: The main attribute enrichment runs separately
+    destination: shared/controls-enrichment.md
+  - id: 326cc6591c
+    line: 391
+    anchor: The agent's part of the control pass fits its 40-turn budget
+    destination: shared/controls-enrichment.md
+  - id: 0c9054fe51
+    line: 395
+    anchor: "| Context loading (read model, attributes, scope) | 3 | 3 |"
+    destination: shared/controls-enrichment.md
+  - id: 767d8e7e22
+    line: 396
+    anchor: "| Enforcement per boundary (B boundaries) | B x 2 (prompt + write) | B x"
+    destination: shared/controls-enrichment.md
+  - id: c08bdb0fee
+    line: 397
+    anchor: "| Detection controls | 2 (prompt + write) | 3 (rank + prompt + write) |"
+    destination: shared/controls-enrichment.md
+  - id: 11e7fe290f
+    line: 398
+    anchor: "| Governance placeholder | 1 | 1 |"
+    destination: shared/controls-enrichment.md
+  - id: 625794c381
+    line: 399
+    anchor: "| Validation | 1 | 1 |"
+    destination: shared/controls-enrichment.md
+  - id: cfb7c555e0
+    line: 400
+    anchor: "| **Total (B=4)** | **12** | **16** |"
+    destination: shared/controls-enrichment.md
+  - id: 733cc48042
+    line: 401
+    anchor: "| **Total (B=6)** | **16** | **22** |"
+    destination: shared/controls-enrichment.md
+  - id: b54a7788d2
+    line: 403
+    anchor: prompts (crown-jewel boundaries first) to keep effective B at 3-4.
+    destination: shared/controls-enrichment.md

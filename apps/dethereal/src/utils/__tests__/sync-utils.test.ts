@@ -59,7 +59,7 @@ describe('sync-utils', () => {
     it('should write and read sync.json roundtrip', async () => {
       const syncData = {
         platform_model_id: 'abc-123',
-        platform_url: 'https://demo.dethernety.io',
+        platform_url: 'https://dethernety.example.com',
         last_pull_at: '2026-03-26T10:00:00Z',
         baseline_element_ids: {
           boundaries: ['b-1', 'b-2'],
@@ -75,7 +75,7 @@ describe('sync-utils', () => {
 
       expect(result).not.toBeNull()
       expect(result!.platform_model_id).toBe('abc-123')
-      expect(result!.platform_url).toBe('https://demo.dethernety.io')
+      expect(result!.platform_url).toBe('https://dethernety.example.com')
       expect(result!.last_pull_at).toBe('2026-03-26T10:00:00Z')
       expect(result!.baseline_element_ids.boundaries).toEqual(['b-1', 'b-2'])
     })
@@ -88,7 +88,7 @@ describe('sync-utils', () => {
     it('should merge with existing data on write', async () => {
       await writeSyncJson(tmpDir, {
         platform_model_id: 'abc-123',
-        platform_url: 'https://demo.dethernety.io',
+        platform_url: 'https://dethernety.example.com',
         last_pull_at: '2026-03-26T10:00:00Z'
       })
 

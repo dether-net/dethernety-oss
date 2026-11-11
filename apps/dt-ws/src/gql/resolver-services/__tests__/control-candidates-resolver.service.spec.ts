@@ -84,14 +84,19 @@ describe('ControlCandidatesResolverService — Cypher shape', () => {
     const beforeClassMap = afterPrune.split(/classId:/)[0];
     expect(beforeClassMap).not.toMatch(/supportedTypes/);
 
-    // The collect map computes the per-class compatible flag, null-guarded
-    // (Memgraph raises on membership against a null list).
+    // The collect map computes the per-class compatible flag: a class with no
+    // supportedTypes applies to every element type; the IS NULL test comes
+    // first (Memgraph raises on membership against a null list).
     expect(afterPrune).toMatch(
-      /compatible:\s*ANY\(et IN \$elementTypes WHERE et IN coalesce\(cc\.supportedTypes, \[\]\)\)/,
+      /compatible:\s*cc\.supportedTypes IS NULL OR ANY\(et IN \$elementTypes WHERE et IN cc\.supportedTypes\)/,
     );
 
-    // Both supportedTypes reads are null-guarded.
-    expect(query).not.toMatch(/IN cc0?\.supportedTypes\)/);
+    // The eligibility prune reads a missing list the same way.
+    const prune = query.split(/WITH DISTINCT ctrl/)[0];
+    expect(prune).toMatch(/\(cc0\.supportedTypes IS NULL OR ANY\(et IN \$elementTypes WHERE et IN cc0\.supportedTypes\)\)/);
+
+    // Neither read treats a missing list as an empty one.
+    expect(query).not.toMatch(/coalesce\(cc0?\.supportedTypes/);
   });
 });
 

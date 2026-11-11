@@ -1,0 +1,1311 @@
+source: skills/threat-model/SKILL.md
+blob: da6030de4b6659aca1e4387f2cc01ee93812e370
+migrated: true
+rules:
+  - id: 9936e3335c
+    line: 8
+    dropped:
+      reason: An @-import line never expanded in a skill; the guidelines and the file format are read as files next to the skill, the layout and the examples inside the build phase.
+      ref: apps/dethereal/workflow/skills/threat-model/SKILL.md
+  - id: 7c50bd48ea
+    line: 12
+    anchor: eleven steps from scope to publishing, in five phases
+    destination: skills/threat-model/SKILL.md
+  - id: 4089c58a4e
+    line: 12
+    anchor: The server keeps the state, so a run can stop and resume.
+    destination: skills/threat-model/SKILL.md
+  - id: ed3d129cb5
+    line: 12
+    anchor: its phase file names its agent
+    destination: shared/guided-workflow.md
+  - id: 42ad111717
+    line: 16
+    anchor: The model is built on disk here and published only at Step 10.
+    destination: shared/guided-build.md
+  - id: ff5b12e41b
+    line: 16
+    anchor: no scaffolding scripts, no heredocs, no shell loops over files
+    destination: shared/guided-build.md
+  - id: 672138882c
+    line: 20
+    dropped:
+      reason: "A directory needs no call of its own: the file-write tool creates it. The harness-neutral rule is one file-write call per file."
+      ref: apps/dethereal/workflow/shared/guided-build.md
+  - id: 5abce02e5f
+    line: 21
+    anchor: Create each file with one call of your file-write tool
+    destination: shared/guided-build.md
+  - id: 6429553b6f
+    line: 22
+    anchor: read or edit it with your file tools
+    destination: shared/guided-build.md
+  - id: 871d87bfb4
+    line: 23
+    anchor: read or edit it with your file tools
+    destination: shared/guided-build.md
+  - id: 9c57c4cc38
+    line: 24
+    anchor: never by sampling files
+    destination: shared/guided-build.md
+  - id: 82f52b6bdc
+    line: 25
+    anchor: with a search across attributes/, not a shell loop over the files
+    destination: shared/enrichment-protocol.md
+  - id: 1dfeacde0a
+    line: 26
+    anchor: Check progress and coverage with
+    destination: shared/guided-build.md
+  - id: 1cee32dee5
+    line: 27
+    anchor: Check progress and coverage with
+    destination: shared/guided-build.md
+  - id: 905ab707f1
+    line: 28
+    anchor: Validate once per step
+    destination: shared/core-rules.md
+  - id: aa54c37432
+    line: 29
+    anchor: with directory_path for the classified elements
+    destination: shared/guided-build.md
+  - id: b9683b2f47
+    line: 30
+    anchor: with the elements' names, types and descriptions
+    destination: shared/guided-build.md
+  - id: 4ceab97312
+    line: 31
+    anchor: Publish the model as the Push Flow below says
+    destination: shared/guided-publish.md
+  - id: 7a8c486ea4
+    line: 33
+    dropped:
+      reason: A list heading; each of its items is placed on its own.
+      ref: apps/dethereal/workflow/shared/guided-build.md
+  - id: b9f3e1337e
+    line: 34
+    anchor: no scaffolding scripts, no heredocs, no shell loops over files
+    destination: shared/guided-build.md
+  - id: b4a316f3c1
+    line: 35
+    anchor: no scaffolding scripts, no heredocs, no shell loops over files
+    destination: shared/guided-build.md
+  - id: be152c13f4
+    line: 36
+    anchor: never by sampling files
+    destination: shared/guided-build.md
+  - id: 7ab120d0da
+    line: 37
+    anchor: publishing needs the platform and happens when the model is pushed
+    destination: shared/scope-interview.md
+  - id: 39def41c57
+    line: 38
+    anchor: "then to matching by name alone; otherwise classification lists classes only as this item says"
+    destination: shared/guided-build.md
+  - id: 052b430e14
+    line: 42
+    anchor: Show the table, tree or list it refers to before the question
+    destination: shared/core-rules.md
+  - id: 83ea175f7e
+    line: 42
+    anchor: a modify variant may go in an option's preview
+    destination: shared/core-rules.md
+    harnesses:
+      - claude
+  - id: 1500a07150
+    line: 42
+    anchor: never let a question's options carry information the tables do not show
+    destination: shared/relay.md
+  - id: e4e965af91
+    line: 44
+    anchor: A specialist agent proposes; this conversation shows, asks and writes.
+    destination: shared/relay.md
+  - id: 0aa30d43a8
+    line: 48
+    anchor: Otherwise a system description starts a new model at Step 1
+    destination: skills/threat-model/SKILL.md
+  - id: b96fd605b8
+    line: 50
+    anchor: Otherwise a system description starts a new model at Step 1
+    destination: skills/threat-model/SKILL.md
+  - id: 7ab148624d
+    line: 51
+    anchor: a model path or name, or none, resolves the model
+    destination: skills/threat-model/SKILL.md
+  - id: eac88a079d
+    line: 52
+    anchor: lists exactly one model, use it implicitly
+    destination: shared/model-resolution.md
+  - id: e8ffdf0756
+    line: 53
+    anchor: lists exactly one model, use it implicitly
+    destination: shared/model-resolution.md
+  - id: 081c52653b
+    line: 54
+    anchor: with several, show them as a numbered list
+    destination: shared/model-resolution.md
+  - id: 6d0fdffe35
+    line: 55
+    anchor: with no model at all, this workflow creates one instead of suggesting a command
+    destination: skills/threat-model/SKILL.md
+  - id: 7e6c88e131
+    line: 59
+    anchor: to find the current position
+    destination: shared/guided-resume.md
+  - id: 09d911db52
+    line: 61
+    anchor: Re-read state before acting.
+    destination: shared/core-rules.md
+  - id: f6edda4f62
+    line: 62
+    anchor: drift logic slots between reading the state and computing the cursor
+    destination: shared/guided-resume.md
+  - id: 89516c6b0c
+    line: 63
+    anchor: It returns { baseline, scoped, renamed, copied, omitted?, truncated?, note? }
+    destination: shared/drift-protocol.md
+  - id: b2f56cfcc8
+    line: 64
+    anchor: "`[info] No drift since last reconcile (commit <baseline>).` and"
+    destination: shared/drift-protocol.md
+  - id: ab2e10906b
+    line: 65
+    anchor: "`[info] No prior discovery provenance; drift detection skipped. Run"
+    destination: shared/drift-protocol.md
+  - id: a530f2a1b1
+    line: 66
+    anchor: Compute priorElements_in_scope = elements from discovery.json with at least one sources[].file in scoped
+    destination: shared/drift-protocol.md
+  - id: 84c7209774
+    line: 67
+    anchor: "Emit a one-line pre-loop summary: `[drift] <R> removed (<C> crown-jewel-tagged), <A> added, <S> reclassified, <T> attribute-changed"
+    destination: shared/drift-protocol.md
+  - id: 81f94df087
+    line: 68
+    anchor: "Iterate the delta items. For each:"
+    destination: shared/drift-protocol.md
+  - id: a9fce615e3
+    line: 69
+    anchor: Advance the baseline only after a complete reconcile
+    destination: shared/drift-protocol.md
+  - id: 874516ea71
+    line: 70
+    anchor: If the operator asked for a full scan (--full-scan)
+    destination: shared/drift-protocol.md
+  - id: a99835985a
+    line: 71
+    anchor: Then compute the step cursor from the state and the steps already done.
+    destination: shared/guided-resume.md
+  - id: 015df70617
+    line: 72
+    anchor: Step 6 when Gate 3's C1 passes; Steps 7–9 are never skipped on their own.
+    destination: skills/threat-model/SKILL.md
+  - id: d7861f636b
+    line: 73
+    anchor: Step 6 when Gate 3's C1 passes; Steps 7–9 are never skipped on their own.
+    destination: skills/threat-model/SKILL.md
+  - id: 9e81a0c6c7
+    line: 74
+    dropped:
+      reason: The cursor comes from the server's state and Gate 3; a partial enrichment shows as the ENRICHING state and Gate 3's failing criteria, not as a quality-cache ratio.
+      ref: apps/dethereal/workflow/skills/threat-model/SKILL.md
+  - id: e7f38da505
+    line: 75
+    anchor: Continue from Step N, or jump to a step?
+    destination: shared/guided-resume.md
+  - id: 4d79a4e5d2
+    line: 76
+    anchor: show the progress table in your reply — the operator has no other view of where the model stands
+    destination: shared/guided-resume.md
+  - id: ce81900860
+    line: 78
+    anchor: show the progress table in your reply — the operator has no other view of where the model stands
+    destination: shared/guided-resume.md
+  - id: 4b572b1906
+    line: 93
+    anchor: show the progress table in your reply — the operator has no other view of where the model stands
+    destination: shared/guided-resume.md
+  - id: dbec32feee
+    line: 94
+    anchor: Auto-skip only when the boundary_hierarchy_quality factor is 1.0
+    destination: shared/guided-build.md
+  - id: ff66f4d96a
+    line: 95
+    anchor: show the progress table in your reply — the operator has no other view of where the model stands
+    destination: shared/guided-resume.md
+  - id: c2a248bc5a
+    line: 96
+    anchor: show the progress table in your reply — the operator has no other view of where the model stands
+    destination: shared/guided-resume.md
+  - id: 8d8c4d2b69
+    line: 97
+    anchor: Continue from Step N, or jump to a step?
+    destination: shared/guided-resume.md
+  - id: db9d776c0c
+    line: 99
+    anchor: say the workflow is complete and point to
+    destination: skills/threat-model/SKILL.md
+  - id: f192be045b
+    line: 99
+    anchor: say the workflow is complete and point to
+    destination: skills/threat-model/SKILL.md
+  - id: 869fce4dc1
+    line: 99
+    anchor: say the workflow is complete and point to
+    destination: skills/threat-model/SKILL.md
+  - id: 4faafcef56
+    line: 105
+    anchor: Collect the scope in conversation, not as a form
+    destination: shared/scope-interview.md
+  - id: 2e9396c41f
+    line: 109
+    anchor: "| `system_name` | yes | — | From"
+    destination: shared/scope-interview.md
+  - id: 3f148823d1
+    line: 110
+    anchor: 1–2 sentence architecture summary
+    destination: shared/scope-interview.md
+  - id: 76bcf42b05
+    line: 111
+    anchor: architecture, design, implementation
+    destination: shared/scope-interview.md
+  - id: d891fca18c
+    line: 112
+    anchor: initial, security_review, compliance, incident_response
+    destination: shared/scope-interview.md
+  - id: "08294e3591"
+    line: 113
+    anchor: Any compliance requirements?
+    destination: shared/scope-interview.md
+  - id: ed2cc94e75
+    line: 114
+    anchor: what are the most valuable assets in this system (crown jewels)?
+    destination: shared/scope-interview.md
+  - id: 17999a1e46
+    line: 115
+    anchor: Anything explicitly out of scope
+    destination: shared/scope-interview.md
+  - id: 1af34adabd
+    line: 116
+    anchor: What is explicitly trusted
+    destination: shared/scope-interview.md
+  - id: 5b385b2e85
+    line: 117
+    anchor: Asked for every intent; the enrichment questions depend on them
+    destination: shared/scope-interview.md
+  - id: 7caf2404dc
+    line: 119
+    anchor: Then scaffold the model at
+    destination: shared/scope-interview.md
+  - id: 3dfafa9572
+    line: 119
+    anchor: ./threat-models/<kebab-case-name>/ unless the operator named a path
+    destination: shared/scope-interview.md
+  - id: d9c9ae1908
+    line: 121
+    dropped:
+      reason: "A directory needs no call of its own: the file-write tool creates it."
+      ref: apps/dethereal/workflow/shared/guided-build.md
+  - id: ed36d9ac40
+    line: 122
+    dropped:
+      reason: "A directory needs no call of its own: the file-write tool creates it."
+      ref: apps/dethereal/workflow/shared/guided-build.md
+  - id: 6adca5b1ea
+    line: 125
+    anchor: Create each file with one call of your file-write tool
+    destination: shared/guided-build.md
+  - id: a614a39a6d
+    line: 129
+    anchor: '| `{ schemaVersion, format: "split", model: { id: null, name, description, defaultBoundaryId }, files: { structure,'
+    destination: shared/guided-build.md
+  - id: 9e06310a53
+    line: 130
+    anchor: the default boundary, no children yet
+    destination: shared/scope-interview.md
+  - id: d1c6b10e7c
+    line: 131
+    anchor: "| dataflows.json | [] |"
+    destination: shared/scope-interview.md
+  - id: c236097d84
+    line: 132
+    anchor: "| data-items.json | [] |"
+    destination: shared/scope-interview.md
+  - id: 000d2862a0
+    line: 133
+    anchor: "| .dethereal/scope.json | the scope from this step |"
+    destination: shared/scope-interview.md
+  - id: 580d1cafc9
+    line: 134
+    anchor: "action: 'transition', to: 'SCOPE_DEFINED'"
+    destination: shared/scope-interview.md
+  - id: 1147a1502f
+    line: 136
+    anchor: this first transition also registers the model in .dethernety/models.json
+    destination: shared/scope-interview.md
+  - id: 24e15d2005
+    line: 137
+    anchor: this first transition also registers the model in .dethernety/models.json
+    destination: shared/scope-interview.md
+  - id: 94a8eab376
+    line: 139
+    anchor: publishing needs the platform and happens when the model is pushed
+    destination: shared/scope-interview.md
+  - id: a585cefebc
+    line: 145
+    anchor: Delegate scanning — the scout is read-only
+    destination: shared/discovery-protocol.md
+  - id: 1a2e045fc5
+    line: 147
+    anchor: Read .dethereal/scope.json if it exists — pass scope context to the scout
+    destination: shared/discovery-protocol.md
+  - id: bf2bb0d156
+    line: 148
+    anchor: Check for discovery cache at .dethernety/discovery-cache.json
+    destination: shared/discovery-protocol.md
+  - id: cb65b45e5a
+    line: 149
+    anchor: Delegate scanning — the scout is read-only
+    destination: shared/discovery-protocol.md
+  - id: 30b37f636d
+    line: 150
+    anchor: Receive the discovery report
+    destination: shared/discovery-protocol.md
+  - id: cf61681cc8
+    line: 151
+    anchor: Persist the proposal as provenance, not as a decision.
+    destination: shared/discovery-protocol.md
+  - id: 7c91425db5
+    line: 152
+    anchor: Render the discovery report as markdown
+    destination: shared/discovery-protocol.md
+  - id: 324504ae80
+    line: 153
+    anchor: run the blind-spot interview as one consolidated question
+    destination: shared/discovery-protocol.md
+  - id: ad78e5ae4e
+    line: 154
+    anchor: After the operator's confirmation, write the confirmed elements
+    destination: shared/discovery-protocol.md
+  - id: a60500476c
+    line: 155
+    anchor: to check structural validity
+    destination: shared/discovery-protocol.md
+  - id: d3377b1002
+    line: 156
+    anchor: Write .dethernety/discovery-cache.json after the first discovery in the project, and update it in a multi-model project
+    destination: shared/guided-build.md
+  - id: 61beb016bd
+    line: 157
+    anchor: "set the drift baseline"
+    destination: shared/discovery-protocol.md
+  - id: 77a9fe738f
+    line: 159
+    anchor: discovery still scans the codebase for corroboration
+    destination: shared/guided-build.md
+  - id: 3761b7bdd9
+    line: 159
+    anchor: With no codebase, the described structure is the proposal
+    destination: shared/guided-build.md
+  - id: 31dbc0aad1
+    line: 163
+    anchor: Choose the platform modules that provide classes for classification and enrichment
+    destination: shared/guided-build.md
+  - id: 2bfcadd85b
+    line: 165
+    anchor: Take recommendedModules and the source types from .dethereal/discovery.json
+    destination: shared/guided-build.md
+  - id: 209d52f3fa
+    line: 166
+    anchor: "with `view: 'modules'` — each module with its class counts per type"
+    destination: shared/guided-build.md
+  - id: b2c33e740f
+    line: 167
+    anchor: the scout mapped the source types to them
+    destination: shared/guided-build.md
+  - id: be308746be
+    line: 168
+    anchor: dethernety-general is always included and cannot be removed
+    destination: shared/guided-build.md
+  - id: ce37ede8e6
+    line: 169
+    anchor: Show the table — module, reason, include
+    destination: shared/guided-build.md
+  - id: 567f70b103
+    line: 171
+    anchor: Show the table — module, reason, include
+    destination: shared/guided-build.md
+  - id: a1098cf5d2
+    line: 189
+    anchor: Write the confirmed modules to the scope as activeModules
+    destination: shared/guided-build.md
+  - id: 765ba3e153
+    line: 190
+    anchor: Write the confirmed modules to the scope as activeModules
+    destination: shared/guided-build.md
+  - id: e746a4a13d
+    line: 197
+    anchor: "skip the recommendation: classification searches every installed module"
+    destination: shared/guided-build.md
+  - id: 858736b3e0
+    line: 199
+    anchor: The state stays DISCOVERED.
+    destination: shared/guided-build.md
+  - id: de183641e0
+    line: 205
+    anchor: with the elements' names, types and descriptions
+    destination: shared/guided-build.md
+  - id: 6e0847393e
+    line: 207
+    anchor: "are told apart by how much of the element's attack surface each template covers"
+    destination: shared/guided-build.md
+  - id: 9f20b996b4
+    line: 208
+    anchor: Match what is left by name, type and description against the active modules' classes
+    destination: shared/guided-build.md
+  - id: ce84db0aab
+    line: 209
+    anchor: an element discovered from IaC keeps its IaC pre-classification
+    destination: shared/guided-build.md
+  - id: 2ce2fe4b9d
+    line: 210
+    anchor: check if the validated inventory exceeds complexity thresholds
+    destination: shared/decomposition.md
+  - id: c30b65f8b6
+    line: 211
+    anchor: Show the table — element, type, boundary, proposed class, confidence
+    destination: shared/guided-build.md
+  - id: 700e6d1f28
+    line: 213
+    anchor: Show the table — element, type, boundary, proposed class, confidence
+    destination: shared/guided-build.md
+  - id: f907440014
+    line: 225
+    anchor: Write the confirmed classData to structure.json
+    destination: shared/guided-build.md
+  - id: b0c746f1a0
+    line: 226
+    anchor: with directory_path for the classified elements
+    destination: shared/guided-build.md
+  - id: 50a089b4ac
+    line: 228
+    anchor: The state stays DISCOVERED.
+    destination: shared/guided-build.md
+  - id: ba7e990e99
+    line: 234
+    anchor: Refine the boundary hierarchy first, then ratify the trust skeleton (zone and plane)
+    destination: shared/guided-build.md
+  - id: 40e17eaa53
+    line: 236
+    anchor: Show the boundary hierarchy as a tree.
+    destination: shared/guided-build.md
+  - id: c154bc8f1a
+    line: 237
+    anchor: single-component boundaries (merge?)
+    destination: shared/guided-build.md
+  - id: 0d51b2db75
+    line: 238
+    anchor: single-component boundaries (merge?)
+    destination: shared/guided-build.md
+  - id: 806bc7332c
+    line: 239
+    anchor: a flat hierarchy (sub-boundaries?)
+    destination: shared/guided-build.md
+  - id: 0365bdecaf
+    line: 240
+    anchor: external entities inside internal boundaries (move to an external one
+    destination: shared/guided-build.md
+  - id: d8c7d2dae7
+    line: 241
+    anchor: RESTRICTED waits for Step 7; never propose it here.
+    destination: shared/guided-build.md
+  - id: dc6c57de7e
+    line: 242
+    anchor: Show two tables under one question, in the display names of the Model Guidelines, never raw enums
+    destination: shared/guided-build.md
+  - id: b8e8cf6aee
+    line: 244
+    anchor: Accept the trust classification and the Enforcement posture as proposed, or adjust specific rows?
+    destination: shared/guided-build.md
+  - id: 8331fcb75a
+    line: 262
+    anchor: the scout's suggestedZone from discovery.json
+    destination: shared/guided-build.md
+  - id: 16c2fc6e7a
+    line: 263
+    anchor: declared **and stricter than its parent** (the one
+    destination: shared/guided-build.md
+  - id: b57a495503
+    line: 264
+    anchor: Workload or Management from suggestedPlane; otherwise Undecided
+    destination: shared/guided-build.md
+  - id: 1397c951c2
+    line: 265
+    anchor: "Zones are proposed for leaf segments only: a container stays unzoned unless the operator declares one for inheritance."
+    destination: shared/guided-build.md
+  - id: f78952a538
+    line: 266
+    anchor: Boundaries model network containment; identity, compute node, location and business domain are domains or planes tags
+    destination: shared/guided-build.md
+  - id: 33d2af1c7f
+    line: 267
+    anchor: "is ratified: show it as declared and never propose over it"
+    destination: shared/guided-build.md
+  - id: d16a837793
+    line: 268
+    anchor: ("public subnet, IGW → Internet-facing") appears only when the operator
+    destination: shared/guided-build.md
+  - id: daea41a6d4
+    line: 269
+    anchor: blocks traffic by default), `allow_any_inbound` (allows unrestricted inbound), `egress_filtering`
+    destination: shared/guided-build.md
+  - id: ccdc91cd4f
+    line: 270
+    anchor: Only the accepted rows — proposed is not written
+    destination: shared/guided-build.md
+  - id: 84d921cc8a
+    line: 271
+    anchor: "write the boundary's `zone`, `planes` and `domains` to `structure.json`"
+    destination: shared/guided-build.md
+  - id: 2666a44f87
+    line: 272
+    anchor: "and its enforcement attributes to its attribute file"
+    destination: shared/guided-build.md
+  - id: 718a1210bc
+    line: 274
+    anchor: A boundary left unconfirmed gets no zone
+    destination: shared/guided-build.md
+  - id: 161c252428
+    line: 276
+    anchor: depth ≥ 2, no single-child boundaries, no external entities in internal
+    destination: shared/guided-build.md
+  - id: b852b638bb
+    line: 277
+    anchor: "Boundary hierarchy is well-structured (quality factor: 1.0), no zone proposals pending. Skipping refinement."
+    destination: shared/guided-build.md
+  - id: 69d800069e
+    line: 280
+    anchor: and mark it [auto-skip]
+    destination: shared/guided-build.md
+  - id: 0f7fdc1115
+    line: 280
+    anchor: A perfect hierarchy with proposals still shows the trust table.
+    destination: shared/guided-build.md
+  - id: 127d26435f
+    line: 280
+    anchor: Continue from Step N, or jump to a step?
+    destination: shared/guided-resume.md
+  - id: 1d04fec7c4
+    line: 282
+    anchor: "action: 'transition', to: 'STRUCTURE_COMPLETE'"
+    destination: shared/guided-build.md
+  - id: 888522227a
+    line: 288
+    anchor: Review the flows from discovery and list the components without any flow
+    destination: shared/guided-build.md
+  - id: 3c78d6b52c
+    line: 290
+    anchor: Review the flows from discovery and list the components without any flow
+    destination: shared/guided-build.md
+  - id: ac86abcd3e
+    line: 291
+    anchor: "what connects the components listed without a flow"
+    destination: shared/guided-build.md
+  - id: 2d6244a92a
+    line: 292
+    anchor: Show them with the operational flows code analysis misses
+    destination: shared/guided-build.md
+  - id: aa792cde58
+    line: 293
+    anchor: Administrative access paths (SSH, RDP, consoles)
+    destination: shared/guided-build.md
+  - id: 3e5549437e
+    line: 294
+    anchor: monitoring and logging flows (to log aggregators, SIEM)
+    destination: shared/guided-build.md
+  - id: cca8ba4317
+    line: 295
+    anchor: backup and recovery flows
+    destination: shared/guided-build.md
+  - id: e2b345a926
+    line: 296
+    anchor: is a candidate sub-boundary, or a Management plane
+    destination: shared/guided-build.md
+  - id: aa46b470d3
+    line: 297
+    anchor: For each new flow, choose the source and target handles
+    destination: shared/guided-build.md
+  - id: 9be0460d62
+    line: 298
+    anchor: For each new flow, choose the source and target handles
+    destination: shared/guided-build.md
+  - id: 3d40061cde
+    line: 299
+    anchor: Avoid handle conflicts with existing flows
+    destination: shared/guided-build.md
+  - id: cae2cb4adc
+    line: 300
+    anchor: and set the description and protocol
+    destination: shared/guided-build.md
+  - id: bbaf5f1b35
+    line: 301
+    anchor: "Write the flows to dataflows.json: the next check validates them."
+    destination: shared/guided-build.md
+  - id: a8339b2896
+    line: 302
+    anchor: "Write the flows to dataflows.json: the next check validates them."
+    destination: shared/guided-build.md
+  - id: 0f30896892
+    line: 303
+    anchor: "Only these are asked: in-zone and child↔parent crossings are implied by inheritance and never surfaced."
+    destination: shared/guided-build.md
+  - id: fcb5ed82bd
+    line: 305
+    anchor: never re-walk the flow graph
+    destination: shared/guided-build.md
+  - id: f61a58c864
+    line: 306
+    anchor: a conduit to that peer (Read its `conduits[]` first
+    destination: shared/guided-build.md
+  - id: 4a09ee35f3
+    line: 307
+    anchor: Show the table — channel (source → peer, display names), draft justification
+    destination: shared/guided-build.md
+  - id: 51378605c7
+    line: 309
+    anchor: Show the table — channel (source → peer, display names), draft justification
+    destination: shared/guided-build.md
+  - id: 8b440279db
+    line: 312
+    anchor: Ratify these crossings as approved channels — declared intent, not enforcement
+    destination: shared/guided-build.md
+  - id: 7e3e209151
+    line: 312
+    anchor: Ratify these crossings as approved channels — declared intent, not enforcement
+    destination: shared/guided-build.md
+  - id: 3716a7ec4e
+    line: 316
+    anchor: draft a justification from the crossing flow's description
+    destination: shared/guided-build.md
+  - id: 119e463d5e
+    line: 318
+    anchor: Ratify these crossings as approved channels — declared intent, not enforcement
+    destination: shared/guided-build.md
+  - id: 5a771c6c67
+    line: 321
+    anchor: append to the source boundary's conduits[] in structure.json one outbound conduit
+    destination: shared/guided-build.md
+  - id: ecec7604aa
+    line: 323
+    anchor: '{ "peerId": "<target boundary id>", "direction": "OUTBOUND", "justification": "<non-empty>" } ```'
+    destination: shared/guided-build.md
+  - id: c1f12e16a0
+    line: 327
+    anchor: — never an INBOUND mirror (the read path
+    destination: shared/guided-build.md
+  - id: 2e595c9c08
+    line: 327
+    anchor: and never controlRefs
+    destination: shared/guided-build.md
+  - id: e4e0d70e2f
+    line: 328
+    anchor: A crossing not ratified stays a plain flow
+    destination: shared/guided-build.md
+  - id: 313d352643
+    line: 330
+    anchor: (Steps 5–8 all run at ENRICHING)
+    destination: shared/guided-build.md
+  - id: 98f4b6bc7b
+    line: 330
+    anchor: (Steps 5–8 all run at ENRICHING)
+    destination: shared/guided-build.md
+  - id: ae6900a075
+    line: 332
+    anchor: "Data flows mapped. Quality: X/100."
+    destination: shared/guided-build.md
+  - id: 04533e0d37
+    line: 333
+    anchor: "Data flows mapped. Quality: X/100."
+    destination: shared/guided-build.md
+  - id: 584b397e21
+    line: 341
+    anchor: "insert a size-calibrated checkpoint."
+    destination: shared/guided-session-break.md
+  - id: 49619891b7
+    line: 343
+    anchor: For models with 15 or more components, recommend starting enrichment in a fresh session
+    destination: shared/guided-session-break.md
+  - id: edb0ed00ea
+    line: 345
+    anchor: For models with 15 or more components, recommend starting enrichment in a fresh session
+    destination: shared/guided-session-break.md
+  - id: bd4bf67028
+    line: 346
+    anchor: before enrichment (clean revert point). Continue now? (yes / later)
+    destination: shared/guided-session-break.md
+  - id: 182e35ff05
+    line: 355
+    anchor: For models with 15 or more components, recommend starting enrichment in a fresh session
+    destination: shared/guided-session-break.md
+  - id: 0f12a608f7
+    line: 356
+    anchor: before enrichment (clean revert point). Continue now? (yes / later)
+    destination: shared/guided-session-break.md
+  - id: 267116fb5d
+    line: 367
+    anchor: progress is saved and the run resumes at Step 6, and stop
+    destination: shared/guided-build.md
+  - id: b6a3d180c8
+    line: 368
+    anchor: progress is saved and the run resumes at Step 6, and stop
+    destination: shared/guided-build.md
+  - id: 76fec3bd4d
+    line: 373
+    anchor: If the operator continues, proceed without asking again.
+    destination: shared/guided-session-break.md
+  - id: 417fb7b8ea
+    line: 373
+    anchor: If the operator continues, proceed without asking again.
+    destination: shared/guided-session-break.md
+  - id: a6c7a99425
+    line: 379
+    anchor: Delegate the second classification pass
+    destination: shared/guided-classify.md
+  - id: d9435018b8
+    line: 381
+    anchor: List the unclassified elements — components, data flows, boundaries
+    destination: shared/guided-classify.md
+  - id: 712ac75d1a
+    line: 382
+    anchor: and read activeModules from the scope
+    destination: shared/guided-classify.md
+  - id: da66e091a1
+    line: 383
+    anchor: boundary context, connected flows, peer inference; proposals from the active modules only
+    destination: shared/guided-classify.md
+  - id: 5407eecc94
+    line: 384
+    anchor: boundary context, connected flows, peer inference; proposals from the active modules only
+    destination: shared/guided-classify.md
+  - id: 7ac6408831
+    line: 385
+    anchor: boundary context, connected flows, peer inference; proposals from the active modules only
+    destination: shared/guided-classify.md
+  - id: 5bedbe5726
+    line: 386
+    anchor: boundary context, connected flows, peer inference; proposals from the active modules only
+    destination: shared/guided-classify.md
+  - id: 5c0257aa7d
+    line: 387
+    anchor: Modules. When the other-module list is not empty
+    destination: shared/guided-classify.md
+  - id: 1ad6055947
+    line: 388
+    anchor: An unresolved crown jewel is a blocking question, not a note
+    destination: shared/guided-classify.md
+  - id: c430cd16f6
+    line: 389
+    anchor: Confirm these classes, or modify rows?
+    destination: shared/guided-classify.md
+  - id: dea0546f4d
+    line: 390
+    anchor: The classification gate is Gate 3's C1
+    destination: shared/guided-classify.md
+  - id: ed0013fba0
+    line: 391
+    anchor: Write the confirmed classData to each element's home file
+    destination: shared/guided-classify.md
+  - id: ccd493f79f
+    line: 393
+    anchor: The state does not change.
+    destination: shared/guided-classify.md
+  - id: d3dc33e033
+    line: 399
+    anchor: "`PROCESS`), the flows that carry it, the components that process or store it, and the boundaries"
+    destination: shared/guided-classify.md
+  - id: 28b8916167
+    line: 399
+    anchor: dataItemIds is valid on components, data flows and boundaries
+    destination: shared/guided-classify.md
+  - id: b1b84cf0e4
+    line: 401
+    anchor: Find the elements that handle sensitive data without a classified data item
+    destination: shared/guided-classify.md
+  - id: 6fabea2137
+    line: 402
+    anchor: Propose each data item and its handling elements
+    destination: shared/guided-classify.md
+  - id: "7208349284"
+    line: 403
+    anchor: map the scope's compliance_drivers to regulatory flags
+    destination: shared/guided-classify.md
+  - id: 8a632fd0d2
+    line: 404
+    anchor: → confidential). Regulatory labels go in `regulatory_flags`, never in
+    destination: shared/guided-classify.md
+  - id: b82e47b34e
+    line: 405
+    anchor: Where the source of the content is known, ask for `origin` — who can write it,
+    destination: shared/guided-classify.md
+  - id: 9c52e828d2
+    line: 406
+    anchor: "Show the proposals as a confirm table — one row per data item: sensitivity, regulatory flags and"
+    destination: shared/guided-classify.md
+  - id: 1abb2622ce
+    line: 407
+    anchor: "Show the proposals as a confirm table — one row per data item: sensitivity, regulatory flags and"
+    destination: shared/guided-classify.md
+  - id: 108d72dd41
+    line: 417
+    anchor: Write the confirmed items to data-items.json and link each through dataItemIds on every handling element
+    destination: shared/guided-classify.md
+  - id: 6407f775ba
+    line: 418
+    anchor: (an item bound to a credential-like DATA class with `is_credential`
+    destination: shared/guided-classify.md
+  - id: a3929da866
+    line: 419
+    anchor: Restricted promotion completes the trust skeleton deferred at Step 4
+    destination: shared/guided-classify.md
+  - id: b63f904810
+    line: 420
+    anchor: Offer a row only when all three hold
+    destination: shared/guided-classify.md
+  - id: 9f78982086
+    line: 421
+    anchor: "Write `zone: RESTRICTED` to `structure.json`, in one message, only for the rows confirmed now"
+    destination: shared/guided-classify.md
+  - id: 4a136e5833
+    line: 425
+    anchor: Show it as completion, not reversal
+    destination: shared/guided-classify.md
+  - id: ab551b3ecb
+    line: 425
+    anchor: a tighten-only change, never loosening or overwriting a declared zone
+    destination: shared/guided-classify.md
+  - id: f2802eba0b
+    line: 431
+    anchor: card data, app-tier ingress only
+    destination: shared/guided-classify.md
+  - id: b2f970ee7a
+    line: 433
+    anchor: Promote these boundaries to Restricted, or adjust specific rows?
+    destination: shared/guided-classify.md
+  - id: d47c5e7b1c
+    line: 433
+    anchor: "be Restricted yet (reachable from a DMZ, or vendor-touched): they stay Internal and are flagged at Step"
+    destination: shared/guided-classify.md
+  - id: 0cd74850db
+    line: 436
+    anchor: stay Internal and are flagged at Step 9
+    destination: shared/guided-classify.md
+  - id: 2fcf09ec2b
+    line: 438
+    anchor: The state does not change. Then enter enrich in the same turn
+    destination: shared/guided-classify.md
+  - id: 18e1245c0c
+    line: 444
+    anchor: "Run the Enrichment Protocol in its specialist mode: write cited and derived values to the attribute files"
+    destination: shared/guided-enrich.md
+  - id: 3545b7b9be
+    line: 446
+    anchor: "Enrichment mode. Model directory:"
+    destination: shared/guided-enrich.md
+  - id: 46356411aa
+    line: 447
+    dropped:
+      reason: A list heading; each of its items is placed on its own.
+      ref: apps/dethereal/workflow/shared/guided-enrich.md
+  - id: 2198b32789
+    line: 448
+    anchor: For each classified component and classified data item in the batch
+    destination: shared/enrichment-protocol.md
+  - id: 0e4a5b2f6d
+    line: 449
+    anchor: the snake_case crown_jewel in an attribute file is a derived copy
+    destination: shared/enrichment-protocol.md
+  - id: 3236ae7f0a
+    line: 450
+    anchor: Credentials are the single highest-impact enrichment for analysis quality
+    destination: shared/enrichment-protocol.md
+  - id: a749ef8d6d
+    line: 451
+    anchor: when authentication fails, does the system deny (block the request), fallback (weaker auth), or fail_open (allow through)?
+    destination: shared/enrichment-protocol.md
+  - id: 04515842ac
+    line: 452
+    anchor: "lacks them, capture:"
+    destination: shared/enrichment-protocol.md
+  - id: 057635ee97
+    line: 453
+    anchor: stale elements first
+    destination: shared/guided-enrich.md
+  - id: 6feffc4550
+    line: 455
+    anchor: MITRE ATT&CK tactic coverage is derived server-side from `Exposure.exploitedBy`
+    destination: shared/guided-build.md
+  - id: 7d6ea972f5
+    line: 455
+    anchor: Do not annotate ATT&CK techniques on any attribute file.
+    destination: shared/enrichment-protocol.md
+  - id: 0d858d7faf
+    line: 456
+    anchor: Read the relay files the runs named, in one message of parallel reads, once
+    destination: shared/enrichment-relay.md
+  - id: 7b3278aea0
+    line: 457
+    dropped:
+      reason: "The relay takes the written values from the pending rows the state tool lists; reading back the files the enrichment agent wrote added nothing the relay shows."
+      ref: apps/dethereal/workflow/shared/guided-enrich.md
+  - id: f330ed661f
+    line: 458
+    anchor: "never a summary, or an offer to show it later, in its place"
+    destination: shared/enrichment-relay.md
+  - id: 65e20fc897
+    line: 459
+    anchor: The agent wrote N values; M more need your answer
+    destination: shared/enrichment-relay-ask.md
+  - id: 372412d7ae
+    line: 460
+    anchor: "writes nothing: the values stay as written"
+    destination: shared/enrichment-relay.md
+  - id: ccd493f79f-2
+    line: 462
+    anchor: The state stays ENRICHING.
+    destination: shared/guided-enrich.md
+  - id: 37bc409f15
+    line: 466
+    anchor: Run the control assignment pass now (about N questions), or later?
+    destination: shared/guided-enrich.md
+  - id: 0ba7620ff3
+    line: 468
+    anchor: Run the control assignment pass now (about N questions), or later?
+    destination: shared/guided-enrich.md
+  - id: 17c7ad7783
+    line: 475
+    anchor: Take N = B + 2 from the boundary count B
+    destination: shared/guided-enrich.md
+  - id: 8f93967519
+    line: 475
+    anchor: 3 with no boundaries
+    destination: shared/guided-enrich.md
+  - id: a7544c5dc9
+    line: 477
+    anchor: "and follow it to its footer: it runs the control pass, relays each proposal table and asks its questions"
+    destination: shared/guided-enrich.md
+  - id: ae9f41ff95
+    line: 478
+    anchor: "and follow it to its footer: it runs the control pass, relays each proposal table and asks its questions"
+    destination: shared/guided-enrich.md
+  - id: 2938a0972a
+    line: 479
+    anchor: "and follow it to its footer: it runs the control pass, relays each proposal table and asks its questions"
+    destination: shared/guided-enrich.md
+  - id: 6dc3a810d9
+    line: 480
+    dropped:
+      reason: How the control pass starts its agent, and that agent's turn budget, belong to the control-pass skill the guided workflow now loads.
+      ref: apps/dethereal/workflow/skills/enrich-controls/SKILL.md
+  - id: 5041e7cd16
+    line: 481
+    anchor: read the model files and controls/ again
+    destination: shared/guided-enrich.md
+  - id: 6a063aaeea
+    line: 482
+    anchor: "and follow it to its footer: it runs the control pass, relays each proposal table and asks its questions"
+    destination: shared/guided-enrich.md
+  - id: f053f2033a
+    line: 483
+    anchor: and enter review in the same turn.
+    destination: shared/guided-enrich.md
+  - id: 13e921e0f5
+    line: 485
+    anchor: (the enrichment is saved; controls can be assigned at any time)
+    destination: shared/guided-enrich.md
+  - id: f8d75f2d6e
+    line: 486
+    anchor: (the enrichment is saved; controls can be assigned at any time)
+    destination: shared/guided-enrich.md
+  - id: 0321d90c43
+    line: 490
+    anchor: then enter review in the same turn; the quality score's control_coverage_rate shows the gap
+    destination: shared/guided-enrich.md
+  - id: ea60be6ecc
+    line: 490
+    anchor: then enter review in the same turn; the quality score's control_coverage_rate shows the gap
+    destination: shared/guided-enrich.md
+  - id: 24bed9bc5a
+    line: 496
+    anchor: "Delegate the review:"
+    destination: shared/guided-review.md
+  - id: e62f49c010
+    line: 498
+    anchor: Review the model at <model-path>.
+    destination: shared/guided-review.md
+  - id: 702307f05f
+    line: 499
+    anchor: the quality score and label in the verdict line; the factor table waits for
+    destination: shared/guided-review.md
+  - id: 25fbb91896
+    line: 500
+    anchor: "Nothing here writes .dethereal/quality.json or the state directly: the server computes both."
+    destination: shared/guided-review.md
+  - id: 4379528ee5
+    line: 501
+    anchor: then what the reviewer returned, by table kind (Relay)
+    destination: shared/guided-review.md
+  - id: 7a237c9f60
+    line: 502
+    anchor: the quality score and label in the verdict line; the factor table waits for
+    destination: shared/guided-review.md
+  - id: f6be5752e3
+    line: 503
+    anchor: the quality score and label in the verdict line; the factor table waits for
+    destination: shared/guided-review.md
+  - id: d10e5f1423
+    line: 504
+    anchor: show the verdicts once (Gate Verdicts below)
+    destination: shared/guided-review.md
+  - id: 51b0d90424
+    line: 505
+    anchor: the top issues that a failing criterion does not already show
+    destination: shared/guided-review.md
+  - id: f323efc7fb
+    line: 506
+    anchor: "`· N descendant segments still unclassified` from the payload's"
+    destination: shared/guided-review.md
+  - id: 8f7ee4beb9
+    line: 508
+    anchor: Gate 3 passes (the server's verdict)
+    destination: shared/guided-review.md
+  - id: 1a980f0fdf
+    line: 509
+    anchor: "the server grants REVIEWED. Then enter publish in the same turn"
+    destination: shared/guided-review.md
+  - id: bb8c0bf47c
+    line: 510
+    anchor: "the server grants REVIEWED. Then enter publish in the same turn"
+    destination: shared/guided-review.md
+  - id: fb29c82ee5
+    line: 512
+    anchor: "Gate 3 fails: the state stays ENRICHING"
+    destination: shared/guided-review.md
+  - id: 7273af6b4a
+    line: 513
+    anchor: "Gate 3 fails: the state stays ENRICHING"
+    destination: shared/guided-review.md
+  - id: b29f374a12
+    line: 514
+    anchor: "The verdicts come first, once (Gate Verdicts): the verdict line, what blocks"
+    destination: shared/gate-decisions.md
+  - id: 3805194d4d
+    line: 515
+    anchor: Gate 3 did not pass. Skip to sync anyway, loop back to Step 8 to fill the gaps, or waive named elements?
+    destination: shared/gate-decisions.md
+  - id: ed0608a574
+    line: 516
+    anchor: enters publish in the same turn, saying the analysis may be incomplete
+    destination: shared/guided-review.md
+  - id: cde450dc76
+    line: 522
+    anchor: Publish the model as the Push Flow below says
+    destination: shared/guided-publish.md
+  - id: 1f736e1168
+    line: 526
+    anchor: If Gate 2 fails, show its failing checks with their remedies and stop
+    destination: shared/push-flow.md
+  - id: 48341fb0e6
+    line: 526
+    anchor: If validation fails, show the errors and stop — do not push a broken model.
+    destination: shared/push-flow.md
+  - id: fb70e0b73b
+    line: 526
+    anchor: and stop — do not push a broken model.
+    destination: shared/guided-publish.md
+  - id: 688661fd84
+    line: 530
+    anchor: "with verify: true."
+    destination: shared/push-flow.md
+  - id: 726cc72e8a
+    line: 530
+    anchor: Sessions stay in the server.
+    destination: shared/core-rules.md
+  - id: 2e22bc73a6
+    line: 530
+    anchor: own .dethernety/ is fine.
+    destination: shared/core-rules.md
+  - id: 5257bbffe4
+    line: 532
+    anchor: "If `authenticated` is true (this includes platforms with `authDisabled: true`): proceed"
+    destination: shared/guided-publish.md
+  - id: 89176a2d84
+    line: 533
+    anchor: Not signed in to <platformUrl>.
+    destination: shared/core-rules.md
+  - id: 7d53067407
+    line: 534
+    anchor: in the guided workflow, go on to README generation and the final footer without sync next-steps
+    destination: shared/push-flow.md
+  - id: 84baa94b5f
+    line: 538
+    anchor: reaching the sync step is not consent to publish, and neither is a successful sign-in
+    destination: shared/guided-publish.md
+  - id: 4179a9b00f
+    line: 538
+    anchor: Push to platform now?
+    destination: shared/guided-publish.md
+  - id: 7209f66f89
+    line: 540
+    anchor: Model passed Gate 2 and is ready to publish to <platform
+    destination: shared/guided-publish.md
+  - id: 857e4f790c
+    line: 545
+    anchor: Read manifest.json and check the model.id field
+    destination: shared/push-flow.md
+  - id: f217794e37
+    line: 546
+    anchor: Never push on the operator's behalf because sign-in succeeded.
+    destination: shared/push-flow.md
+  - id: 79d568a24e
+    line: 550
+    anchor: Read manifest.json and check the model.id field
+    destination: shared/push-flow.md
+  - id: 16cf970f69
+    line: 552
+    anchor: "Execute: first push →"
+    destination: shared/push-flow.md
+  - id: 20ae01805b
+    line: 553
+    anchor: "and delete_orphaned: true. The server compares the platform model with the record of the last pull or push"
+    destination: shared/push-flow.md
+  - id: f946206667
+    line: 557
+    anchor: read the model files again (the server ids are now in them)
+    destination: shared/guided-publish.md
+  - id: 11c69b68d4
+    line: 558
+    anchor: Pushed "<model-name>" to platform.
+    destination: shared/guided-publish.md
+  - id: c423c3ebce
+    line: 559
+    anchor: 'Pushed "<model-name>" to platform. <N> boundaries, <M> components, <K> flows, <J> data items. Platform model ID:'
+    destination: shared/guided-publish.md
+  - id: 1ce71e84f7
+    line: 572
+    anchor: Link local countermeasures to the platform-computed exposures, so defense coverage credits existing controls.
+    destination: shared/guided-publish.md
+  - id: aa27795ace
+    line: 574
+    anchor: If no element carries a control
+    destination: shared/guided-publish.md
+  - id: 317ebaa34c
+    line: 574
+    anchor: If no element carries a control
+    destination: shared/guided-publish.md
+  - id: 0bfa69935f
+    line: 575
+    anchor: No countermeasures defined. After analysis completes, run
+    destination: shared/guided-publish.md
+  - id: 06380a01bc
+    line: 579
+    anchor: and go to the README
+    destination: shared/guided-publish.md
+  - id: 11041c9c5d
+    line: 581
+    anchor: With exposures, show the table — exposure, component, candidate countermeasure, link
+    destination: shared/guided-publish.md
+  - id: b542fa7428
+    line: 583
+    anchor: which needs an element_id and refuses a model-wide call
+    destination: shared/guided-publish.md
+  - id: 042cbe336b
+    line: 584
+    anchor: '"Analysis results not available yet. Linking will be possible after the analysis engine processes this model.'
+    destination: shared/guided-publish.md
+  - id: bd0207539e
+    line: 585
+    anchor: With exposures, show the table — exposure, component, candidate countermeasure, link
+    destination: shared/guided-publish.md
+  - id: 6a3252f227
+    line: 586
+    anchor: Link these exposures to the candidate countermeasures now, change specific rows, or defer?
+    destination: shared/guided-publish.md
+  - id: c72ea1f00d
+    line: 597
+    anchor: say that the analysis undercounts the defenses until exposures are linked to countermeasures
+    destination: shared/guided-publish.md
+  - id: d68962dbc5
+    line: 598
+    anchor: "yes: create the links with"
+    destination: shared/guided-publish.md
+  - id: b92ec261ca
+    line: 604
+    anchor: Generate README.md (README Generation Protocol), also when the sync was skipped.
+    destination: shared/guided-publish.md
+  - id: bfcb5ae12a
+    line: 606
+    anchor: Auto-generated by Dethereal. Do not edit.
+    destination: shared/readme.md
+  - id: 54aded034a
+    line: 607
+    anchor: <tree view — boundaries and components hierarchy>
+    destination: shared/readme.md
+  - id: 5166221ee5
+    line: 608
+    anchor: "<list — source → target: description>"
+    destination: shared/readme.md
+  - id: 3f13af3aed
+    line: 609
+    anchor: "State: <display_state from the state tool>"
+    destination: shared/readme.md
+  - id: 03649a8a05
+    line: 610
+    anchor: 'Last synced: <timestamp from sync.json, or "never">'
+    destination: shared/readme.md
+  - id: b4ce6eadc4
+    line: 616
+    anchor: When a structural change (add/remove element) occurs at ENRICHING or REVIEWED state
+    destination: shared/backward-transition.md
+  - id: ebab4ea2cb
+    line: 618
+    anchor: "to: 'STRUCTURE_COMPLETE', and add = the ids"
+    destination: shared/backward-transition.md
+  - id: 5740c8bce3
+    line: 619
+    anchor: it deletes .dethereal/quality.json (forcing recomputation)
+    destination: shared/backward-transition.md
+  - id: 06fb030d83
+    line: 620
+    anchor: clears the sign-off and the review
+    destination: shared/backward-transition.md
+  - id: b998697bc0
+    line: 621
+    anchor: New or changed elements are tracked as stale
+    destination: shared/backward-transition.md
+  - id: f879252727
+    line: 622
+    anchor: "Warn the operator:"
+    destination: shared/backward-transition.md
+  - id: 1eb9581eb0
+    line: 623
+    anchor: re-position the step cursor to Step 4 (Boundary Refinement)
+    destination: shared/backward-transition.md
+  - id: 046f515709
+    line: 624
+    anchor: show the updated progress table with re-opened steps
+    destination: shared/backward-transition.md
+  - id: a44712d06a
+    line: 626
+    anchor: show the updated progress table with re-opened steps
+    destination: shared/backward-transition.md
+  - id: "5688123081"
+    line: 632
+    anchor: '[done] Threat model "<name>" complete. Quality: X/100 (<label>). State:'
+    destination: shared/guided-publish.md
+  - id: f84a4ef59f
+    line: 637
+    anchor: After a consent skip, the next step is
+    destination: shared/guided-publish.md
+  - id: e5d4a79f1c
+    line: 638
+    anchor: '[done] Threat model "<name>" complete. Quality: X/100 (<label>). State:'
+    destination: shared/guided-publish.md

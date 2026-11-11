@@ -1,0 +1,21 @@
+{
+  "argv": [],
+  "event": {
+    "session_id": "<session_id>",
+    "turn_id": "<turn_id>",
+    "agent_id": "<agent_id>",
+    "agent_type": "dethereal-model-reviewer",
+    "transcript_path": "<transcript_path>",
+    "cwd": "<project>",
+    "hook_event_name": "PreToolUse",
+    "model": "gpt-6-astra",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "mcp__dethereal__validate_model_json",
+    "tool_input": {
+      "action": "validate",
+      "assets": "full",
+      "directory_path": "<project>/models/tiny"
+    },
+    "tool_use_id": "exec-<id>"
+  }
+}

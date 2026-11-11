@@ -7,7 +7,7 @@
  * default-then-promote (see oss/docs/architecture/dethereal/TRUST_ZONING.md). The
  * resolver mirrors dt-ui's `effectiveZone.ts`, made node-agnostic over the StructureBoundary tree.
  */
-import type { StructureBoundary, ModelStructure } from '../schemas/structure.schema.js'
+import type { StructureBoundary, StructureComponent, ModelStructure } from '../schemas/structure.schema.js'
 import { flattenStructure } from '../schemas/structure.schema.js'
 import type { DataFlow } from '../schemas/dataflows.schema.js'
 import type { DataItem } from '../schemas/data-items.schema.js'
@@ -82,6 +82,26 @@ export interface ZoningContext {
   externalIds: Set<string>
   /** Boundaries that ARE vetted vendor external entities. */
   vendorIds: Set<string>
+  /**
+   * External ingress masked by forwarding hops (see `isForwarder`): for an external boundary E, the first
+   * boundary T each shortest path reaches through one or more forwarders, every forwarder in a boundary that is
+   * neither external, E, the root, nor a trusted (INTERNAL/RESTRICTED) tier. One entry per (E, T). Optional: a
+   * context built by hand without it yields exactly the direct-edge findings.
+   */
+  forwardPaths?: ForwardPath[]
+  /**
+   * Every (E, T) pair (`E\0T`) a forwarder chain connects whatever the tiers' zones — a flow exists, so a
+   * conduit E→T is never dead intent.
+   */
+  forwardReach?: Set<string>
+}
+
+/** One masked ingress: the external boundary, the boundary reached, and the forwarders in between (in order). */
+export interface ForwardPath {
+  sourceId: string
+  targetId: string
+  via: string[]
+  viaIds: string[]
 }
 
 // ── Exposure classification (staged, non-circular; exposure is NOT transitive) ────────────────
@@ -180,6 +200,9 @@ export interface ZoningFinding {
    * re-deriving the boundary graph. Undefined for the conduit-independent kinds.
    */
   peerId?: string
+  /** For an `external-ingress` crossing masked by forwarders: their names, in order (and ids, since names repeat). */
+  via?: string[]
+  viaIds?: string[]
 }
 
 /** True when `ancestorId` is a strict ancestor of `descendantId` (walk `parentBoundary` up, cycle-guarded). */
@@ -214,7 +237,7 @@ const conduitEdgeKey = (src: string, tgt: string): string => `${src}\0${tgt}`
  */
 export const isStructuralContainer = (b: StructureBoundary): boolean => (b.boundaries?.length ?? 0) > 0
 
-// ── Structural-container display roll-up (S15b) ───────────────────────────────────────────────
+// ── Structural-container display roll-up ─────────────────────────────────────────────────────
 
 /**
  * Exposure gradient (lower = more exposed) for the display roll-up. `VENDOR` is deliberately OFF the
@@ -254,7 +277,7 @@ export interface ContainerSummary {
 }
 
 /**
- * Compute the display roll-up for a structural container (§S15b). Returns `null` for a non-structural
+ * Compute the display roll-up for a structural container. Returns `null` for a non-structural
  * boundary or an empty signature (a container of empty sub-containers — nothing to summarize).
  *
  * The **signature** is the set of *computed* tiers of the container's LEAF segments, plus the container's
@@ -375,7 +398,7 @@ export function computeZoningFindings(ctx: ZoningContext): ZoningFinding[] {
 
   // ── Conduit-dependent findings (#3 external-ingress, #5 flow⇄channel) ──
   // Declared directional conduit edges: OUTBOUND on H → (H,peer); INBOUND on H → (peer,H). On-disk data
-  // is OUTBOUND-canonical (S12), but accepting the INBOUND mirror too costs nothing and future-proofs.
+  // is OUTBOUND-canonical (the write path records the outbound side), but accepting the INBOUND mirror too costs nothing and future-proofs.
   const declaredEdges = new Set<string>()
   for (const [id, boundary] of ctx.boundariesById) {
     for (const c of boundary.conduits ?? []) {
@@ -424,6 +447,32 @@ export function computeZoningFindings(ctx: ZoningContext): ZoningFinding[] {
     }
   }
 
+  // #3b external-ingress masked by forwarders — an external boundary reaches a trusted tier only through
+  // forwarding hops (a load balancer, proxy, VPN gateway, firewall or router in an exposed tier). The same
+  // crossing as #3 with the entry point hidden; the direct rule wins whenever E→T is itself an edge.
+  for (const p of ctx.forwardPaths ?? []) {
+    const { sourceId: src, targetId: tgt } = p
+    if (ctx.adjacency.out.get(src)?.has(tgt)) continue // a direct edge: #3 decides, conduit or not
+    if (declaredEdges.has(conduitEdgeKey(src, tgt))) continue
+    if (
+      isAncestorOf(src, tgt, ctx.boundariesById, ctx.defaultBoundaryId) ||
+      isAncestorOf(tgt, src, ctx.boundariesById, ctx.defaultBoundaryId)
+    ) {
+      continue
+    }
+    const tgtZone = resolveEffectiveZone(tgt, ctx.boundariesById, ctx.defaultBoundaryId).zone
+    if (tgtZone !== 'INTERNAL' && tgtZone !== 'RESTRICTED') continue
+    findings.push({
+      kind: 'external-ingress',
+      boundaryId: src,
+      peerId: tgt,
+      via: p.via,
+      viaIds: p.viaIds,
+      detail: `external-tier boundary reaches ${name(tgt)} (a trusted tier) through ${p.via.join(' → ')} with no approved channel — ratify a conduit to ${name(tgt)}, route it through an approved path, or declare ${name(tgt)} Exposed`,
+      severity: 'warning',
+    })
+  }
+
   // #5 flow⇄channel authoring sub-cases (iterate declared conduits, OUTBOUND-canonical holder):
   //   dead intent = a declared channel with no matching flow; unreviewable = a channel with no justification.
   // Orthogonal — a dead channel with a blank justification legitimately emits both.
@@ -431,7 +480,7 @@ export function computeZoningFindings(ctx: ZoningContext): ZoningFinding[] {
     const out = ctx.adjacency.out.get(id)
     for (const c of boundary.conduits ?? []) {
       if (!c?.peerId || c.direction !== 'OUTBOUND') continue
-      if (!out?.has(c.peerId)) {
+      if (!out?.has(c.peerId) && !ctx.forwardReach?.has(conduitEdgeKey(id, c.peerId))) {
         findings.push({
           kind: 'flow-channel',
           boundaryId: id,
@@ -452,7 +501,7 @@ export function computeZoningFindings(ctx: ZoningContext): ZoningFinding[] {
     }
   }
 
-  // #6 cross-tier-domain (S16) — a hand-authored `domains` tag that couples an externally-reachable segment
+  // #6 cross-tier-domain — a hand-authored `domains` tag that couples an externally-reachable segment
   // with a protected (direct asset / declared Restricted) one: the blast-radius / co-tenancy shape (own the
   // exposed member → reach the protected one). This makes the otherwise-inert `domains` field load-bearing —
   // it is the grounded realisation of the identity-blast-radius + node-co-tenancy signals when they are
@@ -654,6 +703,11 @@ export function buildZoningContext(
   }
 
   const { assetIds, directAssetIds } = collectAssetBoundaries(structure, dataItems)
+  const external = new Set([...externalIds, ...vendorIds])
+  const trusted = (id: string) => {
+    const zone = resolveEffectiveZone(id, boundariesById, defaultBoundaryId).zone
+    return zone === 'INTERNAL' || zone === 'RESTRICTED'
+  }
 
   return {
     boundariesById,
@@ -663,5 +717,98 @@ export function buildZoningContext(
     directAssetIds,
     externalIds,
     vendorIds,
+    forwardPaths: buildForwardPaths(structure, flows, external, boundariesById, (id) => !trusted(id)),
+    forwardReach: new Set(buildForwardPaths(structure, flows, external, boundariesById, () => true).map((p) => conduitEdgeKey(p.sourceId, p.targetId))),
   }
+}
+
+// ── Forwarders: ingress masked by a relaying hop ───────────────────────────────────────────────
+
+/**
+ * The stock component classes that relay traffic without terminating it: Load Balancer, Reverse Proxy / WAF
+ * Appliance, VPN Gateway, Firewall and Network Router (the general module's). An API gateway or a web server
+ * re-originates the request, so it is not a forwarder.
+ */
+export const FORWARDER_CLASS_IDS: ReadonlySet<string> = new Set([
+  'cda026ac-62af-4222-8523-155bc669c77a', // Load Balancer
+  '4040841b-5db7-46b2-80c7-a2bca302816d', // Reverse Proxy / WAF Appliance
+  '5ea503cc-b336-4f9d-8ae3-69ae06e76666', // VPN Gateway
+  'd58e96ad-b094-47de-81c3-656e28ea94a5', // Firewall
+  'cb7e1f14-416a-4b9d-8abb-3d9e07c58559', // Network Router
+])
+/** The same classes by name, for a module that ships them under other ids. */
+export const FORWARDER_CLASS_NAMES: ReadonlySet<string> = new Set([
+  'Load Balancer', 'Reverse Proxy / WAF Appliance', 'VPN Gateway', 'Firewall', 'Network Router',
+])
+/**
+ * An unclassified process named as a load balancer or proxy. Only these kinds: a name such as "gateway",
+ * "router" or "bastion" too often belongs to something that terminates the request.
+ */
+const FORWARDER_ALIAS = /(?<![A-Za-z0-9])(lb|alb|nlb|elb|waf|load[\s_-]?balancer|reverse[\s_-]?proxy|ingress[\s_-]?controller)(?![A-Za-z0-9])/i
+
+/** Whether a component relays traffic it does not terminate: by its class, or (unclassified) by its name. */
+export function isForwarder(c: Pick<StructureComponent, 'name' | 'type' | 'classData'>): boolean {
+  const cls = c.classData
+  const className = typeof cls?.name === 'string' && cls.name.trim() ? cls.name : undefined
+  // A class, by id or by name, decides; the name alias is only for a component with no class at all.
+  if (cls?.id || className) return (!!cls?.id && FORWARDER_CLASS_IDS.has(cls.id)) || (!!className && FORWARDER_CLASS_NAMES.has(className))
+  return c.type === 'PROCESS' && typeof c.name === 'string' && FORWARDER_ALIAS.test(c.name)
+}
+
+/**
+ * The boundaries each external boundary reaches through forwarders: one breadth-first search per external
+ * boundary E from all of its components along flows, in (name, id) order, one visited set per E — so each
+ * component gets its shortest path, and the result does not depend on the order of the flows. A forwarder is
+ * passed through only in a boundary that is not external, E or the root and that `mayRelay` admits; the first
+ * boundary T each path reaches beyond a forwarder is recorded, once per (E, T), unless T is external, E, the
+ * root, a structural container, or the boundary of a forwarder on that path. No hop bound: every hop must be a
+ * forwarder, so the search stays linear in the flows.
+ */
+function buildForwardPaths(
+  structure: ModelStructure,
+  flows: DataFlow[],
+  external: ReadonlySet<string>,
+  boundariesById: ReadonlyMap<string, StructureBoundary>,
+  mayRelay: (boundaryId: string) => boolean,
+): ForwardPath[] {
+  const { components, parentMap } = flattenStructure(structure)
+  const rootId = structure.defaultBoundary.id
+  const byId = new Map(components.map((c) => [c.id, c]))
+  const order = (a: StructureComponent, b: StructureComponent) =>
+    a.name < b.name ? -1 : a.name > b.name ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+  const out = new Map<string, StructureComponent[]>()
+  for (const f of flows) {
+    const src = byId.get(f.source?.id)
+    const tgt = byId.get(f.target?.id)
+    if (!src || !tgt || src.id === tgt.id) continue
+    if (!out.has(src.id)) out.set(src.id, [])
+    if (!out.get(src.id)!.some((c) => c.id === tgt.id)) out.get(src.id)!.push(tgt)
+  }
+  for (const list of out.values()) list.sort(order)
+
+  const paths: ForwardPath[] = []
+  for (const e of [...external].sort()) {
+    const starts = components.filter((c) => parentMap.get(c.id) === e).sort(order)
+    const visited = new Set(starts.map((c) => c.id))
+    const recorded = new Set<string>()
+    // A queue entry: a component and the forwarders on the way to it (empty for E's own components).
+    const queue: Array<{ c: StructureComponent; chain: StructureComponent[] }> = starts.map((c) => ({ c, chain: [] }))
+    for (let head = 0; head < queue.length; head++) {
+      const { c, chain } = queue[head]!
+      for (const y of out.get(c.id) ?? []) {
+        if (visited.has(y.id)) continue
+        const b = parentMap.get(y.id)
+        if (b == null || b === rootId || b === e || external.has(b)) continue
+        visited.add(y.id)
+        const chainBoundaries = new Set(chain.map((f) => parentMap.get(f.id)))
+        const container = boundariesById.get(b)
+        if (chain.length && !recorded.has(b) && !chainBoundaries.has(b) && !(container && isStructuralContainer(container))) {
+          recorded.add(b)
+          paths.push({ sourceId: e, targetId: b, via: chain.map((f) => f.name), viaIds: chain.map((f) => f.id) })
+        }
+        if (isForwarder(y) && mayRelay(b)) queue.push({ c: y, chain: [...chain, y] })
+      }
+    }
+  }
+  return paths
 }

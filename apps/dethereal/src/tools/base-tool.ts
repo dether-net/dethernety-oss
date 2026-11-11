@@ -6,6 +6,7 @@
 
 import { z, ZodType } from 'zod'
 import type { ApolloClient } from '@apollo/client'
+import type { SettlementMode } from '../utils/settlement-switch.js'
 
 /**
  * Tool execution context
@@ -36,13 +37,16 @@ export interface ToolContext {
    * JWT-anchored operator identity. Decoded once per MCP entry from the
    * `email` (preferred) or `sub` claim of the IDENTITY token — not the bearer,
    * which carries no `email`. The audit-log
-   * writer threads this through as `AuditLogEntry.authnOperator` — the
-   * platform-anchored truth that complements the spoofable local
-   * `operator` field. `undefined` if decode failed (malformed token,
-   * missing claim) — audit-log entry still writes with only the
-   * local-claimed identity.
+   * writer threads this through as `AuditLogEntry.authnOperator`, the
+   * audit log's only attribution. `undefined` if decode failed (malformed
+   * token, missing claim); manage_controls then records `'unauthenticated'`.
    */
   authnOperator?: string
+  /**
+   * The settlement mode this call runs with, when the caller names one; otherwise the environment's
+   * (`DETHEREAL_SETTLEMENT`). Only an in-process caller sets it: the acceptance scorer, replaying a run.
+   */
+  settlement?: SettlementMode
   /** Debug mode flag */
   debug: boolean
 }
@@ -55,6 +59,14 @@ export interface ToolResult<T = any> {
   data?: T
   error?: string
   warnings?: string[]
+}
+
+/**
+ * A tool result as sent: compact JSON. Indentation only costs context on every later turn, and no reader of a result
+ * needs it; `compact: false` (a tool that opts out) indents a success.
+ */
+export function resultText(body: unknown, compact = true): string {
+  return compact ? JSON.stringify(body) : JSON.stringify(body, null, 2)
 }
 
 /**
@@ -72,6 +84,9 @@ export abstract class BaseTool<TInput = any, TOutput = any> {
 
   /** Whether this tool requires an Apollo Client */
   abstract readonly requiresClient: boolean
+
+  /** Whether a successful result is sent without indentation; errors always are */
+  readonly compactResult: boolean = true
 
   /**
    * Execute the tool with validated input

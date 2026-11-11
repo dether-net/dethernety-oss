@@ -2,15 +2,15 @@
  * Manage Countermeasures Tool
  *
  * CRUD operations for countermeasures that link controls to exposures.
- * Full schema per D28: type, category, score, exposure references,
- * D3FEND technique references, ATT&CK mitigation references.
+ * Full schema: type, category, score, exposure references, and links to
+ * D3FEND techniques and ATT&CK mitigations by the platform's node ids.
  */
 
 import { z } from 'zod'
 import { DtCountermeasure, type Countermeasure } from '@dethernety/dt-core'
 import { ClientDependentTool, ToolContext, ToolResult } from './base-tool.js'
 
-const InputSchema = z.object({
+const Fields = z.object({
   action: z.enum(['list', 'get', 'create', 'update', 'delete']).describe('CRUD action to perform'),
   control_id: z.string().optional().describe('Control ID (required for "list" and "create")'),
   countermeasure_id: z.string().optional().describe('Countermeasure ID (required for "get", "update", "delete")'),
@@ -20,10 +20,13 @@ const InputSchema = z.object({
   description: z.string().optional().describe('Description. For update: omitted = unchanged'),
   score: z.number().min(0).max(100).optional().describe('Effectiveness score (0-100, default 50 on create). For update: omitted = unchanged'),
   exposure_ids: z.array(z.string()).optional().describe('IDs of exposures this countermeasure addresses. For update: omitted = current links preserved; provided list REPLACES them'),
-  defend_technique_ids: z.array(z.string()).optional().describe('D3FEND technique IDs. For update: omitted = current links preserved; provided list REPLACES them'),
-  mitigations: z.array(z.object({ id: z.string() })).optional().describe('ATT&CK mitigation references. For update: omitted = current links preserved; provided list REPLACES them'),
+  defend_technique_ids: z.array(z.string()).optional().describe('The platform\'s node ids of D3FEND techniques: the `id` that get_mitre_defend (action "technique") returns, not a D3FEND code such as D3-MFA (a code is refused). For update: omitted = current links preserved; provided list REPLACES them'),
+  mitigations: z.array(z.object({ id: z.string() })).optional().describe('The platform\'s node ids of ATT&CK mitigations, each as { id }: the `id` that search_mitre_attack (action "mitigation") returns, not an ATT&CK code such as M1032 (a code is refused). For update: omitted = current links preserved; provided list REPLACES them'),
   references: z.string().optional().describe('External references. For update: omitted = unchanged')
-}).superRefine((data, ctx) => {
+})
+
+/** The checks each action's fields need, in the public and the internal schema alike. */
+const checkFields = (data: z.infer<typeof Fields>, ctx: z.RefinementCtx) => {
   if (data.action === 'list' && !data.control_id) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"control_id" is required for "list" action', path: ['control_id'] })
   }
@@ -36,9 +39,45 @@ const InputSchema = z.object({
   if (['get', 'update', 'delete'].includes(data.action) && !data.countermeasure_id) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"countermeasure_id" is required for this action', path: ['countermeasure_id'] })
   }
-})
+}
 
-type ManageCountermeasuresInput = z.infer<typeof InputSchema>
+/** Every action: what execute takes, and what query_countermeasures runs through it (list, get). */
+const InternalSchema = Fields.superRefine(checkFields)
+/** What an MCP client may call: the write actions only. Reading countermeasures is query_countermeasures'. */
+const InputSchema = Fields.extend({ action: z.enum(['create', 'update', 'delete']).describe('Action to perform') }).superRefine(checkFields)
+
+type ManageCountermeasuresInput = z.infer<typeof InternalSchema>
+
+/**
+ * A MITRE code where a node id belongs: an ATT&CK mitigation (M1032), a D3FEND technique (D3-MFA) or
+ * an ATT&CK technique (T1078, T1078.004). The platform links by node id, so a code links nothing,
+ * and the write would succeed without the link.
+ */
+const MITRE_CODE = /^(?:M\d{4}|D3-[A-Za-z0-9-]+|T\d{4}(?:\.\d{3})?)$/i
+
+/** The code-shaped values among the link ids a write was given. */
+function mitreCodes(input: ManageCountermeasuresInput): string[] {
+  const ids = [...(input.defend_technique_ids ?? []), ...(input.mitigations ?? []).map((m) => m.id)]
+  return [...new Set(ids.filter((id) => MITRE_CODE.test(id.trim())))]
+}
+
+/**
+ * The ids the call asked to link that the written countermeasure does not hold: an id that is no node
+ * of that kind on the platform connects nothing, silently. Only the lists the call gave are checked
+ * (an update's preserved links are not the call's). Null when the response does not carry the links.
+ */
+function notLinked(input: ManageCountermeasuresInput, written: Countermeasure): { mitigations: string[]; defend_technique_ids: string[] } | null {
+  const held = (list: unknown): Set<string> | null => (Array.isArray(list) ? new Set(list.map((x: { id?: unknown }) => String(x?.id))) : null)
+  const mitigations = held(written.mitigations)
+  const techniques = held(written.defendedTechniques)
+  const missing = {
+    mitigations: input.mitigations && mitigations ? input.mitigations.map((m) => m.id).filter((id) => !mitigations.has(id)) : [],
+    defend_technique_ids: input.defend_technique_ids && techniques ? input.defend_technique_ids.filter((id) => !techniques.has(id)) : [],
+  }
+  return missing.mitigations.length || missing.defend_technique_ids.length ? missing : null
+}
+
+const LOOKUP = 'Look each one up and use the `id` it returns: an ATT&CK mitigation with search_mitre_attack (action "mitigation", attack_id), a D3FEND technique with get_mitre_defend (action "technique", d3fend_id).'
 
 /** Why an update of a SYSTEM countermeasure is refused, and what to do instead. */
 export function systemCountermeasureRefusal(countermeasureId: string, name?: string): string {
@@ -60,7 +99,7 @@ export function systemCountermeasureDeleteRefusal(countermeasureId: string, name
 
 export class ManageCountermeasuresTool extends ClientDependentTool<ManageCountermeasuresInput, unknown> {
   readonly name = 'manage_countermeasures'
-  readonly description = 'Create, read, update, and delete countermeasures that link security controls to exposures. Countermeasures document what defenses exist and their effectiveness. Update and delete apply only to USER countermeasures: a SYSTEM countermeasure is derived from its control\'s class policy and rewritten on every save of the control, so an update or delete of one is refused; supersede it into a USER copy and edit that, or change the control\'s attribute answers.'
+  readonly description = 'Create, update and delete countermeasures that link security controls to exposures; list and read them with query_countermeasures. Countermeasures document what defenses exist and their effectiveness. Update and delete apply only to USER countermeasures: a SYSTEM countermeasure is derived from its control\'s class policy and rewritten on every save of the control, so an update or delete of one is refused; supersede it into a USER copy and edit that, or change the control\'s attribute answers.'
   readonly inputSchema = InputSchema
 
   private buildCountermeasureInput(input: ManageCountermeasuresInput): Partial<Countermeasure> {
@@ -82,6 +121,18 @@ export class ManageCountermeasuresTool extends ClientDependentTool<ManageCounter
     try {
       if (!context.apolloClient) {
         return { success: false, error: 'Apollo client not available. Please ensure you are authenticated.' }
+      }
+
+      // A MITRE code links nothing: refused before anything is read or written.
+      if (input.action === 'create' || input.action === 'update') {
+        const codes = mitreCodes(input)
+        if (codes.length) {
+          return {
+            success: false,
+            error: `mitigations and defend_technique_ids take the platform's node ids, not MITRE codes: ${codes.join(', ')}. ${LOOKUP} Nothing was written.`,
+            data: { code: 'mitre_code_not_node_id', codes },
+          }
+        }
       }
 
       const dtCountermeasure = new DtCountermeasure(context.apolloClient)
@@ -112,6 +163,14 @@ export class ManageCountermeasuresTool extends ClientDependentTool<ManageCounter
           })
           if (!countermeasure) {
             return { success: false, error: 'Failed to create countermeasure' }
+          }
+          const missing = notLinked(input, countermeasure)
+          if (missing) {
+            return {
+              success: false,
+              error: `The countermeasure was created (${countermeasure.id}), but these ids linked nothing: ${[...missing.mitigations, ...missing.defend_technique_ids].join(', ')}. They are not node ids of the platform's ATT&CK mitigations or D3FEND techniques. ${LOOKUP} Then update the countermeasure with them.`,
+              data: { countermeasure, not_linked: missing },
+            }
           }
           return { success: true, data: { countermeasure } }
         }
@@ -156,6 +215,14 @@ export class ManageCountermeasuresTool extends ClientDependentTool<ManageCounter
           })
           if (!countermeasure) {
             return { success: false, error: `Failed to update countermeasure ${input.countermeasure_id}` }
+          }
+          const missing = notLinked(input, countermeasure)
+          if (missing) {
+            return {
+              success: false,
+              error: `Countermeasure ${input.countermeasure_id} was updated, but these ids linked nothing: ${[...missing.mitigations, ...missing.defend_technique_ids].join(', ')}. They are not node ids of the platform's ATT&CK mitigations or D3FEND techniques. ${LOOKUP} Then update it again with them.`,
+              data: { countermeasure, not_linked: missing },
+            }
           }
           return { success: true, data: { countermeasure } }
         }

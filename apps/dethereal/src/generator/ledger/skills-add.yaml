@@ -1,0 +1,189 @@
+source: skills/add/SKILL.md
+blob: 52ffb326789cc168c6e03ae34da30944ec976903
+migrated: true
+rules:
+  - id: 9fe56641ba
+    line: 8
+    dropped:
+      reason: "An @-import line never expanded in a skill; the guidelines are read as files next to the skill."
+      ref: apps/dethereal/workflow/skills/add/SKILL.md
+  - id: 3249fd8456
+    line: 11
+    anchor: Add elements to an existing Dethernety threat model
+    destination: skills/add/SKILL.md
+  - id: 0f7d53366c
+    line: 17
+    anchor: "Resolve it (Model Resolution Protocol"
+    destination: skills/add/SKILL.md
+  - id: "2730422e03"
+    line: 17
+    anchor: "read structure.json, dataflows.json and data-items.json"
+    destination: skills/add/SKILL.md
+  - id: e474ac9785
+    line: 21
+    anchor: "What to add, from the arguments or the conversation"
+    destination: skills/add/SKILL.md
+  - id: 89e06b8967
+    line: 25
+    anchor: "\"a Redis cache in the data tier\""
+    destination: skills/add/SKILL.md
+  - id: 83a2f3df5c
+    line: 26
+    anchor: "\"a DMZ for internet-facing services\""
+    destination: skills/add/SKILL.md
+  - id: 0c54d6e65e
+    line: 27
+    anchor: a flow from API Server to Redis for session lookups"
+    destination: skills/add/SKILL.md
+  - id: 9f83795732
+    line: 28
+    anchor: "\"PII on the user registration flow\""
+    destination: skills/add/SKILL.md
+  - id: a604245a07
+    line: 30
+    anchor: "When the element type, its place, or a flow's ends are unclear, ask"
+    destination: skills/add/SKILL.md
+  - id: 6d432305d3
+    line: 34
+    anchor: "component — name; type (PROCESS, STORE or EXTERNAL_ENTITY)"
+    destination: skills/add/SKILL.md
+  - id: 035f6c190b
+    line: 35
+    anchor: "component — name; type (PROCESS, STORE or EXTERNAL_ENTITY)"
+    destination: skills/add/SKILL.md
+  - id: 6ac6f27e5c
+    line: 36
+    anchor: "parent boundary, from the request or asked"
+    destination: skills/add/SKILL.md
+  - id: a5cb62bc6d
+    line: 37
+    anchor: "a position relative to the parent (Layout)"
+    destination: skills/add/SKILL.md
+  - id: 747b85a021
+    line: 38
+    anchor: "never a class of another type — confirmed with the change"
+    destination: skills/add/SKILL.md
+  - id: d56c61b0bd
+    line: 39
+    anchor: "a new id (a UUID)"
+    destination: skills/add/SKILL.md
+  - id: 3156863aef
+    line: 41
+    anchor: "boundary — name and parent"
+    destination: skills/add/SKILL.md
+  - id: ddf70544b8
+    line: 42
+    anchor: "boundary — name and parent"
+    destination: skills/add/SKILL.md
+  - id: c0e0b1bb7a
+    line: 43
+    anchor: "size to contain its children with at least 50px padding"
+    destination: skills/add/SKILL.md
+  - id: b9d26ccfa1
+    line: 44
+    anchor: Set `dimensionsMinWidth` and `dimensionsMinHeight` to prevent collapse
+    destination: shared/guidelines-layout.md
+  - id: 3d2a186ec8
+    line: 46
+    anchor: "data flow — source and target matched by name, ignoring case"
+    destination: skills/add/SKILL.md
+  - id: 40be5f964b
+    line: 47
+    anchor: "data flow — source and target matched by name, ignoring case"
+    destination: skills/add/SKILL.md
+  - id: ec8402697f
+    line: 48
+    anchor: "source and target handles from the ends' relative position (Layout)"
+    destination: skills/add/SKILL.md
+  - id: 03e3f27fd4
+    line: 49
+    anchor: Description and protocol
+    destination: skills/add/SKILL.md
+  - id: ac2d1f523e
+    line: 50
+    anchor: "never a handle pair already used between the same two components"
+    destination: skills/add/SKILL.md
+  - id: 7b85d63e60
+    line: 52
+    anchor: "data item — name and description"
+    destination: skills/add/SKILL.md
+  - id: f90c3167c4
+    line: 53
+    anchor: Name and description
+    destination: skills/add/SKILL.md
+  - id: 2481418d4d
+    line: 54
+    anchor: "the elements that handle it; a sensitivity only when the operator gives it"
+    destination: skills/add/SKILL.md
+  - id: 18daad25ad
+    line: 55
+    anchor: "a sensitivity only when the operator gives it"
+    destination: skills/add/SKILL.md
+  - id: 0d3a9ee324
+    line: 59
+    anchor: "Show what will change as a table"
+    destination: skills/add/SKILL.md
+  - id: 38aaf63499
+    line: 61
+    anchor: "Show what will change as a table"
+    destination: skills/add/SKILL.md
+  - id: 2bb429dfd5
+    line: 75
+    anchor: "Write only what was confirmed"
+    destination: skills/add/SKILL.md
+  - id: b043ecc686
+    line: 76
+    anchor: "structure.json (components, boundaries)"
+    destination: skills/add/SKILL.md
+  - id: 2ad756f3f9
+    line: 77
+    anchor: "(components, boundaries), dataflows.json"
+    destination: skills/add/SKILL.md
+  - id: f1da4696bb
+    line: 78
+    anchor: "data-items.json (and dataItemIds on the elements that handle a new data item)"
+    destination: skills/add/SKILL.md
+  - id: 9dfd7b154f
+    line: 79
+    anchor: "For a classified element, call"
+    destination: skills/add/SKILL.md
+  - id: a5d3f570f3
+    line: 83
+    anchor: "At DISCOVERED or STRUCTURE_COMPLETE the state does not change."
+    destination: skills/add/SKILL.md
+  - id: f701854844
+    line: 83
+    anchor: "At DISCOVERED or STRUCTURE_COMPLETE the state does not change."
+    destination: skills/add/SKILL.md
+  - id: 9db03d240b
+    line: 85
+    anchor: "At ENRICHING or REVIEWED, apply the Backward Transition Protocol with the new element ids."
+    destination: skills/add/SKILL.md
+  - id: 85d2b1c865
+    line: 87
+    anchor: "to: 'STRUCTURE_COMPLETE', and add = the ids"
+    destination: shared/backward-transition.md
+  - id: 95350d6c99
+    line: 88
+    anchor: "it deletes .dethereal/quality.json (forcing recomputation)"
+    destination: shared/backward-transition.md
+  - id: 49031192b1
+    line: 89
+    anchor: "clears the sign-off and the review"
+    destination: shared/backward-transition.md
+  - id: 274820d4b6
+    line: 90
+    anchor: "New or changed elements are tracked as stale"
+    destination: shared/backward-transition.md
+  - id: 23a84fd86a
+    line: 91
+    anchor: "Adding or removing elements reverted state from [previous] to STRUCTURE_COMPLETE. Enrichment on existing elements is preserved."
+    destination: skills/add/SKILL.md
+  - id: 236ceaffdf
+    line: 95
+    anchor: "Validate once per step"
+    destination: shared/core-rules.md
+  - id: fa3a479941
+    line: 97
+    anchor: "(scan for more components)"
+    destination: skills/add/SKILL.md

@@ -1,6 +1,6 @@
 # Dethereal Plugin -- Architecture Decisions
 
-> Decisions identified during the architecture planning exercise. D1-D12, D14-D19 resolved by accepting recommendations (batch resolution). D13 resolved through R4 (effectively implemented in architecture). D20-D25 resolved through multi-agent review R1 (mapping vs. analysis boundary). D26-D32 resolved through R2 (plugin structure, MCP schemas, quality calibration). D33-D37 resolved through R3 (cross-document consistency, UX trust, documentation completeness). D38-D43 resolved through R4 (spec completeness, UX patterns, gate timing). D44-D54 resolved through R5 (token efficiency, overengineering, operational gaps). D55-D60 resolved through R7 (model decomposition for complex systems). D61-D66 resolved through R8 (pre-implementation security and UX review). D67 covers the drift-detection feature design. D68 relocates the per-component crown-jewel flag to `structure.json`. D69 keeps session credentials out of model-visible text. **All 69 decisions resolved.**
+> Decisions identified during the architecture planning exercise. D1-D12, D14-D19 resolved by accepting recommendations (batch resolution). D13 resolved after a design review (effectively implemented in architecture). D20-D25 resolved after a multi-agent design review (mapping vs. analysis boundary). D26-D32 resolved after a design review (plugin structure, MCP schemas, quality calibration). D33-D37 resolved after a design review (cross-document consistency, UX trust, documentation completeness). D38-D43 resolved after a design review (spec completeness, UX patterns, gate timing). D44-D54 resolved after a design review (token efficiency, overengineering, operational gaps). D55-D60 resolved after a design review (model decomposition for complex systems). D61-D66 resolved after the pre-implementation security and UX review. D67 covers the drift-detection feature design. D68 relocates the per-component crown-jewel flag to `structure.json`. D69 keeps session credentials out of model-visible text. D70-D73 record the multi-harness release: one workflow source for three harnesses, the per-harness installer and runtime, quick models by default, and bounded enrichment relay runs with the enrichment applier. **All 73 decisions resolved.**
 
 ---
 
@@ -17,12 +17,12 @@
 | D7 | [File naming convention](#d7-file-naming-convention) | UUID-only vs. slug+UUID | Slug+short-UUID for readability | Filename drift when elements are renamed; UUID-only hurts filesystem browsing | **Resolved** |
 | D8 | [YAML support](#d8-yaml-support) | YAML on disk vs. JSON-only with YAML view | JSON canonical, YAML view only | YAML on disk creates second source of truth and parser dependency | **Resolved** |
 | D9 | [Skill routing](#d9-skill-routing) | Single /dethereal router vs. separate skills | Separate skills, /dethereal = /dethereal:help | Single router adds navigation friction; separate skills fragment discoverability | **Resolved** |
-| D10 | [Default agent setting](#d10-default-agent-setting) | Set threat-modeler as default vs. no default | Set threat-modeler as default | Wrong default agent provides irrelevant context for non-modeling tasks | **Resolved** |
+| D10 | [Default agent setting](#d10-default-agent-setting) | Set threat-modeler as default vs. no default | Set threat-modeler as default | Wrong default agent provides irrelevant context for non-modeling tasks | **Resolved** (superseded) |
 | D11 | [Analysis chat via MCP](#d11-analysis-chat-via-mcp) | MCP tools vs. platform-only vs. subagent | Evaluate post-v1 | Premature implementation adds complexity without validated user need | **Resolved** |
 | D12 | [Guided workflow model selection](#d12-guided-workflow-model-selection) | Hardcode opus vs. inherit | Inherit (let user decide) | Hardcoded model limits flexibility and increases cost | **Resolved** |
-| D13 | [Agent invocation pattern](#d13-agent-invocation-pattern) | `agent` frontmatter vs. Agent() tool calls | `agent` frontmatter + Agent() for orchestration | Frontmatter-only cannot support multi-agent orchestration needed by /dethereal:threat-model | **Resolved** |
+| D13 | [Agent invocation pattern](#d13-agent-invocation-pattern) | `agent` frontmatter vs. Agent() tool calls | `agent` frontmatter + Agent() for orchestration | Frontmatter-only cannot support multi-agent orchestration needed by /dethereal:threat-model | **Resolved** (superseded) |
 | D14 | [Discovery confidence storage](#d14-discovery-confidence-storage) | Description / custom attribute / split-file metadata | Split-file metadata (.dethernety/) for v1 | Metadata in model files pollutes platform data; metadata in separate file requires extra management | **Resolved** |
-| D15 | [Model co-location](#d15-model-co-location) | .dethernety/ in app repo vs. separate repo | Co-locate in .dethernety/ | Model files in app repo add noise to PRs; separate repo reduces developer adoption | **Resolved** |
+| D15 | [Model co-location](#d15-model-co-location) | .dethernety/ in app repo vs. separate repo | Co-locate in .dethernety/ | Model files in app repo add noise to PRs; separate repo reduces developer adoption | **Resolved** (superseded by D27) |
 | D16 | [Scope template format](#d16-scope-template-format) | Structured fields vs. freeform text | Structured fields | Freeform text makes downstream phases non-deterministic | **Resolved** |
 | D17 | [Data items required scope](#d17-data-items-required-scope) | Every flow vs. boundary-crossing only | Boundary-crossing and crown jewel flows | Requiring data items on every flow adds burden; boundary-only misses internal sensitive flows | **Resolved** |
 | D18 | [Multi-system sessions](#d18-multi-system-sessions) | Multi-system vs. one per session | One system per session with cross-refs | Multi-system creates scope creep; one-per-session frustrates monorepo users | **Resolved** |
@@ -38,7 +38,7 @@
 | D28 | [`manage_countermeasures` schema scope](#d28-manage_countermeasures-schema-scope) | Expand schema vs. provide defaults vs. defer to analysis | Expand to match full DtCountermeasure API | Low — extra fields can be optional | **Resolved** |
 | D29 | [State machine invalidation granularity](#d29-state-machine-invalidation-granularity) | Blanket revert vs. selective invalidation vs. additive exception | Blanket revert with better UX messaging | Medium — user frustration if reverts are frequent | **Resolved** |
 | D30 | [STRIDE-to-ATT&CK enrichment boundary](#d30-stride-to-attck-enrichment-boundary) | Systematic in plugin vs. move to analysis vs. user-initiated browsing | Narrow to user-initiated browsing | Low — users can still browse MITRE on demand | **Resolved** |
-| D31 | [`/dethereal:surface` skill scope](#d31-dethereal-surface-skill-scope) | Structural only vs. light analysis vs. full summary | Full summary (structural + control gaps + exposure counts) | Low — scope only adds read operations | **Resolved** |
+| D31 | [`/dethereal:surface` skill scope](#d31-detherealsurface-skill-scope) | Structural only vs. light analysis vs. full summary | Full summary (structural + control gaps + exposure counts) | Low — scope only adds read operations | **Resolved** |
 | D32 | [Platform feature adoption](#d32-platform-feature-adoption) | 8 features evaluated individually | Phased adoption based on benefit vs. effort | Low — features are additive and individually toggleable | **Resolved** |
 | D33 | [Skill frontmatter documentation](#d33-skill-frontmatter-documentation) | Full blocks vs. as-is vs. summary table | Summary table of all 19 skills | Low — table can be expanded if needed | **Resolved** |
 | D34 | [Board-ready accept affordance](#d34-board-ready-statement-accept-affordance) | Edit-recommended vs. keep accept vs. review-and-accept | Edit as recommended, "use as-is" for acceptance | Low — friction can be relaxed later | **Resolved** |
@@ -70,13 +70,17 @@
 | D60 | [Cross-model scope exclusions](#d60-cross-model-scope-exclusions) | No exclusions vs. filter discovery vs. scope annotation | Deferred subsystems listed in `scope.json` exclusions as "(separate model)". Discovery filters them out | Medium — without filtering, discovery re-surfaces components assigned to other models | **Resolved** |
 | D61 | [MCP security hardening](#d61-mcp-security-hardening) | Accept `_token` with JWKS vs. remove `_token` vs. both | Remove `_token` from tool args (tokens from store only), add path containment, URL-keyed token store, `state` parameter, HTTPS enforcement | High — `_token` injection + path traversal are exploitable | **Resolved** |
 | D62 | [Credential attribute key mapping](#d62-credential-attribute-key-mapping) | `credential_name` vs. `required_credentials` vs. translation layer | Plugin writes `required_credentials` (engine property name) on data flow edges. `credential_name` is human-readable label only | High — wrong key breaks credential gating entirely | **Resolved** |
-| D63 | [auth_failure_mode engine integration](#d63-auth_failure_mode-engine-integration) | Capture without engine integration vs. integrate vs. defer capture | Capture in plugin, engine fix required separately (`fail_open` → `auth_strength = 0.0`) | High — contradictory signals erode trust | **Resolved** |
+| D63 | [auth_failure_mode engine integration](#d63-auth_failure_mode-engine-integration) | Capture without engine integration vs. integrate vs. defer capture | Capture in plugin, a change to the platform's analysis required separately (`fail_open` counts as no authentication) | High — contradictory signals erode trust | **Resolved** |
 | D64 | [Plugin defaults and state management](#d64-plugin-defaults-and-state-management) | Default agent vs. explicit invocation; sign-off behavior on backward transitions | No default agent (invoke via skills/`@`); clear `model_signed_off` and invalidate `quality.json` on backward transitions | Low — clean separation of concerns | **Resolved** |
 | D65 | [UX hardening: discovery, session break, undo, decomposition](#d65-ux-hardening) | Various options per sub-finding | Sources-checked summary; size-calibrated session break; git-based undo with LLM guidance; cross-model gap warning at decomposition; commit recommendation at STRUCTURE_COMPLETE | Medium — UX gaps that compound on large models | **Resolved** |
 | D66 | [monitoring_tools V1 scope](#d66-monitoring_tools-v1-scope) | Engine integration vs. human review only vs. defer capture | V1: capture for human review only. No engine integration point exists. Engine integration is a future capability | Low — documented as human review, no false expectations | **Resolved** |
-| D67 | [Drift detection — simplified design](#d67-drift-detection--simplified-design) | Earlier complex implementation (verb-language grammar, ledger, advisory locks) vs. routing the delta through existing modeling skills | Adopt the simplified design per `DRIFT_DETECTION.md` | Low — earlier implementation is preserved at `archive/drift-reconciliation-v1-overengineered` and remains `git checkout`-able if needed | **Resolved** |
+| D67 | [Drift detection — simplified design](#d67-drift-detection--simplified-design) | Earlier complex implementation (verb-language grammar, ledger, advisory locks) vs. routing the delta through existing modeling skills | Adopt the simplified design per `DRIFT_DETECTION.md` | Low — if a scenario the earlier design covered proves load-bearing, it is added to the simplified design as a targeted change | **Resolved** |
 | D68 | [Crown-jewel placement — `structure.json`, not the attribute bag](#d68-crown-jewel-placement--structurejson-not-the-attribute-bag) | Fix the lift to read the bag root vs. move the flag to the first-class `structure.json` field | Store `crownJewel` first-class on the component in `structure.json`; remove the bag path (supersedes the storage location in D21/D41) | Low — clean cut; existing local models re-tag via `/dethereal:classify` | **Resolved** |
 | D69 | [Session credentials never reach the model](#d69-session-credentials-never-reach-the-model) | Keep skills reading the token store and the `refresh_token` tool vs. a server-side status tool with no credential in or out | `auth_status` replaces token-file reads; `refresh_token` removed; no tool returns token material or the token-store path; session tokens redacted from tool results and stderr (extends D61 in the outbound direction) | High — tokens in the conversation reach the model provider and any transcript | **Resolved** |
+| D70 | [One workflow source, generated into three harness bundles](#d70-one-workflow-source-generated-into-three-harness-bundles) | A hand-kept skill and agent set per harness vs. one harness-neutral source rendered per harness | One source in `workflow/`, rendered by a generator into a committed bundle for Claude Code, Codex and OpenCode, with a generation failing on any lint or prompt-registry finding | Medium — the three harnesses drift apart, or a Claude-only construct leaks into a harness that cannot run it | **Resolved** |
+| D71 | [A per-harness installer with its own runtime](#d71-a-per-harness-installer-with-its-own-runtime) | A manual setup per harness vs. one installer that writes each harness's configuration | `dethereal install`: Claude Code through its own plugin CLI; Codex and OpenCode against a verified runtime copy under `~/.dethernety/runtime/`; every harness file it writes on install is a recorded transaction, backed up when it existed before; each harness behind a version gate | High — a half-written configuration, or a user file overwritten, in a harness's own settings | **Resolved** |
+| D72 | [Quick model by default](#d72-quick-model-by-default) | Full run by default vs. quick run by default | A new model is quick unless `--full`; a pulled model is full; a run without a mode flag keeps an existing model's mode | Medium — operators take a quick, unreviewed model for a reviewed one | **Resolved** |
+| D73 | [Bounded enrichment relay runs and the enrichment applier](#d73-bounded-enrichment-relay-runs-and-the-enrichment-applier) | One enrichment pass applied in the main conversation vs. bounded runs that write relay files, and an agent that applies the reply | Runs of at most 12 elements (20 with a store's flows) writing `.dethereal/relay/run-<n>.txt`, one relay question, and the `enrichment-applier` writing what the reply decides | Medium — a value the operator rejected stays written, or a question is lost in a summary | **Resolved** |
 
 ---
 
@@ -109,6 +113,8 @@
 **Refined UX:** Default to confirm-all for the first model (trust must be earned). After the first successful model creation, switch to auto-accept-high-confidence with a summary: "Auto-accepted 12 high-confidence components from Terraform/K8s declarations. Presenting 5 medium/low-confidence items for review." This respects human-in-the-loop for new users while removing unnecessary friction for returning users.
 
 **Note:** Plugin-specific configuration like `auto_accept_high_confidence` should be stored in `${CLAUDE_PLUGIN_DATA}/config.json`, not in `settings.json` (which only supports the `agent` key).
+
+> **Note (2026-10-12):** Superseded in part: discovery never auto-accepts, for the first model or any later one. It always asks the operator to confirm the discovered elements and writes nothing into the model before the answer; there is no `auto_accept_high_confidence` setting. See [Phase 2: Discovery & Inventory](THREAT_MODELING_WORKFLOW.md#phase-2-discovery--inventory).
 
 **Status: Resolved**
 
@@ -144,6 +150,8 @@
 - (c) Cache tactic names only (14 items) for conversational reference
 
 **Recommendation:** (c) Cache only the 14 tactic names for conversation. Including the full technique catalog risks hallucination through approximate matching. All technique-level references must come from the platform's verified graph database. Cache invalidates when `mitre-frameworks` module version changes.
+
+> **Note (2026-10-12):** Superseded in part: the tactic list now has 15 Enterprise tactics, Stealth and Defense Impairment among them, and tactic coverage is computed from the platform's exposures, each technique resolved with `search_mitre_attack`. See [MITRE ATT&CK Coverage](../../user/dethereal/REVIEW_AND_ANALYSIS.md#5-mitre-attck-coverage).
 
 **Status: Resolved**
 
@@ -233,9 +241,11 @@
 - (a) Set `threat-modeler` as default -- specialized context always active
 - (b) No default agent -- rely on skill invocations to route to the right agent
 
-**Recommendation:** (a) Set `threat-modeler` as default. The plugin is installed for threat modeling; making the specialized agent the default thread is the expected behavior. Users switch agents via `@infrastructure-scout` etc. If the plugin is one of several, the user can override in project settings.
+**Recommendation:** (a) Set `threat-modeler` as default. The plugin is installed for threat modeling; making the specialized agent the default thread is the expected behavior. Users switch agents via `@agent-dethereal:infrastructure-scout` etc. If the plugin is one of several, the user can override in project settings.
 
-**Status: Resolved**
+> **Note:** Superseded. The plugin sets no default agent, and the Dethereal skills run from a regular session — never one started as the threat-modeler (`claude --agent` or the `agent` setting), because they need tools that ask for the operator's approval, which the threat-modeler does not hold. See [Default Agent](PLUGIN_ARCHITECTURE.md#default-agent).
+
+**Status: Resolved** (superseded)
 
 ---
 
@@ -274,7 +284,11 @@
 
 Updated recommendation: `agent` frontmatter for single-agent skills; `Agent()` tool calls within the `threat-modeler` agent for multi-agent orchestration in `/dethereal:threat-model`.
 
-**Status: Resolved**
+> **Note:** Superseded. Only `/dethereal:review` and `/dethereal:surface` use `agent` frontmatter. Every other skill runs in the main conversation and starts the specialist agents itself via `Agent()` calls. The threat-modeler orchestrates no pipeline: on Claude Code, started directly, it hands a scan, classification proposals, enrichment and a review to the specialists, none of it registered; on Codex and OpenCode it starts no agent. See [Agent Interaction Pattern](PLUGIN_ARCHITECTURE.md#agent-interaction-pattern).
+
+> **Note (2026-11-03):** The server's settlement is now off by default, and with it off nothing is registered: what the threat-modeler and its specialists write is not held to a registration record. The settlement is reserved; on only with `DETHEREAL_SETTLEMENT` exactly `on`, it holds back REVIEWED and every push, because this version's workflow registers none of the values the operator confirms (only a pull registers what it pulled). See [MCP_ARCHITECTURE.md → Settlement Switch](MCP_ARCHITECTURE.md#settlement-switch).
+
+**Status: Resolved** (superseded)
 
 ---
 
@@ -365,7 +379,7 @@ Cross-model references use `representedModel` to link components across system b
 
 ## Resolved Decisions (Mapping vs. Analysis Boundary)
 
-> The following decisions were resolved through multi-agent architectural review (Security Architect, Threat Modeler, Security Operations Reviewer) with full Analysis Engine V2 context. The unifying principle: **the plugin maps, the engine analyzes.** The plugin produces structural model data (components, boundaries, flows, attributes, credentials, classifications). Analysis modules consume that model to produce evaluative outputs (exposures, crown jewel rankings, attack paths, findings). This boundary also maps to the OSS/platform-module separation.
+> The following decisions were resolved through multi-agent architectural review (Security Architect, Threat Modeler, Security Operations Reviewer) with full context of the platform's analysis. The unifying principle: **the plugin maps, the engine analyzes.** The plugin produces structural model data (components, boundaries, flows, attributes, credentials, classifications). Analysis modules consume that model to produce evaluative outputs (exposures, crown jewel rankings, attack paths, findings). This boundary also maps to the OSS/platform-module separation.
 
 ---
 
@@ -380,7 +394,7 @@ Cross-model references use `representedModel` to link components across system b
 
 **Decision: (c) Optional by intent, lightweight.**
 
-**Rationale:** Threat actor specification belongs to the analysis engine, not the mapping plugin. The Analysis Engine V2 has a full `ThreatActorSpec` schema with `skill_level`, `access_position`, `resource_budget`, `persistence`, `stealth_priority`, and `entry_points`. Its scope agent generates threat actors during its own SCOPING phase from the model graph -- it does not expect actors as input from the plugin.
+**Rationale:** Threat actor specification belongs to the analysis engine, not the mapping plugin. The platform's analysis has its own full threat-actor specification and generates threat actors during its own scoping from the model graph -- it does not expect actors as input from the plugin.
 
 However, adversary *class selection* is a mapping concern: it guides *what gets modeled*. Selecting "insider" means the plugin should prompt for admin paths and credential flows. Selecting "supply_chain" means prompting for CI/CD and dependency chains.
 
@@ -405,19 +419,21 @@ However, adversary *class selection* is a mapping concern: it guides *what gets 
 
 **Decision: (b) Lightweight component attributes. Unanimous across all three reviewers.**
 
-**Rationale:** The Analysis Engine V2 performs **semi-automatic crown jewel identification** using `CJ(v) = 0.45 * data_sensitivity + 0.25 * pagerank + 0.15 * in_degree + 0.15 * control_density`. The engine *computes* crown jewels from graph-structural signals -- it does not expect a pre-built `CrownJewel` schema as input. What it needs from the model is raw signals: `data_sensitivity` labels on components, data items with sensitivity classifications, and control assignments.
+**Rationale:** The platform's analysis performs **semi-automatic crown jewel identification** from data sensitivity and graph-structural signals. The engine *computes* crown jewels from graph-structural signals -- it does not expect a pre-built `CrownJewel` schema as input. What it needs from the model is raw signals: `data_sensitivity` labels on components, data items with sensitivity classifications, and control assignments.
 
-Option (a) duplicates the engine's `CrownJewel` TypedDict and encroaches on analysis territory. The plugin should provide the inputs, not the computation.
+Option (a) duplicates the analysis's own crown-jewel identification and encroaches on analysis territory. The plugin should provide the inputs, not the computation.
 
 **Implementation:**
 - Add `asset_criticality: "high" | "medium" | "low"` as a component attribute (already required by Operational Requirements)
 - Add `crown_jewel: boolean` as a component attribute (enables programmatic quality gate evaluation)
 - During Phase 7 enrichment, map free-text crown jewels from scope to actual components: "You named 'Payment Database' as a crown jewel. I found component 'payment-db'. Confirming mapping and setting `asset_criticality` to 'high'."
-- Data sensitivity labels on data items (Phase 6) feed the engine's 0.45 weight automatically
+- Data sensitivity labels on data items (Phase 6) feed the platform's analysis automatically
 
 **Boundary:** Crown jewel *designation* = mapping concern (plugin/OSS). Crown jewel *scoring, ranking, impact analysis* = analysis concern (platform analysis modules).
 
 **Risk if wrong:** Option (a) creates a parallel data structure that the engine ignores or must reconcile. Option (c) leaves quality gates unevaluable.
+
+> **Note (2026-10-12):** Storage superseded by [D68](#d68-crown-jewel-placement--structurejson-not-the-attribute-bag): the crown-jewel flag is the first-class `crownJewel` field on the component in `structure.json`, not a component attribute. The lightweight-tagging decision stands.
 
 **Status: Resolved**
 
@@ -434,9 +450,9 @@ Option (a) duplicates the engine's `CrownJewel` TypedDict and encroaches on anal
 
 **Decision: (b) Data flow and component attributes. Unanimous across all three reviewers.**
 
-**Rationale:** The Analysis Engine V2's lateral movement model reads `required_credentials` on edges and `stores_credentials`/`credential_scope` on nodes -- these are graph-native properties, not external files. A separate `credentials.json` would require a translation layer, introduce drift risk, and add a primitive with no graph database representation.
+**Rationale:** The platform's analysis models lateral movement from `required_credentials` on edges and `stores_credentials`/`credential_scope` on nodes -- these are graph-native properties, not external files. A separate `credentials.json` would require a translation layer, introduce drift risk, and add a primitive with no graph database representation.
 
-Without credential data, the engine's `can_traverse` function never gates on credentials and all paths appear equally traversable -- the analysis degenerates to BFS reachability, losing the core insight of credential-based lateral movement.
+Without credential data, the analysis never gates traversal on credentials and all paths appear equally traversable -- the analysis degenerates to BFS reachability, losing the core insight of credential-based lateral movement.
 
 **Implementation:**
 
@@ -461,7 +477,7 @@ Enrichment prompt: "What credential is used for this data flow? What else can th
 
 ### D23: Quality Score Formula
 
-**Context:** Current formula weights MITRE mapping at 5%, has no crown jewel weight, and uses a single profile for all use cases. The Analysis Engine V2 has its own `model_completeness` score.
+**Context:** Current formula weights MITRE mapping at 5%, has no crown jewel weight, and uses a single profile for all use cases. The platform's analysis has its own analysis-readiness score.
 
 **Options:**
 - (a) Single formula with restructured weights
@@ -470,10 +486,10 @@ Enrichment prompt: "What credential is used for this data flow? What else can th
 
 **Decision: (c) Keep current formula, calibrate with real models. Add alignment documentation.**
 
-**Rationale:** The plugin's quality score and the Analysis Engine V2's `model_completeness` score measure **different things** and should remain independent:
+**Rationale:** The plugin's quality score and the platform's analysis-readiness score measure **different things** and should remain independent:
 
 - Plugin score = "is this model structurally complete?" (mapping concern)
-- Engine score = "does this model have enough data for confident analysis?" (analysis concern, includes dimensions like `components_with_exposures` that the plugin cannot compute)
+- Engine score = "does this model have enough data for confident analysis?" (analysis concern, includes dimensions such as exposure coverage that the plugin cannot compute)
 
 Changing weights without empirical data is "guessing differently, not improving." Build 5-10 reference models with known quality levels, run the formula, see where it diverges from human judgment, and adjust.
 
@@ -507,9 +523,9 @@ Changing weights without empirical data is "guessing differently, not improving.
 
 **Decision: (b) Rename to `get_mitre_defend` for v1. Evaluate (a) as a fast-follow.**
 
-**Rationale:** The Analysis Engine V2 uses semantic vector search (PostgreSQL pgvector) for D3FEND -- a platform analysis module capability that leverages infrastructure not available in the OSS plugin context. Naming the OSS tool `search_mitre_defend` implies a search capability that only exists in platform analysis modules.
+**Rationale:** The platform's analysis uses a semantic D3FEND search -- a platform analysis module capability that leverages infrastructure not available in the OSS plugin context. Naming the OSS tool `search_mitre_defend` implies a search capability that only exists in platform analysis modules.
 
-The plugin's D3FEND use case during enrichment is narrower: browse by tactic, look up by known ID. Countermeasure *recommendation* (which requires search) is an analysis concern handled by the engine's `search_defend_techniques` tool.
+The plugin's D3FEND use case during enrichment is narrower: browse by tactic, look up by known ID. Countermeasure *recommendation* (which requires search) is an analysis concern, handled by the platform's analysis with a semantic D3FEND search.
 
 **Implementation:** Rename to `get_mitre_defend` with input:
 ```
@@ -549,6 +565,8 @@ Manual exposure entry (e.g., from pentest findings) is a valid future use case, 
 **Boundary:** Exposure *display* = mapping concern (plugin/OSS). Exposure *computation and creation* = analysis concern (platform modules).
 
 **Risk if wrong:** Keeping full CRUD (a) leaves a loaded footgun -- users or integrations may create unverified exposures. The analysis engine cannot distinguish verified vs. asserted exposures, corrupting defense coverage gap analysis.
+
+> **Note (2026-10-12):** Superseded in part: `manage_exposures` is retired and not registered as a tool. Exposures are read with the read-only `query_exposures` (`list`, `get`). See [Security Element Tools](MCP_ARCHITECTURE.md#security-element-tools-client-dependent).
 
 **Status: Resolved**
 
@@ -613,6 +631,8 @@ Manual exposure entry (e.g., from pentest findings) is a valid future use case, 
 
 **Risk if wrong:** Low -- extra fields can be optional; simpler to have them available than to add later.
 
+> **Note (2026-10-12):** Superseded in part: `manage_countermeasures` keeps the full write schema (`create`, `update`, `delete`), and reads moved to the read-only `query_countermeasures`. Countermeasures are not user-asserted: the platform's policies generate them when a Control's class attributes are set. See [CONTROL_INTEGRATION.md Q3](CONTROL_INTEGRATION.md#q3-countermeasure-generation--already-handled-by-the-platform).
+
 **Status: Resolved**
 
 ---
@@ -676,6 +696,8 @@ Manual exposure entry (e.g., from pentest findings) is a valid future use case, 
 
 **Risk if wrong:** Low -- scope only adds read operations, never generates findings.
 
+> **Note (2026-10-12):** Superseded in part: the crossing-flow gaps (encryption, authentication) come from the server's `validate_model_json` `coverage`, and the control gaps from `get_control_gaps`, which reads the platform's exposures and the ATT&CK mitigation chain. See [`get_control_gaps`](MCP_ARCHITECTURE.md#get_control_gaps).
+
 **Status: Resolved**
 
 ---
@@ -689,6 +711,8 @@ Manual exposure entry (e.g., from pentest findings) is a valid future use case, 
 **Decision: Phased adoption based on benefit vs. implementation effort.**
 
 **Rationale:** Claude Code's plugin platform offers features that improve cost control, safety, and user experience. Phased adoption ensures V1 ships with highest-impact features. Priority assessment: V1 (High priority) -- `effort`, `maxTurns`, `context: fork`, `memory: project`; V1.1 (Medium priority) -- `background`, `Notification` hook; V2 (Low priority) -- `Elicitation` hook, Plugin channels.
+
+> **Note:** Superseded in part: `memory: project` was later removed from `threat-modeler`. The model files and the server state are the only record, and agent memory would write `.claude/agent-memory/` into the user's repository.
 
 **Boundary:** Plugin infrastructure concern.
 
@@ -856,6 +880,8 @@ Manual exposure entry (e.g., from pentest findings) is a valid future use case, 
 
 **Risk if wrong:** Medium — sync is a core user workflow. Mitigated by V1 push/pull being fully functional.
 
+> **Note (2026-10-12):** Superseded: sync metadata shipped. `.dethereal/sync.json` records content hashes and a signed baseline of the platform model, and an update push is refused with `PLATFORM_CHANGED_SINCE_SYNC` when the platform changed since the last pull or push. See [SYNC_AND_SOURCE_OF_TRUTH.md §12](SYNC_AND_SOURCE_OF_TRUTH.md#12-push-conflict-resolution).
+
 **Status: Resolved**
 
 ---
@@ -870,11 +896,13 @@ Manual exposure entry (e.g., from pentest findings) is a valid future use case, 
 
 **Decision: (a) Split tagging across phases.**
 
-**Rationale:** The analysis module will also identify crown jewels via graph-structural scoring (`CJ(v) = 0.45 * data_sensitivity + ...`). The plugin's job is lightweight identification — matching scope-declared crown jewel names to discovered components and setting a boolean flag. This enables the Phase 3 quality gate to evaluate ("are crown jewel candidates tagged?") without requiring the full `asset_criticality` enrichment that belongs in Phase 7.
+**Rationale:** The analysis module will also identify crown jewels from data sensitivity and graph-structural signals. The plugin's job is lightweight identification — matching scope-declared crown jewel names to discovered components and setting a boolean flag. This enables the Phase 3 quality gate to evaluate ("are crown jewel candidates tagged?") without requiring the full `asset_criticality` enrichment that belongs in Phase 7.
 
 **Boundary:** Mapping concern — crown jewel designation is a lightweight input, not analysis.
 
 **Risk if wrong:** Low — lightweight tagging is additive and does not conflict with Phase 7 enrichment.
+
+> **Note (2026-10-12):** Storage superseded by [D68](#d68-crown-jewel-placement--structurejson-not-the-attribute-bag): the `crownJewel` tag is the first-class field on the component in `structure.json`, not an attribute. The Phase 3 / Phase 7 split stands.
 
 **Status: Resolved**
 
@@ -928,6 +956,8 @@ Users choose: `tier1` (quick pass), `all` (comprehensive), or `pick` (manual sel
 **Boundary:** UX concern.
 
 **Risk if wrong:** Low — users can still choose "all" for comprehensive enrichment.
+
+> **Note (2026-10-12):** Superseded in part. The four-tier scheme above was replaced by three component tiers the server computes — Tier 1 internet-facing, Tier 2 crown-jewel-bearing or restricted, Tier 3 everything else — and enrichment now orders its worklist from a Gate 3 snapshot, the priority set, with crown jewels first. The quick pass is the `priority` scope keyword (`tier1` remains its alias). See [Component Tiers](../../user/dethereal/DISCOVERY_AND_ENRICHMENT.md#component-tiers).
 
 **Status: Resolved**
 
@@ -992,6 +1022,8 @@ Users choose: `tier1` (quick pass), `all` (comprehensive), or `pick` (manual sel
 
 **Risk if wrong:** Low — scout isolation provides clean separation of concerns.
 
+> **Note (2026-10-12):** Superseded in part: a fifth agent, `infrastructure-scout-scoped`, was added for drift re-verification. See [Agent Definitions](PLUGIN_ARCHITECTURE.md#agent-definitions).
+
 **Status: Resolved**
 
 ---
@@ -1019,7 +1051,7 @@ Users choose: `tier1` (quick pass), `all` (comprehensive), or `pick` (manual sel
 
 ### D48: auth_failure_mode Disposition
 
-**Context:** `auth_failure_mode` captured on data flows but Analysis Engine V2 ignores it in `_derive_auth_strength()`. Users provide data nothing consumes. But fail-open is genuinely important metadata.
+**Context:** `auth_failure_mode` captured on data flows but the platform's analysis ignores it. Users provide data nothing consumes. But fail-open is genuinely important metadata.
 
 **Options:**
 - (a) Defer capture to V1.1
@@ -1097,6 +1129,8 @@ Users choose: `tier1` (quick pass), `all` (comprehensive), or `pick` (manual sel
 
 **Risk if wrong:** Low — LLM still handles ambiguous cases.
 
+> **Note (2026-10-12):** Superseded in part: deterministic matching shipped as its own tool, `match_classes`, not as a `get_classes` action. See [`match_classes`](MCP_ARCHITECTURE.md#match_classes).
+
 **Status: Resolved**
 
 ---
@@ -1160,11 +1194,13 @@ Users choose: `tier1` (quick pass), `all` (comprehensive), or `pick` (manual sel
 
 **Risk if wrong:** Low — can always add behavioral detection later.
 
+> **Note (2026-10-12):** Not implemented: there is no expert mode and no `--expert` flag; every operator gets the same mode. See [`/dethereal:help` Output](PLUGIN_ARCHITECTURE.md#detherealhelp-output).
+
 **Status: Resolved**
 
 ---
 
-## R7: Model Decomposition for Complex Systems
+## Model Decomposition for Complex Systems
 
 > Decisions on how the plugin handles systems too complex for a single model. Resolved through multi-agent review (threat-modeler, process-architect, security-architect, security-ux-designer).
 
@@ -1284,9 +1320,9 @@ Users choose: `tier1` (quick pass), `all` (comprehensive), or `pick` (manual sel
 
 ---
 
-## R8: Pre-Implementation Security and UX Review
+## Pre-Implementation Security and UX Review
 
-Decisions D61-D66 were identified during the final pre-implementation review (R8), where 6 specialized agents reviewed the architecture documentation. Findings were deduplicated, critically evaluated, and resolved.
+Decisions D61-D66 were identified during the final pre-implementation review, where 6 specialized agents reviewed the architecture documentation. Findings were deduplicated, critically evaluated, and resolved.
 
 ---
 
@@ -1317,7 +1353,7 @@ Decisions D61-D66 were identified during the final pre-implementation review (R8
 
 ### D62: Credential Attribute Key Mapping
 
-**Context:** The integration mapping table showed `credential_name` as the plugin capture attribute mapped to engine property `required_credentials`. But the engine's `can_traverse()` reads `edge_data.get("required_credentials", [])`. If the plugin writes `credential_name` as the attribute key, credential gating never fires and lateral movement analysis degenerates to undifferentiated BFS.
+**Context:** The integration mapping table showed `credential_name` as the plugin capture attribute mapped to engine property `required_credentials`. But the analysis takes credential gating from `required_credentials` only. If the plugin writes `credential_name` as the attribute key, credential gating never fires and lateral movement analysis degenerates to undifferentiated BFS.
 
 Additionally, the push conflict detection spec was contradictory — Section 4 described a full `export_model` while Section 12 described a lightweight GraphQL query via `fetchExistingModelStructure`.
 
@@ -1342,18 +1378,18 @@ Push conflict detection uses the lightweight GraphQL query (`fetchExistingModelS
 
 ### D63: `auth_failure_mode` Engine Integration
 
-**Context:** The plugin captures `auth_failure_mode` on data flows, but the Analysis Engine V2's `_derive_auth_strength()` only reads `authType`. A flow with `authType: "OAuth2"` and `auth_failure_mode: "fail_open"` gets `auth_strength = 3.0` (near max) when the effective strength is zero. Capturing data that contradicts analysis output is worse than not capturing it.
+**Context:** The plugin captures `auth_failure_mode` on data flows, but the platform's analysis derives authentication strength from `authType` alone. A flow with `authType: "OAuth2"` and `auth_failure_mode: "fail_open"` gets near-full authentication credit when the effective strength is zero. Capturing data that contradicts analysis output is worse than not capturing it.
 
 **Options:**
-- (a) Fix engine now (5-line change in `_derive_auth_strength()`)
+- (a) Fix engine now (a small change to how the analysis scores authentication strength)
 - (b) Document as known gap, fix engine later
 - (c) Don't capture `auth_failure_mode` in V1
 
-**Decision: (a) Fix engine in a separate PR.**
+**Decision: (a) Fix it in the platform's analysis, as a separate change.**
 
-The plugin continues capturing `auth_failure_mode` (the data is valuable). The engine fix (`fail_open` → `auth_strength = 0.0`, `fallback` → halve `auth_strength`) is tracked as a separate PR against the analysis engine module, independent of the plugin implementation.
+The plugin continues capturing `auth_failure_mode` (the data is valuable). The engine fix (`fail_open` → no authentication strength, `fallback` → halved authentication strength) is tracked as a separate PR against the analysis engine module, independent of the plugin implementation.
 
-**Boundary:** Engine integration, separate PR.
+**Boundary:** A change to the platform's analysis, made separately from the plugin.
 
 **Risk if wrong:** High — false-security gap where the engine says a path is well-protected when it's wide open.
 
@@ -1367,7 +1403,9 @@ The plugin continues capturing `auth_failure_mode` (the data is valuable). The e
 
 **Decisions:**
 
-1. **No default agent.** `settings.json` is empty (`{}`). Users invoke threat modeling via skills (`/dethereal:threat-model`) or explicit agent selection (`@dethereal:threat-modeler`). Skills that need the modeling agent specify it in their frontmatter.
+1. **No default agent.** `settings.json` is empty (`{}`). Users invoke threat modeling via skills (`/dethereal:threat-model`) or explicit agent selection (`@agent-dethereal:threat-modeler`). Skills that need the modeling agent specify it in their frontmatter.
+
+   > **Note:** Superseded in part: no skill names the threat-modeler in its frontmatter any more. The skills run in the main conversation, and the threat-modeler sends work to them. See [Default Agent](PLUGIN_ARCHITECTURE.md#default-agent).
 
 2. **Sign-off and quality cache invalidation on backward transitions.** Any backward state transition clears `model_signed_off` and invalidates `.dethereal/quality.json`. This ensures a model cannot carry stale sign-off after structural changes.
 
@@ -1388,6 +1426,8 @@ The plugin continues capturing `auth_failure_mode` (the data is valuable). The e
 1. **Sources-checked summary.** After discovery, show which source categories were checked and results/gaps: `Sources checked: Terraform (12), K8s (—), Docker (4)`. A `(—)` means no matching files; `(⚠ error)` means parse failure. Makes omissions visible without formal error contracts.
 
 2. **Size-calibrated session break.** At STRUCTURE_COMPLETE: small models (< 15 components) get a gentle suggestion; large models (15+) get an explicit warning about quality degradation. Continuing is always allowed. Includes git commit recommendation.
+
+   > **Note (2026-11-03):** The session break is asked in a full run only: a quick run goes on to Step 6 without it. A quick run is the default for a new model since [D72](#d72-quick-model-by-default); `--full` asks for the full run. See [Session Break](../../user/dethereal/GUIDED_WORKFLOW.md#session-break).
 
 3. **Git-based undo with LLM guidance.** V1 uses git for undo — the LLM runs `git diff` and presents options. No plugin-level undo infrastructure. The commit recommendation at STRUCTURE_COMPLETE creates a clean revert boundary. Re-evaluate based on usage.
 
@@ -1451,11 +1491,10 @@ The plugin captures `monitoring_tools` as a component attribute. The detection f
 **Reference:**
 
 - Design: [`DRIFT_DETECTION.md`](DRIFT_DETECTION.md).
-- Earlier implementation preserved at `archive/drift-reconciliation-v1-overengineered` for inspection if the simplification proves insufficient.
 
 **Boundary:** Drift detection mechanism, reconciliation flow, modeling-skill composition.
 
-**Risk if wrong:** Low — the archive branch remains `git checkout`-able. If a specific scenario covered by the earlier design turns out to be load-bearing, the recovery path is to scope a targeted addition rather than wholesale revert.
+**Risk if wrong:** Low. If a specific scenario covered by the earlier design turns out to be load-bearing, the recovery path is to scope a targeted addition rather than reinstating the earlier design.
 
 **Status: Resolved**
 
@@ -1501,8 +1540,104 @@ The plugin captures `monitoring_tools` as a component attribute. The detection f
 
 **Known gaps:** `logout` does not revoke, so a session exposed before this change stays valid until its refresh token expires. The `npx` launch can resolve a copy of the package in the project's own `node_modules` before the registry one; a local request to the sign-in callback port can cancel a pending login; two servers writing the token store at the same moment can lose a session; and sign-in has no fallback for machines without a desktop browser.
 
+> **Note (2026-11-10):** Superseded in part. `logout` now removes the local session first and then revokes it, by its refresh token, at the identity provider of that session's own platform; a platform that cannot be reached is skipped, and the tool returns one `revocation` result per removed session (`src/tools/auth/logout.tool.ts`, `src/auth/revoke.ts`). There is no `npx` launch any more: Claude Code runs the server the plugin ships (`node ${CLAUDE_PLUGIN_ROOT}/dist/index.js`), and Codex and OpenCode run it from the installer's runtime copy with the recorded Node binary, so no copy of the package in a project's `node_modules` is resolved. The token store takes a cross-process lock for every change, so two servers writing at once no longer lose a session (`src/auth/token-store.ts`). See [MCP Server Configuration](PLUGIN_ARCHITECTURE.md#mcp-server-configuration-bundlesclaudemcpjson) and [Installer and Runtime](PLUGIN_ARCHITECTURE.md#installer-and-runtime).
+
 **Boundary:** MCP server auth tools, skill prompts, server error and log output.
 
 **Risk if wrong:** High — tokens in the conversation reach the model provider and any stored transcript.
+
+**Status: Resolved**
+
+### D70: One workflow source, generated into three harness bundles
+
+**Context:** Up to 0.4.x the plugin was a Claude Code plugin only, with its skills and agents written for Claude Code. Running the workflow on Codex and OpenCode means the same guided workflow — the same questions, gates and protocols — in three harnesses that name tools, commands and agents differently and differ in what they can do (Claude Code alone asks some questions together and lets an agent start the specialists).
+
+**Options considered:**
+
+- (a) Keep a skill and agent set per harness, by hand.
+- (b) Write the workflow once, harness-neutral, and generate each harness's bundle from it.
+
+**Decision: (b).** Skills and agents are written once in `workflow/` and rendered by the generator into `bundles/claude`, `bundles/codex` and `bundles/opencode` (and the Claude manifest), resolving shared fragments, tool and command names and `{{#harness …}}` blocks. The hooks are wired per harness by the generator's targets, and their logic is the package CLI's `hook` commands. Every bundle is committed and published, and a test keeps it byte-equal to the generator's output. A generation fails on any lint finding, including a question the prompt registry does not hold. The rule ledger — each rule from the prose the workflow was migrated from, placed in every consumer's output for every harness or dropped with a reason — is checked separately, by `--ledger-check` and its test. See [Single Source and Generated Bundles](PLUGIN_ARCHITECTURE.md#single-source-and-generated-bundles) and [Generator: Lints, Prompt Registry, Rule Ledger, Per-Harness Output](PLUGIN_ARCHITECTURE.md#generator-lints-prompt-registry-rule-ledger-per-harness-output).
+
+**Consequences:**
+
+- A bundle is never edited by hand; a change to the workflow is a change to `workflow/` and a regeneration.
+- What only one harness can do sits in a harness block, so Codex and OpenCode run the same workflow without the Claude Code-only parts.
+- Literal Claude tool names, MCP tool names and `/dethereal:` commands outside a Claude-only block are lint findings, so the source stays harness-neutral.
+
+**Boundary:** Skills, agents, hook wiring and their packaging.
+
+**Risk if wrong:** Medium — the three harnesses drift apart, or a Claude-only construct leaks into a harness that cannot run it.
+
+**Status: Resolved**
+
+### D71: A per-harness installer with its own runtime
+
+**Context:** Claude Code installs a plugin from a marketplace and runs it from its own copy. Codex and OpenCode need the MCP server, agents, skills and hooks written into their own configuration files — shared files the user also edits — and OpenCode has no install command at all. Their hooks and server need a launch command and a file set the hooks can check before they run.
+
+**Options considered:**
+
+- (a) Document a manual setup per harness.
+- (b) One installer that writes each harness's configuration, records every change and can undo it.
+
+**Decision: (b).** `dethereal install`, `uninstall`, `doctor` and `gc` install per harness and scope. Claude Code goes through Claude's own CLI (`claude plugin …`), and the installer writes no Claude file. Codex and OpenCode run the server from a read-only runtime copy of the package under `~/.dethernety/runtime/<version>/`, launched with the recorded Node binary and named, with a hash of its whole file set, by `runtime/current.json`; Codex's hook runner refuses to run against a runtime that fails that check. Every harness file the installer writes on install is a recorded transaction in `~/.dethernety/installs.json`, backed up when it existed before; its own state files are not recorded, and the Codex uninstall's removal of the plugin's hook-trust entries from `config.toml` is a direct, unrecorded write. Each harness is refused below the version it was checked against. See [Installer and Runtime](PLUGIN_ARCHITECTURE.md#installer-and-runtime) and [Installer Internals](PLUGIN_ARCHITECTURE.md#installer-internals).
+
+**Consequences:**
+
+- Each harness succeeds or fails on its own, and a failed one is retried alone.
+- An uninstall restores a file the installer changed from its backup, or takes only the installer's own keys out of a file the user changed since.
+- OpenCode is installed only for the versions the bundle was checked with, since its plugin relies on hooks OpenCode marks experimental; a newer one needs `--allow-unverified-opencode`.
+- The installer refuses to run as root, and writes only below roots the user owns.
+
+**Boundary:** Installation, harness configuration, the runtime the Codex and OpenCode hooks run.
+
+**Risk if wrong:** High — a half-written configuration, or a user file overwritten, in a harness's own settings.
+
+**Status: Resolved**
+
+### D72: Quick model by default
+
+**Context:** A full guided run enriches the whole worklist, offers the control pass, and runs Gate 3 with its loop back, waivers and review record. A first model is often meant as a first pass, to be deepened later, and the full run is the longest path to it.
+
+**Options considered:**
+
+- (a) Keep the full run as the default, with `--quick` to opt in.
+- (b) Make the quick run the default for a new model, with `--full` to opt out.
+
+**Decision: (b).** A new model — one a `/dethereal:threat-model` run starts, or one `/dethereal:create` makes — is a quick model unless that run has `--full`; it is marked in its first transition (`mode: 'quick'`). A model pulled from the platform carries no mark, so it is a full model. On an existing model, a run without a mode flag keeps the mode the model has; `--full` on a quick model clears the mark and deepens it; `--quick` marks an existing model, and a REVIEWED model refuses the mark. Only the exact value `quick` counts, so a model with no `mode` — every model made before this release — is a full model. See [Quick Mode](THREAT_MODELING_WORKFLOW.md#quick-mode) and the quick-model paragraph of [Key Skill: `/dethereal:threat-model`](PLUGIN_ARCHITECTURE.md#key-skill-detherealthreat-model-guided-workflow).
+
+**Consequences:**
+
+- A quick run enriches the priority set only, defers the control pass, and ends with a read-only Step 9: quality score, red flags and Top Findings, no Gate 3 verdict.
+- A quick model is never REVIEWED: the server refuses the transition (`quick_mode`). Its state, the push consent, the README and the final footer all say it is quick.
+- A quick model can be pushed.
+
+**Boundary:** Guided workflow, `model_state` mode handling.
+
+**Risk if wrong:** Medium — operators take a quick, unreviewed model for a reviewed one.
+
+**Status: Resolved**
+
+### D73: Bounded enrichment relay runs and the enrichment applier
+
+**Context:** Step 8 used to take the security-enricher's tables from its reply and apply the operator's adjustments in the main conversation. On a large model one enrichment pass grows with the model, and the main conversation both held the enrichment output and wrote the operator's corrections into the attribute files.
+
+**Options considered:**
+
+- (a) Keep one enrichment pass, with the main conversation applying the reply.
+- (b) Bounded enrichment runs that write their output to files, one relay question, and a separate agent that applies the reply.
+
+**Decision: (b).** Each `security-enricher` run is started fresh and enriches at most 12 elements of the worklist — a store takes the worklist's flows that touch it into the same run, never past 20. It writes cited and derived values into empty attribute fields, writes its tables and questions to a new `.dethereal/relay/run-<n>.txt`, and returns the file's path, a summary line and the remaining worklist; the next run starts from the earlier files. Once the last run has returned, the main conversation reads only the files the runs named, is told to show them whole (the model can still show a summary instead), and asks one question (`enrichment-relay`). A plain "accept all", or a reply that decides nothing, writes nothing more. Any other reply goes, verbatim, to the `enrichment-applier`, started fresh: it writes only files under `attributes/`, maps every decision the reply makes and only those, validates, asks nothing and returns a table of what it wrote with its follow-ups — a removal, a changed credential mapping, data items, classes, crown jewels or zones, elements to add — which the main conversation handles one at a time. See [`enrichment-applier`](PLUGIN_ARCHITECTURE.md#enrichment-applier----enrichment-relay-applier) and [One relay turn](../../user/dethereal/GUIDED_WORKFLOW.md#one-relay-turn).
+
+**Consequences:**
+
+- In Step 8 the main conversation reads no attribute file and writes no model file except through the data-item questions and a transition.
+- A fact in the reply that contradicts a `[cited]` value keeps the cited value and is named, never asked; one that contradicts a `[derived]` value replaces it, named with the value it replaced.
+- A run that returns empty or cut off is started once more, fresh, with its own worklist and a line saying an earlier run was cut off. Cut off again, the completed runs' files are relayed, and the workflow stops and points to `/dethereal:enrich --pick <ids>` for the cut-off run's elements.
+- The relay files stay on the machine, out of git through `.dethereal/.gitignore`; the server never deletes them.
+
+**Boundary:** Guided workflow Step 8, the security-enricher and enrichment-applier agents.
+
+**Risk if wrong:** Medium — a value the operator rejected stays written, or a question is lost in a summary.
 
 **Status: Resolved**

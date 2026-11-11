@@ -1,0 +1,61 @@
+{
+  "about": "The Claude plugin surface as it was hand-written, before the package root became generated: the manifest, the frontmatter of every skill and agent, the hook events and matchers, and the settings. Generated output is compared against it.",
+  "manifest": {
+    "name": "dethereal",
+    "version": "0.4.7",
+    "description": "Professional threat modeling for Claude Code. Discover infrastructure, build data flow diagrams, enrich with security attributes, and sync with the Dethernety platform.",
+    "author": {
+      "name": "dether.net",
+      "url": "https://dether.net"
+    },
+    "homepage": "https://github.com/dether-net/dethernety-oss",
+    "repository": "https://github.com/dether-net/dethernety-oss",
+    "license": "AGPL-3.0",
+    "keywords": [
+      "threat-modeling",
+      "cybersecurity",
+      "mitre-attack",
+      "data-flow-diagram",
+      "security-analysis"
+    ],
+    "mcpServers": "./.mcp.json"
+  },
+  "skills": {
+    "add": "---\nname: add\ndescription: Add components, boundaries, data flows, or data items to a threat model\nagent: threat-modeler\nargument-hint: \"[element description]\"\n---\n",
+    "classify": "---\nname: classify\ndescription: Assign classes to unclassified components, boundaries, data flows, and data items\nagent: security-enricher\nargument-hint: \"[--type components|flows|boundaries|data-items]\"\n---\n",
+    "create": "---\nname: create\ndescription: Create a new threat model from description, template, import, or platform pull\nagent: threat-modeler\nargument-hint: \"[description or template]\"\n---\n",
+    "discover": "---\nname: discover\ndescription: Auto-discover infrastructure components from codebase using the infrastructure-scout agent\nagent: threat-modeler\nargument-hint: \"[scope] [path]\"\n---\n",
+    "enrich": "---\nname: enrich\ndescription: Populate security attributes, MITRE ATT&CK references, credentials, and monitoring tools\nagent: security-enricher\nargument-hint: \"[tier1|all|pick] [--focus credentials|monitoring|compliance|controls] [--pick <element-id>]\"\n---\n",
+    "help": "---\nname: help\ndescription: Show available Dethereal commands with context-aware suggestions\n---\n",
+    "login": "---\nname: login\ndescription: Authenticate with the Dethernety platform via browser-based OAuth\n---\n",
+    "remove": "---\nname: remove\ndescription: Remove elements from a threat model with dependency checking\nagent: threat-modeler\nargument-hint: \"[element reference]\"\n---\n",
+    "review": "---\nname: review\ndescription: Quality dashboard with score breakdown, gap analysis, and readiness assessment\nagent: model-reviewer\ncontext: fork\nargument-hint: \"[directory-path] [--structure-only]\"\n---\n",
+    "status": "---\nname: status\ndescription: Show Dethernety connection status, auth state, and local model summary\nargument-hint: \"[show models <controlId>]\"\nallowed-tools: mcp__plugin_dethereal_dethereal__auth_status\n---\n",
+    "surface": "---\nname: surface\ndescription: Attack surface summary with component breakdown, trust boundary crossings, and control gap analysis\nagent: model-reviewer\ncontext: fork\nargument-hint: \"[directory-path]\"\n---\n",
+    "sync": "---\nname: sync\ndescription: Push local model to platform, pull platform model to local, or check sync status\nargument-hint: \"push|pull|status|promote-external-edit|tombstone|repair-wal [directory-path]\"\n---\n",
+    "threat-model": "---\nname: threat-model\ndescription: Guided end-to-end threat modeling workflow — scope through validation and sync\nagent: threat-modeler\nargument-hint: \"[system description or model path] [--full-scan]\"\n---\n",
+    "view": "---\nname: view\ndescription: Display model summary with tree view of boundaries, components, data flows, and quality score\nargument-hint: \"[model-path] [--format yaml|json|tree]\"\n---\n"
+  },
+  "agents": {
+    "infrastructure-scout-scoped": "---\nname: infrastructure-scout-scoped\ndescription: Read-only infrastructure scout constrained to a pre-computed file allowlist. Used by drift reconciliation to re-verify diff-scoped elements without full-repo re-enumeration.\nmodel: inherit\neffort: medium\nmaxTurns: 20\ntools:\n  - Read\n  - mcp__plugin_dethereal_dethereal__get_classes\n---\n",
+    "infrastructure-scout": "---\nname: infrastructure-scout\ndescription: Scans codebases for infrastructure components and produces draft model skeletons\nmodel: inherit\neffort: medium\nmaxTurns: 30\ntools:\n  - Read\n  - Glob\n  - Grep\n  - Bash\n  - mcp__plugin_dethereal_dethereal__get_classes\n---\n",
+    "model-reviewer": "---\nname: model-reviewer\ndescription: Read-only auditor producing quality reports and readiness assessments\nmodel: inherit\neffort: medium\nmaxTurns: 15\ntools:\n  - Read\n  - Glob\n  - Grep\n  - mcp__plugin_dethereal_dethereal__validate_model_json\n  - mcp__plugin_dethereal_dethereal__get_classes\n  - mcp__plugin_dethereal_dethereal__manage_exposures\n  - mcp__plugin_dethereal_dethereal__manage_countermeasures\n  - mcp__plugin_dethereal_dethereal__get_control_gaps\n  - mcp__plugin_dethereal_dethereal__search_mitre_attack\n---\n",
+    "security-enricher": "---\nname: security-enricher\ndescription: Enriches threat models with security attributes, credential topology, and control identification. MITRE ATT&CK technique coverage is derived platform-side from analysis exposures — see BACKEND_DELEGATION.md §3.\nmodel: inherit\neffort: high\nmaxTurns: 40\ntools:\n  - Read\n  - Grep\n  - Glob\n  - Write\n  - Edit\n  - mcp__plugin_dethereal_dethereal__*\n---\n",
+    "threat-modeler": "---\nname: threat-modeler\ndescription: Creates and edits Dethernety threat models through guided conversation\nmodel: inherit\neffort: high\nmaxTurns: 60\nmemory: project\ntools:\n  - Read\n  - Write\n  - Edit\n  - Glob\n  - Grep\n  - Bash\n  - Agent(infrastructure-scout)\n  - Agent(infrastructure-scout-scoped)\n  - Agent(security-enricher)\n  - Agent(model-reviewer)\n  - mcp__plugin_dethereal_dethereal__*\n---\n"
+  },
+  "hooks": {
+    "SessionStart": [
+      ""
+    ],
+    "PostToolUse": [
+      "Write|Edit"
+    ],
+    "PreCompact": [
+      ""
+    ]
+  },
+  "settings": {},
+  "mcpServers": [
+    "dethereal"
+  ]
+}

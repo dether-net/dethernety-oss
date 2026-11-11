@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: orders-db-credentials
+  namespace: orders
+type: Opaque
+stringData:
+  username: orders_app
+  password: maple-orbit-quiet-lantern-42

@@ -1,0 +1,307 @@
+{
+  "schemaVersion": 1,
+  "harness": "claude",
+  "version": "0.5.2",
+  "generatedFrom": "7d558ec187d8932972c39a298f2a59f97e464261dd383a848a6d383c003c9d47",
+  "contentHash": "a495d5a76d10108603293f07cb188efa9344f50213c925cae7736b53ccbd0d5e",
+  "files": [
+    {
+      "path": ".claude-plugin/plugin.json",
+      "sha256": "c096d77f6e55ad187c8453c399daf0529c2d84bf5dcff70de06a3f6f0ab231bc"
+    },
+    {
+      "path": "bundles/claude/.mcp.json",
+      "sha256": "a89c1a74ff8e1949579af90086fa8e111949d5913b8a30b2d14f447269dbdfbf"
+    },
+    {
+      "path": "bundles/claude/agents/enrichment-applier.md",
+      "sha256": "a1dfb8ecccbace983e2fe1807659579baada3a8d8a8479f0e01c533fe8a061f0"
+    },
+    {
+      "path": "bundles/claude/agents/infrastructure-scout-scoped.md",
+      "sha256": "069d6836e676c827a4d72dbe9995def7a0f52f36a61210510ee4929a806d0614"
+    },
+    {
+      "path": "bundles/claude/agents/infrastructure-scout.md",
+      "sha256": "a112df515061593f7bc2ab24696e571e85da77fa4398153a06b2cccc456c9afa"
+    },
+    {
+      "path": "bundles/claude/agents/model-reviewer.md",
+      "sha256": "a67d50d6f9f86ed3369bb8c9d37de6f61a92958872424a8e645957d270899a2d"
+    },
+    {
+      "path": "bundles/claude/agents/security-enricher.md",
+      "sha256": "781f69ac3a3f9bd2fafeeba1c411d0d44af86f51e1d283d0bbf57e03cbceea0a"
+    },
+    {
+      "path": "bundles/claude/agents/threat-modeler.md",
+      "sha256": "1be83d3ffc0aef0be22b25304826e597482710f4a785ebc2d99abd8552cf05df"
+    },
+    {
+      "path": "bundles/claude/hooks/hooks.json",
+      "sha256": "b07a8cb890c77bb8a85d4f30689b7c380eaca68317a968f030498c086de109e1"
+    },
+    {
+      "path": "bundles/claude/skills/add/SKILL.md",
+      "sha256": "0992997af9e13b68702654209af6cb13b5ad53b39a7850cb7331e88287399af7"
+    },
+    {
+      "path": "bundles/claude/skills/add/git-undo.md",
+      "sha256": "52cb2fea5be28ac198f1f906067edff0c3ea320af504793761d0041e2955904f"
+    },
+    {
+      "path": "bundles/claude/skills/add/guidelines-core.md",
+      "sha256": "c2b4be2399987d2d52a708aedeed2b9a94696a095eec7edc1d5e1165c63b1928"
+    },
+    {
+      "path": "bundles/claude/skills/add/guidelines-layout.md",
+      "sha256": "65ae95d70c692124d99a7edc042e91689e6f16f69e86f47f705b7d6def600a60"
+    },
+    {
+      "path": "bundles/claude/skills/add/guidelines-schema.md",
+      "sha256": "ccef31661efb5fb121f6d6084aba6e48456109015985c5607cbe32c3ad6740bb"
+    },
+    {
+      "path": "bundles/claude/skills/add/secret-files.md",
+      "sha256": "3b3bc437b23f2b65c396d0d0e53259f64d5e6d623cf14cb20412505dbff78544"
+    },
+    {
+      "path": "bundles/claude/skills/classify/SKILL.md",
+      "sha256": "6615ab6496d304b1745cf5937454bb1c852eef10ef03c25067eb0d4fed8b7f36"
+    },
+    {
+      "path": "bundles/claude/skills/classify/classification-protocol.md",
+      "sha256": "267d78dd7fc83af092c30235114f49e1b006fcc07051fc906139bc54ff333a7e"
+    },
+    {
+      "path": "bundles/claude/skills/classify/secret-files.md",
+      "sha256": "3b3bc437b23f2b65c396d0d0e53259f64d5e6d623cf14cb20412505dbff78544"
+    },
+    {
+      "path": "bundles/claude/skills/create/SKILL.md",
+      "sha256": "31efc75a270272b625170f1a318ca760a0252aa8bbaab2d6f4982860f5845aab"
+    },
+    {
+      "path": "bundles/claude/skills/create/guidelines-core.md",
+      "sha256": "c2b4be2399987d2d52a708aedeed2b9a94696a095eec7edc1d5e1165c63b1928"
+    },
+    {
+      "path": "bundles/claude/skills/create/guidelines-examples.md",
+      "sha256": "d25558d57f77c8b67899c2d540e3a22d9f681fc4a18fc5be2038342b751bd13c"
+    },
+    {
+      "path": "bundles/claude/skills/create/guidelines-layout.md",
+      "sha256": "65ae95d70c692124d99a7edc042e91689e6f16f69e86f47f705b7d6def600a60"
+    },
+    {
+      "path": "bundles/claude/skills/create/guidelines-schema.md",
+      "sha256": "ccef31661efb5fb121f6d6084aba6e48456109015985c5607cbe32c3ad6740bb"
+    },
+    {
+      "path": "bundles/claude/skills/create/secret-files.md",
+      "sha256": "3b3bc437b23f2b65c396d0d0e53259f64d5e6d623cf14cb20412505dbff78544"
+    },
+    {
+      "path": "bundles/claude/skills/discover/SKILL.md",
+      "sha256": "840c74dd6fafbd58e64bdbdae74f19133f7675ad65a90470cefb2b08c57b58f2"
+    },
+    {
+      "path": "bundles/claude/skills/discover/decomposition.md",
+      "sha256": "7cb54a610e23deaae42cf8eaf424e5e5c2e58016ca3205bdb66526c12b7d1e10"
+    },
+    {
+      "path": "bundles/claude/skills/discover/delegation.md",
+      "sha256": "d2f79820633a88b11cf50f5366a083298f482629266ba94331c8a41095d5d1d9"
+    },
+    {
+      "path": "bundles/claude/skills/discover/discovery-protocol.md",
+      "sha256": "490e864bcb0aed279fbbc7b3d095905caf4b0e17d5134ba92a57710788668c15"
+    },
+    {
+      "path": "bundles/claude/skills/discover/guidelines-core.md",
+      "sha256": "c2b4be2399987d2d52a708aedeed2b9a94696a095eec7edc1d5e1165c63b1928"
+    },
+    {
+      "path": "bundles/claude/skills/discover/guidelines-layout.md",
+      "sha256": "65ae95d70c692124d99a7edc042e91689e6f16f69e86f47f705b7d6def600a60"
+    },
+    {
+      "path": "bundles/claude/skills/discover/guidelines-schema.md",
+      "sha256": "ccef31661efb5fb121f6d6084aba6e48456109015985c5607cbe32c3ad6740bb"
+    },
+    {
+      "path": "bundles/claude/skills/discover/secret-files.md",
+      "sha256": "3b3bc437b23f2b65c396d0d0e53259f64d5e6d623cf14cb20412505dbff78544"
+    },
+    {
+      "path": "bundles/claude/skills/enrich-controls/SKILL.md",
+      "sha256": "f22ab3b611be69177d7420f29eca5c6f66ff227a2763141be83592384ec61d25"
+    },
+    {
+      "path": "bundles/claude/skills/enrich-controls/control-library.md",
+      "sha256": "1b39badbdfba19a0ac84d9af50d3858a64848866e1e93eaab2c8a36c1e367585"
+    },
+    {
+      "path": "bundles/claude/skills/enrich-controls/controls-enrichment.md",
+      "sha256": "1e82d62582650967f57275ddd8d5aaf70fb4dd1a8cea429c05d2573fc5c32c63"
+    },
+    {
+      "path": "bundles/claude/skills/enrich-controls/enrichment-invariants.md",
+      "sha256": "adb2d2fcac419f12bc58dbeff0b3987da537d58c2eeda4d85a69d97ea98219f0"
+    },
+    {
+      "path": "bundles/claude/skills/enrich-controls/relay.md",
+      "sha256": "c0fdbb472c094036a6a10ac699e911d06f6e0ba96ffc6ca06cd2277ce5985a00"
+    },
+    {
+      "path": "bundles/claude/skills/enrich-controls/secret-files.md",
+      "sha256": "3b3bc437b23f2b65c396d0d0e53259f64d5e6d623cf14cb20412505dbff78544"
+    },
+    {
+      "path": "bundles/claude/skills/enrich/SKILL.md",
+      "sha256": "4767b16356a5d7e0c687c8b01e33068bf4a7cdfe4e0b524f6c4e80de50284aaa"
+    },
+    {
+      "path": "bundles/claude/skills/enrich/enrich-skill-asks.md",
+      "sha256": "98526f839a1a4e804152d0c9abf6dc718729a4f01d116baad09c8eb30e93b860"
+    },
+    {
+      "path": "bundles/claude/skills/enrich/enrichment-gates.md",
+      "sha256": "d4eb50e68152f62434a6960fdf9378a6b517fdd566618ca99bafb439c19965f6"
+    },
+    {
+      "path": "bundles/claude/skills/enrich/enrichment-protocol.md",
+      "sha256": "22e73674b077e3075dfdcdb52d3051f2f053ad256c1b03153c138960cc87f3a1"
+    },
+    {
+      "path": "bundles/claude/skills/enrich/relay.md",
+      "sha256": "c0fdbb472c094036a6a10ac699e911d06f6e0ba96ffc6ca06cd2277ce5985a00"
+    },
+    {
+      "path": "bundles/claude/skills/enrich/secret-files.md",
+      "sha256": "3b3bc437b23f2b65c396d0d0e53259f64d5e6d623cf14cb20412505dbff78544"
+    },
+    {
+      "path": "bundles/claude/skills/help/SKILL.md",
+      "sha256": "dbc8f327f783732880ade20fe5d8c5e45a0317c2ecd0ee3b55692d249ad78ddb"
+    },
+    {
+      "path": "bundles/claude/skills/login/SKILL.md",
+      "sha256": "41991b49d1e3997b375e7853cfe7fe5e766befa4bbc077856d6ad2465ae9443e"
+    },
+    {
+      "path": "bundles/claude/skills/remove/SKILL.md",
+      "sha256": "10edbc2a86078a54966bbb1137b2e89cbc92a31ce5c575b9b0c8e4f64f5b36e4"
+    },
+    {
+      "path": "bundles/claude/skills/remove/git-undo.md",
+      "sha256": "52cb2fea5be28ac198f1f906067edff0c3ea320af504793761d0041e2955904f"
+    },
+    {
+      "path": "bundles/claude/skills/remove/secret-files.md",
+      "sha256": "3b3bc437b23f2b65c396d0d0e53259f64d5e6d623cf14cb20412505dbff78544"
+    },
+    {
+      "path": "bundles/claude/skills/review/SKILL.md",
+      "sha256": "4ec200d3e7ea75141e9f5ac4b0fa83265b01a86c2eb76602fc00f388525cb2d5"
+    },
+    {
+      "path": "bundles/claude/skills/status/SKILL.md",
+      "sha256": "aad0e881ac00b24858a152c5c5a9211ddc94ad69db24053cdf1ce752ca3e4b17"
+    },
+    {
+      "path": "bundles/claude/skills/surface/SKILL.md",
+      "sha256": "a8cd0373a99ffc1e88411c010c5cf4680bcc68e05244e6eceef662638ad42e0f"
+    },
+    {
+      "path": "bundles/claude/skills/sync-controls/SKILL.md",
+      "sha256": "55b98e6b2bfbc33678685a362347889d939ea4cb93eb813d46239d9de5f52546"
+    },
+    {
+      "path": "bundles/claude/skills/sync-controls/control-library-push.md",
+      "sha256": "8e519a46c16b6e621678cb6c3a322d2b2732702e170d88e399ad49b005253d27"
+    },
+    {
+      "path": "bundles/claude/skills/sync-pull/SKILL.md",
+      "sha256": "c80175436b8770543038efcd148960a77db75b21d456221a2a805da2818976d1"
+    },
+    {
+      "path": "bundles/claude/skills/sync-pull/sync-pull-reference.md",
+      "sha256": "336a3294ecc557fd8dd34f052751bfa3d96eacea4bffe888e53c8fd8f6f4c15c"
+    },
+    {
+      "path": "bundles/claude/skills/sync/SKILL.md",
+      "sha256": "61a9ca80a2f15173b55fb5d4be7c4675bef9e30c7a7b0331316f8fc577333a12"
+    },
+    {
+      "path": "bundles/claude/skills/sync/control-resolution.md",
+      "sha256": "a8af8d9f1def0db65947e2725bf22ed27b9e0ec9b4e5c963e6dc591cd0617712"
+    },
+    {
+      "path": "bundles/claude/skills/sync/push-flow-reference.md",
+      "sha256": "2386eb20ade067d68dbe14fb99c1dc4e3415c4aacdabfb722c47bdedb9ef7491"
+    },
+    {
+      "path": "bundles/claude/skills/threat-model/SKILL.md",
+      "sha256": "d14e91b991a23ec44d741b6131787175b0e262b6d4898e2ae369becf31ed29d0"
+    },
+    {
+      "path": "bundles/claude/skills/threat-model/drift-protocol.md",
+      "sha256": "88d3f1541bce84f580804f5499370fa9393055dda4e0b75c61d839e43d75f12b"
+    },
+    {
+      "path": "bundles/claude/skills/threat-model/git-undo.md",
+      "sha256": "52cb2fea5be28ac198f1f906067edff0c3ea320af504793761d0041e2955904f"
+    },
+    {
+      "path": "bundles/claude/skills/threat-model/guided-build.md",
+      "sha256": "e0c3123a39f00db1bb4d2a589f7db41b426a7a72e5fbd20c3327029b27cc1466"
+    },
+    {
+      "path": "bundles/claude/skills/threat-model/guided-classify.md",
+      "sha256": "f3f878eb641c759af5eaa9d55f8eb2113b1fac1b626cdf93dca5a8cd2fa8996a"
+    },
+    {
+      "path": "bundles/claude/skills/threat-model/guided-enrich.md",
+      "sha256": "f1f95fbeeacdce68401b9ef4359fa358bcfa1506493bb97325bbbf19a5e5ebc9"
+    },
+    {
+      "path": "bundles/claude/skills/threat-model/guided-publish.md",
+      "sha256": "5b0ce3e7111f277131f857e7492e19b02a0ec1b142ea5cf9e37f824c5e50fe89"
+    },
+    {
+      "path": "bundles/claude/skills/threat-model/guided-review-quick.md",
+      "sha256": "af5f6159081a829adeb02b44a4b38d2ee06b1cbf13284130b6af6edb80da2f9c"
+    },
+    {
+      "path": "bundles/claude/skills/threat-model/guided-review.md",
+      "sha256": "a00e53594c676550654be892b42ccb951850f02280d94952da956f2c5d0b1af0"
+    },
+    {
+      "path": "bundles/claude/skills/threat-model/guidelines-core.md",
+      "sha256": "c2b4be2399987d2d52a708aedeed2b9a94696a095eec7edc1d5e1165c63b1928"
+    },
+    {
+      "path": "bundles/claude/skills/threat-model/guidelines-examples.md",
+      "sha256": "d25558d57f77c8b67899c2d540e3a22d9f681fc4a18fc5be2038342b751bd13c"
+    },
+    {
+      "path": "bundles/claude/skills/threat-model/guidelines-schema.md",
+      "sha256": "ccef31661efb5fb121f6d6084aba6e48456109015985c5607cbe32c3ad6740bb"
+    },
+    {
+      "path": "bundles/claude/skills/threat-model/phase-tail.md",
+      "sha256": "d25c0e9bd67fbe77b7c4d7b2ec845efe02bbc57b756f3561561b32a69d23919c"
+    },
+    {
+      "path": "bundles/claude/skills/threat-model/secret-files.md",
+      "sha256": "3b3bc437b23f2b65c396d0d0e53259f64d5e6d623cf14cb20412505dbff78544"
+    },
+    {
+      "path": "bundles/claude/skills/view/SKILL.md",
+      "sha256": "c5903b76c808c6b8ad309bf308e5984b9e3979d281fbbe8b0fab303dd57fbfd7"
+    }
+  ],
+  "placeholders": [],
+  "runtimePathContract": "~/.dethernety/runtime/current.json"
+}

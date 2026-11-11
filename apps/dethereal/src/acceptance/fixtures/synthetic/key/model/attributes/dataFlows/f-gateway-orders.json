@@ -1,0 +1,17 @@
+{
+  "elementId": "f-gateway-orders",
+  "elementType": "dataFlow",
+  "elementName": "Routed API request",
+  "classData": {
+    "id": "a70d4c24-c532-4830-9585-3e951063a5ea",
+    "name": "HTTP/S Request"
+  },
+  "attributes": {
+    "auth_failure_mode": "fail_open",
+    "encryption_in_transit": "none",
+    "required_credentials": [
+      "customer-access-token"
+    ],
+    "credential_type": "oauth_token"
+  }
+}

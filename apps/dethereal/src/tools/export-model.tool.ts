@@ -34,7 +34,10 @@ import {
 } from '../utils/directory-utils.js'
 import { pathExists } from '../utils/file-utils.js'
 import { getConfig, debugLog } from '../config.js'
-import { writeSyncJson, computeContentHash, collectBaselineElementIds } from '../utils/sync-utils.js'
+import { computeContentHash, collectBaselineElementIds, readSyncJson } from '../utils/sync-utils.js'
+import { baselineForSync, fingerprintSplitModel, recordSyncBaseline } from '../utils/platform-baseline.js'
+import { registerModel, registerWarning } from '../utils/model-registry.js'
+import { registerPulled, type Registration } from '../utils/settlement-writers.js'
 
 const InputSchema = z.object({
   model_id: z.string().describe('The ID of the model to export'),
@@ -52,6 +55,13 @@ interface ExportOutput {
   directory_path: string
   backup_path?: string
   files_written: string[]
+  /** Whether the platform model was recorded for the next push's change check */
+  platform_baseline: 'recorded' | 'not_recorded'
+  /** Whether the directory is in the project's model registry (.dethernety/models.json) */
+  registered: boolean
+  /** The pulled values registered in this machine's settlement (not the project registry); absent when there was nothing to register */
+  settlement_registration?: Registration
+  warnings?: string[]
 }
 
 export class ExportModelTool extends ClientDependentTool<ExportInput, ExportOutput> {
@@ -80,16 +90,30 @@ export class ExportModelTool extends ClientDependentTool<ExportInput, ExportOutp
       }
 
       // Determine directory path: use provided path or default to model ID
-      const directoryPath = input.directory_path || path.join(process.cwd(), input.model_id)
+      let directoryPath = input.directory_path || path.join(process.cwd(), input.model_id)
 
       // Validate path confinement for all paths (user-supplied or derived)
-      await validatePathConfinement(directoryPath)
+      directoryPath = await validatePathConfinement(directoryPath)
 
       debugLog(config, `Exporting model: ${input.model_id} to directory: ${directoryPath}`)
 
       // Check if directory exists
       const dirExists = await pathExists(directoryPath)
       let backupPath: string | undefined
+
+      // A directory that holds another platform model is never exported over: its files would be
+      // replaced by a different model's, whatever if_exists says. Checked before any backup or
+      // platform call, so a refusal changes nothing.
+      if (dirExists) {
+        const linked = (await readSyncJson(directoryPath))?.platform_model_id
+        if (typeof linked === 'string' && linked !== '' && linked !== input.model_id) {
+          return {
+            success: false,
+            error: `Refused (directory_linked_to_other_model): ${directoryPath} holds platform model ${linked}, not ${input.model_id}. Pull into a new directory.`,
+            data: { code: 'directory_linked_to_other_model', linked_model_id: linked } as never
+          }
+        }
+      }
 
       if (dirExists) {
         const isModel = await isModelDirectory(directoryPath)
@@ -118,6 +142,8 @@ export class ExportModelTool extends ClientDependentTool<ExportInput, ExportOutp
           error: `Model with ID ${input.model_id} not found`
         }
       }
+      // Taken from the export as returned, before the scope is moved out of it.
+      const platformPrints = fingerprintSplitModel(splitModel)
 
       // Ensure directory structure exists
       await ensureModelDirectoryStructure(directoryPath)
@@ -144,20 +170,31 @@ export class ExportModelTool extends ClientDependentTool<ExportInput, ExportOutp
         ...(scope ? ['.dethereal/scope.json'] : []),
       ]
 
-      // Write sync.json for pull metadata
+      // Write sync.json for pull metadata, with the platform baseline the next push checks against
+      const baseline = await baselineForSync(directoryPath, input.model_id, platformPrints)
+      let syncFields: Parameters<typeof recordSyncBaseline>[1] = { platform_model_id: input.model_id, platform_url: config.baseUrl }
       try {
-        const contentHash = await computeContentHash(directoryPath)
-        const baselineIds = await collectBaselineElementIds(directoryPath)
-        await writeSyncJson(directoryPath, {
-          platform_model_id: input.model_id,
-          platform_url: config.baseUrl,
+        syncFields = {
+          ...syncFields,
           last_pull_at: new Date().toISOString(),
-          pull_content_hash: contentHash,
-          baseline_element_ids: baselineIds,
-        })
+          pull_content_hash: await computeContentHash(directoryPath),
+          baseline_element_ids: await collectBaselineElementIds(directoryPath),
+        }
       } catch (syncError) {
-        debugLog(config, `Failed to write sync.json: ${syncError}`)
+        debugLog(config, `Failed to read the pulled directory for sync.json: ${syncError}`)
       }
+      const recorded = await recordSyncBaseline(directoryPath, syncFields, baseline, 'pull')
+      const platformBaseline = recorded.status
+      // The values as pulled, registered for this platform model: exactly the model written (its scope moved out).
+      const settled = await registerPulled(directoryPath, splitModel, { modelId: input.model_id, prints: platformPrints }, { settlement: context.settlement })
+      // The pulled directory in the project's model registry (added, or its entry updated).
+      const modelRegistry = await registerModel(directoryPath, { name: splitModel.manifest.model.name || input.model_id, source: 'pull' })
+      const warnings = [
+        ...(recorded.warning ? [recorded.warning] : []),
+        ...(settled.warning ? [settled.warning] : []),
+        ...(settled.status === 'failed' ? [`The pulled values were not registered (${settled.code ?? 'failed'}): they show as unregistered values until the operator settles them.`] : []),
+        ...(modelRegistry.registered ? [] : [registerWarning(modelRegistry.code)]),
+      ]
 
       return {
         success: true,
@@ -166,7 +203,11 @@ export class ExportModelTool extends ClientDependentTool<ExportInput, ExportOutp
           name: splitModel.manifest.model.name,
           directory_path: directoryPath,
           backup_path: backupPath,
-          files_written: filesWritten
+          files_written: filesWritten,
+          platform_baseline: platformBaseline,
+          registered: modelRegistry.registered,
+          ...(settled.status !== 'nothing' ? { settlement_registration: settled } : {}),
+          ...(warnings.length ? { warnings } : {})
         }
       }
 

@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "dethereal": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/dist/index.js"
+      ],
+      "env": {
+        "DETHERNETY_PLATFORM_URL": "${user_config.platform_url}"
+      }
+    }
+  }
+}

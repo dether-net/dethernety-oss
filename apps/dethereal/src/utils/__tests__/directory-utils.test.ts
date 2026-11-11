@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { realOrResolved } from '../path-confinement.js'
 
 // `loadAllowedModelPaths` reads `~/.dethernety/models.json` via
 // `os.homedir()`. On macOS, `homedir()` ignores `process.env.HOME` and
@@ -40,12 +41,14 @@ describe('validatePathConfinement', () => {
 
   it('should accept paths within the base directory', async () => {
     const result = await validatePathConfinement('/home/user/models/my-model', baseDir)
-    expect(result).toBe('/home/user/models/my-model')
+    // The real path: on some systems /home itself is a link.
+    expect(result).toBe(await realOrResolved('/home/user/models/my-model'))
   })
 
   it('should accept the base directory itself', async () => {
     const result = await validatePathConfinement('/home/user/models', baseDir)
-    expect(result).toBe('/home/user/models')
+    // The real path: on some systems /home itself is a link.
+    expect(result).toBe(await realOrResolved('/home/user/models'))
   })
 
   it('should reject paths outside the base directory', async () => {
@@ -75,7 +78,8 @@ describe('validatePathConfinement', () => {
 
   it('should accept nested subdirectories', async () => {
     const result = await validatePathConfinement('/home/user/models/a/b/c', baseDir)
-    expect(result).toBe('/home/user/models/a/b/c')
+    // The real path: on some systems /home itself is a link.
+    expect(result).toBe(await realOrResolved('/home/user/models/a/b/c'))
   })
 })
 
@@ -336,6 +340,8 @@ describe('readScope / writeScope', () => {
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(process.cwd(), '.test-scope-'))
+    // scope.json is written through the state store, which writes only into a model directory.
+    await fs.writeFile(path.join(tmpDir, 'manifest.json'), '{}')
   })
   afterEach(async () => {
     await fs.rm(tmpDir, { recursive: true, force: true })
@@ -443,7 +449,7 @@ describe('readScope / writeScope', () => {
     await fs.mkdir(d, { recursive: true })
     const malformed = '{ "crown_jewels": ["Cardholder DB"], '  // truncated JSON
     await fs.writeFile(path.join(d, 'scope.json'), malformed, 'utf-8')
-    await expect(writeScope(tmpDir, { depth: 'design' })).rejects.toThrow(/malformed/i)
+    await expect(writeScope(tmpDir, { depth: 'design' })).rejects.toThrow(/scope\.json: invalid json/)
     // the corrupt file is left intact for the user to fix, not clobbered
     expect(await fs.readFile(path.join(d, 'scope.json'), 'utf-8')).toBe(malformed)
   })
@@ -900,6 +906,8 @@ describe('remapLocalSidecars', () => {
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(process.cwd(), '.test-sidecars-'))
     await fs.mkdir(path.join(tmpDir, '.dethereal', 'template-fields'), { recursive: true })
+    // The state store writes only inside a model directory.
+    await fs.writeFile(path.join(tmpDir, 'manifest.json'), JSON.stringify({ name: 'm' }), 'utf-8')
   })
   afterEach(async () => {
     await fs.rm(tmpDir, { recursive: true, force: true })

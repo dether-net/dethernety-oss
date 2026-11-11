@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "harness": "claude",
+  "version": "<VERSION>",
+  "generatedFrom": "59708494500ba79a9f0642def6442660eb88b6049e1a079633f1c86214c380a5",
+  "contentHash": "c0eb56a1cccf3fb3806985625ee3d52bc97778c32f15f56e9c75dccd222f3498",
+  "files": [
+    {
+      "path": ".claude-plugin/plugin.json",
+      "sha256": "5bbded34745b4a8526dd325b680b9defd73dd375d7334149740d1ce589f0f343"
+    },
+    {
+      "path": "bundles/claude/.mcp.json",
+      "sha256": "a89c1a74ff8e1949579af90086fa8e111949d5913b8a30b2d14f447269dbdfbf"
+    },
+    {
+      "path": "bundles/claude/agents/enricher.md",
+      "sha256": "cd2d20a72d4f07573ec38a9dc62af78b7274044936903042752bcbd298c28fa9"
+    },
+    {
+      "path": "bundles/claude/agents/lead.md",
+      "sha256": "4025d4089d5119f2eedc01afdcd147de69a1c163e4bfc453c4c36dc7799b388f"
+    },
+    {
+      "path": "bundles/claude/agents/reviewer.md",
+      "sha256": "70bf6ff27e9c3daf3396dbdb8444814b9856b0aa18ab34bf89953f48be231f8e"
+    },
+    {
+      "path": "bundles/claude/agents/scout.md",
+      "sha256": "f80b4e38c26496a814c2ca76ef7627c071f06fe1867dd3daaf0ae687b00c376c"
+    },
+    {
+      "path": "bundles/claude/hooks/hooks.json",
+      "sha256": "b07a8cb890c77bb8a85d4f30689b7c380eaca68317a968f030498c086de109e1"
+    },
+    {
+      "path": "bundles/claude/skills/audit/SKILL.md",
+      "sha256": "7798aab66897ff86448f1dab123f28bf5d5b889b3413e932dee57395a680cde7"
+    },
+    {
+      "path": "bundles/claude/skills/guide/SKILL.md",
+      "sha256": "be1078bd1c683e3df21f82720ed116ce66adcbebb721847459a79ac216bf2095"
+    },
+    {
+      "path": "bundles/claude/skills/guide/reference.md",
+      "sha256": "2b2b74c18bd4aa352b0cb61b9d7b6fd99b5183838e62744312c443c36ed1fd1c"
+    },
+    {
+      "path": "bundles/claude/skills/orchestrate/SKILL.md",
+      "sha256": "35f90caca8318b82dba96e4657cdd35bf3eb6d31354c85435d52eebce54f666c"
+    },
+    {
+      "path": "bundles/claude/skills/status/SKILL.md",
+      "sha256": "a4b1f0f5662c1cd7027924e0b3ba268444e8e99f86b27f158cdf9ccff2cbc737"
+    }
+  ],
+  "placeholders": [],
+  "runtimePathContract": "~/.dethernety/runtime/current.json"
+}

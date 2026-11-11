@@ -1,0 +1,18 @@
+{
+  "tool": "edit",
+  "args": {
+    "filePath": "<run>/project/probe/a.txt",
+    "oldString": "alpha",
+    "newString": "beta",
+    "replaceAll": false
+  },
+  "metadata": {
+    "filediff": {
+      "file": "<run>/project/probe/a.txt",
+      "patch": "Index: <run>/project/probe/a.txt\n===================================================================\n--- <run>/project/probe/a.txt\n+++ <run>/project/probe/a.txt\n@@ -1,1 +1,1 @@\n-alpha\n\\ No newline at end of file\n+beta\n\\ No newline at end of file\n",
+      "additions": 1,
+      "deletions": 1
+    }
+  },
+  "directory": "<run>/project/src/frontend"
+}

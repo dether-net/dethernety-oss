@@ -1,0 +1,42 @@
+{
+  "elementId": "d-payment-event",
+  "elementType": "dataItem",
+  "elementName": "Payment status event",
+  "classData": {
+    "id": "7d6f45d4-3b84-49f3-8085-7105b0448706",
+    "name": "Customer & Personal Data"
+  },
+  "attributes": {
+    "access_audit_trail_enabled": null,
+    "at_rest_encryption_strength": null,
+    "audit_log_tamper_evident": null,
+    "audit_management_restricted_to_privileged_subset": null,
+    "backups_encrypted": null,
+    "bulk_export_monitored_and_alerted": null,
+    "dlp_egress_controls_enabled": null,
+    "encrypted_at_rest": true,
+    "field_level_protection_method": null,
+    "governed_transfer_safeguards": null,
+    "hsts_enforced": null,
+    "key_rotation_enabled": true,
+    "keys_derived_from_passphrase": null,
+    "keys_managed_in_hsm_or_kms": true,
+    "keys_stored_with_data": null,
+    "least_privilege_access_enforced": null,
+    "pan_rendered_unreadable": true,
+    "pii_excluded_from_logs": false,
+    "relies_on_disk_encryption_only": null,
+    "residency_confined_to_approved_regions": null,
+    "retention_schedule_enforced": null,
+    "row_or_column_level_restriction": null,
+    "secrets_masked_in_logs": null,
+    "secure_deletion_or_crypto_shred": null,
+    "sensitive_fields_field_level_protected": null,
+    "shared_admin_accounts": null,
+    "soft_delete_leaves_recoverable_pii": null,
+    "storage_destinations_documented": null,
+    "tls_only_transport": null,
+    "weak_tls_versions_enabled": null
+  },
+  "modifiedAt": "2026-09-27T22:22:54.248Z"
+}

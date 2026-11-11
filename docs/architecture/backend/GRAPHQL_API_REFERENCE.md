@@ -894,7 +894,7 @@ Coverage summary for the gap analysis.
 | `mitigated` | `Int!` |  |
 | `unmitigated` | `Int!` |  |
 | `unaddressable` | `Int!` |  |
-| `configuredCoverage` | `Int!` | Controls assigned but addressing different techniques than this exposure |
+| `configuredCoverage` | `Int!` | Count of exposures that have at least one ATT&CK technique and a control assigned (SUPPORTS) to their element, or to that element's direct parent boundary (one BELONGS_TO hop), where none of those controls has a countermeasure that responds with (RESPONDS_WITH) an ATT&CK mitigation defending against one of the exposure's techniques. Disjoint from mitigated, unmitigated, unaddressable and noMitreChain; the five sum to totalExposures. |
 | `noMitreChain` | `Int!` | Exposures without ATT&CK technique links (not analyzable through MITRE chain) |
 | `coveragePct` | `Float!` |  |
 
@@ -919,7 +919,7 @@ A control class's fit for a set of element types.
 | `className` | `String!` | Class name |
 | `moduleId` | `ID!` | Module ID this class belongs to |
 | `moduleName` | `String!` | Module name |
-| `compatible` | `Boolean!` | Whether this class's supportedTypes includes any of the queried element types |
+| `compatible` | `Boolean!` | Whether this class's supportedTypes includes any of the queried element types, or the class sets none (then it applies to every type) |
 | `countermeasureCount` | `Int!` | Number of countermeasures generated for this class (>0 means configured) |
 
 ### ControlCandidate

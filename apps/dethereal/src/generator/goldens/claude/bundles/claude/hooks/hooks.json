@@ -1,0 +1,175 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/dist/index.js",
+              "hook",
+              "session-start",
+              "--source",
+              "startup",
+              "--harness",
+              "claude"
+            ],
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/dist/index.js",
+              "hook",
+              "session-start",
+              "--source",
+              "resume",
+              "--harness",
+              "claude"
+            ],
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/dist/index.js",
+              "hook",
+              "session-start",
+              "--source",
+              "clear",
+              "--harness",
+              "claude"
+            ],
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/dist/index.js",
+              "hook",
+              "session-start",
+              "--source",
+              "compact",
+              "--harness",
+              "claude"
+            ],
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/dist/index.js",
+              "hook",
+              "session-start",
+              "--source",
+              "resume",
+              "--harness",
+              "claude"
+            ],
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/dist/index.js",
+              "hook",
+              "config-guard",
+              "--harness",
+              "claude"
+            ],
+            "timeout": 10,
+            "onFailure": "block"
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__plugin_dethereal_dethereal__(auth_status|workspace_status|detect_drift|model_state|validate_model_json|get_model_schema|get_example_models|list_models|get_classes|match_classes|search_mitre_attack|get_mitre_defend|get_control_gaps|query_controls|query_exposures|query_countermeasures)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/dist/index.js",
+              "hook",
+              "approve",
+              "--harness",
+              "claude"
+            ],
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "^(Read|Grep|Bash)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/dist/index.js",
+              "hook",
+              "secret-guard",
+              "--harness",
+              "claude"
+            ],
+            "timeout": 10,
+            "onFailure": "block"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/dist/index.js",
+              "hook",
+              "post-write",
+              "--harness",
+              "claude"
+            ],
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -23,8 +23,10 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import { join } from 'node:path';
 import {
+  CloneAndSwapNotImplemented,
   DtControlLibrary,
   ExternalEditDetectedError,
+  UnboundControlClassesError,
   IllegalEditedByError,
   type BrownfieldDecision,
 } from '../dt-control-library.js';
@@ -80,6 +82,11 @@ function brownfieldFile(overrides: Partial<ControlFile> = {}): ControlFile {
     ...overrides,
   };
 }
+
+
+/** A readable stand-in for the plugin's keyed tagger: which value a tag stands for stays checkable. */
+const tagOf = (k: string, v: unknown): string => `${k}=${JSON.stringify(v)}`;
+const TEST_TAGS = { tag: tagOf };
 
 describe('setLocalEdited — two-write semantic (CONTROL_LIBRARY.md §4)', () => {
   it('first edit captures pre-edit value into previousAttributes', async () => {
@@ -674,6 +681,94 @@ describe('pushBrownfieldControl — Step E shared-ownership', () => {
   });
 });
 
+describe('pushBrownfieldControl — a shared-ownership decision outside the type', () => {
+  const push = (sharedOwnership: string) =>
+    lib.pushBrownfieldControl({
+      modelDir,
+      file: brownfieldFile({
+        classes: [
+          {
+            classId: VALID_CLASS_ID,
+            attributes: { foo: 'edited' },
+            platformAttributes: { foo: 'bar' },
+            localEditedAt: '2026-04-18T11:00:00Z',
+            pendingEdit: { editedBy: 'agent', editedAt: '2026-04-18T11:00:00Z', previousAttributes: { foo: 'bar' } },
+          },
+        ],
+      }),
+      decision: { sharedOwnership } as unknown as BrownfieldDecision,
+      freshPlatformAttrs: new Map([[VALID_CLASS_ID, { foo: 'bar' }]]),
+      liveAssignedModelIds: ['model-this', 'model-other'],
+      thisModelId: 'model-this',
+    });
+
+  it('refuses clone-and-swap with the typed error, and any other value with a plain one, pushing nothing', async () => {
+    const spy = vi
+      .spyOn(
+        (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
+        'setInstantiationAttributes',
+      )
+      .mockResolvedValue({ success: true, errorMessage: null });
+    await expect(push('clone-and-swap')).rejects.toBeInstanceOf(CloneAndSwapNotImplemented);
+    const other = push('overwrite');
+    await expect(other).rejects.toThrow(/unknown sharedOwnership decision 'overwrite'/);
+    await expect(other).rejects.not.toBeInstanceOf(CloneAndSwapNotImplemented);
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe('pushBrownfieldControl — ownership that could not be checked', () => {
+  const editedFile = () =>
+    brownfieldFile({
+      classes: [
+        {
+          classId: VALID_CLASS_ID,
+          attributes: { foo: 'edited' },
+          platformAttributes: { foo: 'bar' },
+          localEditedAt: '2026-04-18T11:00:00Z',
+          pendingEdit: { editedBy: 'agent', editedAt: '2026-04-18T11:00:00Z', previousAttributes: { foo: 'bar' } },
+        },
+      ],
+    });
+  const push = (sharedOwnership: BrownfieldDecision['sharedOwnership']) =>
+    lib.pushBrownfieldControl({
+      modelDir,
+      file: editedFile(),
+      decision: { sharedOwnership },
+      freshPlatformAttrs: new Map([[VALID_CLASS_ID, { foo: 'bar' }]]),
+      liveAssignedModelIds: null,
+      thisModelId: 'model-this',
+    });
+  const setAttrs = () =>
+    vi
+      .spyOn(
+        (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
+        'setInstantiationAttributes',
+      )
+      .mockResolvedValue({ success: true, errorMessage: null });
+
+  it('never treats unknown ownership as alone: push-anyway is refused and nothing is pushed', async () => {
+    const spy = setAttrs();
+    await expect(push('push-anyway')).rejects.toThrow(/ownership could not be checked/);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('cancels without pushing', async () => {
+    const spy = setAttrs();
+    const result = await push('cancel');
+    expect(result.mutated).toBe(false);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('pushes only on an explicit push-unverified, audited as force-unverified', async () => {
+    const spy = setAttrs();
+    const result = await push('push-unverified');
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(result.auditEntries[0].kind).toBe('force-unverified');
+    expect(result.auditEntries[0].liveAssignedModelIds).toBeNull();
+  });
+});
+
 describe('pullControls — firstWriteKeys preservation', () => {
   it('preserves pendingEdit.firstWriteKeys when platform state matches existing platformAttributes', async () => {
     // Pre-condition: local file has pendingEdit with firstWriteKeys.
@@ -732,6 +827,284 @@ describe('pullControls — firstWriteKeys preservation', () => {
     expect(reread?.classes[0].attributes).toEqual({ staged_value: 'X' });
     expect(reread?.classes[0].platformAttributes).toEqual({});
     expect(reread?.classes[0].localEditedAt).toBe('2026-04-27T11:00:00Z');
+  });
+});
+
+describe('pullControls — a partially-pushed control', () => {
+  // A greenfield push created the control and pushed one class, then failed on the next: the file holds the server
+  // id at lifecycle partially-pushed, and the second class's attributes exist only locally. The control pass pulls
+  // every control id the model names, this one included.
+  const SECOND_CLASS_ID = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+  const dtControlOf = () => (lib as unknown as { dtControl: Record<string, (...args: any[]) => any> }).dtControl;
+
+  it('keeps the file resumable, and the attributes not yet pushed, through a pull', async () => {
+    await writeControlFile(modelDir, {
+      id: VALID_UUID,
+      name: 'Half-pushed control',
+      source: 'declared',
+      lifecycle: 'partially-pushed',
+      classes: [
+        { classId: VALID_CLASS_ID, attributes: { pushed_first: 'yes' } },
+        { classId: SECOND_CLASS_ID, attributes: { not_yet_pushed: 'keep me' } },
+      ],
+      platformState: { lastPushedAt: '2026-10-12T10:00:00Z' },
+    });
+    const dt = dtControlOf();
+    // The push: the first class goes through, the second fails.
+    const set = vi.spyOn(dt, 'setInstantiationAttributes')
+      .mockResolvedValueOnce({ success: true, errorMessage: null })
+      .mockResolvedValueOnce({ success: false, errorMessage: 'transient' })
+    await expect(lib.pushGreenfieldControl({
+      modelDir, file: (await readControlFile(modelDir, VALID_UUID))!, supportingElementIds: [], folderId: undefined, liveAssignedModelIds: [],
+    })).rejects.toThrow(/State left at lifecycle=partially-pushed for resume/);
+    const afterPush = (await readControlFile(modelDir, VALID_UUID))!;
+    expect(afterPush.lifecycle).toBe('partially-pushed');
+    expect(afterPush.classes[1].attributes).toEqual({ not_yet_pushed: 'keep me' });
+
+    // The control pass pulls it: the platform holds the first class's attributes and nothing for the second.
+    vi.spyOn(dt, 'getControlsByIds').mockResolvedValue([
+      { id: VALID_UUID, name: 'Half-pushed control', controlClasses: [{ id: VALID_CLASS_ID, name: 'A' }, { id: SECOND_CLASS_ID, name: 'B' }] },
+    ]);
+    vi.spyOn(dt, 'getControlInstantiationAttributes').mockResolvedValue([
+      { controlId: VALID_UUID, classId: VALID_CLASS_ID, attributes: { pushed_first: 'changed on the platform' } },
+      { controlId: VALID_UUID, classId: SECOND_CLASS_ID, attributes: {} },
+    ]);
+    vi.spyOn(dt, 'getControlsAssignedModels').mockResolvedValue(new Map([[VALID_UUID, ['model-this']]]));
+    await lib.pullControls({ modelDir, controlIds: [VALID_UUID] });
+
+    const afterPull = (await readControlFile(modelDir, VALID_UUID))!;
+    expect(afterPull.lifecycle).toBe('partially-pushed');
+    const second = afterPull.classes.find((c) => c.classId === SECOND_CLASS_ID)!;
+    expect(second.attributes).toEqual({ not_yet_pushed: 'keep me' });
+    expect(second.platformAttributes).toEqual({});
+    // The class already pushed takes the platform's values, as any pulled class does.
+    const first = afterPull.classes.find((c) => c.classId === VALID_CLASS_ID)!;
+    expect(first.attributes).toEqual({ pushed_first: 'changed on the platform' });
+    expect(first.pushedAt).toBeDefined();
+    expect(afterPull.platformState?.assignedModelIds).toEqual(['model-this']);
+
+    // And the resume pushes what was left.
+    set.mockReset().mockResolvedValue({ success: true, errorMessage: null });
+    const resumed = await lib.pushGreenfieldControl({ modelDir, file: afterPull, supportingElementIds: [], folderId: undefined, liveAssignedModelIds: ['model-this'] });
+    expect(set).toHaveBeenCalledWith({ controlId: VALID_UUID, classId: SECOND_CLASS_ID, attributes: { not_yet_pushed: 'keep me' } });
+    expect(resumed.lifecycle).toBe('brownfield');
+  });
+
+  it('carries over an unpushed class the platform no longer lists', async () => {
+    await writeControlFile(modelDir, {
+      id: VALID_UUID,
+      name: 'Half-pushed control',
+      source: 'declared',
+      lifecycle: 'partially-pushed',
+      classes: [
+        { classId: VALID_CLASS_ID, attributes: { a: 1 }, pushedAt: '2026-10-12T10:00:00Z' },
+        { classId: SECOND_CLASS_ID, attributes: { b: 2 } },
+      ],
+    });
+    const dt = dtControlOf();
+    vi.spyOn(dt, 'getControlsByIds').mockResolvedValue([
+      { id: VALID_UUID, name: 'Half-pushed control', controlClasses: [{ id: VALID_CLASS_ID, name: 'A' }] },
+    ]);
+    vi.spyOn(dt, 'getControlInstantiationAttributes').mockResolvedValue([
+      { controlId: VALID_UUID, classId: VALID_CLASS_ID, attributes: { a: 1 } },
+    ]);
+    vi.spyOn(dt, 'getControlsAssignedModels').mockResolvedValue(new Map());
+    await lib.pullControls({ modelDir, controlIds: [VALID_UUID] });
+
+    const afterPull = (await readControlFile(modelDir, VALID_UUID))!;
+    expect(afterPull.lifecycle).toBe('partially-pushed');
+    expect(afterPull.classes.map((c) => c.classId)).toEqual([VALID_CLASS_ID, SECOND_CLASS_ID]);
+    const carried = afterPull.classes[1];
+    expect(carried.attributes).toEqual({ b: 2 });
+    expect(carried.platformAttributes).toBeUndefined();
+    expect(carried.pendingEdit).toBeUndefined();
+  });
+
+  it('keeps a class edited after its push, and a pendingEdit, on a partially-pushed control', async () => {
+    const pendingEdit = { editedBy: 'agent' as const, editedAt: '2026-10-12T11:00:00Z', previousAttributes: { b: 1 } };
+    await writeControlFile(modelDir, {
+      id: VALID_UUID,
+      name: 'Half-pushed control',
+      source: 'declared',
+      lifecycle: 'partially-pushed',
+      classes: [
+        { classId: VALID_CLASS_ID, attributes: { a: 'edited again' }, pushedAt: '2026-10-12T10:00:00Z', localEditedAt: '2026-10-12T10:30:00Z' },
+        { classId: SECOND_CLASS_ID, attributes: { b: 2 }, pushedAt: '2026-10-12T10:00:00Z', localEditedAt: '2026-10-12T11:00:00Z', pendingEdit },
+      ],
+    });
+    const dt = dtControlOf();
+    vi.spyOn(dt, 'getControlsByIds').mockResolvedValue([
+      { id: VALID_UUID, name: 'Half-pushed control', controlClasses: [{ id: VALID_CLASS_ID, name: 'A' }, { id: SECOND_CLASS_ID, name: 'B' }] },
+    ]);
+    vi.spyOn(dt, 'getControlInstantiationAttributes').mockResolvedValue([
+      { controlId: VALID_UUID, classId: VALID_CLASS_ID, attributes: { a: 'first push' } },
+      { controlId: VALID_UUID, classId: SECOND_CLASS_ID, attributes: { b: 1 } },
+    ]);
+    vi.spyOn(dt, 'getControlsAssignedModels').mockResolvedValue(new Map());
+    await lib.pullControls({ modelDir, controlIds: [VALID_UUID] });
+
+    const [first, second] = (await readControlFile(modelDir, VALID_UUID))!.classes;
+    expect(first).toMatchObject({ attributes: { a: 'edited again' }, platformAttributes: { a: 'first push' }, localEditedAt: '2026-10-12T10:30:00Z' });
+    expect(second).toMatchObject({ attributes: { b: 2 }, platformAttributes: { b: 1 }, pendingEdit });
+  });
+
+  it('keeps a greenfield file already under its server id resumable through a pull', async () => {
+    await writeControlFile(modelDir, {
+      id: VALID_UUID,
+      name: 'Rewritten, not yet flipped',
+      source: 'declared',
+      lifecycle: 'greenfield',
+      classes: [{ classId: VALID_CLASS_ID, attributes: { a: 'local only' } }],
+    });
+    const dt = dtControlOf();
+    vi.spyOn(dt, 'getControlsByIds').mockResolvedValue([
+      { id: VALID_UUID, name: 'Rewritten, not yet flipped', controlClasses: [{ id: VALID_CLASS_ID, name: 'A' }] },
+    ]);
+    vi.spyOn(dt, 'getControlInstantiationAttributes').mockResolvedValue([
+      { controlId: VALID_UUID, classId: VALID_CLASS_ID, attributes: {} },
+    ]);
+    vi.spyOn(dt, 'getControlsAssignedModels').mockResolvedValue(new Map());
+    await lib.pullControls({ modelDir, controlIds: [VALID_UUID] });
+
+    const afterPull = (await readControlFile(modelDir, VALID_UUID))!;
+    expect(afterPull.lifecycle).toBe('greenfield');
+    expect(afterPull.classes[0].attributes).toEqual({ a: 'local only' });
+  });
+
+  it('still pulls a brownfield control as before: no pendingEdit, the platform\'s values win', async () => {
+    await writeControlFile(modelDir, {
+      id: VALID_UUID,
+      name: 'Pushed control',
+      source: 'declared',
+      lifecycle: 'brownfield',
+      classes: [{ classId: VALID_CLASS_ID, attributes: { a: 'local' } }],
+    });
+    const dt = dtControlOf();
+    vi.spyOn(dt, 'getControlsByIds').mockResolvedValue([
+      { id: VALID_UUID, name: 'Pushed control', controlClasses: [{ id: VALID_CLASS_ID, name: 'A' }] },
+    ]);
+    vi.spyOn(dt, 'getControlInstantiationAttributes').mockResolvedValue([
+      { controlId: VALID_UUID, classId: VALID_CLASS_ID, attributes: { a: 'platform' } },
+    ]);
+    vi.spyOn(dt, 'getControlsAssignedModels').mockResolvedValue(new Map());
+    await lib.pullControls({ modelDir, controlIds: [VALID_UUID] });
+    const afterPull = (await readControlFile(modelDir, VALID_UUID))!;
+    expect(afterPull.lifecycle).toBe('brownfield');
+    expect(afterPull.classes[0].attributes).toEqual({ a: 'platform' });
+  });
+});
+
+describe('pushGreenfieldControl — a resume', () => {
+  const C1 = VALID_CLASS_ID;
+  const C2 = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+  const C3 = '9b2e5f1a-3c4d-4e8f-a1b2-c3d4e5f60718';
+  const dtControlOf = () => (lib as unknown as { dtControl: Record<string, (...args: any[]) => any> }).dtControl;
+  const halfPushed = (classes: ControlFile['classes']): ControlFile => ({
+    id: VALID_UUID,
+    name: 'Half-pushed control',
+    source: 'declared',
+    lifecycle: 'partially-pushed',
+    classes,
+  });
+  const pushed = { classId: C1, className: 'A', attributes: { a: 'pushed' }, pushedAt: '2026-10-12T10:00:00Z' };
+  const bindings = (...ids: string[]) =>
+    vi.spyOn(dtControlOf(), 'getControlsByIds').mockResolvedValue([
+      { id: VALID_UUID, name: 'Half-pushed control', controlClasses: ids.map((id) => ({ id, name: id })) },
+    ]);
+  const resume = async (file: ControlFile, supportingElementIds: string[] = []) => {
+    await writeControlFile(modelDir, file);
+    return lib.pushGreenfieldControl({ modelDir, file, supportingElementIds, folderId: undefined, liveAssignedModelIds: [] });
+  };
+  const setAttrs = () =>
+    vi.spyOn(dtControlOf(), 'setInstantiationAttributes').mockResolvedValue({ success: true, errorMessage: null });
+
+  it('never re-sends a class already pushed, so a platform change made since survives', async () => {
+    bindings(C1, C2);
+    const set = setAttrs();
+    const result = await resume(halfPushed([pushed, { classId: C2, className: 'B', attributes: { b: 'local' } }]));
+    expect(set).toHaveBeenCalledTimes(1);
+    expect(set).toHaveBeenCalledWith({ controlId: VALID_UUID, classId: C2, attributes: { b: 'local' } });
+    expect(result.lifecycle).toBe('brownfield');
+  });
+
+  it('re-sends a class edited after its push', async () => {
+    bindings(C1);
+    const set = setAttrs();
+    await resume(halfPushed([{ ...pushed, attributes: { a: 'edited' }, localEditedAt: '2026-10-12T11:00:00Z' }]));
+    expect(set).toHaveBeenCalledWith({ controlId: VALID_UUID, classId: C1, attributes: { a: 'edited' } });
+  });
+
+  it('reports each class the control no longer carries, pushes the rest, and stays resumable', async () => {
+    bindings(C1, C3);
+    const set = setAttrs();
+    const err = await resume(halfPushed([
+      pushed,
+      { classId: C2, className: 'Unbound class', attributes: { b: 'keep me' } },
+      { classId: C3, className: 'C', attributes: { c: 3 } },
+    ])).catch((e) => e);
+    expect(err).toBeInstanceOf(UnboundControlClassesError);
+    expect(err.classes).toEqual([{ classId: C2, className: 'Unbound class' }]);
+    expect(err.message).toContain(`class=${C2} ("Unbound class") is no longer bound`);
+    expect(err.message).toMatch(/manage_controls update with class_ids/);
+    expect(err.message).toContain(`remove its entry from controls/${VALID_UUID}.json`);
+    expect(set).toHaveBeenCalledTimes(1);
+    expect(set).toHaveBeenCalledWith({ controlId: VALID_UUID, classId: C3, attributes: { c: 3 } });
+
+    const after = (await readControlFile(modelDir, VALID_UUID))!;
+    expect(after.lifecycle).toBe('partially-pushed');
+    expect(after.classes[1]).toMatchObject({ classId: C2, attributes: { b: 'keep me' } });
+    expect(after.classes[1].pushedAt).toBeUndefined();
+    expect(after.classes[2].pushedAt).toBeDefined();
+  });
+
+  it('finishes once the class is bound again', async () => {
+    bindings(C1, C2);
+    const set = setAttrs();
+    const result = await resume(halfPushed([pushed, { classId: C2, className: 'B', attributes: { b: 'keep me' } }]));
+    expect(set).toHaveBeenCalledWith({ controlId: VALID_UUID, classId: C2, attributes: { b: 'keep me' } });
+    expect(result.lifecycle).toBe('brownfield');
+  });
+
+  it('finishes once the entry is removed, without reading the bindings', async () => {
+    const read = bindings(C1);
+    const set = setAttrs();
+    const result = await resume(halfPushed([pushed]));
+    expect(read).not.toHaveBeenCalled();
+    expect(set).not.toHaveBeenCalled();
+    expect(result.lifecycle).toBe('brownfield');
+  });
+
+  it('assigns the supporting elements before reporting an unbound class', async () => {
+    bindings(C1);
+    setAttrs();
+    const assign = vi.spyOn(dtControlOf(), 'assignControlToElements').mockResolvedValue({ id: VALID_UUID });
+    await expect(resume(halfPushed([pushed, { classId: C2, attributes: { b: 1 } }]), ['el-1'])).rejects.toBeInstanceOf(UnboundControlClassesError);
+    expect(assign).toHaveBeenCalledWith({ controlId: VALID_UUID, elementIds: ['el-1'] });
+  });
+
+  it('reports an unbound class on a greenfield file already under its server id', async () => {
+    bindings();
+    setAttrs();
+    const file: ControlFile = { ...halfPushed([{ classId: C2, attributes: { b: 1 } }]), lifecycle: 'greenfield' };
+    await writeControlFile(modelDir, file);
+    await expect(lib.pushGreenfieldControl({ modelDir, file, supportingElementIds: [], folderId: undefined, liveAssignedModelIds: [] }))
+      .rejects.toBeInstanceOf(UnboundControlClassesError);
+    expect((await readControlFile(modelDir, VALID_UUID))!.lifecycle).toBe('partially-pushed');
+  });
+
+  it('tries every class when the bindings read does not return the control', async () => {
+    vi.spyOn(dtControlOf(), 'getControlsByIds').mockResolvedValue([]);
+    const set = setAttrs();
+    const result = await resume(halfPushed([pushed, { classId: C2, attributes: { b: 1 } }]));
+    expect(set).toHaveBeenCalledWith({ controlId: VALID_UUID, classId: C2, attributes: { b: 1 } });
+    expect(result.lifecycle).toBe('brownfield');
+  });
+
+  it('falls back to trying every class when the bindings cannot be read', async () => {
+    vi.spyOn(dtControlOf(), 'getControlsByIds').mockRejectedValue(new Error('bolt timeout'));
+    vi.spyOn(dtControlOf(), 'setInstantiationAttributes').mockResolvedValue({ success: false, errorMessage: 'no IS_INSTANCE_OF relationship' });
+    await expect(resume(halfPushed([pushed, { classId: C2, attributes: { b: 1 } }])))
+      .rejects.toThrow(/class=7c9e6679-7425-40de-944b-e07fc1f90ae7\. Cause: no IS_INSTANCE_OF relationship\. State left at lifecycle=partially-pushed/);
   });
 });
 
@@ -872,6 +1245,47 @@ describe('pushBrownfieldControl — first-write path', () => {
   // After the fix, first-write keys flow through Step C → Step F and the
   // platform mutation lands.
 
+  it('writes and returns no value when no tagger is given: values omitted, the reason recorded', async () => {
+    const SECRET = 's3cr3t-first-write-VALUE';
+    const file = brownfieldFile({
+      classes: [
+        {
+          classId: VALID_CLASS_ID,
+          attributes: { api_key: SECRET, password: 'hunter2-VALUE' },
+          platformAttributes: { password: 'old-password-VALUE' },
+          localEditedAt: '2026-04-27T06:46:01Z',
+          pendingEdit: {
+            editedBy: 'agent',
+            editedAt: '2026-04-27T06:46:01Z',
+            previousAttributes: { password: 'old-password-VALUE' },
+            firstWriteKeys: ['api_key'],
+          },
+        },
+      ],
+    });
+    vi.spyOn(
+      (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
+      'setInstantiationAttributes',
+    ).mockResolvedValue({ success: true, errorMessage: null });
+    const result = await lib.pushBrownfieldControl({
+      modelDir,
+      file,
+      decision: { sharedOwnership: 'push-anyway' },
+      freshPlatformAttrs: new Map([[VALID_CLASS_ID, { password: 'old-password-VALUE' }]]),
+      liveAssignedModelIds: ['model-this'],
+      thisModelId: 'model-this',
+      valueTags: { omittedCode: 'key_mode' },
+    });
+    expect(result.mutated).toBe(true);
+    expect(result.auditEntries[0]).toMatchObject({ schemaVersion: 2, values: 'omitted', valuesOmittedCode: 'key_mode' });
+    const values = [SECRET, 'hunter2-VALUE', 'old-password-VALUE'];
+    const logged = await fs.readFile(join(modelDir, '.dethereal', 'control-audit.log'), 'utf-8');
+    for (const v of values) {
+      expect(JSON.stringify(result.auditEntries), v).not.toContain(v);
+      expect(logged, v).not.toContain(v);
+    }
+  });
+
   it('pure first-write (alone Control) pushes all keys and writes a first-write audit entry', async () => {
     const file = brownfieldFile({
       classes: [
@@ -897,6 +1311,7 @@ describe('pushBrownfieldControl — first-write path', () => {
       .mockResolvedValue({ success: true, errorMessage: null });
 
     const result = await lib.pushBrownfieldControl({
+      valueTags: TEST_TAGS,
       modelDir,
       file,
       decision: { sharedOwnership: 'push-anyway' },
@@ -921,9 +1336,9 @@ describe('pushBrownfieldControl — first-write path', () => {
     expect(ae.firstWriteKeys?.sort()).toEqual(['key_length', 'tls_version', 'weak_ciphers']);
     expect(ae.intendedKeys.sort()).toEqual(['key_length', 'tls_version', 'weak_ciphers']);
     expect(ae.attributesPushed).toEqual({
-      tls_version: 'TLS_1_2',
-      weak_ciphers: false,
-      key_length: 2048,
+      tls_version: tagOf('tls_version', 'TLS_1_2'),
+      weak_ciphers: tagOf('weak_ciphers', false),
+      key_length: tagOf('key_length', 2048),
     });
     expect(ae.effective).toBe('novel');
 
@@ -963,6 +1378,7 @@ describe('pushBrownfieldControl — first-write path', () => {
     ).mockResolvedValue({ success: true, errorMessage: null });
 
     const result = await lib.pushBrownfieldControl({
+      valueTags: TEST_TAGS,
       modelDir,
       file,
       decision: { sharedOwnership: 'push-anyway' },
@@ -975,8 +1391,8 @@ describe('pushBrownfieldControl — first-write path', () => {
     expect(result.auditEntries).toHaveLength(1);
     expect(result.auditEntries[0].kind).toBe('first-write');
     expect(result.auditEntries[0].firstWriteKeys).toEqual(['bar']);
-    expect(result.auditEntries[0].previousAttributes).toEqual({ foo: 'old' });
-    expect(result.auditEntries[0].attributesPushed).toEqual({ foo: 'updated', bar: 42 });
+    expect(result.auditEntries[0].previousAttributes).toEqual({ foo: tagOf('foo', 'old') });
+    expect(result.auditEntries[0].attributesPushed).toEqual({ foo: tagOf('foo', 'updated'), bar: tagOf('bar', 42) });
   });
 
   it('first-write on shared Control: force-shared kind wins, firstWriteKeys still recorded', async () => {
@@ -1283,6 +1699,7 @@ describe('pushBrownfieldControl — Step D conflict resolution', () => {
     ).mockResolvedValue({ success: true, errorMessage: null });
 
     const result = await lib.pushBrownfieldControl({
+      valueTags: TEST_TAGS,
       modelDir,
       file,
       decision: {
@@ -1295,7 +1712,7 @@ describe('pushBrownfieldControl — Step D conflict resolution', () => {
     });
     expect(result.mutated).toBe(true);
     expect(result.auditEntries[0].conflictResolutions).toEqual([
-      { key: 'foo', ours: 'mine', theirs: 'theirs', chosen: 'ours' },
+      { key: 'foo', ours: tagOf('foo', 'mine'), theirs: tagOf('foo', 'theirs'), chosen: 'ours' },
     ]);
   });
 
@@ -1483,7 +1900,7 @@ describe('promoteExternalEdit precondition guards', () => {
 
 describe('TOCTOU per-control fresh-fetch in Step B', () => {
   it('inline re-fetch overrides caller-supplied freshPlatformAttrs (closes review-window TOCTOU)', async () => {
-    // Scenario: at P7.2 the skill batched-fetched freshPlatformAttrs (foo: 'old-server').
+    // Scenario: the sync skill's batched fresh-fetch read freshPlatformAttrs (foo: 'old-server').
     // During operator review, operator B mutates the platform (foo: 'new-server').
     // Without the inline re-fetch fix, our snapshot still shows 'old-server' — Step D
     // sees no conflict, force-shared writes happily, B's edit lost.
@@ -1656,10 +2073,36 @@ describe('authnOperator propagation to audit log', () => {
       authnOperator: 'sso.user@corp.example.com',
     });
     expect(result.auditEntries[0].authnOperator).toBe('sso.user@corp.example.com');
-    // The local `operator` field stays separate — falls back to
-    // getOperatorEmail() when not supplied. The two-field design lets an
-    // auditor cross-check spoofable local identity against JWT-anchored truth.
-    expect(typeof result.auditEntries[0].operator).toBe('string');
+    expect(result.auditEntries[0]).not.toHaveProperty('operator');
+  });
+
+  it('records no local identity in a reverted entry, with or without authnOperator', async () => {
+    for (const authnOperator of [undefined, 'sso.user@corp.example.com']) {
+      // A pending edit typed back to its previous value: a reverted entry, no platform call.
+      const file = brownfieldFile({
+        classes: [
+          {
+            classId: VALID_CLASS_ID,
+            attributes: { foo: 'bar' },
+            platformAttributes: { foo: 'bar' },
+            localEditedAt: '2026-04-18T11:00:00Z',
+            pendingEdit: { editedBy: 'agent', editedAt: '2026-04-18T11:00:00Z', previousAttributes: { foo: 'bar' } },
+          },
+        ],
+      });
+      const result = await lib.pushBrownfieldControl({
+        modelDir,
+        file,
+        decision: { sharedOwnership: 'cancel' },
+        freshPlatformAttrs: new Map([[VALID_CLASS_ID, { foo: 'bar' }]]),
+        liveAssignedModelIds: ['model-this'],
+        thisModelId: 'model-this',
+        authnOperator,
+      });
+      expect(result.auditEntries[0].kind).toBe('reverted');
+      expect(result.auditEntries[0]).not.toHaveProperty('operator');
+      expect(result.auditEntries[0].authnOperator).toBe(authnOperator);
+    }
   });
 
   it('propagates authnOperator to the reverted audit entry too', async () => {

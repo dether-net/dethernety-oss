@@ -12,10 +12,11 @@
  * for non-existent PIDs.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import { join } from 'node:path';
+import { spawn, type ChildProcess } from 'node:child_process';
 import {
   acquireLock,
   releaseLock,
@@ -25,6 +26,28 @@ import {
 } from '../lock-helper.js';
 
 let modelDir: string;
+
+/** A live process other than this one, standing in for another session's server. */
+let sleeper: ChildProcess | undefined;
+function livePid(): number {
+  if (!sleeper) sleeper = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)'], { stdio: 'ignore' });
+  return sleeper.pid!;
+}
+afterAll(() => {
+  sleeper?.kill();
+});
+
+/** A lock payload as a live holder on this host and boot writes it. */
+function liveHolder(nonce: string, overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    pid: livePid(),
+    acquiredAt: new Date().toISOString(),
+    nonce,
+    host: os.hostname(),
+    boot: Math.round(Date.now() / 1000 - os.uptime()),
+    ...overrides,
+  });
+}
 
 beforeEach(async () => {
   modelDir = await fs.mkdtemp(join(os.tmpdir(), 'lock-test-'));
@@ -134,13 +157,10 @@ describe('acquireLock — stale-lock recovery', () => {
   });
 
   it('does NOT break a lock held by a live PID', async () => {
-    // Stage a lockfile with our own PID — guaranteed alive.
+    // Stage a lockfile held by another live process on this host and boot.
     const lockPath = getLockPath(modelDir);
     await fs.mkdir(join(modelDir, '.dethereal'), { recursive: true });
-    await fs.writeFile(
-      lockPath,
-      JSON.stringify({ pid: process.pid, acquiredAt: '2026-01-01T00:00:00Z' }),
-    );
+    await fs.writeFile(lockPath, liveHolder('live'));
 
     await expect(acquireLock(modelDir)).rejects.toBeInstanceOf(LockBusyError);
 
@@ -177,7 +197,7 @@ describe('acquireLock — nonce + atomicity', () => {
   });
 });
 
-describe('releaseLock — ownership (P2)', () => {
+describe('releaseLock — ownership', () => {
   it('does NOT unlink a lock that now bears a different nonce (ours was broken)', async () => {
     const mine = await acquireLock(modelDir);
     // Simulate our lock having been broken + re-acquired by another process:
@@ -219,14 +239,11 @@ describe('acquireLock — single-winner stale break', () => {
 
   it('does NOT double-own via ABA: a live lock is never moved, renamed, or overwritten', async () => {
     // The break protocol's invariant: a LIVE holder's lock is untouchable. A
-    // live lock (our own PID) must short-circuit to LockBusyError before any
+    // live lock (another live process) must short-circuit to LockBusyError before any
     // claim is even attempted, leaving both the lock and the directory intact.
     const lockPath = getLockPath(modelDir);
     await fs.mkdir(join(modelDir, '.dethereal'), { recursive: true });
-    await fs.writeFile(
-      lockPath,
-      JSON.stringify({ pid: process.pid, acquiredAt: '2026-01-01T00:00:00Z', nonce: 'live-holder' }),
-    );
+    await fs.writeFile(lockPath, liveHolder('live-holder'));
     await expect(acquireLock(modelDir)).rejects.toBeInstanceOf(LockBusyError);
     // Live lock untouched — never moved aside, never overwritten.
     expect(JSON.parse(await fs.readFile(lockPath, 'utf-8')).nonce).toBe('live-holder');
@@ -252,7 +269,7 @@ describe('acquireLock — single-winner stale break', () => {
 
 describe('acquireLock — break claim', () => {
   it('yields to a LIVE claimant mid-break: lock and claim both untouched', async () => {
-    // A rival breaker (our own PID = alive) holds the fixed claim path while a
+    // A rival breaker (another live process) holds the fixed claim path while a
     // stale lock sits in the slot. We must refuse — a break is in progress —
     // and touch neither file.
     const lockPath = getLockPath(modelDir);
@@ -262,10 +279,7 @@ describe('acquireLock — break claim', () => {
       lockPath,
       JSON.stringify({ pid: 999999, acquiredAt: '2026-01-01T00:00:00Z', nonce: 'stale' }),
     );
-    await fs.writeFile(
-      claimPath,
-      JSON.stringify({ pid: process.pid, acquiredAt: new Date().toISOString(), nonce: 'live-claimant' }),
-    );
+    await fs.writeFile(claimPath, liveHolder('live-claimant'));
 
     await expect(acquireLock(modelDir)).rejects.toBeInstanceOf(LockBusyError);
     expect(JSON.parse(await fs.readFile(lockPath, 'utf-8')).nonce).toBe('stale');
@@ -355,5 +369,68 @@ describe('withLock — convenience wrapper', () => {
   it('returns the function result', async () => {
     const result = await withLock(modelDir, async () => 42);
     expect(result).toBe(42);
+  });
+});
+
+describe('acquireLock — who counts as a live holder', () => {
+  const stage = async (name: string, content: string) => {
+    await fs.mkdir(join(modelDir, '.dethereal'), { recursive: true });
+    await fs.writeFile(join(modelDir, '.dethereal', name), content);
+  };
+  const acquired = async () => {
+    const handle = await acquireLock(modelDir);
+    await releaseLock(handle);
+    return true;
+  };
+
+  it('never lets a lock committed to a repository block anyone', async () => {
+    await stage('.control-library.lock', '{"pid":1}');
+    expect(await acquired()).toBe(true);
+  });
+
+  it('never lets a committed break claim block anyone for long', async () => {
+    await stage('.control-library.lock', '{"pid":1}');
+    await stage('.control-library.lock.breaking', '{"pid":1}');
+    // The contested call cleans the claim and yields; the next one acquires.
+    await expect(acquireLock(modelDir)).rejects.toBeInstanceOf(LockBusyError);
+    expect(await acquired()).toBe(true);
+  });
+
+  it('breaks a live pid from another host or an earlier boot', async () => {
+    await stage('.control-library.lock', liveHolder('other-host', { host: 'another-host.invalid' }));
+    expect(await acquired()).toBe(true);
+    await stage('.control-library.lock', liveHolder('old-boot', { boot: Math.round(Date.now() / 1000 - os.uptime()) - 3600 }));
+    expect(await acquired()).toBe(true);
+  });
+
+  it('keeps a live local holder, whatever its age, and through a small clock step', async () => {
+    await stage('.control-library.lock', liveHolder('slow', { acquiredAt: new Date(Date.now() - 11 * 60 * 1000).toISOString() }));
+    await expect(acquireLock(modelDir)).rejects.toBeInstanceOf(LockBusyError);
+    await stage('.control-library.lock', liveHolder('stepped', { boot: Math.round(Date.now() / 1000 - os.uptime()) + 30 }));
+    await expect(acquireLock(modelDir)).rejects.toBeInstanceOf(LockBusyError);
+  });
+
+  it('keeps a live holder from an older version while its lock is recent, and breaks it after', async () => {
+    const legacy = (acquiredAt: string) => JSON.stringify({ pid: livePid(), acquiredAt, nonce: 'legacy' });
+    await stage('.control-library.lock', legacy(new Date().toISOString()));
+    await expect(acquireLock(modelDir)).rejects.toBeInstanceOf(LockBusyError);
+    await stage('.control-library.lock', legacy(new Date(Date.now() - 11 * 60 * 1000).toISOString()));
+    expect(await acquired()).toBe(true);
+    await stage('.control-library.lock', legacy(new Date(Date.now() + 3600 * 1000).toISOString()));
+    expect(await acquired()).toBe(true);
+  });
+
+  it('breaks a lock bearing this process\'s pid that it does not hold (a failed release)', async () => {
+    await stage('.control-library.lock', liveHolder('not-held', { pid: process.pid }));
+    expect(await acquired()).toBe(true);
+  });
+
+  it('still refuses a second acquisition by this process while it holds the lock', async () => {
+    const handle = await acquireLock(modelDir);
+    try {
+      await expect(acquireLock(modelDir)).rejects.toBeInstanceOf(LockBusyError);
+    } finally {
+      await releaseLock(handle);
+    }
   });
 });

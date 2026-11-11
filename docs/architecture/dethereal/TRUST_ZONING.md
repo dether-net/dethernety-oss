@@ -82,17 +82,42 @@ full phase; the Step-4 skeleton shows the bare `— structural` glyph.
 
 `RESTRICTED` needs the flow graph and asset classification, which don't exist at boundary-refinement time. So the
 tool runs in two phases via the `assets` parameter: `assets: 'skeleton'` (Step 4) sets external + exposure tiers +
-the `INTERNAL` default and **defers `RESTRICTED`**; the full pass (close of Step 7) promotes qualifying
-`INTERNAL` boundaries once assets exist.
+the `INTERNAL` default and **defers `RESTRICTED`**; the full pass (close of Step 7) **proposes** promoting a
+boundary once assets exist — only where the computed tier is `RESTRICTED` and the declared zone is `null` or
+`INTERNAL` — and the workflow writes only the rows the operator confirms.
 
 ### 2.4 Findings (advisory, never sync-blocking)
 
 `unclassified` (no zone in the chain), `under-protected` (a direct asset holder looser than `RESTRICTED`),
 `mgmt-plane` (a `MANAGEMENT` plane resolving to an exposed tier), `external-ingress` (an external-tier boundary
-reaching a trusted tier with no approved channel), `flow-channel` (a risk-bearing crossing vs. its declared
+reaching a trusted tier with no approved channel, directly or through forwarders), `flow-channel` (a risk-bearing crossing vs. its declared
 conduit — undeclared path, dead intent, or unreviewable declaration), and `cross-tier-domain` (a hand-authored
 `domains` tag shared by two boundaries that couples an externally-reachable segment with a protected one — the
 blast-radius / co-tenancy shape). All are advisory: they inform the operator and never block a sync.
+
+**`external-ingress` sees through forwarders.** An external boundary E (declared `UNTRUSTED`/`VENDOR`) often
+reaches a trusted tier T only through a relaying hop — the load balancer or proxy in front of the service — so no
+single flow runs from E into T. The finding also fires for that masked crossing: E reaches a T whose resolved zone
+is `INTERNAL`/`RESTRICTED` only through one or more **forwarders**, each hop a modelled flow in direction. A
+forwarder is a component of the stock Load Balancer, Reverse Proxy / WAF Appliance, VPN Gateway, Firewall or
+Network Router class (by class id, or by that exact class name under another id), or an unclassified `PROCESS`
+named as a load balancer or proxy (`LB`/`ALB`/`NLB`/`ELB`/`WAF`, *load balancer*, *reverse proxy*, *ingress
+controller*, as whole words). An API gateway or a web server terminates the request and is not a forwarder; a
+classified component is judged by its class, never its name. Each forwarder must sit in a boundary that is not
+external, not E, not the root, and not a trusted tier — a forwarder inside a trusted tier is already a direct
+ingress onto that tier, which the direct rule reports. T is never external, E, the root, a structural container,
+or a forwarder's own boundary; E and T nested in one another are excluded as for the direct rule. The engine
+reports one finding per (E, T), with `boundaryId` E and `peerId` T as for a direct crossing, plus `via` (the
+forwarder names in order, from the shortest path, ties broken by name then id) and `viaIds`; the detail names the
+hops and the remedies — ratify a conduit to T, route it through an approved path, or declare T `EXPOSED`. There
+is no hop bound, the result does not depend on flow order, and it needs no asset, so it fires in the skeleton
+phase too. The direct rule is unchanged and wins: when E→T is itself a flow edge, only the direct finding appears.
+
+**The approved channel for a masked crossing is E→T.** A conduit `OUTBOUND` on E to T (or its `INBOUND` mirror on
+T) ratifies it; a conduit to the forwarder's tier does not ratify the crossing behind it. The forwarder tier's own
+crossing into an asset-bearing tier is a separate channel and still raises its own `flow-channel` finding. For
+dead intent, a conduit E→T has a matching flow whenever a forwarder chain connects E and T, whatever the tiers'
+zones — declaring the forwarder's tier trusted later does not turn a ratified conduit dormant.
 
 **`cross-tier-domain` makes `domains` load-bearing.** `domains` are otherwise free-text advisory tags the engine
 never reads. This finding reads them: it groups non-structural boundaries by shared tag (case-folded) and fires
@@ -114,18 +139,35 @@ compute as tags" guidance teeth.
 
 ## 3. In the guided workflow
 
-Zoning is ratified — never silently set — across four points of `/dethereal:threat-model`
-(`skills/threat-model/SKILL.md`):
+Zoning is ratified — never silently set — at Steps 4–7 of `/dethereal:threat-model`, and reviewed at Step 9
+(`oss/apps/dethereal/workflow/skills/threat-model/SKILL.md`, with its step prose in `workflow/shared/guided-*.md`):
 
-- **Step 4 — trust skeleton.** A batched accept-all / adjust gate proposes each *leaf* boundary's `zone` + `plane`
-  (skeleton phase; `RESTRICTED` deferred). Structural containers render `— structural` and are not nagged. Accepted
-  rows are written to `structure.json`; identity / compute-node / location / business grouping is steered to
-  `domains`/`planes` **tags**, not zone-bearing boundaries.
+- **Step 4 — trust skeleton.** One batched accept-all / adjust question (`boundary-trust`) proposes each *leaf*
+  boundary's `zone` + `plane` (skeleton phase; `RESTRICTED` deferred), alongside its enforcement posture
+  (`implicit_deny_enabled`, `allow_any_inbound`, `egress_filtering`). The proposed zone is discovery's, from a topology signal or from a
+  boundary whose members are all external entities (`UNTRUSTED`; `VENDOR` only for a partner named as vetted, which
+  includes a cloud provider whose managed services the system consumes; low confidence when membership is the only
+  evidence). A non-structural leaf discovery left unproposed whose components are all `EXTERNAL_ENTITY` is proposed
+  the same way at Step 4, marked `[lo]` with its reason in a Note column; a leaf
+  mixing external entities with other components gets no external zone, only the hierarchy check's move finding. A
+  leaf with no proposal that resolves to the default renders **needs a zone**, never a blank, and the step
+  auto-skips only when the skeleton reports no `unclassified` finding. Structural containers render
+  `— structural` and are not nagged. Accepted rows are written to `structure.json`; identity / compute-node /
+  location / business grouping is steered to `domains`/`planes` **tags**, not zone-bearing boundaries.
 - **Step 5 — conduit ratification.** The risk-bearing crossings (external → trusted) are surfaced; the operator
   ratifies the few that are legitimate as **approved channels**, appending `OUTBOUND` conduits to `structure.json`.
   An un-ratified crossing stays a plain flow and re-surfaces at Step 9 — that divergence is the design working.
-- **Step 7 — promotion.** After assets are classified, the full determination re-derives and promotes qualifying
-  boundaries to `RESTRICTED` (a batched confirm folded into the Step-7 gate); a ratified zone is never overwritten.
+  Before that, a privilege or auth transition the operator confirms (a caller and callee at different authorization
+  levels inside one zone) is proposed as a sub-boundary, or as a `Management` plane, through the Step-4 questions —
+  `boundary-hierarchy`, then `boundary-trust` for the new rows.
+- **Step 6 — provider boundary.** A confirmed re-type of a cloud provider's managed service moves it into the
+  provider's boundary, created when needed with `zone: VENDOR`; the confirmed row ratifies that zone.
+- **Step 7 — promotion.** After the data items are classified, the full determination re-derives and the workflow
+  asks its own `restricted-promotion` question (promote all / adjust) at the end of the step. Only a boundary whose
+  computed tier is `RESTRICTED`, that does not already resolve to `RESTRICTED`, and whose declared zone is `null` or
+  `INTERNAL` is offered; a boundary declared
+  `PUBLIC`, `EXPOSED`, `VENDOR` or `UNTRUSTED` never is. The change only tightens, and nothing is written unless the
+  operator confirms the row.
 - **Step 9 — validation.** The model-reviewer rolls up the zoning findings as an advisory block.
 
 ---

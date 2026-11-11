@@ -1,0 +1,394 @@
+source: agents/model-reviewer.md
+blob: ee3b6d6b1c8adf69ce50c0ad9ca2a10e69d20963
+migrated: true
+rules:
+  - id: cf1e053ea5
+    line: 19
+    anchor: You are a read-only threat model auditor.
+    destination: agents/model-reviewer.md
+  - id: c0c3e7c01a
+    line: 19
+    anchor: You evaluate model completeness, correctness, and security coverage, producing quality reports and readiness assessments.
+    destination: agents/model-reviewer.md
+  - id: 386061560e
+    line: 19
+    anchor: You do not modify model files
+    destination: agents/model-reviewer.md
+  - id: 7de26402f2
+    line: 23
+    anchor: (`list`, `get`), which change nothing
+    destination: agents/model-reviewer.md
+  - id: 781d0be1e3
+    line: 23
+    anchor: Your role is to audit, not to modify.
+    destination: agents/model-reviewer.md
+  - id: f072e0bb7a
+    line: 23
+    anchor: Your role is to audit, not to modify.
+    destination: agents/model-reviewer.md
+  - id: bc56da3854
+    line: 27
+    anchor: "**Read model files** from the provided directory path — `manifest.json`, `structure.json`, `dataflows.json`, `data-items.json`"
+    destination: agents/model-reviewer.md
+  - id: 72568b971e
+    line: 28
+    anchor: for structural checks
+    destination: agents/model-reviewer.md
+  - id: 8a6dc39c96
+    line: 29
+    anchor: for the 7-factor quality assessment
+    destination: agents/model-reviewer.md
+  - id: fa60a10584
+    line: 30
+    anchor: to verify assigned classes are valid
+    destination: agents/model-reviewer.md
+  - id: 863ee7c5ae
+    line: 31
+    anchor: "'zoning')` for the per-boundary trust findings (`unclassified`, `under-protected`, `mgmt-plane`, `external-ingress`, `flow-channel`, `cross-tier-domain`). Read-only and **advisory** —"
+    destination: agents/model-reviewer.md
+  - id: d2516d0054
+    line: 32
+    anchor: "**Check platform data** (if authenticated): list exposures and countermeasures for coverage gaps"
+    destination: agents/model-reviewer.md
+  - id: 429b3def31
+    line: 38
+    anchor: Structural validity | Validation errors from
+    destination: agents/model-reviewer.md
+  - id: 4305f705ee
+    line: 39
+    anchor: "| Component classification | Unclassified components (missing `classData`) |"
+    destination: agents/model-reviewer.md
+  - id: 757080bc67
+    line: 40
+    anchor: "| Attribute completion | Components with class but no attribute file |"
+    destination: agents/model-reviewer.md
+  - id: f6e781db96
+    line: 41
+    anchor: "| Boundary hierarchy | Flat structure, single-child boundaries, external entities inside internal boundaries |"
+    destination: agents/model-reviewer.md
+  - id: 19d07989e8
+    line: 42
+    anchor: "| Data flow coverage | Orphaned components with no inbound/outbound flows |"
+    destination: agents/model-reviewer.md
+  - id: 5dfe7fe92f
+    line: 43
+    anchor: "| Data classification | Sensitive data flows without data items or classification |"
+    destination: agents/model-reviewer.md
+  - id: 047d77916c
+    line: 44
+    anchor: "| Data-item assertions (Info) | `credential_hints` from the quality result (items bound to a credential-like class"
+    destination: agents/model-reviewer.md
+  - id: 930d962174
+    line: 45
+    anchor: "| Common gaps | Missing admin access flows, monitoring flows, backup flows |"
+    destination: agents/model-reviewer.md
+  - id: d856d7a1b6
+    line: 49
+    dropped:
+      reason: "The reviewer no longer computes gate verdicts: the server computes Gates 1–3 (Gate 3 as criteria C1–C9) and the reviewer renders what the validation tool returns."
+      ref: apps/dethereal/src/tools/manifest.ts (validate_model_json, action gates)
+  - id: 61cc76512d
+    line: 51
+    anchor: "Advisory: shown inline, never blocks."
+    destination: shared/gate-verdicts.md
+  - id: 5ed535b4e9
+    line: 52
+    dropped:
+      reason: "The reviewer no longer computes gate verdicts: the server computes Gates 1–3 (Gate 3 as criteria C1–C9) and the reviewer renders what the validation tool returns."
+      ref: apps/dethereal/src/tools/manifest.ts (validate_model_json, action gates)
+  - id: d21b3671a8
+    line: 53
+    dropped:
+      reason: "The reviewer no longer computes gate verdicts: the server computes Gates 1–3 (Gate 3 as criteria C1–C9) and the reviewer renders what the validation tool returns."
+      ref: apps/dethereal/src/tools/manifest.ts (validate_model_json, action gates)
+  - id: a527fcfc0d
+    line: 54
+    dropped:
+      reason: "The reviewer no longer computes gate verdicts: the server computes Gates 1–3 (Gate 3 as criteria C1–C9) and the reviewer renders what the validation tool returns."
+      ref: apps/dethereal/src/tools/manifest.ts (validate_model_json, action gates)
+  - id: 39a1157f63
+    line: 55
+    dropped:
+      reason: "The reviewer no longer computes gate verdicts: the server computes Gates 1–3 (Gate 3 as criteria C1–C9) and the reviewer renders what the validation tool returns."
+      ref: apps/dethereal/src/tools/manifest.ts (validate_model_json, action gates)
+  - id: c9a21191b1
+    line: 56
+    dropped:
+      reason: "The reviewer no longer computes gate verdicts: the server computes Gates 1–3 (Gate 3 as criteria C1–C9) and the reviewer renders what the validation tool returns."
+      ref: apps/dethereal/src/tools/manifest.ts (validate_model_json, action gates)
+  - id: 9f05e5dfa5
+    line: 58
+    anchor: The platform refuses a push while Gate 2 fails.
+    destination: shared/gate-verdicts.md
+  - id: b31d9ec566
+    line: 59
+    dropped:
+      reason: "The reviewer no longer computes gate verdicts: the server computes Gates 1–3 (Gate 3 as criteria C1–C9) and the reviewer renders what the validation tool returns."
+      ref: apps/dethereal/src/tools/manifest.ts (validate_model_json, action gates)
+  - id: 7701a8dc9f
+    line: 60
+    dropped:
+      reason: "The reviewer no longer computes gate verdicts: the server computes Gates 1–3 (Gate 3 as criteria C1–C9) and the reviewer renders what the validation tool returns."
+      ref: apps/dethereal/src/tools/manifest.ts (validate_model_json, action gates)
+  - id: 131e15f447
+    line: 61
+    dropped:
+      reason: "The reviewer no longer computes gate verdicts: the server computes Gates 1–3 (Gate 3 as criteria C1–C9) and the reviewer renders what the validation tool returns."
+      ref: apps/dethereal/src/tools/manifest.ts (validate_model_json, action gates)
+  - id: 61ccaacb0b
+    line: 62
+    dropped:
+      reason: "The reviewer no longer computes gate verdicts: the server computes Gates 1–3 (Gate 3 as criteria C1–C9) and the reviewer renders what the validation tool returns."
+      ref: apps/dethereal/src/tools/manifest.ts (validate_model_json, action gates)
+  - id: 8069011af3
+    line: 64
+    anchor: REVIEWED is granted by the server, never claimed.
+    destination: shared/gate-decisions.md
+  - id: 7797f934a9
+    line: 65
+    dropped:
+      reason: "The reviewer no longer computes gate verdicts: the server computes Gates 1–3 (Gate 3 as criteria C1–C9) and the reviewer renders what the validation tool returns."
+      ref: apps/dethereal/src/tools/manifest.ts (validate_model_json, action gates)
+  - id: 5fccc4c1fa
+    line: 66
+    dropped:
+      reason: "The reviewer no longer computes gate verdicts: the server computes Gates 1–3 (Gate 3 as criteria C1–C9) and the reviewer renders what the validation tool returns."
+      ref: apps/dethereal/src/tools/manifest.ts (validate_model_json, action gates)
+  - id: e123b9b463
+    line: 67
+    dropped:
+      reason: "The reviewer no longer computes gate verdicts: the server computes Gates 1–3 (Gate 3 as criteria C1–C9) and the reviewer renders what the validation tool returns."
+      ref: apps/dethereal/src/tools/manifest.ts (validate_model_json, action gates)
+  - id: a5d1251dae
+    line: 68
+    dropped:
+      reason: "The reviewer no longer computes gate verdicts: the server computes Gates 1–3 (Gate 3 as criteria C1–C9) and the reviewer renders what the validation tool returns."
+      ref: apps/dethereal/src/tools/manifest.ts (validate_model_json, action gates)
+  - id: 5a96ccd124
+    line: 69
+    dropped:
+      reason: "The reviewer no longer computes gate verdicts: the server computes Gates 1–3 (Gate 3 as criteria C1–C9) and the reviewer renders what the validation tool returns."
+      ref: apps/dethereal/src/tools/manifest.ts (validate_model_json, action gates)
+  - id: 8f0f9017ef
+    line: 71
+    anchor: One verdict line
+    destination: shared/gate-verdicts.md
+  - id: bb0f62da73
+    line: 75
+    anchor: Check the model for these frequently missing elements.
+    destination: agents/model-reviewer.md
+  - id: 0f3969365a
+    line: 75
+    anchor: "Display as a checklist with `[x]` (present) or `[ ]` (missing):"
+    destination: agents/model-reviewer.md
+  - id: c7fd5a0d9f
+    line: 77
+    anchor: Administrative access paths (SSH, RDP, management consoles)
+    destination: agents/model-reviewer.md
+  - id: fee596406f
+    line: 78
+    anchor: Monitoring and logging flows (to SIEM, log aggregators)
+    destination: agents/model-reviewer.md
+  - id: 2729d772fe
+    line: 79
+    anchor: Backup and recovery flows (database dumps, snapshots)
+    destination: agents/model-reviewer.md
+  - id: 9da14f3b78
+    line: 80
+    anchor: All trust boundary crossings have data flows
+    destination: agents/model-reviewer.md
+  - id: 8f3efb97d1
+    line: 81
+    anchor: External dependencies (CDN, DNS, CA, package registries)
+    destination: agents/model-reviewer.md
+  - id: 2500c7c177
+    line: 82
+    anchor: Human actors (developers, operators, support staff)
+    destination: agents/model-reviewer.md
+  - id: 6b92d3400c
+    line: 83
+    anchor: Bidirectional flows (request + response pairs)
+    destination: agents/model-reviewer.md
+  - id: 675412f0b4
+    line: 84
+    anchor: Error and fallback paths (circuit breakers, retry queues)
+    destination: agents/model-reviewer.md
+  - id: aeb1744965
+    line: 85
+    anchor: Trust zones declared (unclassified boundaries fall back to
+    destination: agents/model-reviewer.md
+  - id: db42d6037f
+    line: 86
+    anchor: Assets in adequately-restricted boundaries (no `under-protected`/misplaced asset boundary)
+    destination: agents/model-reviewer.md
+  - id: be90bef625
+    line: 87
+    anchor: Management-plane boundaries not externally reachable (no `mgmt-plane` exposure)
+    destination: agents/model-reviewer.md
+  - id: 032efd69b2
+    line: 88
+    anchor: External-tier ingress declared as an approved channel (no `external-ingress` — a `VENDOR`/`UNTRUSTED` boundary reaching a trusted
+    destination: agents/model-reviewer.md
+  - id: b425ef531a
+    line: 89
+    anchor: Modelled risk-bearing crossings reconciled with declared channels (no `flow-channel` — undeclared path, dead intent, or unreviewable
+    destination: agents/model-reviewer.md
+  - id: d23356ab4c
+    line: 90
+    anchor: Shared `domains` tags don't couple an exposed segment with a protected one (no `cross-tier-domain` — dormant
+    destination: agents/model-reviewer.md
+  - id: 21e56e50f7
+    line: 94
+    anchor: produce a structured attack surface summary
+    destination: agents/model-reviewer.md
+  - id: 8fd8334897
+    line: 96
+    anchor: "**Component breakdown** — Read `structure.json`, recursively traverse boundaries. Count components by type (PROCESS, STORE, EXTERNAL_ENTITY) per"
+    destination: agents/model-reviewer.md
+  - id: aa6e04bd15
+    line: 98
+    anchor: "**Trust boundary crossings** — Identify data flows where source and target are in different boundaries. Read"
+    destination: agents/model-reviewer.md
+  - id: b50df6a17f
+    line: 99
+    anchor: "| From → To | Flow Count | Encrypted | Authenticated | Enforcement | |-----------|------------|-----------|---------------|-------------|"
+    destination: agents/model-reviewer.md
+  - id: df299f63b1
+    line: 103
+    anchor: Annotate flows where `auth_failure_mode` is `fail_open` — these appear authenticated but provide no security on failure.
+    destination: agents/model-reviewer.md
+  - id: 24edf1231b
+    line: 103
+    anchor: Display boundary enforcement as "enforced" (implicit_deny + egress filtering) or "logical only."
+    destination: agents/model-reviewer.md
+  - id: 32b7e3713f
+    line: 105
+    anchor: for the platform-computed exposures
+    destination: agents/model-reviewer.md
+  - id: "24922e0082"
+    line: 107
+    anchor: "**Control gap analysis** — A control gap is a classified component that no formal control covers."
+    destination: agents/model-reviewer.md
+  - id: 57059309d8
+    line: 108
+    anchor: Label every crown jewel
+    destination: agents/model-reviewer.md
+  - id: 6e6fb6c008
+    line: 109
+    dropped:
+      reason: "The old four-tier grouping is replaced by the server's tier definition: the gates list Tier 1, Tier 2 and the crown jewels by name (report.tier_members) and Tier 3 as counts, and the reviewer takes its groups from there."
+      ref: apps/dethereal/workflow/shared/tiers.md
+  - id: 4b16be864a
+    line: 110
+    dropped:
+      reason: "The old four-tier grouping is replaced by the server's tier definition: the gates list Tier 1, Tier 2 and the crown jewels by name (report.tier_members) and Tier 3 as counts, and the reviewer takes its groups from there."
+      ref: apps/dethereal/workflow/shared/tiers.md
+  - id: a94c45074c
+    line: 111
+    dropped:
+      reason: "The old four-tier grouping is replaced by the server's tier definition: the gates list Tier 1, Tier 2 and the crown jewels by name (report.tier_members) and Tier 3 as counts, and the reviewer takes its groups from there."
+      ref: apps/dethereal/workflow/shared/tiers.md
+  - id: ab27848c67
+    line: 113
+    anchor: "Also inspect `controls/*.json`: flag any control whose class binding has empty `attributes` AND empty `platformAttributes` —"
+    destination: agents/model-reviewer.md
+  - id: aa40f622d3
+    line: 113
+    anchor: This typically appears when a control was recreated via bare create+assign after a push error, skipping
+    destination: agents/model-reviewer.md
+  - id: b72c2c02bb
+    line: 113
+    anchor: Likewise flag any control that, post-analysis, has zero countermeasures.
+    destination: agents/model-reviewer.md
+  - id: 4ce1d9f659
+    line: 115
+    anchor: aggregate exploitedBy[].attack_id across exposures and report which of the 15 Enterprise ATT&CK tactics are covered
+    destination: agents/model-reviewer.md
+  - id: 2df10f8679
+    line: 117
+    anchor: "**Credential topology** — Cross-boundary flows with `required_credentials` attributes. STORE components with `stores_credentials: true`. Shared credentials (same"
+    destination: agents/model-reviewer.md
+  - id: 9517a562e6
+    line: 119
+    anchor: "**Detection coverage** — Check attribute files for `monitoring_tools` data. List components where `monitoring_tools` is empty or"
+    destination: agents/model-reviewer.md
+  - id: 297eeb1f7e
+    line: 121
+    anchor: "Surface output format:"
+    destination: agents/model-reviewer.md
+  - id: 25227b22e4
+    line: 122
+    anchor: "## Attack Surface: <Model Name> ### Components (N total) | Boundary | PROCESS | STORE |"
+    destination: agents/model-reviewer.md
+  - id: 90f12488e1
+    line: 154
+    anchor: "When reviewing or analyzing a model, check for cross-model boundaries:"
+    destination: agents/model-reviewer.md
+  - id: 4b0cde9bd7
+    line: 156
+    anchor: Read `structure.json` for components or boundaries with `representedModel` references
+    destination: agents/model-reviewer.md
+  - id: d886627443
+    line: 157
+    anchor: If found, count such components and check `.dethernety/models.json` for local availability. If `models.json` does not exist,
+    destination: agents/model-reviewer.md
+  - id: 1254362b9e
+    line: 158
+    anchor: N components reference external models
+    destination: agents/model-reviewer.md
+  - id: 3b8fdc3f33
+    line: 159
+    anchor: Cross-Model Analysis Boundaries N components reference external models. Attack paths through these components are not included
+    destination: agents/model-reviewer.md
+  - id: e6ac5c64ff
+    line: 164
+    anchor: Scan attribute files across locally available referenced models for `credential_scope` overlap. If the same credential appears
+    destination: agents/model-reviewer.md
+  - id: f696091f77
+    line: 165
+    anchor: Credential "<name>" is used in both "<Model A>" and "<Model B>". Lateral movement analysis cannot trace
+    destination: agents/model-reviewer.md
+  - id: 30492c2239
+    line: 174
+    anchor: "### Quality Score: X/100 (<Label>) ### Factor Breakdown | Factor | Score | Weight | Contribution"
+    destination: agents/model-reviewer.md
+  - id: 3fa133053d
+    line: 211
+    anchor: Your model is structurally ready for analysis, but analysis quality will improve significantly with credentials (for
+    destination: agents/model-reviewer.md
+  - id: 9e71f1f676
+    line: 214
+    anchor: "**Rendering the `### Zoning Coherence` block** from the `action: 'zoning'` findings — deliberately shaped unlike the"
+    destination: agents/model-reviewer.md
+  - id: f15fb71eab
+    line: 215
+    anchor: "**Roll up by kind (and severity)** — one line per finding kind, never one row per"
+    destination: agents/model-reviewer.md
+  - id: 4806b01041
+    line: 216
+    anchor: "**Order actionable-first** — `[Warning]` kinds (`under-protected`, `external-ingress`, `flow-channel` undeclared paths, `mgmt-plane`) before `[Info]` (`flow-channel` dead-intent /"
+    destination: agents/model-reviewer.md
+  - id: 5e68f773cb
+    line: 217
+    anchor: "**Map severity** — `warning` → `[Warning]`, `info` → `[Info]`. The zoning engine emits no `critical`, so"
+    destination: agents/model-reviewer.md
+  - id: b384327670
+    line: 218
+    anchor: "**Cap per kind** — name up to 3 boundaries, then `+N more`."
+    destination: agents/model-reviewer.md
+  - id: 41c4e39931
+    line: 219
+    anchor: "**`cross-tier-domain` is pre-grouped** — the engine emits one `[Info]` finding per shared `domains` tag (its coupled"
+    destination: agents/model-reviewer.md
+  - id: 1ada70153a
+    line: 220
+    anchor: "**Exclude structural containers, but surface their roll-up** — a boundary the payload marks `structural: true` (it"
+    destination: agents/model-reviewer.md
+  - id: ea274310d0
+    line: 221
+    anchor: — omit the *findings* block entirely when there are no
+    destination: agents/model-reviewer.md
+  - id: 74ba578bd2
+    line: 222
+    anchor: "**Scope disclaimer — always print it once whenever the review reports zoning, INCLUDING when there are"
+    destination: agents/model-reviewer.md

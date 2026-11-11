@@ -1,0 +1,21 @@
+{
+  "argv": [
+    "secret-guard",
+    "--harness",
+    "codex"
+  ],
+  "event": {
+    "session_id": "<session_id>",
+    "turn_id": "<turn_id>",
+    "transcript_path": "<transcript_path>",
+    "cwd": "<project>",
+    "hook_event_name": "PreToolUse",
+    "model": "gpt-6-astra",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "pwd && rg --files -g 'models.json' -g 'manifest.json' -g 'structure.json' -g 'dataflows.json' -g 'data-items.json' -g 'AGENTS.md' -g '!node_modules' -g '!.git' --hidden"
+    },
+    "tool_use_id": "exec-<id>"
+  }
+}

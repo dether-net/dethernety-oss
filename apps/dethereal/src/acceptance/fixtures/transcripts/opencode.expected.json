@@ -1,0 +1,620 @@
+{
+ "schemaVersion": 1,
+ "harness": "opencode",
+ "projectRoot": "/work/project",
+ "events": [
+  {
+   "seq": 0,
+   "ts": "2026-09-25T14:35:21.790Z",
+   "kind": "user",
+   "actor": "main",
+   "turn": "msg_000000000000000000000068"
+  },
+  {
+   "seq": 1,
+   "ts": "2026-09-25T14:35:32.873Z",
+   "kind": "assistant",
+   "actor": "main",
+   "turn": "msg_00000000000000000000006b"
+  },
+  {
+   "seq": 2,
+   "ts": "2026-09-25T14:37:10.933Z",
+   "kind": "user",
+   "actor": "main",
+   "turn": "msg_00000000000000000000006e"
+  },
+  {
+   "seq": 3,
+   "ts": "2026-09-25T14:37:35.147Z",
+   "kind": "tool_call",
+   "actor": "main",
+   "turn": "msg_000000000000000000000070",
+   "tool": "write"
+  },
+  {
+   "seq": 4,
+   "ts": "2026-09-25T14:37:35.151Z",
+   "kind": "tool_result",
+   "actor": "main",
+   "turn": "msg_000000000000000000000070",
+   "tool": "write"
+  },
+  {
+   "seq": 5,
+   "ts": "2026-09-25T14:37:35.151Z",
+   "kind": "file_write",
+   "actor": "main",
+   "turn": "msg_000000000000000000000070",
+   "tool": "write",
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "modelFile": true,
+   "op": "write"
+  },
+  {
+   "seq": 6,
+   "ts": "2026-09-25T14:37:35.277Z",
+   "kind": "harness_change",
+   "actor": "main",
+   "turn": "msg_000000000000000000000070",
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "modelFile": true,
+   "source": "patch:2026-09-25T14:37:35.141Z"
+  },
+  {
+   "seq": 7,
+   "ts": "2026-09-25T14:39:32.691Z",
+   "kind": "ask",
+   "actor": "main",
+   "turn": "msg_000000000000000000000074",
+   "tool": "question"
+  },
+  {
+   "seq": 8,
+   "ts": "2026-09-25T14:40:08.060Z",
+   "kind": "answer",
+   "actor": "main",
+   "turn": "msg_000000000000000000000074",
+   "tool": "question"
+  },
+  {
+   "seq": 9,
+   "ts": "2026-09-25T14:45:25.982Z",
+   "kind": "tool_call",
+   "actor": "main",
+   "turn": "msg_000000000000000000000077",
+   "tool": "write"
+  },
+  {
+   "seq": 10,
+   "ts": "2026-09-25T14:45:25.984Z",
+   "kind": "tool_result",
+   "actor": "main",
+   "turn": "msg_000000000000000000000077",
+   "tool": "write"
+  },
+  {
+   "seq": 11,
+   "ts": "2026-09-25T14:45:25.984Z",
+   "kind": "file_write",
+   "actor": "main",
+   "turn": "msg_000000000000000000000077",
+   "tool": "write",
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "modelFile": true,
+   "op": "write"
+  },
+  {
+   "seq": 12,
+   "ts": "2026-09-25T14:45:26.080Z",
+   "kind": "harness_change",
+   "actor": "main",
+   "turn": "msg_000000000000000000000077",
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "modelFile": true,
+   "source": "patch:2026-09-25T14:45:25.976Z"
+  },
+  {
+   "seq": 13,
+   "ts": "2026-09-25T15:10:39.718Z",
+   "kind": "tool_call",
+   "actor": "main",
+   "turn": "msg_00000000000000000000007b",
+   "tool": "edit"
+  },
+  {
+   "seq": 14,
+   "ts": "2026-09-25T15:10:39.723Z",
+   "kind": "tool_result",
+   "actor": "main",
+   "turn": "msg_00000000000000000000007b",
+   "tool": "edit"
+  },
+  {
+   "seq": 15,
+   "ts": "2026-09-25T15:10:39.723Z",
+   "kind": "file_write",
+   "actor": "main",
+   "turn": "msg_00000000000000000000007b",
+   "tool": "edit",
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "modelFile": true,
+   "op": "replace"
+  },
+  {
+   "seq": 16,
+   "ts": "2026-09-25T15:10:39.837Z",
+   "kind": "harness_change",
+   "actor": "main",
+   "turn": "msg_00000000000000000000007b",
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "modelFile": true,
+   "source": "patch:2026-09-25T15:10:39.713Z"
+  },
+  {
+   "seq": 17,
+   "ts": "2026-09-25T15:10:46.365Z",
+   "kind": "tool_call",
+   "actor": "main",
+   "turn": "msg_00000000000000000000007f",
+   "tool": "edit"
+  },
+  {
+   "seq": 18,
+   "ts": "2026-09-25T15:10:46.370Z",
+   "kind": "tool_result",
+   "actor": "main",
+   "turn": "msg_00000000000000000000007f",
+   "tool": "edit"
+  },
+  {
+   "seq": 19,
+   "ts": "2026-09-25T15:10:46.370Z",
+   "kind": "file_write",
+   "actor": "main",
+   "turn": "msg_00000000000000000000007f",
+   "tool": "edit",
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "modelFile": true,
+   "op": "replace"
+  },
+  {
+   "seq": 20,
+   "ts": "2026-09-25T15:10:46.511Z",
+   "kind": "harness_change",
+   "actor": "main",
+   "turn": "msg_00000000000000000000007f",
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "modelFile": true,
+   "source": "patch:2026-09-25T15:10:46.360Z"
+  },
+  {
+   "seq": 21,
+   "ts": "2026-09-25T15:15:07.048Z",
+   "kind": "subagent_start",
+   "actor": "main",
+   "turn": "msg_000000000000000000000083",
+   "tool": "task"
+  },
+  {
+   "seq": 22,
+   "ts": "2026-09-25T15:15:13.751Z",
+   "kind": "tool_call",
+   "actor": "dethereal-security-enricher",
+   "turn": "msg_000000000000000000000086",
+   "tool": "read"
+  },
+  {
+   "seq": 23,
+   "ts": "2026-09-25T15:15:13.759Z",
+   "kind": "tool_result",
+   "actor": "dethereal-security-enricher",
+   "turn": "msg_000000000000000000000086",
+   "tool": "read"
+  },
+  {
+   "seq": 24,
+   "ts": "2026-09-25T15:15:13.759Z",
+   "kind": "file_read",
+   "actor": "dethereal-security-enricher",
+   "turn": "msg_000000000000000000000086",
+   "tool": "read",
+   "path": "threat-models/online-boutique/.dethereal/scope.json",
+   "modelFile": true,
+   "source": "numbered"
+  },
+  {
+   "seq": 25,
+   "ts": "2026-09-25T15:16:06.131Z",
+   "kind": "subagent_end",
+   "actor": "main",
+   "turn": "msg_000000000000000000000083",
+   "tool": "task"
+  },
+  {
+   "seq": 26,
+   "ts": "2026-09-25T15:18:58.819Z",
+   "kind": "compaction",
+   "actor": "main",
+   "turn": "msg_000000000000000000000089",
+   "trigger": "manual"
+  },
+  {
+   "seq": 27,
+   "ts": "2026-09-25T15:21:07.972Z",
+   "kind": "tool_call",
+   "actor": "main",
+   "turn": "msg_00000000000000000000008b",
+   "tool": "dethereal.generate_attribute_stubs"
+  },
+  {
+   "seq": 28,
+   "ts": "2026-09-25T15:21:07.979Z",
+   "kind": "tool_result",
+   "actor": "main",
+   "turn": "msg_00000000000000000000008b",
+   "tool": "dethereal.generate_attribute_stubs"
+  },
+  {
+   "seq": 29,
+   "ts": "2026-09-25T15:21:07.979Z",
+   "kind": "server_write",
+   "actor": "main",
+   "turn": "msg_00000000000000000000008b",
+   "tool": "dethereal.generate_attribute_stubs",
+   "touches": [
+    "threat-models/online-boutique/attributes/",
+    "threat-models/online-boutique/.dethereal/"
+   ]
+  },
+  {
+   "seq": 30,
+   "ts": "2026-09-25T15:21:32.669Z",
+   "kind": "shell",
+   "actor": "main",
+   "turn": "msg_00000000000000000000008e",
+   "tool": "bash",
+   "writesModel": true,
+   "touches": [
+    "threat-models/online-boutique/structure.json",
+    "threat-models/online-boutique/dataflows.json"
+   ]
+  },
+  {
+   "seq": 31,
+   "ts": "2026-09-25T15:21:32.687Z",
+   "kind": "tool_result",
+   "actor": "main",
+   "turn": "msg_00000000000000000000008e",
+   "tool": "bash"
+  },
+  {
+   "seq": 32,
+   "ts": "2026-09-25T15:21:32.804Z",
+   "kind": "harness_change",
+   "actor": "main",
+   "turn": "msg_00000000000000000000008e",
+   "path": "threat-models/online-boutique/dataflows.json",
+   "modelFile": true,
+   "source": "patch:2026-09-25T15:21:30.766Z"
+  },
+  {
+   "seq": 33,
+   "ts": "2026-09-25T15:21:32.804Z",
+   "kind": "harness_change",
+   "actor": "main",
+   "turn": "msg_00000000000000000000008e",
+   "path": "threat-models/online-boutique/structure.json",
+   "modelFile": true,
+   "source": "patch:2026-09-25T15:21:30.766Z"
+  }
+ ],
+ "attributions": [
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "pointer": "/completedStates/0",
+   "after": "INITIALIZED",
+   "event": 5,
+   "actor": "main",
+   "tool": "write"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "pointer": "/completedStates/1",
+   "after": "SCOPE_DEFINED",
+   "event": 5,
+   "actor": "main",
+   "tool": "write"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "pointer": "/currentState",
+   "after": "SCOPE_DEFINED",
+   "event": 5,
+   "actor": "main",
+   "tool": "write"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "pointer": "/lastModified",
+   "after": "2026-09-25T00:00:00Z",
+   "event": 5,
+   "actor": "main",
+   "tool": "write"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "pointer": "/staleElements",
+   "after": [],
+   "event": 5,
+   "actor": "main",
+   "tool": "write"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "pointer": "/completedStates/2",
+   "after": "DISCOVERED",
+   "event": 11,
+   "actor": "main",
+   "tool": "write"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "pointer": "/currentState",
+   "before": "SCOPE_DEFINED",
+   "after": "DISCOVERED",
+   "event": 11,
+   "actor": "main",
+   "tool": "write"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "pointer": "/completedStates/3",
+   "after": "STRUCTURE_COMPLETE",
+   "event": 15,
+   "actor": "main",
+   "tool": "edit"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "pointer": "/currentState",
+   "before": "DISCOVERED",
+   "after": "STRUCTURE_COMPLETE",
+   "event": 15,
+   "actor": "main",
+   "tool": "edit"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "pointer": "/completedStates/4",
+   "after": "ENRICHING",
+   "event": 19,
+   "actor": "main",
+   "tool": "edit"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/state.json",
+   "pointer": "/currentState",
+   "before": "STRUCTURE_COMPLETE",
+   "after": "ENRICHING",
+   "event": 19,
+   "actor": "main",
+   "tool": "edit"
+  }
+ ],
+ "opaque": [
+  {
+   "path": "threat-models/online-boutique/.dethereal/scope.json",
+   "since": -1,
+   "resyncedAt": 24,
+   "pointer": "/activeModules/0/id",
+   "after": "00000000-0000-4000-8000-000000000064"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/scope.json",
+   "since": -1,
+   "resyncedAt": 24,
+   "pointer": "/activeModules/0/name",
+   "after": "dethernety-general"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/scope.json",
+   "since": -1,
+   "resyncedAt": 24,
+   "pointer": "/activeModules/1/id",
+   "after": "00000000-0000-4000-8000-000000000065"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/scope.json",
+   "since": -1,
+   "resyncedAt": 24,
+   "pointer": "/activeModules/1/name",
+   "after": "kubernetes-core"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/scope.json",
+   "since": -1,
+   "resyncedAt": 24,
+   "pointer": "/adversary_classes",
+   "after": []
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/scope.json",
+   "since": -1,
+   "resyncedAt": 24,
+   "pointer": "/compliance_drivers/0",
+   "after": "PCI-DSS"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/scope.json",
+   "since": -1,
+   "resyncedAt": 24,
+   "pointer": "/compliance_drivers/1",
+   "after": "GDPR"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/scope.json",
+   "since": -1,
+   "resyncedAt": 24,
+   "pointer": "/compliance_drivers/2",
+   "after": "SOC2"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/scope.json",
+   "since": -1,
+   "resyncedAt": 24,
+   "pointer": "/crown_jewels/0",
+   "after": "Payment card data"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/scope.json",
+   "since": -1,
+   "resyncedAt": 24,
+   "pointer": "/crown_jewels/1",
+   "after": "Customer PII and orders"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/scope.json",
+   "since": -1,
+   "resyncedAt": 24,
+   "pointer": "/depth",
+   "after": "architecture"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/scope.json",
+   "since": -1,
+   "resyncedAt": 24,
+   "pointer": "/description",
+   "after": "Google Cloud's Online Boutique (microservices-demo): an 11-service polyglot e-commerce application deployed on GKE Autopilot, modelled from the BASE kubernetes-manifests variant only."
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/scope.json",
+   "since": -1,
+   "resyncedAt": 24,
+   "pointer": "/exclusions/0",
+   "after": "GCP managed service internals (Memorystore, Cloud Operations, GKE control plane)"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/scope.json",
+   "since": -1,
+   "resyncedAt": 24,
+   "pointer": "/exclusions/1",
+   "after": "CI/CD build pipeline (Cloud Build, Skaffold)"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/scope.json",
+   "since": -1,
+   "resyncedAt": 24,
+   "pointer": "/modeling_intent",
+   "after": "initial"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/scope.json",
+   "since": -1,
+   "resyncedAt": 24,
+   "pointer": "/system_name",
+   "after": "Online Boutique"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/scope.json",
+   "since": -1,
+   "resyncedAt": 24,
+   "pointer": "/trust_assumptions/0",
+   "after": "The GKE control plane and underlying GCP infrastructure are trusted"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/scope.json",
+   "since": -1,
+   "resyncedAt": 24,
+   "pointer": "/trust_assumptions/1",
+   "after": "Container images deployed from the project registry are trusted as built"
+  },
+  {
+   "path": "threat-models/online-boutique/.dethereal/scope.json",
+   "since": -1,
+   "resyncedAt": 24,
+   "pointer": "/trust_assumptions/2",
+   "after": "Cluster administrators are trusted"
+  }
+ ],
+ "checkpoints": [
+  {
+   "seq": 0,
+   "after": 0,
+   "reason": "user",
+   "actor": "main",
+   "files": {}
+  },
+  {
+   "seq": 1,
+   "after": 1,
+   "reason": "turn_end",
+   "actor": "main",
+   "files": {}
+  },
+  {
+   "seq": 2,
+   "after": 2,
+   "reason": "user",
+   "actor": "main",
+   "files": {}
+  },
+  {
+   "seq": 3,
+   "after": 7,
+   "reason": "ask",
+   "actor": "main",
+   "files": {
+    "threat-models/online-boutique/.dethereal/state.json": {
+     "state": "known",
+     "lastWrite": 5,
+     "sha256": "6850feacad142f254994ed1e3f4bd448d23c0fd5bfba2609d86cac218ff373ea"
+    }
+   }
+  },
+  {
+   "seq": 4,
+   "after": 8,
+   "reason": "answer",
+   "actor": "main",
+   "files": {
+    "threat-models/online-boutique/.dethereal/state.json": {
+     "state": "known",
+     "lastWrite": 5,
+     "sha256": "6850feacad142f254994ed1e3f4bd448d23c0fd5bfba2609d86cac218ff373ea"
+    }
+   }
+  },
+  {
+   "seq": 5,
+   "after": 26,
+   "reason": "compaction",
+   "actor": "main",
+   "files": {
+    "threat-models/online-boutique/.dethereal/scope.json": {
+     "state": "known",
+     "lastWrite": -1,
+     "sha256": "82eb0e3370c69a0e4a44f9ad3d1560e44bd69d1873a59cbe30bf37cea836699a"
+    },
+    "threat-models/online-boutique/.dethereal/state.json": {
+     "state": "known",
+     "lastWrite": 19,
+     "sha256": "6a6c85e5cf7ab53a05e8cfd473d4ab95f740557052ee2d77223dba5e128aca66"
+    }
+   }
+  }
+ ],
+ "reconciliation": {
+  "crossCheck": "available",
+  "note": "each step's patch lists every file the step changed, by any means",
+  "unobserved": [],
+  "untracked": []
+ },
+ "replayNotes": [
+  {
+   "event": 24,
+   "path": "threat-models/online-boutique/.dethereal/scope.json",
+   "note": "a file the replay had not seen exists"
+  }
+ ]
+}

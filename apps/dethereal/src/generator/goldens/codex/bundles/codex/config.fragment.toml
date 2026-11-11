@@ -1,0 +1,56 @@
+[mcp_servers.dethereal]
+command = "<node-abs>"
+args = ["<runtime>/dist/index.js"]
+env = { DETHERNETY_PLATFORM_URL = "<platform-url>" }
+env_vars = ["NODE_EXTRA_CA_CERTS", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "DEBUG", "DETHERNETY_URL", "DETHEREAL_SETTLEMENT"]
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+default_tools_approval_mode = "prompt"
+
+[mcp_servers.dethereal.tools.auth_status]
+approval_mode = "approve"
+
+[mcp_servers.dethereal.tools.detect_drift]
+approval_mode = "approve"
+
+[mcp_servers.dethereal.tools.get_classes]
+approval_mode = "approve"
+
+[mcp_servers.dethereal.tools.get_control_gaps]
+approval_mode = "approve"
+
+[mcp_servers.dethereal.tools.get_example_models]
+approval_mode = "approve"
+
+[mcp_servers.dethereal.tools.get_mitre_defend]
+approval_mode = "approve"
+
+[mcp_servers.dethereal.tools.get_model_schema]
+approval_mode = "approve"
+
+[mcp_servers.dethereal.tools.list_models]
+approval_mode = "approve"
+
+[mcp_servers.dethereal.tools.match_classes]
+approval_mode = "approve"
+
+[mcp_servers.dethereal.tools.model_state]
+approval_mode = "approve"
+
+[mcp_servers.dethereal.tools.query_controls]
+approval_mode = "approve"
+
+[mcp_servers.dethereal.tools.query_countermeasures]
+approval_mode = "approve"
+
+[mcp_servers.dethereal.tools.query_exposures]
+approval_mode = "approve"
+
+[mcp_servers.dethereal.tools.search_mitre_attack]
+approval_mode = "approve"
+
+[mcp_servers.dethereal.tools.validate_model_json]
+approval_mode = "approve"
+
+[mcp_servers.dethereal.tools.workspace_status]
+approval_mode = "approve"

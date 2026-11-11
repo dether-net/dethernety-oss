@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "2.0.0",
+  "format": "split",
+  "model": {
+    "id": null,
+    "name": "OrderDesk",
+    "description": "An online order service for a small shop, running on a managed Kubernetes cluster with a managed PostgreSQL database.",
+    "defaultBoundaryId": "b-root"
+  },
+  "files": {
+    "structure": "structure.json",
+    "dataFlows": "dataflows.json",
+    "dataItems": "data-items.json",
+    "attributes": "attributes"
+  },
+  "modules": [
+    {
+      "id": "dethernety-general",
+      "name": "dethernety-general"
+    }
+  ]
+}

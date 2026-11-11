@@ -1,0 +1,42 @@
+{
+  "elementId": "x-customer",
+  "elementType": "component",
+  "elementName": "Customer",
+  "classData": {
+    "id": "e5a1c8e8-7037-4559-99c2-edf8b8eace6d",
+    "name": "End User"
+  },
+  "attributes": {
+    "breached_password_screening_enabled": null,
+    "mfa_available": null,
+    "rate_limiting_or_lockout_enabled": null,
+    "max_consecutive_failed_attempts": null,
+    "phishing_resistant_authenticator_required": null,
+    "phishing_resistant_mfa_offered": null,
+    "session_cookie_attributes": null,
+    "session_revocation_on_credential_change": null,
+    "password_min_length": null,
+    "password_max_length_cap_below_64": null,
+    "composition_rules_or_forced_rotation_imposed": null,
+    "recovery_token_csprng_single_use_short_expiry": null,
+    "recovery_no_account_enumeration": null,
+    "reset_request_rate_limited": null,
+    "no_auto_login_after_reset": null,
+    "kba_security_questions_used": null,
+    "tls_only_transport": null,
+    "cookie_secure_flag": null,
+    "cookie_httponly_flag": null,
+    "samesite_attribute_set": null,
+    "session_id_regenerated_on_auth": null,
+    "session_absolute_timeout_enforced": null,
+    "server_side_revocation_supported": null,
+    "anomalous_login_detection_enabled": null,
+    "user_alerted_on_credential_change": null,
+    "least_privilege_authorization_at_crossing": null,
+    "pii_minimized_to_purpose": null,
+    "lawful_consent_basis_recorded": null,
+    "retention_limit_defined": null,
+    "retention_schedule_enforced": null
+  },
+  "modifiedAt": "2026-09-27T22:22:53.896Z"
+}

@@ -1,0 +1,36 @@
+{
+  "elementId": "d-access-token",
+  "elementType": "dataItem",
+  "elementName": "Customer access token",
+  "classData": {
+    "id": "2bc04479-7e0c-43f2-88b5-9fe788860642",
+    "name": "Authentication Tokens"
+  },
+  "attributes": {
+    "accepts_alg_none": false,
+    "access_token_ttl_minutes": null,
+    "audience_claim_validated": true,
+    "cookie_httponly_flag": null,
+    "expiry_claim_validated": null,
+    "identifier_entropy_bits": null,
+    "issuer_claim_validated": true,
+    "jwt_signature_verified": null,
+    "long_lived_token_in_browser_storage": null,
+    "refresh_token_rotation_enabled": null,
+    "rs256_to_hs256_confusion_possible": false,
+    "samesite_attribute_set": null,
+    "samesite_mode": null,
+    "secrets_masked_in_logs": null,
+    "sender_constrained": null,
+    "server_side_revocation_supported": null,
+    "session_absolute_timeout_enforced": null,
+    "session_id_regenerated_on_auth": null,
+    "signature_algorithm_pinned_server_side": true,
+    "signing_key_csprng_generated": null,
+    "signing_key_high_entropy": null,
+    "stored_in_js_accessible_storage": null,
+    "tls_only_transport": false,
+    "transmitted_in_url_or_query": null
+  },
+  "modifiedAt": "2026-09-27T22:22:54.217Z"
+}

@@ -1,0 +1,39 @@
+{
+  "mcp": {
+    "dethereal": {
+      "type": "local",
+      "command": [
+        "<node-abs>",
+        "<runtime>/dist/index.js"
+      ],
+      "environment": {
+        "DETHERNETY_PLATFORM_URL": "<platform-url>"
+      },
+      "timeout": 60000,
+      "enabled": true
+    }
+  },
+  "permission": {
+    "dethereal_login": "ask",
+    "dethereal_logout": "ask",
+    "dethereal_model_state_waive": "ask",
+    "dethereal_model_state_settle": "ask",
+    "dethereal_model_state_prune": "ask",
+    "dethereal_import_model": "ask",
+    "dethereal_export_model": "ask",
+    "dethereal_update_model": "ask",
+    "dethereal_create_threat_model": "ask",
+    "dethereal_update_attributes": "ask",
+    "dethereal_generate_attribute_stubs": "ask",
+    "dethereal_manage_controls": "ask",
+    "dethereal_manage_countermeasures": "ask",
+    "dethereal_manage_analyses": "ask"
+  },
+  "agent": {
+    "explore": {
+      "permission": {
+        "dethereal_*": "deny"
+      }
+    }
+  }
+}

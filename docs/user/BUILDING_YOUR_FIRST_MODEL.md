@@ -395,7 +395,7 @@ The archive holds the model as a set of JSON files:
         └── <id>.json
 ```
 
-This is the same split-file format the [Dethereal Claude Code plugin](dethereal/README.md) uses, so you can export a model, enrich it with the plugin (see [Discovery and enrichment](dethereal/DISCOVERY_AND_ENRICHMENT.md)), and import it again.
+This is the same split-file format the [Dethereal plugin](dethereal/README.md) for Claude Code, Codex and OpenCode uses, so you can export a model, enrich it with the plugin (see [Discovery and enrichment](dethereal/DISCOVERY_AND_ENRICHMENT.md)), and import it again.
 
 ### Import a model
 
@@ -431,4 +431,4 @@ You built a complete threat model and worked it through to a tracked issue. Alon
 - **[Component Configuration Guide](COMPONENT_CONFIGURATION_GUIDE.md)**: fill in class attributes and classify the data your components handle.
 - **[Security Analysis Workflow](SECURITY_ANALYSIS_WORKFLOW.md)**: how analyses run, and what other analysis types can offer.
 - **[Issue Management Guide](ISSUE_MANAGEMENT_GUIDE.md)**: filter, merge, and track issues with your team.
-- **[Dethereal plugin](dethereal/README.md)**: build and enrich models in conversation with Claude Code.
+- **[Dethereal plugin](dethereal/README.md)**: build and enrich models in conversation with Claude Code, Codex or OpenCode.
