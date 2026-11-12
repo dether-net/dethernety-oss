@@ -28,13 +28,13 @@ From the first release that ships it, each release has an installer, `get-byodt.
 **With npx (recommended if you have Node.js).** The npm package carries the release's own `get-byodt.sh` and runs it. Use it if Node.js 18 or later is already installed, or you are happy to install it. Node.js runs the installer only: the deployment itself never needs it. If you will run the Dethereal plugin (for Claude Code, Codex or OpenCode) on the same machine, you have Node.js already: its MCP server runs on Node.js 20.11.1 or later, which also meets the installer's 18 (see [Getting started with Dethereal](../dethereal/GETTING_STARTED.md#prerequisites)).
 
 ```sh
-npx @dether.net/byodt@0.15.0
+npx @dether.net/byodt@0.16.0
 ```
 
 **With `get-byodt.sh` from the release.** The same installer, with no Node.js at all:
 
 ```sh
-VERSION=0.15.0
+VERSION=0.16.0
 curl --proto '=https' --tlsv1.2 -fsSL "https://github.com/dether-net/dethernety-oss/releases/download/v${VERSION}/get-byodt.sh" | sh
 ```
 
@@ -43,7 +43,7 @@ A release reaches npm in a separate step after it is published on GitHub; for a 
 **By hand.** These commands are the whole installation:
 
 ```sh
-VERSION=0.15.0
+VERSION=0.16.0
 BASE="https://github.com/dether-net/dethernety-oss/releases/download/v${VERSION}"
 
 # 1. Download the bundle and its signature
@@ -248,7 +248,7 @@ If you run Docker Desktop rather than Docker Engine, the systemd drop-in and `da
 **Check it** with a plain pull of two images the deployment uses. The console's tag is the release's version, as in the commands above; use `podman pull` on Podman:
 
 ```sh
-docker pull ghcr.io/dether-net/byodt-console:0.15.0
+docker pull ghcr.io/dether-net/byodt-console:0.16.0
 docker pull docker.io/nginx:1.27-alpine
 ```
 
@@ -381,12 +381,12 @@ PKG=@dether.net/byodt
 ```
 
 ```sh
-npx "$PKG@0.15.0"
-npx "$PKG@0.15.0" --dir ~/dethernety --yes
+npx "$PKG@0.16.0"
+npx "$PKG@0.16.0" --dir ~/dethernety --yes
 ```
 
 - **Name the version.** Without `@X.Y.Z`, `npx` runs the latest release.
-- **Options go after the package name**, and reach the installer. An option before it is one of npx's own: npx asks `Ok to proceed?` before it downloads a package it has not cached, and `npx --yes "$PKG@0.15.0"` skips that question. Without a terminal, npx does not ask.
+- **Options go after the package name**, and reach the installer. An option before it is one of npx's own: npx asks `Ok to proceed?` before it downloads a package it has not cached, and `npx --yes "$PKG@0.16.0"` skips that question. Without a terminal, npx does not ask.
 - It runs the package's `get-byodt.sh` with `/bin/sh`, and nothing else. It takes the same options, and asks at the terminal the same way.
 - It needs Node.js 18 or later, to run the installer only: the deployment it installs does not use Node.js. On Windows it stops with `Dethernety's self-hosted deployment runs on Linux or macOS. On Windows, run this inside WSL.`
 - It takes npm's `node_modules/.bin` folders out of `PATH` before it starts the installer, so `curl`, `cosign`, `tar` and the container engine are always the system's.
@@ -397,7 +397,7 @@ npx "$PKG@0.15.0" --dir ~/dethernety --yes
 Without Node.js, download the installer straight from the release and run it:
 
 ```sh
-VERSION=0.15.0
+VERSION=0.16.0
 curl --proto '=https' --tlsv1.2 -fsSL "https://github.com/dether-net/dethernety-oss/releases/download/v${VERSION}/get-byodt.sh" | sh
 ```
 
@@ -500,7 +500,7 @@ From a script or a provisioning tool, nobody can answer the questions. Then:
   Through npx, the same options follow the package name:
 
   ```sh
-  npx "$PKG@0.15.0" --yes --dir ~/dethernety --db neo4j --start
+  npx "$PKG@0.16.0" --yes --dir ~/dethernety --db neo4j --start
   ```
 
   ```
@@ -731,7 +731,7 @@ To install by hand rather than with [the installer](#install-with-the-installer)
 2. **Download the bundle:**
 
    ```sh
-   VERSION=0.15.0
+   VERSION=0.16.0
    curl -fsSLO "https://github.com/dether-net/dethernety-oss/releases/download/v${VERSION}/byodt-${VERSION}.tar.gz"
    ```
 
@@ -1012,7 +1012,7 @@ curl -fsS http://127.0.0.1:3000/health
 ```json
 {
   "status": "healthy",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "services": {
     "database": { "status": "up", "responseTime": 1 },
     "graphql":  { "status": "up" },

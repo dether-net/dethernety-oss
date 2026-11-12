@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`@dether.net/dethereal` dependency updates** (`@apollo/client` 4.3.8, `graphql` 16.15.0, one
+  copy in the bundle); they ship with 0.6.0.
+- **`@dether.net/dethereal` updates `smol-toml` to 1.9.1**, which closes advisory
+  GHSA-r4xh-jqrq-34v2; smol-toml 1.9.x returns parsed TOML tables as null-prototype objects, so
+  the plugin's Codex configuration reader now returns ordinary objects, keeping the installer's
+  doctor (which compares the configuration against the expected one) working unchanged. It ships
+  with 0.6.0.
+
+## [0.16.0] - 2026-11-12
+
+The threat report 2.2.0 resolves and freezes who runs each component and boundary when a report is
+generated. `dethernety-general` 1.1.0 adds two boundary classes, SaaS Tenant and Managed Runtime.
+On a component or boundary, the operation category comes first on the Attributes tab. The operator
+console gains a News tab, off by default. dt-ui reads the zone the model's root boundary declares.
+dt-core: opt-in strict control resolution on import and update, and external-ingress findings
+through load balancers and proxies.
+
+**Upgrading:** from 0.14.0 or 0.15.0, `./byodt upgrade` does it (see the operator guide's
+Operations, *Upgrade with `./byodt upgrade`*). A 0.13.0 or 0.12.x deployment upgrades once with this
+release's installer, naming the deployment's folder (see Operations, *Upgrading from 0.13.0* and
+*Upgrading from 0.12.x*):
+
+```sh
+curl --proto '=https' --tlsv1.2 -fsSL https://github.com/dether-net/dethernety-oss/releases/download/v0.16.0/get-byodt.sh \
+  | sh -s -- --upgrade --dir /path/to/your/deployment
+```
+
+A deployment that skips releases reads the notes at the head of each skipped release in this
+changelog, so 0.13.0 to 0.16.0 also reads 0.14.0's and 0.15.0's, and 0.12.x to 0.16.0 those of
+0.13.0, 0.14.0 and 0.15.0. After the upgrade, a model may
+have an `external-ingress` finding it did not have before, and every existing threat-report
+snapshot of a model with components reads stale once; regenerate the report to clear it (see
+*Changed*, the `external-ingress` entry).
+
+**Operators:** the console's News tab makes no news fetch until a category is switched on. When one
+is, allow `dether.net` through the deployment's outbound proxy: the console's daemon fetches the
+feed, not the browser (see *Added*). On a deployment connected to the cloud whose knowledge-graph
+version was pinned before the two new boundary classes were published, those classes evaluate as
+usual. The knowledge-graph reasoning that modules add for them appears once an administrator
+updates the knowledge graph in the console and the platform is restarted (see the operator guide's
+Cloud, *Update the knowledge graph*).
+
+**Module authors:** `@dethernety/dt-module` is 0.16.0. A module whose manifest declares
+`compatibility.dtModule` must move it to `^0.16.0` to be packaged against it: a caret on a 0.x
+version pins the minor, so `scripts/package-module.js` refuses `^0.15.0`. In
+`@dethernety/dt-module/testing`, `runContractSuite` expects a served template's operation category
+first. A served component or boundary template keeps only plain uischema scopes, and in
+`DtFileOpaModule` a template that parses but cannot be extended now fails the read. dt-core gains
+opt-in strict control resolution on import and update (`controlResolution: 'strict'`). See *Added*
+and *Changed*.
+
+**API callers:** `controlCandidates` now reads a control class without `supportedTypes` as
+compatible with every element type, so the ranking includes it and its `compatible` is true (see
+*Changed*).
+
+**Dethereal users:** Dethereal 0.5.2: one plugin for Claude Code, Codex and OpenCode (Claude Code
+Stable, Codex Experimental, OpenCode Preview); a new threat model is quick by default; on Claude
+Code, a guard hook that fails blocks the call, which needs Claude Code 2.1.295 or later. Dethereal
+is published separately from this release.
+
 ### Added
 
 - **`dt-core`: opt-in strict control resolution for import and update.** `ImportOptions`,
@@ -253,16 +315,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   declares an operator. After that, changing an operator, a product or a component's class makes a
   report stale, and a version edit does not. See the threat report's *Reading the Report*, *Who
   runs an element*.
+- **The operator console has a News tab.** It shows the project's blog posts and release notes,
+  read from `https://dether.net/feed.json`, in two sections, Posts and Releases. It is off until a
+  category is switched on, so a fresh deployment makes no news fetch. The console's daemon fetches
+  the feed through the deployment's outbound proxy, not the browser. The categories apply to the
+  whole deployment and are saved in `mode/news.json`; in cloud mode only an administrator can
+  change them. A platform release newer than the deployment is marked as such. See the operator
+  guide's Operations, *News*.
 
 ### Changed
 
-- **`@dether.net/dethereal` dependency updates** (`@apollo/client` 4.3.8, `graphql` 16.15.0, one
-  copy in the bundle); they ship with 0.6.0.
-- **`@dether.net/dethereal` updates `smol-toml` to 1.9.1**, which closes advisory
-  GHSA-r4xh-jqrq-34v2; smol-toml 1.9.x returns parsed TOML tables as null-prototype objects, so
-  the plugin's Codex configuration reader now returns ordinary objects, keeping the installer's
-  doctor (which compares the configuration against the expected one) working unchanged. It ships
-  with 0.6.0.
+- **`controlCandidates` reads a control class without `supportedTypes` as compatible with every
+  element type.** Before, it read such a class as supporting none: the class was left out of the
+  ranking, and `compatible` was false. Now the ranking includes it and its `compatible` is true.
+  An explicit list, an empty one included, is still read strictly. Control gaps already read an
+  absent list this way.
 - **`dt-core`: `external-ingress` sees through load balancers and proxies.** The finding used to fire
   only when a flow ran straight from an external (`UNTRUSTED` or `VENDOR`) boundary into a tier
   resolving to `INTERNAL` or `RESTRICTED`. It now also fires when the external boundary reaches that
@@ -553,6 +620,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default Internal* in the boundary zoning overview. The threat report read the root's declared
   zone, so the two disagreed. These boundaries now read what the root declares. A root that declares
   nothing still reads the default.
+
+- **`@dether.net/dethereal` 0.4.21.** A version-only release that carries the dt-core fix above
+  into the plugin, which bundles dt-core. No plugin change.
 
 ### Security
 
@@ -4038,6 +4108,7 @@ greenfield ID rebinding, and append-only audit log (#104).
 - GraphQL API with real-time subscriptions
 - OIDC/JWT authentication support
 
+[0.16.0]: https://github.com/dether-net/dethernety-oss/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/dether-net/dethernety-oss/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/dether-net/dethernety-oss/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/dether-net/dethernety-oss/compare/v0.12.1...v0.13.0

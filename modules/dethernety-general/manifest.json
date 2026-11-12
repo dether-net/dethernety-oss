@@ -4,7 +4,7 @@
   "displayName": "Dethernety General",
   "description": "General-purpose threat modeling classes.",
   "tags": [],
-  "compatibility": { "dtModule": "^0.15.0" },
+  "compatibility": { "dtModule": "^0.16.0" },
   "dependencies": [],
   "restarts": ["dethernety.service"]
 }

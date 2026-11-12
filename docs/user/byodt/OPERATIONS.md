@@ -334,6 +334,8 @@ A release moves as one unit: the platform image, the console image, and the modu
 
 `./byodt upgrade` does the whole upgrade: it downloads and checks the new release, backs up, moves the new files in, brings `.env` into line, applies the release, and waits until it is healthy. The new release's [installer](./INSTALLATION.md#install-with-the-installer) does the same with `--upgrade`. A deployment on 0.12.x or 0.13.0 has no `./byodt upgrade` yet; see [Upgrading from 0.13.0](#upgrading-from-0130) and [Upgrading from 0.12.x](#upgrading-from-012x). To do it all yourself instead, see [Upgrading by hand](#upgrading-by-hand).
 
+**Before you upgrade, read the notes at the head of the release you move to, and of every release you skip, in the [CHANGELOG](../../../CHANGELOG.md)** (*Upgrading*, *Operators* and the others).
+
 ### Upgrade with `./byodt upgrade`
 
 From the deployment's folder:
