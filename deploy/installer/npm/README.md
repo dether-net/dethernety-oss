@@ -9,9 +9,9 @@ for a version that is not here yet, use `get-byodt.sh` from the release.
 
 ```sh
 PKG=@dether.net/byodt                            # this package's name
-npx "$PKG@0.15.0"                                # install this release into ./byodt
-npx "$PKG@0.15.0" --dir ~/dethernety --yes       # into a folder of your choice, asking nothing
-npx "$PKG@0.15.0" --upgrade --dir ~/dethernety   # upgrade an existing deployment to this release
+npx "$PKG@0.16.0"                                # install this release into ./byodt
+npx "$PKG@0.16.0" --dir ~/dethernety --yes       # into a folder of your choice, asking nothing
+npx "$PKG@0.16.0" --upgrade --dir ~/dethernety   # upgrade an existing deployment to this release
 npx "$PKG" --help
 ```
 

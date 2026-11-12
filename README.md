@@ -74,7 +74,7 @@ so it takes the same options and asks the same questions as way 2. Each package 
 is the release of the same version:
 
 ```bash
-npx @dether.net/byodt@0.15.0
+npx @dether.net/byodt@0.16.0
 ```
 
 Name the version: without `@X.Y.Z`, `npx` runs the latest release. A release reaches
@@ -89,7 +89,7 @@ bundle, checks its SHA-256 and, when cosign is installed, its signature, unpacks
 inside WSL).
 
 ```bash
-VERSION=0.15.0
+VERSION=0.16.0
 curl --proto '=https' --tlsv1.2 -fsSL "https://github.com/dether-net/dethernety-oss/releases/download/v${VERSION}/get-byodt.sh" | sh
 ```
 
@@ -113,11 +113,11 @@ Options such as `--dir` go after `sh -s --`; see
 
 ### 3. With the release tarball
 
-Download `byodt-0.15.0.tar.gz` from the release, extract it somewhere durable — the
+Download `byodt-0.16.0.tar.gz` from the release, extract it somewhere durable — the
 directory becomes the deployment — and start the stack:
 
 ```bash
-VERSION=0.15.0
+VERSION=0.16.0
 curl -fsSLO "https://github.com/dether-net/dethernety-oss/releases/download/v${VERSION}/byodt-${VERSION}.tar.gz"
 tar xzf "byodt-${VERSION}.tar.gz"
 cd "byodt-${VERSION}"

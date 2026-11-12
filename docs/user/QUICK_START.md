@@ -43,7 +43,7 @@ This guide takes you from nothing to your first threat finding. You install the 
 Open a terminal in the folder where the deployment should live, such as your home folder. Run:
 
 ```sh
-npx @dether.net/byodt@0.15.0
+npx @dether.net/byodt@0.16.0
 ```
 
 The installer asks a few questions. Answer them like this:
@@ -54,10 +54,10 @@ The installer asks a few questions. Answer them like this:
 
    ```
    ==> SHA-256 matches the release (…).
-   ==> Unpacked release 0.15.0 into ./byodt.
+   ==> Unpacked release 0.16.0 into ./byodt.
    ```
 
-   If [cosign](https://github.com/sigstore/cosign) is installed, it also verifies the signature and prints `==> Signature verified: the release workflow of dether-net/dethernety-oss at v0.15.0 signed it.` Without cosign, it warns that *the bundle's integrity was checked, its authenticity was not* and goes on; install cosign to check who published it too.
+   If [cosign](https://github.com/sigstore/cosign) is installed, it also verifies the signature and prints `==> Signature verified: the release workflow of dether-net/dethernety-oss at v0.16.0 signed it.` Without cosign, it warns that *the bundle's integrity was checked, its authenticity was not* and goes on; install cosign to check who published it too.
 
 4. Setup asks for your settings. Press Enter to keep each default, **except the last one**:
 
@@ -85,7 +85,7 @@ The installer asks a few questions. Answer them like this:
 Run the same install with `get-byodt.sh` from the release:
 
 ```sh
-VERSION=0.15.0
+VERSION=0.16.0
 curl --proto '=https' --tlsv1.2 -fsSL "https://github.com/dether-net/dethernety-oss/releases/download/v${VERSION}/get-byodt.sh" | sh
 ```
 
