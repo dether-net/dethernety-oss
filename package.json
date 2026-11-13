@@ -31,6 +31,9 @@
   "packageManager": "pnpm@9.13.2",
   "pnpm": {
     "neverBuiltDependencies": ["onnxruntime-node"],
+    "patchedDependencies": {
+      "@neo4j/graphql@7.2.0": "patches/@neo4j__graphql@7.2.0.patch"
+    },
     "overrides": {
       "hono": "^4.13.5",
       "@hono/node-server": "^2.0.5",

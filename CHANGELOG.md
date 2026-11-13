@@ -30,6 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   model passes to each module's `onModelDeleted` now include those bound to its elements'
   exposures, which the delete removes. An analysis bound only to a control or countermeasure is
   not the model's and stays.
+- **Selecting an element relationship on Memgraph no longer returns unrelated elements.**
+  `Exposure.element`, `Analysis.element`, `Control.elements`, `Data.elements` and
+  `Model.representedBy` returned every element at the far end of that relationship in the
+  database, not the node's own. The platform now installs `@neo4j/graphql` 7.2.0 with a patch
+  (`patches/@neo4j__graphql@7.2.0.patch`) that starts each branch of the generated query from the
+  node itself; the result is the same on Neo4j and Memgraph.
 
 ## [0.16.0] - 2026-11-12
 

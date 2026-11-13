@@ -17,6 +17,7 @@ on:
   pull_request:
     paths:
       - "Dockerfile.production"
+      - "patches/**"
       - "apps/**"
       - "packages/**"
       - "modules/**"

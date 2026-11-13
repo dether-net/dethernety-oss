@@ -1,0 +1,33 @@
+Patch for @neo4j/graphql 7.2.0 (Apache License 2.0; Copyright (c) "Neo4j", Neo4j Sweden AB).
+Modified by Dethernety.
+
+Change: CompositeReadOperation starts each UNION branch of an interface or union relationship
+selection with `WITH <parent node>` instead of `WITH *`, as CompositeConnectionReadOperation and
+CompositeAggregationOperation in the same package already do. One token in one file; the changed
+line carries a notice.
+
+Reason: on Memgraph, `WITH *` at the start of a UNION branch inside a CALL subquery does not carry
+the outer variable into the branch, so each branch matches every target of the edge type in the
+database instead of the parent node's own. Selecting a relationship field typed by an interface
+(here Exposure.element, Analysis.element, Control.elements, Data.elements, Model.representedBy)
+then returns unrelated elements. Neo4j is not affected; the patched form returns the same result
+on both engines.
+
+Upstream report: to Memgraph, not yet filed.
+
+The patch is keyed to version 7.2.0 exactly and is not applied to any other version. Moving
+@neo4j/graphql off 7.2.0 means re-checking this patch against the new version; dt-ws's
+src/gql/__tests__/interface-selection-cypher.spec.ts fails on any install without the fix.
+
+diff --git a/dist/translate/queryAST/ast/operations/composite/CompositeReadOperation.js b/dist/translate/queryAST/ast/operations/composite/CompositeReadOperation.js
+--- a/dist/translate/queryAST/ast/operations/composite/CompositeReadOperation.js
++++ b/dist/translate/queryAST/ast/operations/composite/CompositeReadOperation.js
+@@ -41,7 +41,7 @@
+             const result = c.transpile(context);
+             let clauses = result.clauses;
+             if (parentNode) {
+-                clauses = clauses.map((sq) => cypher_builder_1.default.utils.concat(new cypher_builder_1.default.With("*"), sq));
++                clauses = clauses.map((sq) => cypher_builder_1.default.utils.concat(new cypher_builder_1.default.With(parentNode), sq)); // Modified by Dethernety: start each union branch from the parent node, as the sibling operations do (Memgraph drops the outer scope under WITH *)
+             }
+             return clauses;
+         });

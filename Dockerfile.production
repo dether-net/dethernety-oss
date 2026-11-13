@@ -21,8 +21,9 @@ RUN groupadd -g 1001 nodejs && \
 
 WORKDIR /app
 
-# Copy workspace configuration to respect overrides
+# Copy workspace configuration to respect overrides, and the dependency patches the install applies
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY patches ./patches
 COPY apps/dt-ws/package.json ./apps/dt-ws/package.json
 COPY packages/dt-core/package.json ./packages/dt-core/package.json
 COPY packages/dt-module/package.json ./packages/dt-module/package.json
