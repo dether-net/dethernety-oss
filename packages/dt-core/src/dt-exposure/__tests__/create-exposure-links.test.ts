@@ -1,6 +1,8 @@
 /**
  * createExposure connects its ATT&CK techniques from attackTechniqueLinks when given (with each
- * edge's justification), and from attackTechniqueIds otherwise; neither is required.
+ * edge's justification), and from attackTechniqueIds otherwise; neither is required. It connects
+ * the element it hangs off by id, the input shape oss/apps/dt-ws/test/integration/
+ * interface-relationships.e2e-spec.ts sends to the production schema.
  */
 import { describe, it, expect, vi } from 'vitest'
 import { DtExposure } from '../dt-exposure.js'
@@ -44,5 +46,15 @@ describe('DtExposure.createExposure — technique links', () => {
     await dt.createExposure({ exposure: EXPOSURE, elementId: 'el-1' })
 
     expect(input().exploitedBy.connect).toEqual([])
+  })
+})
+
+describe('DtExposure.createExposure — the element it hangs off', () => {
+  it('connects the element by id through the Element interface field', async () => {
+    const { dt, input } = build()
+
+    await dt.createExposure({ exposure: EXPOSURE, elementId: 'el-1' })
+
+    expect(input().element).toEqual({ connect: { where: { node: { id: { eq: 'el-1' } } } } })
   })
 })

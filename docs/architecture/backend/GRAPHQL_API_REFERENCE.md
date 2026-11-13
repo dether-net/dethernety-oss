@@ -322,7 +322,7 @@ Do not reintroduce a UI for this relationship without revisiting the
 class-picker design. (→ `HAS_MODULE`) |
 | `controls` | `[Control!]!` | Controls applied to this model (← `SUPPORTS`) |
 | `dataItems` | `[Data!]!` | Data elements defined in this model (→ `CONTAINS`) |
-| `representedBy` | `[Element!]!` | Components that represent this model (for model-in-model composition) (← `REPRESENTS_MODEL`) |
+| `representedBy` | `[Element!]!` | Components that represent this model (for model-in-model composition). Correct on both engines in this build via a pinned patch of @neo4j/graphql 7.2.0; `representedByConnection` is preferred for filtering and performance. (← `REPRESENTS_MODEL`) |
 | `analyses` | `[Analysis!]!` | Analyses run against this model (→ `ANALYZED_BY`) |
 | `issues` | `[Issue!]!` | Issues associated with this model (→ `HAS_ISSUE`) |
 | `folder` | `[Folder!]!` | Folder containing this model (← `FOLDER_CONTAINS`) |
@@ -454,7 +454,7 @@ Implements: `Element`
 | `component` | `[Component!]!` | Components that handle this data (← `HANDLES`) |
 | `dataFlow` | `[DataFlow!]!` | Data flows that carry this data (← `HANDLES`) |
 | `securityBoundary` | `[SecurityBoundary!]!` | Boundaries that contain this data (← `HANDLES`) |
-| `elements` | `[Element!]!` | All elements that handle this data (← `HANDLES`) |
+| `elements` | `[Element!]!` | All elements that handle this data. Correct on both engines in this build via a pinned patch of @neo4j/graphql 7.2.0; the typed fields and `elementsConnection` are preferred for filtering and performance. (← `HANDLES`) |
 | `exposures` | `[Exposure!]!` | Security exposures related to this data (→ `HAS_EXPOSURE`) |
 | `controls` | `[Control!]!` | Controls applied to this data element. Connect and disconnect only: a nested create or delete here would mint or remove library Controls. (← `SUPPORTS`) |
 | `analyses` | `[Analysis!]!` | Analyses involving this data (→ `ANALYZED_BY`) |
@@ -478,7 +478,7 @@ Implements: `Element`
 | `type` | `String` | Control type (e.g., technical, procedural, administrative) |
 | `category` | `String` | Control category |
 | `controlClasses` | `[ControlClass!]!` | Class this control is an instance of (→ `IS_INSTANCE_OF`) |
-| `elements` | `[Element!]!` | Elements this control is applied to (polymorphic). Note: the auto-generated resolver for this interface field has correctness and performance issues against Memgraph — prefer the typed fields below for production queries. Retained for backward compatibility with external consumers. (→ `SUPPORTS`) |
+| `elements` | `[Element!]!` | Elements this control is applied to (polymorphic). Correct on both engines in this build via a pinned patch of @neo4j/graphql 7.2.0; the typed fields and `elementsConnection` are preferred for filtering and performance. (→ `SUPPORTS`) |
 | `supportedComponents` | `[Component!]!` | Components this control is applied to (→ `SUPPORTS`) |
 | `supportedBoundaries` | `[SecurityBoundary!]!` | Security boundaries this control is applied to (→ `SUPPORTS`) |
 | `supportedDataFlows` | `[DataFlow!]!` | Data flows this control is applied to (→ `SUPPORTS`) |
@@ -558,7 +558,7 @@ Implements: `Element`
 | `securityBoundary` | `[SecurityBoundary!]!` | Boundaries affected by this exposure (← `HAS_EXPOSURE`) |
 | `dataFlow` | `[DataFlow!]!` | Data flows affected by this exposure (← `HAS_EXPOSURE`) |
 | `data` | `[Data!]!` | Data elements affected by this exposure (← `HAS_EXPOSURE`) |
-| `element` | `[Element!]!` | All elements affected by this exposure (← `HAS_EXPOSURE`) |
+| `element` | `[Element!]!` | All elements affected by this exposure. Correct on both engines in this build via a pinned patch of @neo4j/graphql 7.2.0; the typed fields and `elementConnection` are preferred for filtering and performance. (← `HAS_EXPOSURE`) |
 | `exploitedBy` | `[MitreAttackTechnique!]!` | ATT&CK techniques that exploit this exposure (→ `EXPLOITED_BY`) |
 | `exploitedByAtlas` | `[MitreAtlasTechnique!]!` | ATLAS techniques that exploit this exposure (EXPLOITED_BY) (→ `EXPLOITED_BY`) |
 | `issues` | `[Issue!]!` | Issues associated with this exposure (→ `HAS_ISSUE`) |
@@ -642,7 +642,7 @@ Implements: `Element`
 | `securityBoundary` | `[SecurityBoundary!]!` | Security boundaries being analyzed (← `ANALYZED_BY`) |
 | `control` | `[Control!]!` | Controls being analyzed (← `ANALYZED_BY`) |
 | `data` | `[Data!]!` | Data elements being analyzed (← `ANALYZED_BY`) |
-| `element` | `[Element!]!` | All elements being analyzed (← `ANALYZED_BY`) |
+| `element` | `[Element!]!` | All elements being analyzed. Correct on both engines in this build via a pinned patch of @neo4j/graphql 7.2.0; the typed fields and `elementConnection` are preferred for filtering and performance. (← `ANALYZED_BY`) |
 | `issues` | `[Issue!]!` | Issues associated with this analysis (→ `HAS_ISSUE`) |
 | `analysisStatus` | `String` | Analysis lifecycle status (active, complete, archived) |
 | `scope_description` | `String` | Free-text scope description |

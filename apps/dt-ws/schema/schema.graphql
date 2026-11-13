@@ -303,7 +303,7 @@ type Model implements Element  @authentication @node {
   controls: [Control!]! @relationship(type: "SUPPORTS", direction: IN)
   "Data elements defined in this model"
   dataItems: [Data!]! @relationship(type: "CONTAINS", direction: OUT)
-  "Components that represent this model (for model-in-model composition)"
+  "Components that represent this model (for model-in-model composition). Correct on both engines in this build via a pinned patch of @neo4j/graphql 7.2.0; `representedByConnection` is preferred for filtering and performance."
   representedBy: [Element!]! @relationship(type: "REPRESENTS_MODEL", direction: IN, nestedOperations: [CONNECT, DISCONNECT])
   "Analyses run against this model"
   analyses: [Analysis!]! @relationship(type: "ANALYZED_BY", direction: OUT)
@@ -528,7 +528,7 @@ type Data implements Element  @authentication @node {
   dataFlow: [DataFlow!]! @relationship(type: "HANDLES", direction: IN)
   "Boundaries that contain this data"
   securityBoundary: [SecurityBoundary!]! @relationship(type: "HANDLES", direction: IN)
-  "All elements that handle this data"
+  "All elements that handle this data. Correct on both engines in this build via a pinned patch of @neo4j/graphql 7.2.0; the typed fields and `elementsConnection` are preferred for filtering and performance."
   elements: [Element!]! @relationship(type: "HANDLES", direction: IN, nestedOperations: [CONNECT, DISCONNECT])
   "Security exposures related to this data"
   exposures: [Exposure!]! @relationship(type: "HAS_EXPOSURE", direction: OUT)
@@ -562,7 +562,7 @@ type Control implements Element  @authentication @node {
   category: String
   "Class this control is an instance of"
   controlClasses: [ControlClass!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT)
-  "Elements this control is applied to (polymorphic). Note: the auto-generated resolver for this interface field has correctness and performance issues against Memgraph — prefer the typed fields below for production queries. Retained for backward compatibility with external consumers."
+  "Elements this control is applied to (polymorphic). Correct on both engines in this build via a pinned patch of @neo4j/graphql 7.2.0; the typed fields and `elementsConnection` are preferred for filtering and performance."
   elements: [Element!]! @relationship(type: "SUPPORTS", direction: OUT, nestedOperations: [CONNECT, DISCONNECT])
   "Components this control is applied to"
   supportedComponents: [Component!]! @relationship(type: "SUPPORTS", direction: OUT)
@@ -948,7 +948,7 @@ type Exposure implements Element  @authentication @node {
   dataFlow: [DataFlow!]! @relationship(type: "HAS_EXPOSURE", direction: IN)
   "Data elements affected by this exposure"
   data: [Data!]! @relationship(type: "HAS_EXPOSURE", direction: IN)
-  "All elements affected by this exposure"
+  "All elements affected by this exposure. Correct on both engines in this build via a pinned patch of @neo4j/graphql 7.2.0; the typed fields and `elementConnection` are preferred for filtering and performance."
   element: [Element!]! @relationship(type: "HAS_EXPOSURE", direction: IN, nestedOperations: [CONNECT, DISCONNECT])
   "ATT&CK techniques that exploit this exposure"
   exploitedBy: [MitreAttackTechnique!]! @relationship(type: "EXPLOITED_BY", direction: OUT, properties: "TechniqueLinkProperties", nestedOperations: [CONNECT, DISCONNECT])
@@ -1353,7 +1353,7 @@ type Analysis implements Element  @authentication @node {
   control: [Control!]! @relationship(type: "ANALYZED_BY", direction: IN)
   "Data elements being analyzed"
   data: [Data!]! @relationship(type: "ANALYZED_BY", direction: IN)
-  "All elements being analyzed"
+  "All elements being analyzed. Correct on both engines in this build via a pinned patch of @neo4j/graphql 7.2.0; the typed fields and `elementConnection` are preferred for filtering and performance."
   element: [Element!]! @relationship(type: "ANALYZED_BY", direction: IN, nestedOperations: [CONNECT, DISCONNECT])
   "Issues associated with this analysis"
   issues: [Issue!]! @relationship(type: "HAS_ISSUE", direction: OUT)
