@@ -12,6 +12,7 @@
     phaseShowsRerun,
     errorReason,
   } from '@/utils/analysisPhase'
+  import { dateSortValue, formatDateTime } from '@/utils/formatDateTime'
 
   import { useRouter } from 'vue-router'
   import { useDate } from 'vuetify'
@@ -52,8 +53,9 @@
 
   const headers = [
     { title: 'Name', key: 'name' },
-    { title: 'Created At', key: 'createdAt' },
-    { title: 'Updated At', key: 'updatedAt' },
+    // The dates sit under `status`; without `value`, sorting would read a top-level field that isn't there.
+    { title: 'Created At', key: 'createdAt', value: (item: Analysis) => dateSortValue(item.status?.createdAt) },
+    { title: 'Updated At', key: 'updatedAt', value: (item: Analysis) => dateSortValue(item.status?.updatedAt) },
     { title: 'Status', key: 'status' },
     { title: '', key: 'actions' },
   ]
@@ -288,10 +290,10 @@
                 </div>
               </template>
               <template #item.createdAt="{ item }">
-                {{ date.format(item.status?.createdAt, 'fullDateTime24h') }}
+                {{ formatDateTime(date, item.status?.createdAt) }}
               </template>
               <template #item.updatedAt="{ item }">
-                {{ date.format(item.status?.updatedAt, 'fullDateTime24h') }}
+                {{ formatDateTime(date, item.status?.updatedAt) }}
               </template>
               <template #item.status="{ item }">
                 <v-tooltip

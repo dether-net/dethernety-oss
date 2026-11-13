@@ -1179,7 +1179,7 @@ Removes the module's own model-scoped nodes when the platform deletes a model.
 **Parameters:**
 - `tx` — the active write transaction. Typed `any` to match this package's transaction-callback convention (so the base library carries no driver dependency). All of the hook's graph operations must run on this `tx`.
 - `modelId` — the id of the model being deleted.
-- `analysisIds` — the model's owned analysis ids, pre-collected by the platform so the hook need not re-enumerate them.
+- `analysisIds` — the model's owned analysis ids, pre-collected by the platform so the hook need not re-enumerate them: the analyses bound to the model, its structural elements and their exposures. An analysis bound only to a control or countermeasure is not the model's (controls live in folders) and is not passed.
 
 **Returns:** `{ nodesDeleted, relationshipsDeleted }` for the platform to fold into its deletion stats, or `void`.
 

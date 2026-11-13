@@ -20,6 +20,7 @@ import {
   type OperationRules,
 } from './operation-adapter';
 import { writeThreatReportSnapshot } from './snapshot-write';
+import { type DeleteCounts, deleteModelAnalyses, MODULE_NAME } from './model-deleted';
 
 /**
  * Normalize a graph-engine numeric value to a plain JS number (or null).
@@ -262,9 +263,9 @@ class DethernetyThreatReportModule implements DTModule {
 
   getMetadata(): DTMetadata {
     return {
-      name: 'dethernety-threat-report',
+      name: MODULE_NAME,
       description: 'Query-based threat reporting with interactive dashboards.',
-      version: '2.2.0',
+      version: '2.2.1',
       author: 'Dethernety',
       analysisClasses: [
         {
@@ -985,33 +986,43 @@ class DethernetyThreatReportModule implements DTModule {
    * keeps the Analysis tab's "Results" action enabled (it gates on
    * status === 'idle'). hasDocument reflects whether a snapshot has been
    * persisted, so the UI can tell a never-run report (Ready) from a completed
-   * one (Done) — a cheap indexed single-node lookup, called on every listing.
+   * one (Done), and updatedAt is when that report was generated — one cheap
+   * indexed single-node lookup, called on every listing.
    */
   async getAnalysisStatus(id: string): Promise<AnalysisStatus> {
     let hasDocument = false;
+    let updatedAt = '';
     const session = this.session();
     try {
       const r = await session.run(
-        `MATCH (a:Analysis {id: $id}) RETURN a.threatReportDoc IS NOT NULL AS hasDoc`,
+        `MATCH (a:Analysis {id: $id})
+         RETURN a.threatReportDoc IS NOT NULL AS hasDoc, a.threatReportGeneratedAt AS generatedAt`,
         { id },
       );
       hasDocument = r.records[0]?.get('hasDoc') ?? false;
+      const generatedAt = r.records[0]?.get('generatedAt');
+      if (typeof generatedAt === 'string') updatedAt = generatedAt;
     } catch (err) {
       // A status read should never flip the row to the error fallback; default
-      // false, but log so a persistently unhealthy DB is observable.
-      this.logger.debug(`threat-report: hasDocument check failed for ${id}`, err);
+      // to no document and '', but log so a persistently unhealthy DB is observable.
+      this.logger.debug(`threat-report: status lookup failed for ${id}`, err);
     } finally {
       await session.close();
     }
     return {
       createdAt: '',
-      updatedAt: '',
+      updatedAt,
       status: 'idle',
       hasDocument,
       interrupts: {},
       messages: [],
       metadata: {},
     };
+  }
+
+  /** A deleted model takes this module's reports with it, on the platform's own delete transaction. */
+  async onModelDeleted(tx: any, _modelId: string, analysisIds: string[]): Promise<DeleteCounts> {
+    return deleteModelAnalyses(tx, analysisIds);
   }
 
   /**

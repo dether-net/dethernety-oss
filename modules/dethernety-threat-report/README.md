@@ -32,7 +32,10 @@ component.
   - `runAnalysis(...)` — computes the report over the model and atomically `SET`s
     the snapshot (`+ generatedAt + fingerprint`) on the `Analysis` node.
   - `getAnalysisStatus(...)` — returns a static `idle` (the report is not a
-    long-running run; this keeps the "Results" action enabled).
+    long-running run; this keeps the "Results" action enabled), whether a
+    snapshot exists, and its generation time as `updatedAt`.
+  - `onModelDeleted(...)` — deletes this module's analyses (and their snapshots)
+    among the deleted model's, on the platform's delete transaction.
   - `getDocument(...)` — reads the snapshot back, keyed under the frontend
     component key so the analysis-results page resolves and renders it.
   - `getSchemaExtension()` / `getResolvers()` — a cheap `threatReportFingerprint`

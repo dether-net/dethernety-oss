@@ -632,8 +632,9 @@ Implements: `Element`
 | `description` | `String` | Free-text description |
 | `type` | `String` | Analysis type |
 | `category` | `String` | Analysis category |
+| `createdAt` | `DateTime` | ISO-8601 timestamp of creation, stamped once by createAnalysisIdempotent. Null for an analysis created through the generated createAnalyses mutation, which does not stamp it, including every analysis created before createAnalysisIdempotent existed. Server-stamped; not settable through the create or update inputs. |
 | `analysisClass` | `[AnalysisClass!]!` | Class this analysis is an instance of (→ `IS_INSTANCE_OF`) |
-| `status` | `AnalysisStatus` | Current execution status (resolved at runtime) (custom resolver) |
+| `status` | `AnalysisStatus` | Current execution status (resolved at runtime). Its createdAt falls back to the analysis's own createdAt when the module reports none, and is empty when neither has one. (custom resolver) |
 | `valueKeys` | `[String!]!` | Available value keys for retrieving analysis results (resolved at runtime) (custom resolver) |
 | `model` | `[Model!]!` | Model being analyzed (← `ANALYZED_BY`) |
 | `component` | `[Component!]!` | Components being analyzed (← `ANALYZED_BY`) |

@@ -14,6 +14,8 @@
 //   - a throwing onModelDeleted hook rolls back the whole transaction.
 //   - hook dispatch: onModelDeleted is invoked with (tx, modelId, analysisIds)
 //     and its returned counts fold into DeletionStats.
+//   - hook dispatch: analyses bound to the model's exposures are passed; one
+//     bound to a control is not, and outlives the model.
 //
 // Tests run sequentially (--runInBand) so the shared container is safe.
 
@@ -318,6 +320,34 @@ describe('ModelResolverService.deleteModel — structural delete + hook dispatch
     // Hook counts fold into the structural counts.
     expect(stats.nodesDeleted).toBe(structural.nodesDeleted + 3);
     expect(stats.relationshipsDeleted).toBe(structural.relationshipsDeleted + 5);
+  });
+
+  it("hook dispatch: an exposure's analyses are the model's; a control's are not", async () => {
+    await seedFullModel(mg.driver, 'model-x');
+    // One analysis off each exposure (a component's, a boundary data item's), and one off a
+    // control that supports the component: controls live in folders, outside the model.
+    await runWrite(
+      mg.driver,
+      `MATCH (ec:Exposure {id: 'model-x-excomp'}), (eb:Exposure {id: 'model-x-exbd'}),
+             (c:Component {id: 'model-x-comp'})
+       CREATE (ec)-[:ANALYZED_BY]->(:Analysis {id: 'an-excomp'})
+       CREATE (eb)-[:ANALYZED_BY]->(:Analysis {id: 'an-exbd'})
+       CREATE (ctl:Control {id: 'model-x-ctl', name: 'ctl'})-[:SUPPORTS]->(c)
+       CREATE (ctl)-[:ANALYZED_BY]->(:Analysis {id: 'an-ctl'})`,
+    );
+    const onModelDeleted = jest.fn().mockResolvedValue(undefined);
+    registry.setModule('analysis-mod', { onModelDeleted });
+
+    await service.deleteModel('model-x', authCtx);
+
+    const [, , analysisIdsArg] = onModelDeleted.mock.calls[0];
+    expect([...analysisIdsArg].sort()).toEqual(['an-exbd', 'an-excomp']);
+    // The control and its analysis outlive the model.
+    const left = await runWrite(
+      mg.driver,
+      `MATCH (ctl:Control {id: 'model-x-ctl'})-[:ANALYZED_BY]->(a:Analysis) RETURN a.id AS id`,
+    );
+    expect(left.records.map((r: any) => r.get('id'))).toEqual(['an-ctl']);
   });
 
   it('a throwing onModelDeleted hook rolls back the whole transaction', async () => {
