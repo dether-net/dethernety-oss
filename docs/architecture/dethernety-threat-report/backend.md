@@ -293,7 +293,13 @@ Two fallbacks keep the page robust:
 
 ## Analysis status
 
-`getAnalysisStatus(...)` returns a static `idle` status. A report is **not a long-running run** — there is no streaming progress to report. The platform's Analyses dialog enables its **Results** action when status is `idle`, so returning `idle` keeps Results available. The method is cheap and side-effect-free, which matters because it is called on every analysis listing.
+`getAnalysisStatus(...)` returns a static `idle` status. A report is **not a long-running run** — there is no streaming progress to report. The platform's Analyses dialog enables its **Results** action when status is `idle`, so returning `idle` keeps Results available. It also reports `hasDocument` (whether a snapshot is stored) and, as `updatedAt`, that snapshot's generation time (`''` before the first report), both from one indexed lookup of the `Analysis` node. The method is cheap and side-effect-free, which matters because it is called on every analysis listing.
+
+---
+
+## Model delete
+
+The platform's model delete never deletes an `Analysis` node itself: it passes the ids of the model's analyses to each module's `onModelDeleted` hook, on its own delete transaction. The module's hook (`src/model-deleted.ts`) deletes, with their edges and snapshots, those of its analyses whose class it holds or once held (`HAS_CLASS` or `HAS_ORPHANED_CLASS`), so another module's analysis is never touched. It runs nothing for an empty list, and a retried transaction matches nothing the second time.
 
 ---
 

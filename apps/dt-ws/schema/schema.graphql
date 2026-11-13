@@ -1332,10 +1332,13 @@ type Analysis implements Element  @authentication @node {
   type: String
   "Analysis category"
   category: String
+  "ISO-8601 timestamp of creation, stamped once by createAnalysisIdempotent. Null for an analysis created through the generated createAnalyses mutation, which does not stamp it, including every analysis created before createAnalysisIdempotent existed. Server-stamped; not settable through the create or update inputs."
+  createdAt: DateTime
+    @settable(onCreate: false, onUpdate: false)
   "Class this analysis is an instance of"
   analysisClass: [AnalysisClass!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT)
-  "Current execution status (resolved at runtime)"
-  status: AnalysisStatus @customResolver(requires: "id analysisClass { id module { name } }")
+  "Current execution status (resolved at runtime). Its createdAt falls back to the analysis's own createdAt when the module reports none, and is empty when neither has one."
+  status: AnalysisStatus @customResolver(requires: "id createdAt analysisClass { id module { name } }")
   "Available value keys for retrieving analysis results (resolved at runtime)"
   valueKeys: [String!]! @customResolver(requires: "id analysisClass { id module { name } }")
   "Model being analyzed"

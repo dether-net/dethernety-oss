@@ -14,12 +14,16 @@ interface DeletionStats {
 
 /**
  * Enumerate the ids of every `Analysis` owned by the model — from the model
- * node and from each owned structural element (via `ANALYZED_BY`). Collected
+ * node, from each owned structural element and from those elements' exposures
+ * (via `ANALYZED_BY`), the same set DELETE_MODEL_STRUCTURAL removes. Collected
  * first (bounded) so module hooks receive the full set without re-enumerating.
+ * Controls and countermeasures are not followed: they are not the model's (a
+ * control lives in a folder and can support elements of other models), the
+ * structural delete leaves them, and an analysis bound to one stays valid.
  * `m` joins the list in a WITH of its own: Neo4j refuses `[m] + collect(...)`
  * in an aggregating column unless `m` is also a key of that clause.
  */
-const ENUMERATE_MODEL_ANALYSES = `
+export const ENUMERATE_MODEL_ANALYSES = `
 MATCH (m:Model {id: $modelId})
 OPTIONAL MATCH (m)-[:CONTAINS]->(db:SecurityBoundary)
 OPTIONAL MATCH (db)<-[:BELONGS_TO*0..]-(sb:SecurityBoundary)
@@ -35,7 +39,10 @@ WITH m,
   + collect(DISTINCT fd) AS elems
 WITH [m] + elems AS owned
 UNWIND owned AS el
-OPTIONAL MATCH (el)-[:ANALYZED_BY]->(a:Analysis)
+OPTIONAL MATCH (el)-[:HAS_EXPOSURE]->(exp:Exposure)
+WITH owned, collect(DISTINCT exp) AS exps
+UNWIND (owned + exps) AS n
+OPTIONAL MATCH (n)-[:ANALYZED_BY]->(a:Analysis)
 RETURN collect(DISTINCT a.id) AS analysisIds
 `;
 

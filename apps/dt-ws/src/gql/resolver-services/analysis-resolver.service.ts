@@ -1678,12 +1678,16 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
   getResolvers() {
     return {
       Analysis: {
-        status: async ({ id, analysisClass }, _args, context) => {
+        status: async ({ id, analysisClass, createdAt }, _args, context) => {
+          // The node's own creation time stands in when the module reports none
+          // (deterministic modules keep no run record and return ''). `requires`
+          // projects the DateTime as an ISO string, or null on a node without one.
+          const nodeCreatedAt = typeof createdAt === 'string' ? createdAt : '';
           const moduleName = analysisClass?.[0]?.module?.[0]?.name || '';
           if (!moduleName) {
             this.logger.warn('No module name found for analysis status', { analysisId: id });
             return {
-              createdAt: '',
+              createdAt: nodeCreatedAt,
               updatedAt: '',
               status: 'error',
               hasDocument: false,
@@ -1698,7 +1702,11 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
           // Guarantee the non-null GraphQL `hasDocument` for every path: module
           // success, the getAnalysisStatus error fallback, and modules that have
           // not implemented the field yet all resolve to a concrete boolean.
-          return { ...result.data, hasDocument: result.data.hasDocument ?? false };
+          return {
+            ...result.data,
+            createdAt: result.data.createdAt || nodeCreatedAt,
+            hasDocument: result.data.hasDocument ?? false,
+          };
         },
         
         valueKeys: async ({ id, analysisClass }, _args, context) => {

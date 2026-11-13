@@ -17,6 +17,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   doctor (which compares the configuration against the expected one) working unchanged. It ships
   with 0.6.0.
 
+### Fixed
+
+- **The analyses list no longer shows the current time as a creation or update time.** An
+  analysis now reports when it was created (`Analysis.createdAt`, server-stamped and read-only),
+  and `Analysis.status.createdAt` falls back to it when the analysis module reports none. A date
+  that is still missing reads "—", and the Created At and Updated At columns sort by their dates.
+- **The threat report shows when its report was generated.** In `dethernety-threat-report` 2.2.1
+  an analysis's Updated At is the last report's generation time, not "—". It also deletes its
+  own analyses, snapshots included, when their model is deleted.
+- **A model delete hands modules the analyses bound to its exposures.** The analyses a deleted
+  model passes to each module's `onModelDeleted` now include those bound to its elements'
+  exposures, which the delete removes. An analysis bound only to a control or countermeasure is
+  not the model's and stays.
+
 ## [0.16.0] - 2026-11-12
 
 The threat report 2.2.0 resolves and freezes who runs each component and boundary when a report is
