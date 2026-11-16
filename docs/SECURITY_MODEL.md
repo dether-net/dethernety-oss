@@ -32,11 +32,13 @@ The platform delegates authentication to an external OIDC identity provider. It 
 
 ## Authorization
 
-All GraphQL types, queries, and mutations in the schema carry the `@authentication` directive, which rejects requests without a valid JWT at the schema level.
+Every node type in the platform schema carries the `@authentication` directive, and so does every root query and mutation the schema defines with its own resolver or `@cypher` statement.
 
-Separately, the NestJS `JwtAuthGuard` protects HTTP-level endpoints -- the SSE subscription controller and the module bundle route (see [Module frontends](#module-frontends)). This means authentication is enforced at two layers: the GraphQL schema and the HTTP controller.
+dt-ws adds its own gate in front of every `Query` and `Mutation` field of the composed schema: the platform's own, the ones modules contribute, and the generated ones. A request without a verified user is refused with `UNAUTHENTICATED` before the field's resolver runs, unless authentication is off (below). The resolvers' own checks, such as the admin-only operations, still run inside it, and every module resolver also keeps the same check of its own. Subscriptions are outside this gate; on the default SSE transport they go through the `JwtAuthGuard` described next.
 
-In production, the environment validation enforces OIDC configuration. When OIDC is not configured, `@authentication` directives have no effect, and the guard lets every request through unless `NODE_ENV` is `production`, where it rejects every request.
+Separately, the NestJS `JwtAuthGuard` protects HTTP-level endpoints -- the SSE subscription controller and the module bundle route (see [Module frontends](#module-frontends)). This means authentication is enforced at three layers: the schema's `@authentication`, dt-ws's root-field gate, and the guard on those HTTP routes.
+
+In production, the environment validation refuses to start without OIDC configuration. Outside production with no OIDC configured, the GraphQL context factory and the guard give each request a development user with the admin role (on the GraphQL transports, if the deployment allowlist admits it), so the checks above pass and the request runs as that user. Authentication is off only when, in addition, `ENABLE_NOAUTH=true`: dt-ws's gates are then skipped, and the schema is loaded from its generated copy without `@authentication`. If that copy is missing, dt-ws loads the regular schema with a warning, and the library's check still runs (see [Auth-Disabled Mode](CONFIGURATION_GUIDE.md#auth-disabled-mode-single-user--development)).
 
 ---
 
@@ -172,7 +174,7 @@ A module can ship a frontend: `frontend/bundle.js` and `frontend/frontend-manife
 
 **Route authentication.** In order:
 
-1. `JwtAuthGuard`: a valid JWT, then the deployment access allowlist (`DEPLOYMENT_ALLOWLIST`), as on the SSE route. When no OIDC is configured and `NODE_ENV` is not `production`, the guard lets every request through (the development bypass described under [Authorization](#authorization)), so the bundle route is open there too.
+1. `JwtAuthGuard`: a valid JWT, then the deployment access allowlist (`DEPLOYMENT_ALLOWLIST`), as on the SSE route. When no OIDC is configured and `NODE_ENV` is not `production`, the guard admits every request as the development user described under [Authorization](#authorization), so the bundle route is open there too.
 2. An unknown module, a module without a frontend, or a module not on the module allow-list (`ALLOWED_MODULES`) answers `404`.
 3. A module that is unhealthy answers `503`, whatever the hash.
 4. A hash that is not the current bundle's sha256 answers `404`. Otherwise the answer is `200`.

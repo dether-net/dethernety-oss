@@ -89,6 +89,12 @@ describe('SchemaService — composition fallback', () => {
   beforeEach(() => {
     mockGetSchema.mockReset();
     mockNeo4jGraphQLCtor.mockClear();
+    // The mocked composition returns stand-in objects, not schemas; the gate it would put on their root fields is
+    // pinned by root-resolver-authentication.spec.ts.
+    jest.spyOn(SchemaService.prototype as any, 'requireUserOnRootFields').mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   it('HAPPY PATH: the served schema includes module fragments and WRAPPED module resolvers', async () => {

@@ -252,7 +252,9 @@ enum DataOrigin {
 }
 
 """Base interface implemented by all graph-stored entities."""
-interface Element {
+# Elements are read through their own types or through a relationship field, so the interface has no top-level
+# read or aggregate query.
+interface Element @query(read: false, aggregate: false) {
   "Unique identifier"
   id: ID!
   "Display name"

@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   doctor (which compares the configuration against the expected one) working unchanged. It ships
   with 0.6.0.
 
+### Removed
+
+- **Breaking: the top-level `elements` and `elementsConnection` queries.** The `Element` interface
+  no longer has a read or aggregate query of its own. Read elements through their own types (for
+  example `components` or `controls`) or through a relationship field such as `Control.elements`.
+
 ### Fixed
 
 - **The analyses list no longer shows the current time as a creation or update time.** An
@@ -36,6 +42,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   database, not the node's own. The platform now installs `@neo4j/graphql` 7.2.0 with a patch
   (`patches/@neo4j__graphql@7.2.0.patch`) that starts each branch of the generated query from the
   node itself; the result is the same on Neo4j and Memgraph.
+
+### Security
+
+- **Root queries and mutations require an authenticated user.** dt-ws refuses a request without a
+  verified user on every `Query` and `Mutation` field, the platform's, the modules' and the
+  generated ones alike, with `UNAUTHENTICATED` and before the field runs. It skips this check only
+  when authentication is off (outside production, with no OIDC configured and
+  `ENABLE_NOAUTH=true`).
 
 ## [0.16.0] - 2026-11-12
 
