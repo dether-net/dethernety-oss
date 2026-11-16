@@ -134,6 +134,54 @@ function sectionMarkup(html: string): string {
 const fact = (term: string, value: string | undefined) =>
   value ? `<dt>${escapeHtml(term)}</dt><dd>${escapeHtml(value)}</dd>` : ''
 
+/** How a diagram's figure opens, as renderModelDiagram writes it. */
+const FIGURE_OPEN = '<figure class="rk-figure">'
+
+/** The longest brand footer the running footer prints: about two lines of its box; the closing block has it all. */
+export const MARGIN_FOOTER_MAX = 90
+
+/** `text` cut to at most `max` characters (counted as code points), ending in an ellipsis when cut. */
+export function clampText(text: string, max: number): string {
+  const chars = [...text]
+  return chars.length <= max ? text : `${chars.slice(0, max - 1).join('').trimEnd()}…`
+}
+
+/** An ISO date and time with its zone (Z or an offset): one that names a moment, so it can be shown in UTC. */
+export const ISO_MOMENT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/
+
+/**
+ * An ISO timestamp as a reader reads it, in UTC: "15 Nov 2026, 10:00 UTC" in English, in the report's own language
+ * otherwise. Anything else is printed as given: a time without a zone, which names no moment, and a date that does not
+ * exist (30 February), which the parser would carry into the next month.
+ */
+export function formatTimestamp(value: string | undefined, locale?: string): string {
+  if (!value) return ''
+  const time = ISO_MOMENT.test(value) ? Date.parse(value) : NaN
+  if (!Number.isFinite(time) || !sameCalendarDay(value, time)) return value
+  const tag = !locale || /^en(-|$)/i.test(locale) ? 'en-GB' : locale
+  try {
+    const text = new Intl.DateTimeFormat(tag, {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+      timeZone: 'UTC',
+    }).format(time)
+    return `${text} UTC`
+  } catch {
+    return value
+  }
+}
+
+/** Whether the date written in an ISO timestamp is the date it parses to, in its own offset. */
+function sameCalendarDay(value: string, time: number): boolean {
+  const zone = value.match(/(Z|[+-]\d{2}:?\d{2})$/)![1]
+  const offset = zone === 'Z' ? 0 : (zone[0] === '-' ? -1 : 1) * (Number(zone.slice(1, 3)) * 60 + Number(zone.slice(-2)))
+  return new Date(time + offset * 60_000).toISOString().slice(0, 10) === value.slice(0, 10)
+}
+
 /**
  * A complete, self-contained HTML document for a report: a cover, the module's sections, and a footer block, with a
  * print stylesheet for the browser's Print to PDF. Every field the frame prints itself is escaped; section markup and
@@ -146,14 +194,17 @@ export function buildReport(input: ReportInput): string {
   const kind = KIND.test(input.kind) ? input.kind : 'report'
   const lang = typeof input.locale === 'string' && LOCALE.test(input.locale) ? ` lang="${input.locale}"` : ''
   const modelLabel = meta.modelName || meta.modelId
+  const locale = lang ? input.locale : undefined
+  const generatedAt = formatTimestamp(meta.generatedAt, locale)
+  const exportedAt = formatTimestamp(meta.exportedAt, locale)
   const mark = typeof input.pageMark === 'string' && input.pageMark.trim() !== '' ? input.pageMark : ''
 
   const css = frameCss(
     {
       topLeft: brand?.name ?? '',
       topRight: input.title,
-      bottomLeft: brand?.footer ?? '',
-      bottomCenter: [modelLabel, meta.generatedAt].filter(Boolean).join(' · '),
+      bottomLeft: clampText(brand?.footer ?? '', MARGIN_FOOTER_MAX),
+      bottomCenter: [modelLabel, generatedAt].filter(Boolean).join(' · '),
       page: s.page,
       of: s.of,
     },
@@ -180,7 +231,7 @@ export function buildReport(input: ReportInput): string {
     `<dl class="rk-facts">` +
     fact(s.model, modelLabel) +
     fact(s.preparedFor, meta.clientName) +
-    fact(s.generated, meta.generatedAt) +
+    fact(s.generated, generatedAt) +
     fact(s.module, `${meta.module.name} ${meta.module.version}`.trim()) +
     `</dl>` +
     (meta.stale ? `<p class="rk-stale">${escapeHtml(s.stale)}</p>` : '') +
@@ -191,10 +242,13 @@ export function buildReport(input: ReportInput): string {
     .map((section) => {
       const id = typeof section.id === 'string' && SECTION_ID.test(section.id) ? ` id="${section.id}"` : ''
       const cls = section.pageBreakBefore ? 'rk-section rk-page-break' : 'rk-section'
-      return (
-        `<section class="${cls}"${id}><h2 class="rk-section-title">${escapeHtml(section.title)}</h2>` +
-        `${sectionMarkup(String(section.html ?? ''))}</section>`
-      )
+      const title = `<h2 class="rk-section-title">${escapeHtml(section.title)}</h2>`
+      const body = sectionMarkup(String(section.html ?? ''))
+      // A section that opens with a figure (a diagram) carries its title inside that figure, which never splits, so
+      // the title cannot stay behind on the page before the drawing.
+      return body.startsWith(FIGURE_OPEN)
+        ? `<section class="${cls}"${id}>${FIGURE_OPEN}${title}${body.slice(FIGURE_OPEN.length)}</section>`
+        : `<section class="${cls}"${id}>${title}${body}</section>`
     })
     .join('')
 
@@ -207,9 +261,9 @@ export function buildReport(input: ReportInput): string {
     fact(s.modelId, meta.modelId) +
     fact(s.client, meta.clientName) +
     fact(s.module, `${meta.module.name} ${meta.module.version}`.trim()) +
-    fact(s.generated, meta.generatedAt) +
+    fact(s.generated, generatedAt) +
     fact(s.fingerprint, meta.fingerprint) +
-    fact(s.exported, meta.exportedAt) +
+    fact(s.exported, exportedAt) +
     fact(s.exportedBy, meta.exportedBy) +
     `</dl>` +
     (meta.stale ? `<p class="rk-stale">${escapeHtml(s.stale)}</p>` : '') +

@@ -20,7 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Security); their resolver also checks the user itself and asks the authorization service.
 - **Module reports can use a report kit** for a branded, printable export with the model diagram,
   and an analysis's report details are set in a new **Report details** dialog on the analysis
-  results page.
+  results page. In print, a full-width table keeps its right edge, a heading stays with what
+  follows it, a table row stays on one page and table headers repeat. A model diagram taller than
+  a printed page prints as several figures, cut at gaps no boundary or node spans (failing that,
+  between the nodes inside a boundary), each whole on one page at one scale, at least three
+  quarters of its print size; `renderModelDiagram`'s `figure` may
+  therefore hold several `<figure>` elements, and `svg` is the whole drawing. Times print in UTC,
+  as "15 Nov 2026, 10:00 UTC" in English, and the running footer cuts the brand footer line to 90
+  characters (the closing block keeps all of it).
 - **The threat report's HTML export uses the report kit.** Where the host provides the kit (above),
   `dethernety-threat-report` 2.3.0 builds the export with it: the installation's brand, the client
   from the analysis's report details, a diagram of the model as the report stored it (crown jewels
@@ -29,8 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   self-contained page as before. The client is read at export; it is never stored in the snapshot
   or returned by `getDocument`. A report also freezes the model's name (`snapshot.modelName`, in
   the JSON export too), outside the fingerprint, so renaming the model does not make it stale. A
-  report from before 2.3.0 shows the model id instead. A failed export says *The report could not
-  be exported. Try again.* See the threat report's *Reading the Report*, *Exporting*.
+  report from before 2.3.0 shows the model id instead. In the kit's form its tables draw each
+  border inside its own cell, a summary box is never split across pages, and the diagram caption
+  reads the generation time in UTC. A failed export says *The report could not be exported. Try
+  again.* See the threat report's *Reading the Report*, *Exporting*.
 - **`@dethernety/dt-module` adds `./condition-groups` and `./remediation-honesty`.** Neither is
   exported from the package root, and each imports nothing outside its own files, so bundling one
   brings no other dependency. `./condition-groups` holds the knowledge-graph condition operators

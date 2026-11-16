@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Edge, Node } from '@vue-flow/core'
 import { DtModel } from '@dethernety/dt-core'
 import canvasCss from '@/components/DataFlow/Style/main.css?raw'
-import { NODE_SIZES, renderModelDiagram, type ModelGraph } from '../diagram'
+import { NODE_SIZES, renderModelDiagram, sliceBounds, type ModelGraph } from '../diagram'
 import exportFixture from './fixtures/platform-export-structure.json'
 
 /** The per-call id normalised, so a golden does not depend on how many diagrams ran before it. */
@@ -420,3 +420,125 @@ function facing(
   const ay = a.y + a.h / 2
   return (x - ax) * (b.x + b.w / 2 - ax) + (y - ay) * (b.y + b.h / 2 - ay) > 0
 }
+
+describe('a drawing taller than a printed page', () => {
+  const TIERS = 7
+  const tall: ModelGraph = {
+    boundaries: [
+      { id: 'root', name: 'Default', positionX: null, positionY: null, width: null, height: null, parentBoundaryId: null },
+      ...Array.from({ length: TIERS }, (_, i) => ({
+        id: `t${i}`, name: `Tier ${i + 1}`, positionX: 0, positionY: i * 520, width: 480, height: 440, parentBoundaryId: 'root',
+      })),
+    ],
+    components: Array.from({ length: TIERS }, (_, i) => ({
+      id: `n${i}`, name: `Node ${i + 1}`, type: 'process', positionX: 180, positionY: 160, boundaryId: `t${i}`,
+    })),
+    flows: Array.from({ length: TIERS - 1 }, (_, i) => ({ id: `f${i}`, sourceId: `n${i}`, targetId: `n${i + 1}` })),
+  }
+  const figuresOf = (figure: string) => figure.match(/<figure class="rk-figure">[\s\S]*?<\/figure>/g) ?? []
+  const viewBoxOf = (svg: string) => svg.match(/viewBox="([-\d. ]+)"/)![1].split(' ').map(Number)
+
+  it('is cut into figures at the gaps between its boundaries, each printing whole on a page at a readable size', () => {
+    const result = renderModelDiagram(tall, { caption: 'Layout as of now' })!
+    const figures = figuresOf(result.figure)
+    expect(figures.length).toBeGreaterThan(1)
+    const boxes = Array.from({ length: TIERS }, (_, i) => ({ top: i * 520, bottom: i * 520 + 440 }))
+    let reach = -Infinity
+    for (const [i, fig] of figures.entries()) {
+      const [, y, w, h] = viewBoxOf(fig)
+      const printed = Number(fig.match(/<svg[^>]* width="([\d.]+)"/)![1])
+      // Never enlarged, at least three quarters of its own size, and no taller than the 205 mm (774 px) a figure gets.
+      expect(printed).toBeLessThanOrEqual(w)
+      expect(printed / w).toBeGreaterThanOrEqual(0.75)
+      expect((h * printed) / w).toBeLessThanOrEqual(774)
+      // Contiguous, and every cut between two boundaries, never through one.
+      if (i > 0) expect(y).toBeCloseTo(reach, 5)
+      reach = y + h
+      if (i > 0) expect(boxes.some((b) => y > b.top && y < b.bottom)).toBe(false)
+    }
+    expect(reach).toBeCloseTo(viewBoxOf(result.svg)[1] + viewBoxOf(result.svg)[3], 5)
+    // The caption once, under the last figure; one arrow marker per figure.
+    expect(result.figure.match(/<figcaption/g)).toHaveLength(1)
+    expect(figures.at(-1)).toContain('<figcaption class="rk-figcaption">Layout as of now</figcaption>')
+    const markers = [...result.figure.matchAll(/<marker id="([^"]+)"/g)].map((m) => m[1])
+    expect(new Set(markers).size).toBe(figures.length)
+    // The whole drawing is still available as one svg.
+    expect(result.svg).toContain('width="100%"')
+  })
+
+  it('stays one figure when it fits', () => {
+    const short = { ...tall, boundaries: tall.boundaries!.slice(0, 2), components: tall.components!.slice(0, 1), flows: [] }
+    const result = renderModelDiagram(short)!
+    expect(figuresOf(result.figure)).toHaveLength(1)
+    expect(result.figure).toContain(result.svg)
+  })
+})
+
+describe('sliceBounds', () => {
+  const spans = [{ top: 0, bottom: 40 }, { top: 50, bottom: 90 }, { top: 100, bottom: 140 }, { top: 150, bottom: 190 }]
+
+  it('keeps what fits whole', () => {
+    expect(sliceBounds(0, 190, 200, spans)).toEqual([[0, 190]])
+  })
+
+  it('cuts at the lowest gap that keeps a slice within the height', () => {
+    expect(sliceBounds(0, 190, 100, spans)).toEqual([[0, 95], [95, 190]])
+  })
+
+  it('cuts at the height where no gap allows, as inside one tall boundary', () => {
+    expect(sliceBounds(0, 250, 100, [{ top: 0, bottom: 250 }])).toEqual([[0, 100], [100, 200], [200, 250]])
+  })
+
+  it('cuts between the nodes inside a boundary that holds them all, before cutting through one', () => {
+    const wrapper = { top: 0, bottom: 300 }
+    const nodes = [{ top: 20, bottom: 80 }, { top: 120, bottom: 180 }, { top: 220, bottom: 280 }]
+    const inner = [{ top: 0, bottom: 10 }, { top: 298, bottom: 302 }, ...nodes]
+    // Between the nodes (80-120, 180-220), just below the node above: never through one.
+    expect(sliceBounds(0, 300, 120, [wrapper, ...nodes], inner)).toEqual([[0, 86], [86, 186], [186, 300]])
+  })
+
+  it('leaves out a stretch of nothing taller than a slice', () => {
+    const far = [{ top: 0, bottom: 50 }, { top: 10000, bottom: 10050 }]
+    const slices = sliceBounds(0, 10050, 100, far)!
+    expect(slices.length).toBeLessThan(5)
+    expect(slices[0][0]).toBe(0)
+    expect(slices.at(-1)![1]).toBe(10050)
+  })
+
+  it('cuts a wide gap just below its top, so what comes before it shares a slice', () => {
+    const content = [{ top: 0, bottom: 300 }, { top: 400, bottom: 600 }, { top: 9000, bottom: 9100 }]
+    const slices = sliceBounds(0, 9100, 1000, content)!
+    expect(slices[0]).toEqual([0, 650])
+  })
+
+  it('gives up past twenty slices, and never loops where the height does not register', () => {
+    expect(sliceBounds(0, 5000, 100, [{ top: 0, bottom: 5000 }])).toBeNull()
+    const huge = sliceBounds(0, 1e20, 1000, [{ top: 0, bottom: 1e20 }])
+    expect(huge === null || huge.length <= 20).toBe(true)
+    expect(sliceBounds(1e20, 2e20, 10, [])).toEqual(expect.any(Array))
+  })
+
+  it('keeps one slice for a height that is not a positive number', () => {
+    for (const h of [0, -5, Number.NaN, Number.POSITIVE_INFINITY]) expect(sliceBounds(0, 100, h, spans)).toEqual([[0, 100]])
+  })
+})
+
+describe('the slices of one drawing', () => {
+  it('print at one scale, and leave label text alone', () => {
+    const graph: ModelGraph = {
+      boundaries: [
+        { id: 'root', name: 'Default', positionX: null, positionY: null, width: null, height: null, parentBoundaryId: null },
+        ...Array.from({ length: 5 }, (_, i) => ({
+          id: `t${i}`, name: `Tier ${i + 1}`, positionX: 0, positionY: i * 700, width: 480, height: 400 + i * 40, parentBoundaryId: 'root',
+        })),
+      ],
+      components: [{ id: 'n0', name: 'rk-dg-1-arrow <marker-id>', type: 'process', positionX: 100, positionY: 100, boundaryId: 't0' }],
+      flows: [],
+    }
+    const figure = renderModelDiagram(graph)!.figure
+    const widths = [...figure.matchAll(/<svg[^>]* width="([\d.]+)"/g)].map((m) => m[1])
+    expect(widths.length).toBeGreaterThan(1)
+    expect(new Set(widths).size).toBe(1)
+    expect(figure).toContain('rk-dg-1-arrow &lt;marker-id&gt;</text>')
+  })
+})

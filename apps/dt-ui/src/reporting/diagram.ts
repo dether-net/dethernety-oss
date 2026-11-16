@@ -55,7 +55,12 @@ export interface DiagramOptions {
 export interface DiagramResult {
   /** A standalone <svg> with a viewBox, `width="100%"` and no fixed height. */
   svg: string
-  /** The svg in a <figure>, with the caption when one was given. */
+  /**
+   * The drawing as print-ready markup: the svg in a <figure>, with the caption when one was given. A drawing taller than
+   * a printed page holds at three quarters of its print size is cut into several figures, one below the other, at the
+   * gaps between its boundaries (sliceBounds), each sized to print whole on a page and never enlarged; the caption goes
+   * under the last.
+   */
   figure: string
   /** The drawing's size, in canvas units. */
   width: number
@@ -312,7 +317,7 @@ export function renderModelDiagram(graph: ModelGraph | null | undefined, opts: D
       `</style>`,
   )
   parts.push(
-    `<defs><marker id="${arrow}" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" ` +
+    `<defs><marker id="${MARKER_ID}" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" ` +
       `orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker></defs>`,
   )
 
@@ -332,7 +337,7 @@ export function renderModelDiagram(graph: ModelGraph | null | undefined, opts: D
     if (dx === 0 && dy === 0) continue
     const a = edgePoint(src.box, src.type === 'process', dx, dy)
     const z = edgePoint(dst.box, dst.type === 'process', -dx, -dy)
-    parts.push(`<line class="f" x1="${f(a.x)}" y1="${f(a.y)}" x2="${f(z.x)}" y2="${f(z.y)}" marker-end="url(#${arrow})"/>`)
+    parts.push(`<line class="f" x1="${f(a.x)}" y1="${f(a.y)}" x2="${f(z.x)}" y2="${f(z.y)}" marker-end="url(#${MARKER_ID})"/>`)
   }
 
   for (const { c, type, box } of nodeBoxes) {
@@ -358,10 +363,115 @@ export function renderModelDiagram(graph: ModelGraph | null | undefined, opts: D
   }
 
   const caption = typeof opts.caption === 'string' && opts.caption !== '' ? escapeHtml(opts.caption) : ''
-  const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" class="rk-diagram ${root}" viewBox="${f(minX)} ${f(minY)} ${f(width)} ` +
-    `${f(height)}" width="100%" preserveAspectRatio="xMidYMid meet" role="img"` +
-    `${caption ? ` aria-label="${caption}"` : ''}>${parts.join('')}</svg>`
-  const figure = `<figure class="rk-figure">${svg}${caption ? `<figcaption class="rk-figcaption">${caption}</figcaption>` : ''}</figure>`
+  const body = parts.join('')
+  const svgOf = (y: number, h: number, marker: string, size: string) =>
+    `<svg xmlns="http://www.w3.org/2000/svg" class="rk-diagram ${root}" viewBox="${f(minX)} ${f(y)} ${f(width)} ` +
+    `${f(h)}" width="${size}" preserveAspectRatio="xMidYMid meet" role="img"` +
+    `${caption ? ` aria-label="${caption}"` : ''}>${body.split(MARKER_ID).join(marker)}</svg>`
+  const svg = svgOf(minY, height, arrow, '100%')
+  const captionHtml = caption ? `<figcaption class="rk-figcaption">${caption}</figcaption>` : ''
+
+  // A node spans its marks above it (a crown jewel's star) to its label below. A boundary is a gap's obstacle twice
+  // over: its whole box first, and failing a gap outside every box, only its label band and its bottom edge, so a cut
+  // may run between the nodes inside it, across its side lines only.
+  const nodeSpans = nodeBoxes.map(({ box }) => ({ top: box.y - FONT, bottom: box.y + box.h + NODE_LABEL_GAP + FONT }))
+  const solid = [...boundaryBoxes.map(({ box }) => ({ top: box.y, bottom: box.y + box.h })), ...nodeSpans]
+  const inner = [
+    ...boundaryBoxes.flatMap(({ box }) => [
+      { top: box.y, bottom: box.y + FONT + 10 },
+      { top: box.y + box.h - 2, bottom: box.y + box.h + 2 },
+    ]),
+    ...nodeSpans,
+  ]
+  // Printed at its own size, or smaller where it is wider than the page, and shrunk no further than MIN_SLICE_SCALE of
+  // that to fit a page: the height one printed figure holds, in drawing units.
+  const printScale = Math.min(1, PRINT_CONTENT_PX / width)
+  const slices = sliceBounds(minY, maxY, PRINT_FIGURE_PX / (printScale * MIN_SLICE_SCALE), solid, inner)
+  if (!slices || slices.length === 1) {
+    return { svg, figure: `<figure class="rk-figure">${svg}${captionHtml}</figure>`, width: Math.round(width), height: Math.round(height) }
+  }
+  // One scale for every slice, so a boundary cut across two pages lines up: the one the tallest slice needs to print
+  // whole on a page, never enlarged. Rounded down, so the printed height stays within the page.
+  const scale = Math.min(printScale, ...slices.map(([top, bottom]) => PRINT_FIGURE_PX / (bottom - top)))
+  const size = f(Math.floor(width * scale * 10) / 10)
+  const figure = slices
+    .map(([top, bottom], i) => {
+      // Each slice is its own svg, with its own marker id.
+      const sliceSvg = svgOf(top, bottom - top, `${arrow}-${i + 1}`, size)
+      return `<figure class="rk-figure">${sliceSvg}${i === slices.length - 1 ? captionHtml : ''}</figure>`
+    })
+    .join('')
   return { svg, figure, width: Math.round(width), height: Math.round(height) }
+}
+
+/** The arrow marker's id in the markup, filled per svg; it holds '<', which no escaped label can. */
+const MARKER_ID = '<marker-id>'
+/** The printed page's content width, in CSS pixels: 178 mm, A4 less the side margins (Letter is wider). */
+const PRINT_CONTENT_PX = 673
+/**
+ * The tallest figure the print stylesheet allows, 205 mm, in CSS pixels: what is left of a Letter page after its
+ * margins, the page mark, the figure's own margin, the section title a first figure carries and the caption.
+ */
+const PRINT_FIGURE_PX = 774
+/** How far a slice may shrink below its print size to hold more of the drawing: labels stay at about 9 px. */
+const MIN_SLICE_SCALE = 0.75
+/** More slices than this, and the drawing prints as one shrunken figure instead. */
+const MAX_SLICES = 20
+
+type Span = { top: number; bottom: number }
+
+/** The gaps between the spans, merged where they overlap, as [from, to] pairs. */
+function gapsBetween(spans: Span[]): [number, number][] {
+  const sorted = spans
+    .filter((o) => Number.isFinite(o.top) && Number.isFinite(o.bottom))
+    .map((o) => ({ top: Math.min(o.top, o.bottom), bottom: Math.max(o.top, o.bottom) }))
+    .sort((a, b) => a.top - b.top)
+  const gaps: [number, number][] = []
+  let reach = -Infinity
+  for (const span of sorted) {
+    if (reach > -Infinity && span.top > reach) gaps.push([reach, span.top])
+    reach = Math.max(reach, span.bottom)
+  }
+  return gaps
+}
+
+/**
+ * Where to cut a drawing from `top` to `bottom` into slices no taller than `maxHeight`, as [top, bottom] pairs: at the
+ * lowest gap in `solid` that fits (nothing spans it), failing that in `inner` (only the side lines of a boundary that
+ * holds others cross it), failing that at the height limit. A stretch of nothing taller than a slice is left out. Null
+ * when it would take more than MAX_SLICES slices; a drawing that fits is one slice.
+ */
+export function sliceBounds(
+  top: number,
+  bottom: number,
+  maxHeight: number,
+  solid: Span[],
+  inner: Span[] = [],
+): [number, number][] | null {
+  if (!(maxHeight > 0) || !Number.isFinite(maxHeight) || !(bottom - top > maxHeight)) return [[top, bottom]]
+  const solidGaps = gapsBetween(solid)
+  const innerGaps = gapsBetween(inner)
+  // Where a gap is cut: its middle, or just below its top in a wide one, so the slice above stays short.
+  const cutOf = ([from, to]: [number, number]) => Math.min((from + to) / 2, from + maxHeight * 0.05)
+  const slices: [number, number][] = []
+  let start = top
+  while (bottom - start > maxHeight) {
+    if (slices.length >= MAX_SLICES) return null
+    // A blank stretch taller than a slice from here: skip it, keeping a margin above what follows.
+    const blank = solidGaps.find(([from, to]) => from <= start && to - start > maxHeight)
+    if (blank) {
+      start = blank[1] - (maxHeight * 0.05)
+      continue
+    }
+    const limit = start + maxHeight
+    const fits = (gaps: [number, number][]) =>
+      gaps.map(cutOf).filter((c) => c > start + maxHeight * 0.25 && c <= limit).pop()
+    const cut = fits(solidGaps) ?? fits(innerGaps) ?? limit
+    // At coordinates too large for the height to register, stop rather than cut nowhere.
+    if (!(cut > start)) break
+    slices.push([start, cut])
+    start = cut
+  }
+  slices.push([start, bottom])
+  return slices.length > MAX_SLICES ? null : slices
 }

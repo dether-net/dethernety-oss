@@ -664,12 +664,22 @@ no client, and the export goes ahead. `buildKitReport` then hands
   `.threat-report-report`, the wrapper the kit puts around the sections, so no
   rule can restyle the kit's cover or footer. The standalone form's page rules
   (body, title, footer) are not passed to the kit.
+- **Tables with separate borders:** in the kit form, each table line is drawn
+  once, inside its own cell. Collapsed borders straddle the table's edge, which
+  print clips, and WebKit draws some shared lines twice as heavy.
+- **Summary boxes stay whole:** a summary box is short, so it is never split
+  across a page break. For the kit's own print rules, see
+  [Dynamic Module System → Printing](../frontend/LLD/MODULE_SYSTEM.md#printing).
 
 ### The model diagram
 
 The Model section comes from `kit.renderModelDiagram`, drawn from the model graph
 frozen in the snapshot (`modelGraph`), never from the live model. Its caption
-reads "Layout as of `<generatedAt>`", and crown jewels are marked. A snapshot
+reads "Layout as of `<generatedAt>`", the time printed in UTC in the kit's own
+format (`formatUtc`), for example "Layout as of 15 Nov 2026, 10:00 UTC". Crown
+jewels are marked. A model taller than a printed page prints as several figures,
+with the caption under the last (see
+[Dynamic Module System → The model diagram](../frontend/LLD/MODULE_SYSTEM.md#the-model-diagram)). A snapshot
 without a model graph shows "Recreate the report to include the model diagram."
 in its place. When the kit draws nothing, the section is left out.
 

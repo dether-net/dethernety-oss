@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_FRAME_STRINGS, REPORT_CSP, buildReport, type FrameStrings, type ReportInput } from '../frame'
+import {
+  DEFAULT_FRAME_STRINGS,
+  MARGIN_FOOTER_MAX,
+  REPORT_CSP,
+  buildReport,
+  clampText,
+  formatTimestamp,
+  type FrameStrings,
+  type ReportInput,
+} from '../frame'
 import { frameCss } from '../frame.css'
 
 const LOGO = 'data:image/png;base64,iVBORw0KGgo='
@@ -135,7 +144,7 @@ describe('buildReport', () => {
     expect(css).toContain('counter(pages)')
     expect(css).toContain('print-color-adjust:exact')
     expect(css).toContain('break-inside:avoid')
-    expect(css).toContain('max-height:230mm')
+    expect(css).toContain('max-height:205mm')
   })
 
   it('escapes the margin-box text, so a brand name cannot end its string or the stylesheet', () => {
@@ -213,5 +222,104 @@ describe('buildReport', () => {
     expect(body).not.toMatch(/<(meta|link|base)\b/i)
     expect(body).toContain('<x-meta http-equiv="refresh"')
     expect(body).toContain('<x-link rel="dns-prefetch"')
+  })
+})
+
+describe('timestamps', () => {
+  it('reads an ISO timestamp as a day, month, year and time in UTC, in the report language', () => {
+    expect(formatTimestamp('2026-11-15T10:00:00.000Z')).toBe('15 Nov 2026, 10:00 UTC')
+    expect(formatTimestamp('2026-11-15T23:30:00+02:00', 'en-US')).toBe('15 Nov 2026, 21:30 UTC')
+    expect(formatTimestamp('2026-11-15T10:00:00.000Z', 'hu')).toBe('2026. nov. 15. 10:00 UTC')
+  })
+
+  it('prints anything else as given', () => {
+    expect(formatTimestamp('2026-11-20 10:15')).toBe('2026-11-20 10:15')
+    expect(formatTimestamp('2026-13-45T99:00:00Z')).toBe('2026-13-45T99:00:00Z')
+    // No zone: no moment to show in UTC.
+    expect(formatTimestamp('2026-11-15T10:00:00')).toBe('2026-11-15T10:00:00')
+    // A day that does not exist is not carried into the next month.
+    expect(formatTimestamp('2026-02-30T10:00:00Z')).toBe('2026-02-30T10:00:00Z')
+    expect(formatTimestamp('2026-02-28T23:30:00-02:00')).toBe('1 Mar 2026, 01:30 UTC')
+    expect(formatTimestamp(undefined)).toBe('')
+  })
+
+  it('prints the cover, the closing block and the running footer with readable times', () => {
+    const html = buildReport(
+      base({ meta: { ...base().meta, generatedAt: '2026-11-15T10:00:00.000Z', exportedAt: '2026-11-16T08:05:00.000Z' } }),
+    )
+    expect(html).not.toContain('2026-11-15T10:00')
+    // The cover, the closing block and the running footer.
+    expect(html.match(/15 Nov 2026, 10:00 UTC/g)).toHaveLength(3)
+    expect(html).toContain('16 Nov 2026, 08:05 UTC')
+    expect(styleOf(html)).toMatch(/@bottom-center\{content:"Shop \\b7  15 Nov 2026, 10:00 UTC"/)
+  })
+})
+
+describe('the running footer line', () => {
+  const footer = 'Confidential: prepared for the named client only. ' + 'More footer text. '.repeat(20)
+
+  it('is cut to about two lines with an ellipsis, while the closing block keeps all of it', () => {
+    const html = buildReport(base({ brand: { name: 'Example', footer } }))
+    const box = styleOf(html).match(/@bottom-left\{content:"([^"]*)"/)![1]
+    expect(box.endsWith('\\2026 ')).toBe(true)
+    expect(html).toContain(`<p class="rk-footer-line">${footer}</p>`)
+  })
+
+  it('clamps by code points and leaves short text alone', () => {
+    expect(clampText('short', MARGIN_FOOTER_MAX)).toBe('short')
+    const long = '🛡'.repeat(MARGIN_FOOTER_MAX + 5)
+    const cut = clampText(long, MARGIN_FOOTER_MAX)
+    expect([...cut]).toHaveLength(MARGIN_FOOTER_MAX)
+    expect(cut.endsWith('…')).toBe(true)
+  })
+})
+
+describe('print layout', () => {
+  it('keeps headings with what follows, rows on one page, and a full-width table inside the page area', () => {
+    const css = frameCss({ topLeft: '', topRight: 'T', bottomLeft: '', bottomCenter: '', page: 'Page', of: 'of' }, false)
+    const print = css.slice(css.indexOf('@media print{'), css.indexOf('@page{'))
+    expect(print).toContain('.rk-sections{padding:0 1px}')
+    expect(print).toContain(
+      '.rk-section-title,.rk-sections h2,.rk-sections h3,.rk-sections h4{break-after:avoid;page-break-after:avoid;',
+    )
+    expect(print).toContain('.rk-sections tr,.rk-sections td,.rk-sections th{break-inside:avoid;page-break-inside:avoid}')
+    expect(print).toContain('.rk-sections thead{display:table-header-group}')
+  })
+})
+
+describe('keeping a heading with what follows', () => {
+  it('pairs every modern break rule with its legacy alias, which WebKit honours more consistently', () => {
+    const css = frameCss({ topLeft: '', topRight: 'T', bottomLeft: '', bottomCenter: '', page: 'Page', of: 'of' }, true)
+    for (const rule of css.match(/[^{}]+\{[^{}]*\}/g) ?? []) {
+      for (const [, side, value] of rule.matchAll(/(?<![-\w])break-(inside|after|before):(\w+)/g)) {
+        const legacy = value === 'page' ? 'always' : value
+        expect(rule, rule).toContain(`page-break-${side}:${legacy}`)
+      }
+    }
+  })
+
+  it('puts a section title inside the figure the section opens with, which never splits', () => {
+    const html = buildReport(
+      base({
+        sections: [
+          { id: 'model', title: 'Model', html: '<figure class="rk-figure"><svg></svg></figure><p>after</p>' },
+          { id: 'text', title: 'Text', html: '<p>Body</p>' },
+        ],
+      }),
+    )
+    expect(html).toContain(
+      '<section class="rk-section" id="model"><figure class="rk-figure"><h2 class="rk-section-title">Model</h2><svg></svg></figure><p>after</p></section>',
+    )
+    expect(html).toContain('<section class="rk-section" id="text"><h2 class="rk-section-title">Text</h2><p>Body</p></section>')
+  })
+
+  it('reaches every heading\'s unbreakable box further down in print, without taking that space', () => {
+    const css = frameCss({ topLeft: '', topRight: 'T', bottomLeft: '', bottomCenter: '', page: 'Page', of: 'of' }, false)
+    const print = css.slice(css.indexOf('@media print{'), css.indexOf('@page{'))
+    expect(print).toContain(
+      '.rk-section-title::after,.rk-sections h2::after,.rk-sections h3::after,.rk-sections h4::after{content:"";' +
+        'display:block;height:28mm;margin-bottom:-28mm}',
+    )
+    expect(css.slice(0, css.indexOf('@media print{'))).not.toContain('::after')
   })
 })

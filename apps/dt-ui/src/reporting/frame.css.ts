@@ -11,6 +11,9 @@ export interface MarginText {
   of: string
 }
 
+/** How much of what follows a heading must fit on its page: about a table's header and first two rows. */
+const KEEP_WITH_NEXT = '28mm'
+
 /** The space the page mark takes at the top of the content area, reserved on every page. */
 const MARK_SPACE = '9mm'
 
@@ -67,11 +70,23 @@ export function frameCss(margin: MarginText, hasMark: boolean): string {
     '@media print{',
     '.rk-doc{max-width:none;padding:0}',
     ...(hasMark ? ['.rk-page-frame thead{display:table-header-group}'] : []),
-    '.rk-cover{break-after:page;page-break-after:always;break-inside:avoid;border-bottom:none}',
+    '.rk-cover{break-after:page;page-break-after:always;break-inside:avoid;page-break-inside:avoid;border-bottom:none}',
+    // A table's collapsed outer border lies half outside it, and print clips what lies outside the page area: an inset
+    // of one pixel keeps a full-width table's right edge on the page.
+    '.rk-sections{padding:0 1px}',
+    // A heading stays with what follows it, never alone at the foot of a page. Firefox and Safari ignore
+    // break-after:avoid, so the heading's unbreakable box also reaches KEEP_WITH_NEXT further down through a block of
+    // no height in the layout (its negative margin gives the space back): with less than that left, it moves on.
+    '.rk-section-title,.rk-sections h2,.rk-sections h3,.rk-sections h4{break-after:avoid;page-break-after:avoid;' +
+      'break-inside:avoid;page-break-inside:avoid}',
+    '.rk-section-title::after,.rk-sections h2::after,.rk-sections h3::after,.rk-sections h4::after{content:"";' +
+      `display:block;height:${KEEP_WITH_NEXT};margin-bottom:-${KEEP_WITH_NEXT}}`,
     '.rk-page-break{break-before:page;page-break-before:always}',
-    '.rk-sections tr{break-inside:avoid;page-break-inside:avoid}',
-    '.rk-figure .rk-diagram{max-height:230mm;width:auto;max-width:100%;margin:0 auto}',
-    '.rk-footer{break-inside:avoid}',
+    // A row on one page: on the row, and on its cells for engines that do not apply it to rows (WebKit).
+    '.rk-sections tr,.rk-sections td,.rk-sections th{break-inside:avoid;page-break-inside:avoid}',
+    '.rk-sections thead{display:table-header-group}',
+    '.rk-figure .rk-diagram{max-height:205mm;width:auto;max-width:100%;margin:0 auto}',
+    '.rk-footer{break-inside:avoid;page-break-inside:avoid}',
     '}',
     // No `size`: the reader's printer setting decides the paper.
     '@page{margin:20mm 16mm 22mm;',

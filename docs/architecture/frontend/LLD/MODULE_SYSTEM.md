@@ -615,7 +615,38 @@ if (kit && kit.version >= 1) {
 - **`pageMark` prints on every page,** the cover included, through one fixed-position element. Use it for a mark such as a draft notice.
 - **`download` is the only place that knows the output format.** Today it saves an `.html` file that the reader prints to PDF from the browser. A later format changes `download`, not the modules that call it.
 
-The document carries a Content-Security-Policy that allows inline styles and `data:` images only. No script runs in it and it loads nothing, so a report cannot reference external images, fonts or stylesheets. Running headers and the page numbers use CSS page margin boxes; they print where the browser supports them (Chromium-based browsers).
+The document carries a Content-Security-Policy that allows inline styles and `data:` images only. No script runs in it and it loads nothing, so a report cannot reference external images, fonts or stylesheets.
+
+### Printing
+
+**Source:** `reporting/frame.ts`, `reporting/frame.css.ts`
+
+The frame's print rules apply to every report the kit builds:
+
+- **Running header and footer.** The brand name and the title print at the top of each page; the brand footer line, the model and the generation time at the bottom, with "Page n of m". The cover has none. They use CSS page margin boxes, so they print only where the browser supports them (see [Browser print results](#browser-print-results)).
+- **The brand footer line is cut in the running footer.** It is cut to 90 characters with an ellipsis, about two lines. The closing block prints it in full.
+- **Timestamps print in UTC.** The cover, the closing block and the running footer print `generatedAt` and `exportedAt` as "15 Nov 2026, 10:00 UTC" in English (day before month, for `en-US` too), and in the report's `locale` otherwise. A value that is not an ISO date-time with a zone (`Z` or an offset), or that names a date that does not exist, prints as given.
+- **Tables keep their right edge.** A collapsed outer border lies half outside its table, and print clips what lies outside the page area. The kit insets its sections by 1 px in print, so a full-width table's right edge stays on the page.
+- **Headings stay with what follows them.** Section titles, and `h2`–`h4` inside sections, avoid a page break after them. Firefox and Safari ignore that rule, so each heading's unbreakable box also reaches 28 mm further down, through a block that takes no space in the layout. A heading with less than that left below it (about a table header and two rows) moves to the next page with what follows. A section that opens with a figure (a diagram) carries its title inside that figure, which never splits, so the title cannot stay behind on the page before the drawing.
+- **Table rows stay whole.** A row stays on one page; the rule is set on the cells too, for engines that ignore it on rows (WebKit). Safari still splits a row (see [Browser print results](#browser-print-results)). A table's header row (`thead`) repeats on each page.
+- **Figures are never split.** A diagram figure prints no taller than 205 mm, so it fits a Letter page with the section title above it and the caption below. A taller drawing is cut into several figures; see [The model diagram](#the-model-diagram).
+
+### Browser print results
+
+The Threat Report's export through the kit was printed on macOS 27.0.1:
+
+| Browser | Result |
+|---------|--------|
+| Chrome 157.0.8103.52 | The running header and footer and "Page n of m" print (margin boxes). Checked on A4 and Letter |
+| Firefox 160.0 | No margin boxes. The cover at the start and the closing block at the end print instead. Checked on Letter |
+| Safari 27.0.1 | No margin boxes. The cover at the start and the closing block at the end print instead |
+| Edge | Not tested |
+
+In all three, the content of a closed `<details>` element does not print. Reports carry none: the frame opens any a section brings (see [Rules for a module's report](#rules-for-a-modules-report)).
+
+The table-edge, heading, row and diagram rules above were added after this check, and checked again in Chrome. A re-print in Firefox and Safari showed that both ignore the rule that keeps a heading with what follows it. The heading's 28 mm reach and the title inside a section's opening figure (see [Printing](#printing)) came from that re-print. A second re-print showed Firefox keeping every heading with what follows it; for Safari, see below.
+
+Safari printing is best effort. Safari (WebKit) still splits a table row across two pages: it ignores `break-inside` on rows and cells. It can also leave a section title alone at the foot of a page, with the diagram figure that carries it starting on the next page. Every break rule also carries its legacy `page-break-*` alias, which WebKit honours more consistently, but neither case is fixed. Chrome keeps rows whole and keeps the title with the diagram; Firefox keeps the title with what follows it.
 
 ### The model diagram
 
@@ -635,7 +666,14 @@ It draws the **model graph a report stored when it was generated**, never the li
 | `crownJewelIds` | Components marked with a star |
 | `entryPointIds` | Components marked with an arrow |
 
-The result is `{ svg, figure, width, height }`: a standalone `<svg>` with a `viewBox` and `width="100%"`, the same SVG in a `<figure>` (with the caption, when one is given), and the drawing's size. It returns `null` when there is no graph, nothing to draw, or a position or size that is present but not a finite number. The palette is neutral and print-safe: outlines and light fills, with no meaning carried by colour alone.
+The result is `{ svg, figure, width, height }`: a standalone `<svg>` of the whole drawing with a `viewBox` and `width="100%"`, the print-ready markup in `figure`, and the drawing's size. When the drawing fits on a printed page, `figure` is that SVG in one `<figure>`, with the caption when one is given. It returns `null` when there is no graph, nothing to draw, or a position or size that is present but not a finite number. The palette is neutral and print-safe: outlines and light fills, with no meaning carried by colour alone.
+
+**A drawing taller than a printed page** is cut into several figures, one below the other, so `figure` may hold several `<figure>` elements. Put `figure` into a section as it is; `svg` is still the whole drawing.
+
+- **Where it cuts.** At the lowest gap that no boundary or node spans. Failing that, between the nodes inside a boundary that holds them, so only that boundary's side lines are cut. Only where neither fits does it cut at the height of a page. A stretch of nothing taller than a page is left out; a flow line crossing it is cut there too.
+- **How each figure is sized.** All of them print at one scale, so a boundary cut across two pages lines up. Each prints whole on one page. It is never enlarged, and never shrunk below three quarters of its print size, so its labels stay readable.
+- **The caption** goes under the last figure.
+- **More than 20 figures**, and the drawing prints as one figure shrunk to the page instead.
 
 ### Report details
 
