@@ -10,7 +10,7 @@
  */
 
 import { type AskLayout, renderAsk } from '../../ask-cues.js'
-import { FAIL_CLOSED, flatAgentName, leafMcpTools, quoted } from '../common.js'
+import { BATCH_FAILURE, BATCH_FLIGHT, FAIL_CLOSED, flatAgentName, leafMcpTools, quoted } from '../common.js'
 import type { InlineKind, TokenRenderer } from '../../tokens.js'
 import { PLUGIN_NAME } from '../../types.js'
 
@@ -61,6 +61,14 @@ export function delegation(agent: string, message: string, trailing: string = FA
   )
 }
 
+/** Start one leaf per batch, as many at once as the step allows; the step says what a failed one means. */
+export function batchDelegation(agent: string, message: string): string {
+  return (
+    `Use the \`spawn_agent\` tool with \`agent_type: "${agentName(agent)}"\`, \`fork_turns: "none"\` once per batch, each with this message:${quoted(message)}` +
+    `${BATCH_FLIGHT} Spawn each of those before the first \`wait_agent\`, collect each final answer with \`wait_agent\`, and close each agent with \`close_agent\` once you have it — a finished agent counts against the session's agent limit until it is closed; if you have no \`close_agent\` tool, go on. A \`spawn_agent\` that fails on the agent limit is an agent that could not be started. ${BATCH_FAILURE}`
+  )
+}
+
 export const codexRenderer: TokenRenderer = {
   inline(kind: InlineKind, name: string, inCode: boolean): string {
     if (kind === 'args') return 'the text the operator supplied with the skill invocation, or the arguments a skill that handed over to this one named'
@@ -69,7 +77,7 @@ export const codexRenderer: TokenRenderer = {
     const text = kind === 'tool' ? `${MCP_TOOL_PREFIX}${name}` : kind === 'cmd' ? `$${PLUGIN_NAME}:${name}` : agentName(name)
     return inCode ? text : `\`${text}\``
   },
-  delegate: (agent: string, prompt: string) => delegation(agent, prompt),
+  delegate: (agent: string, prompt: string, batch?: boolean) => (batch ? batchDelegation(agent, prompt) : delegation(agent, prompt)),
   ask: (id: string, question: string, freeText: boolean, layout: AskLayout) => renderAsk('codex', id, question, freeText, layout),
   asFile(fileName: string, skill: string): string {
     return `Read the file \`${fileName}\` from the directory of the \`${PLUGIN_NAME}:${skill}\` skill's \`SKILL.md\` (its path is in your skill list), in full.`

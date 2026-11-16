@@ -32,7 +32,7 @@ Synchronize a threat model between local files and the platform. The local files
     `signed in`: check again and retry; `skip`: leave the step undone and say so.
 12. **The repository is the operator's:** no git command that changes it (`add`, `commit`, `reset`, `checkout`, `stash`, `revert`) unless the operator asks for exactly that; suggest it instead. An undo, the operator always runs.
 13. **The operator starts each command.** A `[next]` line is advice to the operator: never start the command it names yourself. Start another Dethereal skill only as a handover these instructions name; the operator starts every other one.
-14. **Model files through your edit tool.** Write `structure.json`, `dataflows.json`, `data-items.json`, `attributes/**` and `.dethereal/**` only with your edit tool — never through a shell: no heredoc, redirection, `tee`, in-place editor, script, `rm` or `mv`. Delete attribute files only through `mcp__plugin_dethereal_dethereal__model_state_prune`.
+14. **Model files through your edit tool.** Write `structure.json`, `dataflows.json`, `data-items.json`, `attributes/**` and `.dethereal/**` only with your edit tool — never through a shell: no heredoc, redirection, `tee`, in-place editor, script, `rm` or `mv`. Delete attribute files only through `mcp__plugin_dethereal_dethereal__model_state_prune`. Write no script anywhere, and nothing to a scratchpad or temporary folder the harness offers: files go only where these instructions say.
    Your edit tools: `Write` and `Edit`.
 
 **Arguments:** $ARGUMENTS
@@ -55,7 +55,7 @@ Never run a companion's steps from memory.
 
 A `directory-path` argument is used directly. Otherwise, if `.dethernety/models.json` lists exactly one model, use it implicitly; with several, show them as a numbered list (name, path, and `display_state` from `mcp__plugin_dethereal_dethereal__model_state` `get`), then ask:
 
-`[prompt: model-select]` Which model? (the number from the list, or a path) — a plain message; end your turn.
+`[prompt: model-select]` Which model? (the number from the list, or a path) — the tag first, then a plain message; end your turn.
 
 With none, suggest `/dethereal:create`. Read model files from disk at the start of each operation, never from memory.
 
@@ -112,7 +112,7 @@ The Push Flow Reference holds the detail of the after-push steps: the summaries 
 
    With `baseline` `missing` or `legacy` every element is `no_baseline`: there is no usable record of the last pull or push, so the server cannot tell what changed. `unverifiable` means the record cannot be verified here: the directory was moved or renamed, the model copied, or another platform URL is set. Say which, in one line. When `changes_total` is above the rows shown, say `+N more`. Then ask:
 
-   `[prompt: push-conflict]` Push the local model (the platform elements listed are DELETED), pull the platform version first, or cancel? (push / pull / cancel) — the table, then the question with its choices numbered, in one message; end your turn.
+   `[prompt: push-conflict]` Push the local model (the platform elements listed are DELETED), pull the platform version first, or cancel? (push / pull / cancel) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
    - `push`: call `mcp__plugin_dethereal_dethereal__update_model` again with `overwrite_changed` = the refusal's `changed_ids` — the full set, never built from `changes` — and `overwrite_revision` = its `revision`. When there are more changes than the server can overwrite, it refuses and asks for a pull first: offer only `pull` or `cancel`. A refusal with `acknowledgement: "stale"` means the platform changed again: show the new changes and ask again.
    - `pull`: pull the platform version first, backing up local changes — never without the backup.
@@ -124,7 +124,7 @@ The Push Flow Reference holds the detail of the after-push steps: the summaries 
 3. **After the push:** read the updated model files — the push itself wrote back the id of each control it linked by name; show the push summary, any control link warning, and the local-only asset notice (all per the reference).
 4. **Stale control references.** For each control reference with a non-null `id`, check the id exists in the platform control list — **except a greenfield one**: an id starting `greenfield-`, or one whose `controls/<id>.json` has `lifecycle` `greenfield` or `partially-pushed`. The control-library push creates those after this step, so they are never stale here. If any others are missing, show them (name and id), then ask:
 
-   `[prompt: stale-controls]` These control references no longer exist on the platform. Clear their ids (the names stay, for re-matching), or keep them as they are? (clear ids / keep) — the table, then the question with its choices numbered, in one message; end your turn.
+   `[prompt: stale-controls]` These control references no longer exist on the platform. Clear their ids (the names stay, for re-matching), or keep them as they are? (clear ids / keep) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
    `clear ids`: set `id: null` on each stale reference — a changed `controls` list, handled as Control references says under Changed controls; `keep`: change nothing, and note the warning for manual review.
 5. If countermeasures exist in the model: suggest `/dethereal:surface` after analysis, to link controls to exposures.

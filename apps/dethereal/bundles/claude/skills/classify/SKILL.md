@@ -32,7 +32,7 @@ Classify the elements of a Dethernety threat model with platform module classes.
     `signed in`: check again and retry; `skip`: leave the step undone and say so.
 12. **The repository is the operator's:** no git command that changes it (`add`, `commit`, `reset`, `checkout`, `stash`, `revert`) unless the operator asks for exactly that; suggest it instead. An undo, the operator always runs.
 13. **The operator starts each command.** A `[next]` line is advice to the operator: never start the command it names yourself. Start another Dethereal skill only as a handover these instructions name; the operator starts every other one.
-14. **Model files through your edit tool.** Write `structure.json`, `dataflows.json`, `data-items.json`, `attributes/**` and `.dethereal/**` only with your edit tool — never through a shell: no heredoc, redirection, `tee`, in-place editor, script, `rm` or `mv`. Delete attribute files only through `mcp__plugin_dethereal_dethereal__model_state_prune`.
+14. **Model files through your edit tool.** Write `structure.json`, `dataflows.json`, `data-items.json`, `attributes/**` and `.dethereal/**` only with your edit tool — never through a shell: no heredoc, redirection, `tee`, in-place editor, script, `rm` or `mv`. Delete attribute files only through `mcp__plugin_dethereal_dethereal__model_state_prune`. Write no script anywhere, and nothing to a scratchpad or temporary folder the harness offers: files go only where these instructions say.
    Your edit tools: `Write` and `Edit`.
 
 **Procedure.** The Classification Protocol is in the file next to this skill: read it at the start, and again after any compaction; if it cannot be read, stop — never classify from memory. It runs here, in the main conversation: its proposals go to the operator directly, and nothing is written before their answer.
@@ -47,7 +47,7 @@ Read the file `${CLAUDE_SKILL_DIR}/secret-files.md` in full.
 
 A `directory-path` argument is used directly. Otherwise, if `.dethernety/models.json` lists exactly one model, use it implicitly; with several, show them as a numbered list (name, path, and `display_state` from `mcp__plugin_dethereal_dethereal__model_state` `get`), then ask:
 
-`[prompt: model-select]` Which model? (the number from the list, or a path) — a plain message; end your turn.
+`[prompt: model-select]` Which model? (the number from the list, or a path) — the tag first, then a plain message; end your turn.
 
 With none, suggest `/dethereal:create`. Read model files from disk at the start of each operation, never from memory.
 
@@ -61,13 +61,13 @@ With none, suggest `/dethereal:create`. Read model files from disk at the start 
 4. **Crown jewels.** Map the scope's crown jewels as Crown jewels (below) says, before anything is written. An unresolved crown jewel drops out of every priority set, so it is never skipped without the operator's decision: the table lists it, and it stays unmapped until its element is added.
 5. **Confirm.** Show one table — element, type, proposed class, module, confidence, match, crown jewel — then ask:
 
-   `[prompt: classification-confirm]` Apply these classes, or modify rows? (yes / modify / skip) — the table, then the question with its choices numbered, in one message; end your turn.
+   `[prompt: classification-confirm]` Apply these classes, or modify rows? (yes / modify / skip) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
 6. **Modules** — the protocol's other-module list (Classes from inactive modules). Classifying again means Pass 1 and Pass 2 for those elements, with the new modules:
 
 When a match comes from a module that is not active, the class is never a row of the confirm table: show the elements and the modules that would classify them as a table — element, current class (if any), module, class — then ask:
 
-`[prompt: classify-add-module]` Add these modules to the active modules and classify the elements with them? (add / skip) — the table, then the question with its choices numbered, in one message; end your turn.
+`[prompt: classify-add-module]` Add these modules to the active modules and classify the elements with them? (add / skip) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
 On `add`, look up each module's id with `mcp__plugin_dethereal_dethereal__get_classes` (`view: 'modules'`, `module_name`), then update `activeModules` in the scope and classify those elements again: the modules are written, as `{id, name}`, before anything is classified. The new proposals — a class, or a change from the current class — go through the confirm question the elements came from, for those rows only; the rows confirmed before are kept. On `skip`, the elements keep their classes or stay unclassified, the gap on record. The question is asked once per run: an element still unclassified after `add` goes to the gap question. Only this answer adds a module; with no `activeModules` in the scope, every installed module is already active and the question never arises.
 
@@ -80,7 +80,7 @@ On `add`, look up each module's id with `mcp__plugin_dethereal_dethereal__get_cl
 
    A module added after the elements were classified may have more specific classes: show those elements and their proposed classes, then ask:
 
-   `[prompt: reclassify-late-module]` Reclassify these elements with the new module's classes? (reclassify / skip) — the table, then the question with its choices numbered, in one message; end your turn.
+   `[prompt: reclassify-late-module]` Reclassify these elements with the new module's classes? (reclassify / skip) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
 9. **State.** Classification changes no workflow state.
 10. **Validate and footer.** Call `mcp__plugin_dethereal_dethereal__validate_model_json`, then:
@@ -94,11 +94,11 @@ On `add`, look up each module's id with `mcp__plugin_dethereal_dethereal__get_cl
 
 1. If `.dethereal/scope.json` has no `crown_jewels`, an empty list, or no `adversary_classes` field, ask. An explicit empty `adversary_classes` list, or `none`, is an answer — never ask it again:
 
-   `[prompt: scope-crown-jewels]` What are the most valuable assets in this system — its crown jewels — and which adversary classes should this model consider (external, insider, supply_chain, others)? — a plain message; end your turn.
+   `[prompt: scope-crown-jewels]` What are the most valuable assets in this system — its crown jewels — and which adversary classes should this model consider (external, insider, supply_chain, others)? — the tag first, then a plain message; end your turn.
 
    Write the answer to the scope's `crown_jewels` and `adversary_classes` (as those ids), keeping the rest of the scope.
 2. Propose the mapping: each crown jewel to the elements that hold it, starting from components already marked `crownJewel: true`, then names that match — a component, else a data item, with the stores that hold it. Show it as a confirm table (jewel, element, type; the why behind `details`) with a row for every crown jewel of the scope — one that matches nothing is a row too, marked unmatched: it stays unmapped, and Gate 3's C6 fails, until its element is added (`/dethereal:add`). Then ask:
 
-   `[prompt: crown-jewel-confirm]` Confirm this crown-jewel mapping, or adjust specific rows? (confirm / adjust) — the table, then the question with its choices numbered, in one message; end your turn.
+   `[prompt: crown-jewel-confirm]` Confirm this crown-jewel mapping, or adjust specific rows? (confirm / adjust) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
 3. Write only what was confirmed, with your edit tool, in one message: `crownJewel: true` on each mapped component in `structure.json`, and `crown_jewel_elements` in the scope — each `crown_jewels` entry, verbatim, mapped to its element ids. At least one mapped element is a non-external component. Validate.

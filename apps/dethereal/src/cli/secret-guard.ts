@@ -13,6 +13,9 @@
  *    a folder named in a line where `xargs` runs a reader, and a command that prints configuration
  *    values. The workflow's three name-only searches are allowed. A shell is not a sandbox: a name the
  *    shell builds (a variable, `$(…)`, an interpreter, a file of names) is not seen.
+ *  - Bash, what is no file name: a word with a control character and a space in it (a quoted
+ *    multi-line commit message or script) names no file when nothing exists by that name; its pieces
+ *    are judged as usual.
  *  - A file a kustomization (`secretGenerator` envs and files) or a compose file (`env_file`, the
  *    top-level `secrets: <name>: file:`) names as a secret source is secret too. Those files are looked
  *    for only in the target's own folder and its ancestors up to the project root; a reference only a
@@ -22,9 +25,9 @@
  * Fail closed. Read and Grep: an event that cannot be read (its tool or its file unknown), a path that
  * cannot be placed, a file that cannot be scanned, an internal error or the deadline deny the call.
  * Bash: what a check cannot finish (a folder or a glob past the bound or the deadline, a file that
- * cannot be scanned) denies the command; a fault before any check (no project root) denies it only when
- * its text names a secret file. A wrong --harness denies every call. Nothing a denial says comes from a
- * file's content.
+ * cannot be scanned) and an internal error deny the command; a project that cannot be placed (no
+ * project root) denies it only when its text names a secret file. A wrong --harness denies every call.
+ * Nothing a denial says comes from a file's content.
  *
  * Other harnesses map their calls onto the same decision. OpenCode's plugin sends read, grep and bash.
  * Codex has no read tool: its shell reaches the hook as Bash, and before the decision, failing closed,
@@ -41,7 +44,7 @@ import path from 'node:path'
 import {
   type SanctionedSecretCommand,
   SECRET_MANIFEST_PATTERN,
-  isSecretManifestLine,
+  createSecretManifestScanner,
   sanctionedSecretCommand,
   secretPathClass,
   isSafeBarePath,
@@ -359,19 +362,18 @@ function holdsSecretManifest(file: string, j: Judge): boolean {
     throw new Unchecked(`${(e as NodeJS.ErrnoException).code ?? 'unreadable'}`)
   }
   try {
+    // The scanner keeps only a bounded head of each line, so a line longer than the chunk is still
+    // tested from its start — where the `kind:` token sits — instead of from a fixed-size tail that
+    // would drop that start.
+    const scanner = createSecretManifestScanner(4 * SCAN_CHUNK)
     const buf = Buffer.alloc(SCAN_CHUNK)
-    let carry = ''
     for (;;) {
       j.deadline()
       const n = readSync(fd, buf, 0, SCAN_CHUNK, null)
       if (n === 0) break
-      const lines = (carry + buf.toString('utf8', 0, n)).split('\n')
-      carry = lines.pop() ?? ''
-      // A line longer than a chunk is still tested whole: keep its tail bounded to the chunk size.
-      if (carry.length > 4 * SCAN_CHUNK) carry = carry.slice(-4 * SCAN_CHUNK)
-      if (lines.some(isSecretManifestLine)) return true
+      if (scanner.push(buf.toString('utf8', 0, n))) return true
     }
-    return isSecretManifestLine(carry)
+    return scanner.end()
   } catch (e) {
     if (e instanceof Unchecked) throw e
     const code = (e as NodeJS.ErrnoException).code
@@ -382,8 +384,11 @@ function holdsSecretManifest(file: string, j: Judge): boolean {
   }
 }
 
-/** Whether `abs` (absolute) is a secret file of the project. Outside the project: never. */
-function judgeFile(abs: string, j: Judge): FileVerdict {
+/**
+ * Whether `abs` (absolute) is a secret file of the project. Outside the project: never. `twin`: the call judges a
+ * name's plain twin (below), which is judged once and never again.
+ */
+function judgeFile(abs: string, j: Judge, twin = false): FileVerdict {
   const real = canonicalish(abs)
   const relLex = relInside(abs, j.place)
   const relReal = relInside(real, j.place)
@@ -393,12 +398,45 @@ function judgeFile(abs: string, j: Judge): FileVerdict {
   for (const rel of [relLex, relReal]) {
     if (rel === null || rel === '') continue
     const cls = secretPathClass(rel)
+    // A name the classifier cannot read (a control character in it) that names nothing and holds a space, as a quoted
+    // multi-line message or script does, is no file name: its pieces, split at blanks, are judged as words of their own,
+    // and the name is judged as the same name with a plain character for each run of control characters, so it passes
+    // only where that plain name would (`ln -s . "x ⏎.." && cat "x ⏎../cli/.env"` reads as `x _../cli/.env`). Not when
+    // a run of control characters reaches a `/` (with only blanks, `=`, `:` or `@` between) or ends the name: a command
+    // may make such a name and read below it (`ln -s cli "x ⏎" && cat "x ⏎/.env"`). One with no space stays refused
+    // too: what is read through it is not followed. The twin is judged once: one the classifier still cannot read (a
+    // drive-letter shape, `a: b⏎c`) counts as secret.
+    if (cls === 'unclassifiable' && rel.includes(' ') && !NAME_BREAK.test(rel) && !present(abs)) {
+      if (twin) return { secret: true, rel: relReal || rel, cls }
+      const plain = judgeFile(path.join(j.place.root, rel.replace(CONTROL_RUN, '_')), j, true)
+      if (plain.secret) return plain
+      continue
+    }
     if (cls) return { secret: true, rel: relReal || rel, cls }
   }
   const naming = namedAsSecretSource(real, j)
   if (naming) return { secret: true, rel: relReal, cls: `referenced by ${naming} as a secret source` }
   if (CONTENT_EXTENSIONS.has(path.extname(real).toLowerCase()) && holdsSecretManifest(real, j)) return { secret: true, rel: relReal, cls: 'secret-manifest' }
   return { secret: false }
+}
+
+/** A run of control characters, as `secretPathClass` refuses them. */
+// eslint-disable-next-line no-control-regex
+const CONTROL_RUN = /[\x00-\x1f\x7f]+/g
+
+/** A run of control characters that reaches a `/` (through blanks as `\s` reads them, `=`, `:` or `@`) or ends the name. */
+// eslint-disable-next-line no-control-regex
+const NAME_BREAK = /[\x00-\x1f\x7f][\s\x00-\x1f\x7f=:@]*\/|\/[\s\x00-\x1f\x7f=:@]*[\x00-\x1f\x7f]|[\x00-\x1f\x7f][\s\x00-\x1f\x7f]*$/
+
+/** Whether something exists at the path (a link counted as itself); a failure other than absence counts as present. */
+function present(p: string): boolean {
+  try {
+    lstatSync(p)
+    return true
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code
+    return !(code === 'ENOENT' || code === 'ENOTDIR' || code === 'ENAMETOOLONG')
+  }
 }
 
 /**
@@ -1557,6 +1595,122 @@ function decideBash(command: string, cwd: string, j: Judge, home: string, depth 
   return ALLOW
 }
 
+/** `ln`'s long options, which GNU takes by any unique prefix (`--sym`, `--target=`). */
+const LN_LONG = ['--backup', '--directory', '--force', '--interactive', '--logical', '--no-dereference', '--no-target-directory',
+  '--physical', '--relative', '--suffix', '--symbolic', '--target-directory', '--verbose', '--help', '--version']
+const lnLong = (name: string): string => {
+  const hits = LN_LONG.filter((o) => o.startsWith(name))
+  return LN_LONG.includes(name) ? name : hits.length === 1 ? hits[0]! : name
+}
+/** `ln` by its own names, and the multi-call programs that run it by its first word. */
+const LN_NAMES = new Set(['ln', 'gln'])
+const MULTI_CALL = new Set(['busybox', 'toybox'])
+
+/** Words that end the command an `ln` found among a line's words runs: a list separator, or the end of find's `-exec`. */
+const LN_END = new Set([';', '\\;', '+', '|', '&&', '||', '&'])
+
+/**
+ * Every `ln` among the words, wherever it stands: after assignments, a wrapper (`command`, `env`, `sudo`), a keyword
+ * (`then`), xargs or find's `-exec`, or a multi-call program (`busybox ln`); each from its name to the end of its
+ * command.
+ */
+function lnCommands(words: string[]): string[][] {
+  const out: string[][] = []
+  for (let i = 0; i < words.length; i++) {
+    const name = path.basename(words[i]!)
+    const at = LN_NAMES.has(name) ? i : MULTI_CALL.has(name) && words[i + 1] === 'ln' ? i + 1 : -1
+    if (at < 0) continue
+    let end = at + 1
+    while (end < words.length && !LN_END.has(words[end]!)) end++
+    out.push(words.slice(at, end))
+    i = end
+  }
+  return out
+}
+
+/**
+ * Where each relative target of every `ln` among the words may lead, read conservatively. A symbolic link's target is read from the
+ * folder the link is made in, not from where the command runs, so `ln -s ../cli/.env a/q` makes `a/q` the project's
+ * own `cli/.env`. Which folder that is cannot always be known when the guard runs (a folder made earlier in the same
+ * line, a link over a link with `-n`, a folder reached through a link made earlier), so a target is read from the
+ * destination and from its parent, each as written and as resolved now; and a target that climbs (`../`) is read once
+ * more without its climb, from each of `anchors` (the project root, the home folder) and from every folder between
+ * the link's folder and an anchor, so a link made through another one, or moved after it is made, is judged too. Any
+ * `ln`, hard or symbolic: a hard link's target is judged from where the command runs as well, as any operand is.
+ * Absolute paths; none for a target that is absolute or starts with `~`.
+ */
+function symlinkTargets(words: string[], base: string, anchors: readonly string[] = []): string[] {
+  return [...new Set(lnCommands(words).flatMap((ln) => linkTargetsOf(ln, base, anchors)))]
+}
+
+function linkTargetsOf(ln: string[], base: string, anchors: readonly string[]): string[] {
+  let into: string | undefined
+  let noTargetDir = false
+  const operands: string[] = []
+  for (let i = 1; i < ln.length; i++) {
+    const w = ln[i]!
+    if (w === '--') {
+      operands.push(...ln.slice(i + 1))
+      break
+    }
+    if (w.startsWith('--')) {
+      const eq = w.indexOf('=')
+      const name = lnLong(eq < 0 ? w : w.slice(0, eq))
+      const value = eq < 0 ? undefined : w.slice(eq + 1)
+      if (name === '--no-target-directory') noTargetDir = true
+      else if (name === '--target-directory') into = value ?? ln[++i]
+      else if (name === '--suffix' && value === undefined) i++
+      continue
+    }
+    if (w.startsWith('-') && w.length > 1) {
+      // A cluster of short options; one that takes a value takes the rest of the word, or the next word.
+      for (let k = 1; k < w.length; k++) {
+        const c = w[k]!
+        if (c === 'T') noTargetDir = true
+        else if (c === 't' || c === 'S') {
+          const value = w.slice(k + 1) || ln[++i]
+          if (c === 't') into = value
+          break
+        }
+      }
+      continue
+    }
+    operands.push(w)
+  }
+  let folders: string[]
+  let targets: string[]
+  if (into !== undefined) {
+    folders = [path.resolve(base, into)]
+    targets = operands
+  } else if (operands.length === 1) {
+    folders = [base]
+    targets = operands
+  } else if (operands.length > 1) {
+    const dest = path.resolve(base, operands[operands.length - 1]!)
+    targets = operands.slice(0, -1)
+    folders = noTargetDir ? [path.dirname(dest)] : [dest, path.dirname(dest)]
+  } else return []
+  const places = [...new Set(folders.flatMap((f) => [f, canonicalish(f)]))]
+  const out = new Set<string>()
+  for (const t of targets) {
+    if (!t || path.isAbsolute(t) || t.startsWith('~')) continue
+    for (const f of places) out.add(path.resolve(f, t))
+    // The target without its climb, from every folder it could have been read from.
+    const parts = path.normalize(t).split(path.sep)
+    let climb = 0
+    while (parts[climb] === '..') climb++
+    if (climb === 0 || climb === parts.length) continue
+    const rest = parts.slice(climb).join(path.sep)
+    for (const anchor of anchors) {
+      out.add(path.resolve(anchor, rest))
+      for (const f of places) {
+        for (let at = f; at.startsWith(anchor + path.sep); at = path.dirname(at)) out.add(path.resolve(at, rest))
+      }
+    }
+  }
+  return [...out]
+}
+
 /** The first secret file one simple command reaches, from `base`. */
 function judgeSegment(words: string[], base: string, fedReader: boolean, j: Judge): FileVerdict {
   // echo and printf print their words and read no file, unless what they print feeds a reader (xargs).
@@ -1595,6 +1749,14 @@ function judgeSegment(words: string[], base: string, fedReader: boolean, j: Judg
       }
     }
   }
+  // A link's target, from where the link is made, wherever an `ln` stands among the words: each a whole path, never
+  // read in pieces (a folder's name may hold a space).
+  for (const t of symlinkTargets(words, base, [j.place.root])) {
+    for (const f of expand(t, base, j)) {
+      const v = judgeFile(f, j)
+      if (v.secret) return v
+    }
+  }
   return { secret: false }
 }
 
@@ -1612,8 +1774,12 @@ function textualSecret(text: string): { rel: string; cls: string } | null {
     for (const piece of m[0].split(/[=:@]/)) {
       const rel = piece.replace(/^\.?\//, '').replace(/^~\//, '')
       if (!rel || rel.startsWith('/')) continue
-      const cls = secretPathClass(rel)
-      if (cls && cls !== 'unclassifiable') return { rel, cls }
+      // A path that climbs (`../cli/.env`, a link's target) is judged by what it names once it has climbed, too.
+      for (const r of new Set([rel, rel.replace(/^(?:\.\.\/)+/, '')])) {
+        if (!r) continue
+        const cls = secretPathClass(r)
+        if (cls && cls !== 'unclassifiable') return { rel: r, cls }
+      }
     }
   }
   return null
@@ -1680,7 +1846,9 @@ function decideSecretAccessOnce(raw: RawEvent, g: SecretGuardEnv, search: keyof 
       let d: GuardDecision
       try {
         d = withPlace(cwd, g, (j) => decideBash(reading, cwd, j, home))
-      } catch {
+      } catch (e) {
+        // A project that cannot be placed: judged by its text. Any other fault is not run.
+        if (!(e instanceof Unchecked)) return deny(uncheckedReason(`\`${reading.slice(0, 120)}\``, 'an internal error'))
         const named = textualSecret(reading)
         d = named ? deny(secretReason(named.rel, named.cls, true)) : ALLOW
       }
@@ -2767,6 +2935,12 @@ export function reachedRoot(command: string, cwd: string, home: string, fold: (p
           (strong && (lost || /^~(?:-\d*|\d+)(?=\/|$)/.test(piece)) ? lostPiece(piece) : null)
         if (hit) return hit
       }
+    }
+    // A link's target, from where the link is made: each a whole path, never read in pieces. A climb may end above the
+    // home folder (a project elsewhere), so what it names is read from each of the home folder's ancestors too.
+    for (const t of segBase === null ? [] : symlinkTargets(words, segBase, withAncestors(home))) {
+      const hit = judge(t, bases, true, reading, strong)
+      if (hit) return hit
     }
   }
   return null

@@ -23,9 +23,11 @@
     "./bundles/claude/agents/enrichment-applier.md",
     "./bundles/claude/agents/infrastructure-scout-scoped.md",
     "./bundles/claude/agents/infrastructure-scout.md",
+    "./bundles/claude/agents/kg-cross-examiner.md",
     "./bundles/claude/agents/model-reviewer.md",
     "./bundles/claude/agents/security-enricher.md",
-    "./bundles/claude/agents/threat-modeler.md"
+    "./bundles/claude/agents/threat-modeler.md",
+    "./bundles/claude/agents/triage-analyst.md"
   ],
   "hooks": "./bundles/claude/hooks/hooks.json",
   "mcpServers": "./bundles/claude/.mcp.json",

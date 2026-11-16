@@ -57,6 +57,7 @@ describe('cli', () => {
     process.env.DETHERNETY_URL = 'https://platform.example.test'
     delete process.env.CLAUDE_PROJECT_DIR
     delete process.env.DETHERNETY_PLATFORM_URL
+    delete process.env.CLAUDE_PLUGIN_OPTION_PLATFORM_URL
   })
   afterEach(() => {
     resetProjectRoot()
@@ -132,13 +133,20 @@ describe('cli', () => {
       const text = context(await cli(['hook', 'session-start', '--source', 'startup', '--harness', 'claude']))
       expect(text).toContain('/dethereal:create')
       expect(text).toContain('/dethereal:status')
-      expect(text).not.toMatch(/Platform URL not set/)
+      expect(text).not.toMatch(/No platform URL is set/)
     })
 
-    it('says so when the platform URL is not set, without contacting anything', async () => {
+    it('says so when no platform URL is set where it can see one, without contacting anything', async () => {
       delete process.env.DETHERNETY_URL
-      const text = context(await cli(['hook', 'session-start', '--source', 'startup']))
-      expect(text).toContain('Platform URL not set; using the local default.')
+      const text = context(await cli(['hook', 'session-start', '--source', 'startup', '--harness', 'claude']))
+      expect(text).toContain('No platform URL is set in this shell or the plugin settings; if the server was given one, /dethereal:status shows it. Sign in with /dethereal:login when needed.')
+    })
+
+    it('claims nothing about the URL the server uses: the hook cannot see the server’s environment', async () => {
+      delete process.env.DETHERNETY_URL
+      const line = context(await cli(['hook', 'session-start', '--source', 'startup'])).split('\n').find((l) => /platform URL/i.test(l))!
+      expect(line).toBeDefined()
+      expect(line).not.toMatch(/local default|using|uses|in use|localhost|127\.0\.0\.1|https?:/i)
     })
 
     it('says so when the platform URL is unusable', async () => {

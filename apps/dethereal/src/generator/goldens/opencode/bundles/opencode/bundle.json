@@ -3,15 +3,15 @@
   "harness": "opencode",
   "version": "<VERSION>",
   "generatedFrom": "59708494500ba79a9f0642def6442660eb88b6049e1a079633f1c86214c380a5",
-  "contentHash": "a91de5cc3d6eaadc69749795699d4e63304b3d85ff9618aa0fa1fcd26ffc70dd",
+  "contentHash": "de238b84d62d04ed45dfbdc0762d1b5322563bab16194d1bb1fd5c803050a5d3",
   "files": [
     {
       "path": "bundles/opencode/agents/dethereal-enricher.md",
-      "sha256": "ed3500f46be2873d53c634ffd31bd314c00afce57c1b792a985c542511ecae12"
+      "sha256": "73824288901ce732862394296bbf586da658d7915f249269876f4b833f4b0488"
     },
     {
       "path": "bundles/opencode/agents/dethereal-lead.md",
-      "sha256": "e0547ed52534676ee478c2699ba7d3a5af2a0b7113c6740ec87780cb6fd4a84c"
+      "sha256": "bbf6898fa5a7599ad266f00afd5ed1be7449a0cc051128cea89d34b0d65ce380"
     },
     {
       "path": "bundles/opencode/agents/dethereal-reviewer.md",
@@ -27,11 +27,11 @@
     },
     {
       "path": "bundles/opencode/mcp.fragment.json",
-      "sha256": "49d918e169a990574b5e4b2e21fdd390def3675c4935ffe41a122404c0b2f7d2"
+      "sha256": "28d4ce6e1589c4ac62a5ef02359397d03e97e38ee0383d4a48914819066a1887"
     },
     {
       "path": "bundles/opencode/plugins/dethereal.ts",
-      "sha256": "f3e02fbe1c32083f9911443efd8e171d221ebe2c917f3e96d70dc6c60691dd8c"
+      "sha256": "a4e893a225ec2699e8f50eab06690398836c2a70fe4f564e0f602f7fbe571c11"
     },
     {
       "path": "bundles/opencode/skills/dethereal-audit/SKILL.md",

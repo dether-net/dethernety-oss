@@ -9,6 +9,10 @@ import path from 'node:path'
 import { scoreRun, type ScoreReport } from '../score/score.js'
 import { buildRun, bundleHashOf, CEILING_FAILURES, cleanScript, distHashOf, FIXTURE, gatesResult, key, LOOPBACK_FIELDS, MODULE, MODEL, PROJECT_PATH, REGISTRY, sheet, TABLES, type Step } from './fixtures/clean-run.js'
 import { readRegistry } from '../score/prompts.js'
+import { validateRunDir } from '../score/run-dir.js'
+import { protocolProblems } from '../score/validity.js'
+import { parseRun } from '../transcripts/index.js'
+import type { ParsedRun } from '../transcripts/types.js'
 import { editJson } from './helpers.js'
 
 // Each test scores one whole run (the clean run is scored once and shared): slow under a full-suite load.
@@ -84,6 +88,24 @@ describe('a transcript item the parser does not know', () => {
     const r = await scoreRun(dir, { moduleDataDir: MODULE, rcBundleHash: bundleHashOf(dir), rcDistHash: distHashOf(dir) })
     expect(r.verdict).toBe('INVALID')
     expect(r.problems).toContainEqual({ code: 'unknown_item_type', detail: 'the claude transcript holds items the parser does not know: server_tool_use ×1' })
+  })
+
+  it.each([
+    ['codex', 'codex-thread-items.json', (last: Record<string, any>) => ({ ...last, item_id: 'u1', rollout_ordinal: last.rollout_ordinal + 1, item_type: 'codeExecution', item_json: JSON.stringify({ type: 'codeExecution', id: 'u1' }) }), 'codeExecution'],
+    ['opencode', 'opencode-parts.json', (last: Record<string, any>) => ({ ...last, id: 'zz-u1', time_created: last.time_created + 1, data: JSON.stringify({ type: 'file', url: 'file:///x' }) }), 'file'],
+  ] as const)('is a run problem for a %s transcript too', async (harness, items, unknown, type) => {
+    const { dir } = await buildRun(path.join(newTmp(), 'run'), cleanScript())
+    const check = validateRunDir(dir)
+    if (!check.valid) throw new Error('the built run is not valid')
+    // The harness's own excerpt, holding one item its parser does not know.
+    const transcripts = path.join(newTmp(), 'transcripts')
+    fs.cpSync(path.resolve(import.meta.dirname, '..', 'fixtures', 'transcripts', harness), transcripts, { recursive: true })
+    const file = path.join(transcripts, items)
+    const rows = JSON.parse(fs.readFileSync(file, 'utf8')) as Array<Record<string, any>>
+    fs.writeFileSync(file, JSON.stringify([...rows, unknown(rows.at(-1)!)]))
+    const run = { ...check.run, record: { ...check.run.record, harness } }
+    const problems = protocolProblems({ run, parsed: parseRun(harness, transcripts), fixtureSource: path.join(FIXTURE, 'source'), sheet })
+    expect(problems).toContainEqual({ code: 'unknown_item_type', detail: `the ${harness} transcript holds items the parser does not know: ${type} ×1` })
   })
 })
 
@@ -218,6 +240,27 @@ describe('H3', () => {
   it('fails a relative write from a working directory inside the model that ran', async () => {
     const ran = await score((s) => s.splice(promptAt(s, 'data-items-confirm'), 0, { kind: 'bash', command: relativeWrite, cwd: ATTRIBUTES }))
     expect(codes(ran, 'H3')).toContain('FAIL:scaffold_write')
+  })
+
+  it('carries a declined server call to its server write, which then never opens a change window', async () => {
+    const file = 'attributes/dataFlows/f-orders-db.json'
+    const content = fs.readFileSync(path.join(FIXTURE, 'key', 'model', file), 'utf8')
+    const parsed = async (denied?: string) => {
+      const script = cleanScript()
+      script.splice(promptAt(script, 'data-items-confirm'), 0,
+        { kind: 'tool', name: 'update_model', input: { directory_path: `${PROJECT_PATH}/${MODEL}` }, result: '{"ok":true}', ...(denied ? { denied } : {}) },
+        { kind: 'write-content', file, content, before: '{"elementId":"f-orders-db","attributes":{"unseen":true}}' })
+      const { dir } = await buildRun(path.join(newTmp(), 'run'), script)
+      return parseRun('claude', path.join(dir, 'transcripts'), { start: path.join(dir, 'start'), end: path.join(dir, 'project') })
+    }
+    const sinces = (r: ParsedRun) => r.opaque.filter((o) => o.path.endsWith(file)).map((o) => r.events[o.since]?.kind ?? 'none')
+    const ran = await parsed()
+    expect(sinces(ran)).toContain('server_write')
+    // The refusal is carried from the call to its server write, which then opens no window.
+    const declined = await parsed('user-rejected')
+    expect(declined.events.filter((e) => e.kind === 'server_write').map((e) => e.denied)).toEqual(['user-rejected'])
+    expect(sinces(declined).length).toBeGreaterThan(0)
+    expect(sinces(declined)).not.toContain('server_write')
   })
 
   it('never dates a later unseen change back to a declined call', async () => {

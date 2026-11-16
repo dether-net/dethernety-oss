@@ -139,12 +139,12 @@ describe('installing across harnesses', () => {
     expect(r.text()).toMatch(/Claude Code: installed\.[\s\S]*Codex: installed\.[\s\S]*OpenCode: installed\./)
     // What each bundle lets run without asking is said before anything is written.
     // In categories, with the count of the rest: the summary names no tool.
-    expect(r.out[0]).toContain("Without asking: the plugin's approve hook lets Claude Code run Dethereal's read-only tools and the ones whose changes the server checks; your own deny and ask rules still apply. The other 14 tools ask as your settings say.")
-    expect(r.out[0]).toContain("Without asking: Codex runs Dethereal's read-only tools and the ones whose changes the server checks; the other 14 Dethereal tools ask first.")
+    expect(r.out[0]).toContain("Without asking: the plugin's approve hook lets Claude Code run Dethereal's read-only tools and the ones whose changes the server checks; your own deny and ask rules still apply. The other 15 tools ask as your settings say.")
+    expect(r.out[0]).toContain("Without asking: Codex runs Dethereal's read-only tools and the ones whose changes the server checks; the other 15 Dethereal tools ask first.")
     expect(r.out[0]).toContain("  Its Dethereal agents get Codex's sandbox settings (read-only for the scouts and the reviewer, which can still read the whole disk; workspace-write for the threat-modeler and the enricher); Codex's sandbox for an agent may not cover its shell commands, so Dethereal's hooks also refuse, best effort, any shell command of the scouts and the reviewer that does more than read. They set no approval policy of their own: Codex's decides whether their shell commands ask.")
     expect(r.out[0]).toContain("  On Codex, Dethereal's guards are best effort: they judge a command by what it names, so an interpreter, or a session fed input later, can get past them; Codex's sandbox is the boundary.")
-    expect(r.out[0]).toContain('Without asking, the Dethereal agents: run its read-only tools and the ones whose changes the server checks; read project files, except secret ones; and two of them edit the model files. Their shell commands, and the 14 other tools, ask first. OpenCode\'s own agents keep your settings.')
-    expect(TOOL_MANIFEST.filter((t) => t.approval === 'prompt')).toHaveLength(14)
+    expect(r.out[0]).toContain('Without asking, the Dethereal agents: run its read-only tools and the ones whose changes the server checks; read project files, except secret ones; and two of them edit the model files. Their shell commands, and the 15 other tools, ask first. OpenCode\'s own agents keep your settings.')
+    expect(TOOL_MANIFEST.filter((t) => t.approval === 'prompt')).toHaveLength(15)
     for (const t of TOOL_MANIFEST) expect(r.out[0], t.name).not.toMatch(new RegExp(`\\b${t.name}\\b`))
   })
 

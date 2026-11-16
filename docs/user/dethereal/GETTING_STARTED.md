@@ -18,7 +18,7 @@ This guide walks you through installing the Dethereal plugin, connecting to the 
 ## Prerequisites
 
 - **A harness** — Claude Code (Stable; the CLI `claude`, VS Code extension, or JetBrains plugin), Codex (Experimental) or OpenCode (Preview); see [Codex and OpenCode](#codex-and-opencode) for what each status means. The Dethereal installer checks each harness's version (see [Harness Versions](#harness-versions))
-- **Node.js 20.11.1 or later** — required for the MCP server; the plugin will not install or start on an older Node. **pnpm** as well, if you build from source
+- **Node.js 22.12.0 or later** — required for the MCP server; the plugin will not install or start on an older Node. **pnpm** as well, if you build from source
 - **A Dethernety platform instance** — on this machine (`http://127.0.0.1:3000`) or on another host reachable over HTTPS
 
 ### Harness Versions
@@ -35,12 +35,12 @@ OpenCode updates itself, so the OpenCode you have may be newer than 1.18.34 by t
 
 **Because the guards block a call they cannot check, a missing or old Node blocks your file and shell tools.** Dethereal's guards block every Read, Grep, Bash, Write, Edit, MultiEdit and NotebookEdit call, in each project where the plugin is enabled (in every project, if you installed it for your user), when:
 
-- Claude Code runs a Node from 14.8 up to 20.11.0, on any Claude Code version. Claude Code passes the guard's reason to the assistant: `Dethereal needs Node.js 20.11.1 or newer (found <version>), so its secret-guard can't check this call and blocks it. Update Node, or turn the Dethereal plugin off with /plugin.` (`config-guard` for a file write).
+- Claude Code runs a Node from 14.8 up to 22.11.0, on any Claude Code version. Claude Code passes the guard's reason to the assistant: `Dethereal needs Node.js 22.12.0 or newer (found <version>), so its secret-guard can't check this call and blocks it. Update Node, or turn the Dethereal plugin off with /plugin.` (`config-guard` for a file write).
 - On Claude Code 2.1.295 or later, Claude Code finds no usable `node` on its `PATH`, or only a Node older than 14.8.
 
 To get your tools back, do one of these:
 
-- Update Node to 20.11.1 or later, then restart Claude Code from a shell where `node --version` shows the new version.
+- Update Node to 22.12.0 or later, then restart Claude Code from a shell where `node --version` shows the new version.
 - Make sure `node` is on the `PATH` Claude Code runs with. Check this in particular when you installed Node through nvm and start Claude Code from the desktop rather than from a terminal: nvm adds `node` to the `PATH` in your shell's startup files, which a Claude Code started from the desktop may not read.
 - Turn the Dethereal plugin off with `/plugin`, then start a new session (or run `/reload-plugins`); turn it on again once Node is fixed.
 
@@ -157,18 +157,59 @@ In no-auth mode the platform runs with authentication disabled (`ENABLE_NOAUTH=t
 
 ---
 
+## Upgrading from 0.5.x
+
+0.6.0 raises the Node.js floor and builds triage in. If you use 0.5.2 on any harness, these changes reach you:
+
+- **Node.js 22.12.0 or later.** 0.5.x accepted Node 20.11.1; 0.6.0 needs 22.12.0, the same as the platform. On an older Node, the server and installer stop at once with `Dethereal needs Node.js 22.12.0 or newer (running <version>).` (on Node 14.8 or later; an older Node cannot load Dethereal at all). Update Node first.
+  - **On an older Node, the guards block your tools.** On a Node from 14.8 up to 22.11.0, Dethereal's secret and config guards block every Read, Grep, Bash, Write, Edit, MultiEdit and NotebookEdit call in each project where the plugin is enabled, on any Claude Code version, until you update Node or turn the plugin off with `/plugin`; on Claude Code 2.1.295 or later, so does a missing `node`. See [Harness Versions](#harness-versions) for the fixes.
+  - **If you update through Claude Code itself** (`/plugin`, `claude plugin update` or the marketplace's auto-update) on a Node older than 22.12.0, update Node first. The installer stops on an older Node before it changes anything, but an update through Claude Code does not, and the guards then block your tools from the next session on. `claude plugin update` and the marketplace's auto-update also skip the installer's Claude Code version check, so if you are on a Claude Code older than 2.1.295, update Claude Code first.
+- **Triage is built in.** The new command — `/dethereal:triage` on Claude Code, `$dethereal:triage` on Codex, `/dethereal-triage` on OpenCode — and its two agents, triage-analyst and kg-cross-examiner, arrive with the update; there is nothing else to install. See [Triaging Platform Findings](TRIAGE.md).
+- **Dependency updates.** Dethereal moves to graphql 16.15.0, and the dt-core library it builds on to js-yaml 5.5.0. Nothing changes for you.
+
+**To update**, update Node first, then run the installer for each harness you use. Add `--scope project --project <dir>` in place of `--scope user` if you installed for one project.
+
+- **Claude Code** (2.1.295 or later):
+
+  ```bash
+  npx @dether.net/dethereal install --harness claude --scope user
+  ```
+
+  It updates the `dether.net` marketplace and the plugin, and checks that Claude Code lists the plugin enabled at the installer's version. Restart any Claude Code session that was open: it keeps running 0.5.2 until then.
+
+- **Codex:**
+
+  ```bash
+  npx @dether.net/dethereal install --harness codex --scope user
+  ```
+
+  It copies the new runtime to `~/.dethernety/runtime/` and activates it. Start a new Codex session.
+
+- **OpenCode:**
+
+  ```bash
+  npx @dether.net/dethereal install --harness opencode --scope user
+  ```
+
+  As for Codex, it copies and activates the new runtime. Add `--allow-unverified-opencode` if your OpenCode is newer than the versions Dethereal is checked with (see [Harness Versions](#harness-versions)). Start a new OpenCode session.
+
+Codex and OpenCode can be updated in one run with `--harness codex,opencode`; each harness is reported on its own. On a terminal, the installer asks for the platform URL, and pressing Enter keeps the one you have; off a terminal or with `--yes`, it keeps the URL already recorded. Then run `npx @dether.net/dethereal doctor` to check the install, and `npx @dether.net/dethereal gc` to remove runtimes no install uses any more.
+
+For the other changes in 0.6.0, see the [CHANGELOG](../../../CHANGELOG.md).
+
+---
+
 ## Upgrading from 0.4.x
 
 Dethereal 0.4.x was a Claude Code plugin only; Codex and OpenCode are new in 0.5.2. If you used 0.4.x in Claude Code, these changes reach you:
 
-- **Node.js 20.11.1 or later.** 0.4.x accepted Node 20.0.0. On an older Node, 0.5.2's server and installer stop at once with `Dethereal needs Node.js 20.11.1 or newer (running <version>).` (on Node 14.8 or later; an older Node cannot load Dethereal at all). Update Node first.
-  - **On an older Node, the guards block your tools.** On a Node from 14.8 up to 20.11.0, Dethereal's secret and config guards block every Read, Grep, Bash, Write, Edit, MultiEdit and NotebookEdit call in each project where the plugin is enabled, on any Claude Code version, until you update Node or turn the plugin off with `/plugin`; on Claude Code 2.1.295 or later, so does a missing `node`. See [Harness Versions](#harness-versions) for the fixes.
-  - **If you update through Claude Code itself** (`/plugin`, `claude plugin update` or the marketplace's auto-update) on a Node older than 20.11.1, update Node first. The installer stops on an older Node before it changes anything, but an update through Claude Code does not, and the guards then block your tools from the next session on. `claude plugin update` and the marketplace's auto-update also skip the installer's Claude Code version check, so if you are on a Claude Code older than 2.1.295, update Claude Code first.
+- **Node.js 22.12.0 or later.** 0.4.x accepted Node 20.0.0; 0.6.0 needs 22.12.0. Update Node first: see the Node.js item in [Upgrading from 0.5.x](#upgrading-from-05x) for what an older Node does and the fixes.
 - **The server ships inside the plugin.** 0.4.x started its MCP server with `npx @dether.net/dethereal@<version>`, fetched from npm. 0.5.2 runs it with `node` from the plugin's own files, so the plugin and its server are always the same version and nothing is fetched when a session starts. `node` must be on the `PATH` Claude Code runs with.
 - **The platform URL is a plugin setting.** 0.4.x read only `DETHERNETY_URL`, and without it used `http://localhost:3003`. 0.5.2 adds the plugin's platform URL setting (`platform_url`), whose default is `http://127.0.0.1:3000`; a `DETHERNETY_URL` set in your shell still wins over it.
   - **You export `DETHERNETY_URL`:** nothing changes. The plugin talks to the same platform, and your sign-in carries over.
   - **You relied on the old default:** the plugin now talks to `http://127.0.0.1:3000`. Point it at your platform (with `--platform-url` when you update with the installer, below, or with `DETHERNETY_URL`). Sign-ins are stored per platform address, so unless you give exactly the address you used before, run `/dethereal:login` again.
 - **Your models stay full models.** A model made with 0.4.x records no mode, so it counts as a full model: `/dethereal:threat-model` on it continues as a full run, as before. Only a new model is a quick model by default; add `--full` when you create one to build it in full (see [Quick Mode](GUIDED_WORKFLOW.md#quick-mode)).
+- **Triage, and the rest of 0.6.0.** The changes in [Upgrading from 0.5.x](#upgrading-from-05x) reach you too.
 
 **To update**, run the installer for Claude Code (it needs Claude Code 2.1.295 or later; add `--scope project --project <dir>` in place of `--scope user` if you installed the plugin for one project):
 
@@ -211,13 +252,13 @@ The commands appear in your harness's own form (see [Slash Command Syntax](COMMA
 
 That last block is not decoration. You do not have to start with a command — describing your system in plain language is a first-class entry point, and the plugin turns the description into a model.
 
-If no platform URL is configured at all, one more line follows:
+If no platform URL is set in your shell or the plugin settings, one more line follows:
 
 ```
-  Platform URL not set; using the local default. Sign in with /dethereal:login when needed.
+  No platform URL is set in this shell or the plugin settings; if the server was given one, /dethereal:status shows it. Sign in with /dethereal:login when needed.
 ```
 
-The plugin does not contact the platform to show this line; it only notes that neither `DETHERNETY_URL` nor the plugin's platform URL setting is set. It is a hint, not a blocker — you can create and enrich a model entirely offline, and connect later. A URL that is set but cannot be used gets its own line instead (see [Configuration](#configuration)).
+The plugin does not contact the platform to show this line; it only notes that neither `DETHERNETY_URL` in your shell nor the plugin's platform URL setting is set. A URL the server was given some other way (for example, in the server's own environment) is not visible at session start, which is why the line points at `/dethereal:status`: it shows the URL the server uses. It is a hint, not a blocker — you can create and enrich a model entirely offline, and connect later. A URL that is set but cannot be used gets its own line instead (see [Configuration](#configuration)).
 
 Once you have models, this orientation is replaced by a short resume hint. With a single model it names the model, its workflow state, its quality score, and any stale elements, then lists up to three suggested next commands under `Suggested next:`; with several it gives the count and points you at `/dethereal:status`.
 
@@ -448,7 +489,7 @@ git commit -m "feat: initial threat model for web application"
 
 **What to gitignore:** the control audit log, a few transient working files, and backups. Copy the full list from [What to Commit](SYNC_AND_VERSION_CONTROL.md#what-to-commit) — and use its per-file rules rather than ignoring the whole `.dethereal/` directory.
 
-This machine's records — `.dethereal/sync.json` and the enrichment relay files in `.dethereal/relay/` — need no entry: the Dethereal server lists them in the model's own `.dethereal/.gitignore`.
+This machine's records — `.dethereal/sync.json`, the enrichment relay files in `.dethereal/relay/`, and triage's record (`.dethereal/triage-log.json`) and run folders (`.dethereal/triage-run/`) — need no entry: the Dethereal server lists them in the model's own `.dethereal/.gitignore`.
 
 Token storage (`~/.dethernety/`) is in your home directory, outside the repository — no gitignore entry needed.
 

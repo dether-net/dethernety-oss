@@ -7,6 +7,7 @@
 - [DtLgDocumentOps - LangGraph Document Operations](#dtlgdocumentops---langgraph-document-operations)
 - [Ad-hoc Rego Evaluation (rego-adhoc)](#ad-hoc-rego-evaluation-rego-adhoc)
 - [Policy Hash (policy-hash)](#policy-hash-policy-hash)
+- [Pure subpaths: `./condition-groups` and `./remediation-honesty`](#pure-subpaths-condition-groups-and-remediation-honesty)
 - [Graph Engine and Schema Helpers](#graph-engine-and-schema-helpers)
 - [Utility Class Patterns](#utility-class-patterns)
 
@@ -555,6 +556,71 @@ const hash = policySourceHash(fs.readFileSync(policiesPath, 'utf8'));
 ```
 
 **The golden pair.** `@dethernety/dt-module/testing` exports `POLICY_HASH_GOLDEN_POLICY`, a `policies.rego` text ending in a newline as committed policy files do, and `POLICY_HASH_GOLDEN_HEX`, the hash it must produce. A producer of policy hashes asserts that its computation maps the one to the other, so a producer that drifts from this helper (by hashing the text untrimmed, say) fails in its own tests rather than as a silent mismatch in a deployment.
+
+---
+
+## Pure subpaths: `./condition-groups` and `./remediation-honesty`
+
+Two subpaths for tools that read knowledge-graph rules or write remediation copy and must agree with every other consumer that does. Both are pure: no I/O, and nothing imported outside their own files, so a consumer that bundles one takes no other dependency with it. Neither is exported from the package root. The decision to put them here is [ADR-014](../decisions/014-open-source-triage-and-evaluator.md).
+
+**Source Files:**
+- `packages/dt-module/src/condition-groups.ts` — the `@dethernety/dt-module/condition-groups` entry
+- `packages/dt-module/src/kg/condition-operators.ts` — the operator vocabulary (no imports)
+- `packages/dt-module/src/kg/condition-groups.ts` — the evaluator (imports only `./condition-operators`)
+- `packages/dt-module/src/remediation-honesty.ts` — the `@dethernety/dt-module/remediation-honesty` entry (no imports)
+
+### `./condition-groups`
+
+A knowledge-graph rule states its trigger as `conditionGroups`: an OR of groups, each an AND of predicates `{ attribute, operator, value? }`. The rules are compiled to Rego; the evaluator gives each operator the boolean meaning of its compiled Rego expression, against an element's **sparse** attribute map, which always comes from the caller.
+
+```typescript
+// Vocabulary
+OPERATORS             // the closed 24-operator vocabulary
+isOperator(op: string): op is Operator
+normalizeOperator(operator: string, value?: RegoValue): [string, RegoValue | undefined]
+OPERATOR_ALIASES      // common alias → [canonical operator, default value or null]
+NEGATED               // is_false, not_exists, not_in, not_has_element, not_contains
+UNARY                 // is_true, is_false, exists, not_exists: they carry no value
+
+// Evaluation
+evaluatePredicate(pred: Predicate, attrs: AttributeMap): 'satisfied' | 'unsatisfied' | 'unevaluable'
+evaluateConditionGroups(groups: PredicateGroup[], attrs: AttributeMap): { satisfiedGroupIndexes, unevaluableGroupIndexes }
+dedupeSubsumedGroups(groups: PredicateGroup[]): { keptIndexes, subsumedInto }
+deriveDeltas(groups: PredicateGroup[], keptHoldingIndexes: number[], attrs: AttributeMap): Delta[]
+parseConditionGroups(raw: string | null | undefined): PredicateGroup[]
+explainConditionGroups(groups: PredicateGroup[], attrs: AttributeMap): ConditionGroupsEvaluation
+// { verdicts: [{ groupIndex, verdict: 'holds' | 'fails' | 'unevaluable' }], satisfied, unevaluable, deltas }
+```
+
+**Evaluation semantics:**
+
+- **A missing attribute satisfies only the negated operators.** The five `NEGATED` operators compile to a Rego `not …`, which succeeds when the attribute is absent; every other operator fails on an absent attribute. Absence is decided before any type check, and a missing attribute is never read as `false` or `0`. `is_false` and `not_exists` are both Rego `not attr`: satisfied by an absent attribute or a present `false`, and by nothing else.
+- **Aliases.** `normalizeOperator` maps a known alias onto its canonical operator (`not_empty` → `count_gt 0`, `equals` → `eq`, `is_null` → `not_exists` and the like), filling in the alias's default value only when the predicate carries none. An unknown operator passes through unchanged and is unevaluable.
+- **Unevaluable groups.** A type mismatch on a present value, an unknown operator, and `regex_match` (not evaluated) make a predicate `unevaluable`, and a group with any unevaluable predicate is unevaluable as a whole: a knowable part never stands in for the group. Unevaluable groups are reported apart and are neither holding nor failing.
+- **Implied groups are folded.** A group whose predicate set is a superset of another group's can never hold on its own, so `dedupeSubsumedGroups` drops it; of two identical groups the lower index is kept, and an empty group subsumes nothing. `explainConditionGroups` reports every group's own verdict, and lists in `satisfied` only the holding groups that remain: one root cause each.
+- **The falsifying deltas.** For each remaining holding group, `deriveDeltas` names the cheapest predicate to flip so the group fails: `{ attribute, operator, currentValue, relation, target, sufficientAlone, groupIndex }`, where `relation` is `set`, `clear`, `raise`, `lower`, `add`, `remove` or `change` (no single target). `sufficientAlone` is `false` on every delta whenever more than one holding group remains after the fold: clearing one group does not clear the finding.
+- **Tolerant parsing.** `parseConditionGroups` never throws: malformed JSON or a value that is not an array gives `[]`, and a group left with no well-formed predicate is dropped.
+
+```typescript
+import { explainConditionGroups, parseConditionGroups } from '@dethernety/dt-module/condition-groups';
+
+const groups = parseConditionGroups(rule.conditionGroups);
+const result = explainConditionGroups(groups, { encryption_at_rest: 'none' });
+// result.satisfied: the root-cause groups that hold; result.deltas: what would make each fail
+```
+
+### `./remediation-honesty`
+
+Remediation copy may say what a change *would* change ("would change this trigger", "candidate"); it may never claim that a change fixes, closes or reduces a finding.
+
+```typescript
+FORBIDDEN_REMEDIATION_VERBS   // 'addresses', 'closes', 'fixes', 'reduces', 'resolves', 'mitigates',
+                              // 'lowers risk', 'moves to residual', 'planned-fixed', 'remediated', 'scheduled'
+CITATION_ASYMMETRY_LINE       // shown wherever sources appear: a difference in citation is not a difference in validity
+lintRemediationText(doc: string): string[]   // the distinct forbidden terms found; [] means clean
+```
+
+`lintRemediationText` matches case-insensitively and at word boundaries: a term may not be preceded or followed by a letter, digit or hyphen, so "prefixes" does not contain "fixes" and "rescheduled" does not contain "scheduled", and the words of a multi-word term may be separated by any white space, a line break included. A caller fails the write on any hit, quoting the terms.
 
 ---
 

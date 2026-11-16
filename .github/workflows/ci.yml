@@ -193,12 +193,12 @@ jobs:
       # Session credentials must never reach the model. The guard reads every file the package
       # publishes and every tool's description and input schema; the canary drives the built
       # server over stdio against a platform that echoes the bearer back and scans every result
-      # and stderr for it. Both import the bundled data-access layer, which resolves to its build.
-      - name: Build the bundled data-access layer
-        run: pnpm --filter @dethernety/dt-core build
+      # and stderr for it. Both import the bundled workspace packages, which resolve to their builds.
+      - name: Build the bundled workspace packages
+        run: pnpm --filter @dethernety/dt-core build && pnpm --filter @dethernety/dt-module build
 
       # tsup compiles without type-checking, so without this a type error in the plugin or its
-      # tests reaches nothing that can fail. It reads the bundled layer's types from the build above.
+      # tests reaches nothing that can fail. It reads the bundled packages' types from the build above.
       - name: Type-check
         working-directory: apps/dethereal
         run: pnpm exec tsc --noEmit -p .

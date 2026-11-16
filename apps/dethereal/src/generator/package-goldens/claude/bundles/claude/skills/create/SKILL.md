@@ -32,7 +32,7 @@ Create a new Dethernety threat model. It is built on disk now and published late
     `signed in`: check again and retry; `skip`: leave the step undone and say so.
 12. **The repository is the operator's:** no git command that changes it (`add`, `commit`, `reset`, `checkout`, `stash`, `revert`) unless the operator asks for exactly that; suggest it instead. An undo, the operator always runs.
 13. **The operator starts each command.** A `[next]` line is advice to the operator: never start the command it names yourself. Start another Dethereal skill only as a handover these instructions name; the operator starts every other one.
-14. **Model files through your edit tool.** Write `structure.json`, `dataflows.json`, `data-items.json`, `attributes/**` and `.dethereal/**` only with your edit tool — never through a shell: no heredoc, redirection, `tee`, in-place editor, script, `rm` or `mv`. Delete attribute files only through `mcp__plugin_dethereal_dethereal__model_state_prune`.
+14. **Model files through your edit tool.** Write `structure.json`, `dataflows.json`, `data-items.json`, `attributes/**` and `.dethereal/**` only with your edit tool — never through a shell: no heredoc, redirection, `tee`, in-place editor, script, `rm` or `mv`. Delete attribute files only through `mcp__plugin_dethereal_dethereal__model_state_prune`. Write no script anywhere, and nothing to a scratchpad or temporary folder the harness offers: files go only where these instructions say.
    Your edit tools: `Write` and `Edit`.
 
 **Reference.** Read these files next to this skill before any model file is written, and again after any compaction; if one cannot be read, write no model file and stop. Secret Files before any configuration is read:
@@ -85,7 +85,7 @@ Collect the scope in conversation, not as a form; take what the operator already
 | `trust_assumptions` | no | `[]` | What is explicitly trusted |
 | `adversary_classes` | no | — | Asked for every intent; the enrichment questions depend on them. Write the ids `external`, `insider`, `supply_chain`, and others as the operator names them |
 
-`[prompt: scope]` To scope the model: the system's name and a one-line description, if you have not given them. What are the most valuable assets in this system (crown jewels)? What do you explicitly trust? Which adversary classes should it consider (external, insider, supply_chain, others)? Anything out of scope? Any compliance requirements, and the depth and intent if not the defaults? — a plain message; end your turn.
+`[prompt: scope]` To scope the model: the system's name and a one-line description, if you have not given them. What are the most valuable assets in this system (crown jewels)? What do you explicitly trust? Which adversary classes should it consider (external, insider, supply_chain, others)? Anything out of scope? Any compliance requirements, and the depth and intent if not the defaults? — the tag first, then a plain message; end your turn.
 
 Then scaffold the model at `./threat-models/<kebab-case-name>/` unless the operator named a path:
 
@@ -105,7 +105,7 @@ Unless the run has `--full`, that first transition marks the model in the same c
 
 From the description, or the template, propose the components, the trust boundaries and the data flows. Nest the boundaries as the Model Guidelines' boundary hierarchy says — never a flat set. Show them as a table: components (type, name, boundary), boundaries (with their parents) and data flows (source → target: what it carries), then ask:
 
-`[prompt: create-structure]` Confirm this structure, or adjust specific rows? (confirm / adjust) — the table, then the question with its choices numbered, in one message; end your turn.
+`[prompt: create-structure]` Confirm this structure, or adjust specific rows? (confirm / adjust) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
 Apply the changes and show the table again until the operator confirms. Then write the confirmed elements: `structure.json` (the boundaries and components, with coordinates from the Layout guidelines — boundaries apart with 50px padding, components 150×150 relative to their boundary, flows left to right or top to bottom) and `dataflows.json`. Call `mcp__plugin_dethereal_dethereal__validate_model_json`.
 

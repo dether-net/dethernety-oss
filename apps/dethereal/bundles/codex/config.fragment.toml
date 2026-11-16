@@ -13,6 +13,9 @@ approval_mode = "approve"
 [mcp_servers.dethereal.tools.detect_drift]
 approval_mode = "approve"
 
+[mcp_servers.dethereal.tools.get_class_guide]
+approval_mode = "approve"
+
 [mcp_servers.dethereal.tools.get_classes]
 approval_mode = "approve"
 
@@ -20,6 +23,9 @@ approval_mode = "approve"
 approval_mode = "approve"
 
 [mcp_servers.dethereal.tools.get_example_models]
+approval_mode = "approve"
+
+[mcp_servers.dethereal.tools.get_kg_chain]
 approval_mode = "approve"
 
 [mcp_servers.dethereal.tools.get_mitre_defend]
@@ -47,6 +53,9 @@ approval_mode = "approve"
 approval_mode = "approve"
 
 [mcp_servers.dethereal.tools.search_mitre_attack]
+approval_mode = "approve"
+
+[mcp_servers.dethereal.tools.triage_review]
 approval_mode = "approve"
 
 [mcp_servers.dethereal.tools.validate_model_json]

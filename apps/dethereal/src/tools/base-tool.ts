@@ -69,6 +69,9 @@ export function resultText(body: unknown, compact = true): string {
   return compact ? JSON.stringify(body) : JSON.stringify(body, null, 2)
 }
 
+/** What a platform tool answers when there is no session to call the platform with. */
+export const AUTHENTICATION_REQUIRED = 'This tool requires authentication. Please call the "login" tool first.'
+
 /**
  * Abstract base class for MCP tools
  */
@@ -119,7 +122,7 @@ export abstract class BaseTool<TInput = any, TOutput = any> {
       if (this.requiresClient && !context.apolloClient) {
         return {
           success: false,
-          error: 'This tool requires authentication. Please call the "login" tool first.'
+          error: AUTHENTICATION_REQUIRED
         }
       }
 

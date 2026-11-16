@@ -32,7 +32,7 @@ Add elements to an existing Dethernety threat model, described in plain words. A
     `signed in`: check again and retry; `skip`: leave the step undone and say so.
 12. **The repository is the operator's:** no git command that changes it (`add`, `commit`, `reset`, `checkout`, `stash`, `revert`) unless the operator asks for exactly that; suggest it instead. An undo, the operator always runs.
 13. **The operator starts each command.** A `[next]` line is advice to the operator: never start the command it names yourself. Start another Dethereal skill only as a handover these instructions name; the operator starts every other one.
-14. **Model files through your edit tool.** Write `structure.json`, `dataflows.json`, `data-items.json`, `attributes/**` and `.dethereal/**` only with your edit tool — never through a shell: no heredoc, redirection, `tee`, in-place editor, script, `rm` or `mv`. Delete attribute files only through `mcp__plugin_dethereal_dethereal__model_state_prune`.
+14. **Model files through your edit tool.** Write `structure.json`, `dataflows.json`, `data-items.json`, `attributes/**` and `.dethereal/**` only with your edit tool — never through a shell: no heredoc, redirection, `tee`, in-place editor, script, `rm` or `mv`. Delete attribute files only through `mcp__plugin_dethereal_dethereal__model_state_prune`. Write no script anywhere, and nothing to a scratchpad or temporary folder the harness offers: files go only where these instructions say.
    Your edit tools: `Write` and `Edit`.
 
 **Reference.** Read these files next to this skill before any model file is written, and again after any compaction; if one cannot be read, write no model file and stop:
@@ -49,7 +49,7 @@ Read the file `${CLAUDE_SKILL_DIR}/guidelines-layout.md` in full.
 
 A `directory-path` argument is used directly. Otherwise, if `.dethernety/models.json` lists exactly one model, use it implicitly; with several, show them as a numbered list (name, path, and `display_state` from `mcp__plugin_dethereal_dethereal__model_state` `get`), then ask:
 
-`[prompt: model-select]` Which model? (the number from the list, or a path) — a plain message; end your turn.
+`[prompt: model-select]` Which model? (the number from the list, or a path) — the tag first, then a plain message; end your turn.
 
 With none, suggest `/dethereal:create`. Read model files from disk at the start of each operation, never from memory.
 
@@ -58,7 +58,7 @@ With none, suggest `/dethereal:create`. Read model files from disk at the start 
 1. **The model.** Resolve it (Model Resolution Protocol; none → suggest `/dethereal:create` and stop); read `structure.json`, `dataflows.json` and `data-items.json`; `mcp__plugin_dethereal_dethereal__model_state` `get`.
 2. **What to add**, from the arguments or the conversation: a component ("a Redis cache in the data tier"), a boundary ("a DMZ for internet-facing services"), a data flow ("a flow from API Server to Redis for session lookups") or a data item ("PII on the user registration flow"). When the element type, its place, or a flow's ends are unclear, ask:
 
-   `[prompt: add-element]` What do you want to add, and where? Give the element type, its name, and its boundary — or, for a data flow, its source and target. — a plain message; end your turn.
+   `[prompt: add-element]` What do you want to add, and where? Give the element type, its name, and its boundary — or, for a data flow, its source and target. — the tag first, then a plain message; end your turn.
 
 3. **Its details:**
    - **component** — name; type (PROCESS, STORE or EXTERNAL_ENTITY); parent boundary, from the request or asked; a position relative to the parent (Layout); a proposed class from `mcp__plugin_dethereal_dethereal__match_classes` when the platform answers — `classLabel: 'COMPONENT'` with `componentType` set to its type, never a class of another type — confirmed with the change; a new id (a UUID).
@@ -67,7 +67,7 @@ With none, suggest `/dethereal:create`. Read model files from disk at the start 
    - **data item** — name and description; a proposed class with `classLabel: 'DATA'`; the elements that handle it; a sensitivity only when the operator gives it.
 4. **Show what will change** as a table — each element with its type, where it goes (boundary, position, or the flow's ends and handles) and its class — then ask:
 
-   `[prompt: add-confirm]` Add these elements as shown, or adjust specific rows? (add / adjust) — the table, then the question with its choices numbered, in one message; end your turn.
+   `[prompt: add-confirm]` Add these elements as shown, or adjust specific rows? (add / adjust) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
 5. **Write only what was confirmed**: `structure.json` (components, boundaries), `dataflows.json`, `data-items.json` (and `dataItemIds` on the elements that handle a new data item). For a classified element, call `mcp__plugin_dethereal_dethereal__generate_attribute_stubs` with `directory_path`.
 6. **State.** At DISCOVERED or STRUCTURE_COMPLETE the state does not change. At ENRICHING or REVIEWED, apply the Backward Transition Protocol with the new element ids.

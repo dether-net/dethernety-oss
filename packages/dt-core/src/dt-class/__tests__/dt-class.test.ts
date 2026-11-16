@@ -1,5 +1,5 @@
 /**
- * Unit tests for DtClass.matchClasses and DtClass.listClasses. Mirrors the
+ * Unit tests for DtClass.matchClasses, DtClass.listClasses and the class guide parsing. Mirrors the
  * dt-class-identity harness: stub `dtUtils.performQuery` to capture call
  * shape and return prepared results. Real GraphQL execution is exercised
  * via the dt-ws integration tests.
@@ -319,5 +319,52 @@ describe('DtClass.listClasses', () => {
 
     await expect(pMatch).resolves.toMatchObject({ vectorAvailable: true })
     await expect(pList).resolves.toMatchObject({ totalCount: 1 })
+  })
+})
+
+describe('DtClass guide parsing', () => {
+  // A guide as the modules author it (JSON), which the YAML loader reads unchanged.
+  const GUIDE = [{ option_name: 'block_public_access_enabled', how_to_obtain: [{ type: 'command', file_path: null }] }]
+  const dataClass = (guide: string) => ({ dataClasses: [{ id: 'dc-1', name: 'Data', guide }] })
+
+  it('parses a JSON guide', async () => {
+    const { dt, performQuery } = buildHarness()
+    performQuery.mockResolvedValueOnce(dataClass(JSON.stringify(GUIDE)))
+    expect((await dt.getDataClass({ dataClassId: 'dc-1' }))?.guide).toEqual(GUIDE)
+  })
+
+  it('parses a base64-encoded guide, as the platform returns it', async () => {
+    const { dt, performQuery } = buildHarness()
+    performQuery.mockResolvedValueOnce(dataClass(Buffer.from(JSON.stringify(GUIDE)).toString('base64')))
+    expect((await dt.getDataClass({ dataClassId: 'dc-1' }))?.guide).toEqual(GUIDE)
+  })
+
+  it('parses a YAML guide', async () => {
+    const { dt, performQuery } = buildHarness()
+    performQuery.mockResolvedValueOnce(dataClass('- option_name: a\n  how_to_obtain:\n    - type: command\n'))
+    expect((await dt.getDataClass({ dataClassId: 'dc-1' }))?.guide).toEqual([{ option_name: 'a', how_to_obtain: [{ type: 'command' }] }])
+  })
+
+  it.each([['spaces', '   '], ['blank lines', '  \n \n'], ['a comment only', '# note\n']])(
+    'leaves the guide undefined when it holds no document (%s): the loader refuses it, and the refusal is caught',
+    async (_name, guide) => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const { dt, performQuery } = buildHarness()
+        performQuery.mockResolvedValueOnce(dataClass(guide))
+        const cls = await dt.getDataClass({ dataClassId: 'dc-1' })
+        expect(cls).toBeDefined()
+        expect(cls!.guide).toBeUndefined()
+        expect(warn).toHaveBeenCalledOnce()
+      } finally {
+        warn.mockRestore()
+      }
+    },
+  )
+
+  it('parses the guide of a control class too', async () => {
+    const { dt, performQuery } = buildHarness()
+    performQuery.mockResolvedValueOnce({ controlClasses: [{ id: 'cc-1', name: 'Control', guide: JSON.stringify(GUIDE) }] })
+    expect((await dt.getControlClassById({ classId: 'cc-1' }))?.guide).toEqual(GUIDE)
   })
 })

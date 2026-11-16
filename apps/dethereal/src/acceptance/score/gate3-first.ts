@@ -105,7 +105,7 @@ export function gate3First(input: Gate3FirstInput): Finding[] {
   if (result.isError) return review('gate3_first_unread', 'the last gates result before the first loop-back is an error', [result.seq, first.event])
   // A refused or failed write changed nothing; a server write that names the paths it may touch counts only on this model.
   const between = input.events.find((e) => e.seq > result!.seq && e.seq < first.event && (
-    (e.kind === 'server_write' && !readOnlyCall(callOf(e)) && (!e.touches?.length || e.touches.some(inModel))) ||
+    (e.kind === 'server_write' && !e.denied && !readOnlyCall(callOf(e)) && (!e.touches?.length || e.touches.some(inModel))) ||
     (e.kind === 'file_write' && !e.isError && typeof e.path === 'string' && inModel(e.path)) ||
     (e.kind === 'shell' && e.writesModel && !e.denied)))
   if (between) return review('gate3_first_unread', `the model was written (event ${between.seq}) after the last gates result and before the first loop-back`, [result.seq, between.seq, first.event])

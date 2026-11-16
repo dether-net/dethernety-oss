@@ -83,3 +83,78 @@ export async function exportPlatformModel(call: CallTool, modelId: string, workD
   }
   return { schemaVersion: PLATFORM_EXPORT_SCHEMA_VERSION, modelId, exportedAt: now.toISOString(), files, exposures }
 }
+
+/** A triage run's export: each exposure also carries the lifecycle and the def_hash the server computes for it. */
+export interface TriageExportedExposure extends ExportedExposure {
+  lifecycle: string
+  def_hash: string | null
+}
+
+export interface TriagePlatformExport extends Omit<PlatformExport, 'exposures'> {
+  exposures: Record<string, TriageExportedExposure[]>
+}
+
+type ListedRow = { exposure_id?: unknown; lifecycle?: unknown; def_hash?: unknown }
+type ListedPage = { model_id?: string; rows?: ListedRow[]; truncated?: boolean; next_offset?: number; listing?: string }
+
+/** Whether a tool's refusal is `listing_changed`: by its code when the caller passes the data on, else by its message. */
+function listingChanged(err: unknown): boolean {
+  const codes = (err as { data?: { codes?: unknown } } | null)?.data?.codes
+  if (Array.isArray(codes)) return codes.includes('listing_changed')
+  return err instanceof Error && /changed since the first page/.test(err.message)
+}
+
+/**
+ * Every row `list_model` holds for the directory. A server that answers the whole list in one reply (`rows` with no
+ * `view`) is read as it is; otherwise the rows view is walked, `select: 'all'`, page by page with its listing. A
+ * model that changes between pages restarts the walk once; a second change fails it.
+ */
+async function listedRows(call: CallTool, directory: string): Promise<{ model_id?: string; rows: ListedRow[] }> {
+  const first = (await call('query_exposures', { action: 'list_model', directory_path: directory })) as ListedPage & { view?: string }
+  if (first.view === undefined && Array.isArray(first.rows)) return { model_id: first.model_id, rows: first.rows }
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const rows: ListedRow[] = []
+      let page = (await call('query_exposures', { action: 'list_model', directory_path: directory, view: 'rows', select: 'all' })) as ListedPage
+      const model_id = page.model_id
+      for (;;) {
+        rows.push(...(page.rows ?? []))
+        if (!page.truncated) return { model_id, rows }
+        page = (await call('query_exposures', { action: 'list_model', directory_path: directory, view: 'rows', select: 'all', offset: page.next_offset, listing: page.listing })) as ListedPage
+      }
+    } catch (err) {
+      if (attempt === 0 && listingChanged(err)) continue
+      throw err
+    }
+  }
+}
+
+/**
+ * The export a triage run is judged on, before its first prompt and after it ends: exportPlatformModel's, with each
+ * exposure's `lifecycle` and `def_hash` from the server's own `query_exposures list_model` over the exported model
+ * (export_model records which model it is). The two reads must name the same exposures, or the export fails.
+ */
+export async function exportTriageModel(call: CallTool, modelId: string, workDir: string, now = new Date()): Promise<TriagePlatformExport> {
+  const doc = await exportPlatformModel(call, modelId, workDir, now)
+  const listed = await listedRows(call, workDir)
+  if (listed.model_id !== modelId) throw new Error('list_model read another model than the one exported')
+  const byId = new Map<string, { lifecycle: string; def_hash: string | null }>()
+  for (const r of listed.rows) {
+    if (typeof r.exposure_id !== 'string' || typeof r.lifecycle !== 'string' || (r.def_hash !== null && typeof r.def_hash !== 'string')) throw new Error('list_model returned a row without its id, lifecycle or def_hash')
+    byId.set(r.exposure_id, { lifecycle: r.lifecycle, def_hash: r.def_hash as string | null })
+  }
+  const exposures: Record<string, TriageExportedExposure[]> = {}
+  const seen = new Set<string>()
+  for (const [element, list] of Object.entries(doc.exposures)) {
+    exposures[element] = list.map((x) => {
+      const row = byId.get(x.id)
+      if (!row) throw new Error(`exposure ${x.id} is in the element reads but not in list_model`)
+      seen.add(x.id)
+      return { ...x, ...row }
+    })
+  }
+  const missing = [...byId.keys()].filter((id) => !seen.has(id))
+  if (missing.length) throw new Error(`list_model holds ${missing.length} exposure(s) no element read returned`)
+  return { ...doc, exposures }
+}
+

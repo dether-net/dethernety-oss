@@ -134,6 +134,17 @@ describe('hook post-write', () => {
     })
   })
 
+  it('says nothing about the workflow’s own files under a model’s .dethereal/, and still counts the model’s files', async () => {
+    const write = (rel: string) => ({ tool_name: 'Write', tool_input: { file_path: path.join(project, 'probe', rel) }, cwd: project })
+    for (const rel of ['.dethereal/discovery.json', '.dethereal/scope.json', '.dethereal/triage-run/run-20261115-001500/batch-1.md']) {
+      expect(await postWrite(write(rel), 'claude'), rel).toBeNull()
+    }
+    expect(hint(await postWrite(write('.dethereal-notes.md'), 'claude'))).toMatch(/model "Probe" changed \(1 file\)/)
+    const patch = ['*** Begin Patch', '*** Add File: probe/structure.json', '+{}', '*** Add File: probe/.dethereal/scope.json', '+{}', '*** End Patch'].join('\n')
+    const both = { tool_name: 'apply_patch', tool_input: { command: patch }, cwd: project }
+    expect(hint(await postWrite(both, 'codex'))).toMatch(/model "Probe" changed \(1 file\)/)
+  })
+
   it('says nothing about a file outside every model', async () => {
     const event = { tool_name: 'Write', tool_input: { file_path: path.join(project, 'README.md') }, cwd: project }
     expect(await postWrite(event, 'claude')).toBeNull()

@@ -2369,7 +2369,12 @@ describe('the secret-file searches stay inside the repository and print no line'
   const text = flat(shared('secret-files.md'))
 
   it('never searches a symbolic link, a path through one, or anything outside the project', () => {
-    expect(text).toContain("`<dir>` is only a directory inside the project, reached without a symbolic link: its physical path (`cd -- '<dir>' && pwd -P`) starts with the project root's. A symbolic link, or a path through one, is reported as present and never searched")
+    expect(text).toContain("`<dir>` is only a directory inside the project, reached without a symbolic link: its physical path (`(cd -- '<dir>' && pwd -P)`) starts with the project root's.")
+    expect(text).toContain('A symbolic link, or a path through one, is reported as present and never searched')
+  })
+
+  it('runs the physical-path check and the search as two commands, each alone', () => {
+    expect(text).toContain('Run that check as a command of its own, then the grep as another: never join the check or the grep with any other command.')
     expect(text).toContain('`-r`, never `-R`')
   })
 

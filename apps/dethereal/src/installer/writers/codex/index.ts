@@ -26,7 +26,7 @@ import { CODEX_MARKETPLACE_NAME, CODEX_PLUGIN_ID, type CodexShared, entryKey, ty
 import { deleteTomlTables, mergeToml, TOML_BEGIN, TOML_END, tomlTreeDiff } from '../../core/merge-toml.js'
 import { ensureDirUnder, type InstallerEnv, resolveRoot, type StatePaths } from '../../core/paths.js'
 import { type AllowedTarget, readTarget, resolveTarget, sha256, type Target, writeTarget } from '../../core/safe-write.js'
-import { applyFileChange, mutateManifest, type RevertOutcome, revertFile, type TxContext } from '../../core/transaction.js'
+import { applyFileChange, mutateManifest, recoverPending, type RevertOutcome, revertFile, type TxContext } from '../../core/transaction.js'
 import { addMarketplace, addPlugin, codexVersion, listPlugins, removeMarketplace, removePlugin } from './cli.js'
 import { parse } from 'smol-toml'
 import { hasServer, hookStateKeys, marketplaceSource, projectTrusted, readConfig, renderFragment, runtimeOfSource, SERVER_TABLE, serverUrlOf } from './config.js'
@@ -271,6 +271,12 @@ export async function installCodex(input: CodexInstallInput): Promise<CodexInsta
   const lay = layoutOf(scope, codexHome, projectReal)
   const bundle = await readBundle(input.runtime.runtimePath)
   const fragment = renderFragment(bundle.fragment, { node: input.node, runtime: input.runtime.runtimePath, platformUrl: validUrl(input.platformUrl) })
+
+  // Settle a file record an interrupted earlier install left pending before the pre-flight reads it:
+  // a never-landed write still at its pre-image is dropped (so it does not read as a conflict below),
+  // a landed one is committed, a user-edited one stays pending and still refuses. The install holds the
+  // lock, so recoverPending reuses ctx.lock; only records under this scope's targets are touched.
+  await recoverPending(ctx, lay.allowed)
 
   // Pre-flight: nothing is written until every refusal has been checked.
   const { manifest } = await readManifest(ctx.paths, ctx.env)

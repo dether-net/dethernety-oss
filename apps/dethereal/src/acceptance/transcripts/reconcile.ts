@@ -48,7 +48,7 @@ export function reconcile(harness: Harness, events: TranscriptEvent[]): Reconcil
     const written = inWindow.some(
       (e) =>
         (e.kind === 'file_write' && !e.isError && (e.path === h.path || (e.fileOp?.op === 'move' && e.fileOp.to === h.path))) ||
-        ((e.kind === 'server_write' || (e.kind === 'shell' && e.writesModel && !e.denied)) && coveredBy(e.touches, h.path!)),
+        (((e.kind === 'server_write' && !e.denied) || (e.kind === 'shell' && e.writesModel && !e.denied)) && coveredBy(e.touches, h.path!)),
     )
     if (written) continue
     const name = h.path!.split('/').pop()!

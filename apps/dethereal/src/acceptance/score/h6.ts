@@ -215,7 +215,7 @@ function changedSince(parsed: ParsedRun, from: number, to: number, modelRel: str
       ? decides(e.path ?? '') || /(^|[\\/])(structure|dataflows|data-items|discovery)\.json$/.test(e.fileOp.to)
       : decides(e.path ?? '') && !followed(e))) ||
     (e.kind === 'shell' && e.writesModel === true && !e.denied && reaches(e.touches)) ||
-    (e.kind === 'server_write' && !readOnlyCall(callOf(e)) && !NEVER_CLASSIFIES.has(e.tool ?? '') && reaches(e.touches))))
+    (e.kind === 'server_write' && !e.denied && !readOnlyCall(callOf(e)) && !NEVER_CLASSIFIES.has(e.tool ?? '') && reaches(e.touches))))
 }
 
 /** The run's own bookkeeping beside the model: state, pending values, caches, settlement, sync and the project registry. */
@@ -287,7 +287,7 @@ function quickReviewOrder(events: TranscriptEvent[], runs: AgentRun[], consent: 
   const writes = events.filter((e) => e.seq > reviewer.start && e.seq < consent && (
     (e.kind === 'file_write' && !e.isError && typeof e.path === 'string' && isContentFile(e.path)) ||
     (e.kind === 'shell' && e.writesModel === true && !e.denied) ||
-    (e.kind === 'server_write' && !readOnlyCall(callOf(e)) && (e.touches ?? []).some(isContentFile))))
+    (e.kind === 'server_write' && !e.denied && !readOnlyCall(callOf(e)) && (e.touches ?? []).some(isContentFile))))
   for (const w of writes) out.push({ verdict: 'FAIL', code: 'write_after_review', detail: `the model was written (${w.kind}${w.tool ? `, ${w.tool}` : ''}) after its review started and before publishing: the review relayed another model`, events: [reviewer.start, w.seq] })
   return out
 }

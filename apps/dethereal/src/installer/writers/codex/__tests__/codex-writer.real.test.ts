@@ -78,9 +78,9 @@ describe.skipIf(!enabled)('the Codex writer with the real codex CLI', () => {
     // the install URL is a default: Codex passes a DETHERNETY_URL from its own environment through
     expect((await listMcpServers({ env, cwd: home })).find((s) => s.name === 'dethereal')?.transport.env_vars).toContain('DETHERNETY_URL')
     const skills = new Set(codex('debug', 'prompt-input').match(/dethereal:[a-z0-9-]+:/g))
-    expect(skills.size).toBe(17)
+    expect(skills.size).toBe(18)
     expect(JSON.parse(codex('plugin', 'list', '--json')).installed).toEqual([expect.objectContaining({ pluginId: 'dethereal@dethereal-local', version: '0.5.0' })])
-    expect((await fs.readdir(path.join(codexHome, 'agents'))).filter((n) => n.startsWith('dethereal-'))).toHaveLength(5)
+    expect((await fs.readdir(path.join(codexHome, 'agents'))).filter((n) => n.startsWith('dethereal-'))).toHaveLength(8)
 
     await install('0.5.1')
     const text = await fs.readFile(path.join(codexHome, 'config.toml'), 'utf8')

@@ -80,8 +80,12 @@ export interface RawEvent {
   answers?: string[]
   /** shell: the working directory the harness recorded for the call, as it was when the call was made */
   cwd?: string
-  /** shell, tool_call: the harness refused the call before it ran, as it recorded the refusal (an operator's decline, a rule, a hook) */
+  /** shell, tool_call, server_write, an OpenCode subagent_start: the harness refused the call before it ran, as it recorded the refusal (an operator's decline, a rule, a hook) */
   denied?: string
+  /** subagent_end (OpenCode): the subagent's own session began (the harness reads a task's mentions once it has) */
+  started?: boolean
+  /** subagent_start (OpenCode): the paths its task mentions (`@path`), which OpenCode itself reads into the subagent's context, as written */
+  mentions?: string[]
   /** answer: the harness rejected the question call on its input before showing it (no showing) */
   inputRejected?: boolean
   /** answer: the harness recorded that the operator dismissed the dialog without answering it */

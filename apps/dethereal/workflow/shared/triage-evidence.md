@@ -1,0 +1,73 @@
+# Triage: the evidence, the analysts, the proposals
+
+## The triage set and its groups
+
+1. **The triage set and its groups**: {{tool:query_exposures}} `list_model` view `groups`, with `element_id` with `--element`, every page in turn: follow `next_offset`, passing `listing` back, until `truncated` is false. The server has already taken the pending rows not created by USER and grouped them by the exact tuple `(name, type, category, def_hash)` — two definitions that share a display name never merge — in parts of at most 80 members. Its parts are the groups, and each part's `group` (`g<k>`, or `g<k>#<m>` for the parts of one large group) is its dispatch id, in its order. `listing_changed`: start again from offset 0, once; a second one: show it, and stop.
+2. **Parts of one definition go together**: all parts of one `g<k>` go into the same analyst batch, filling its 8 groups where they fit; a definition of more than 8 parts fills whole batches of its own, in part order. Parts of one `g<k>` that come back with different verdicts are flagged in the run notes at reconciliation.
+3. **Ids, then numbers.** A split made before dispatch, or by an analyst, adds `#<m>` to the id it splits. The review's numbers are assigned once the groups are final — after reconciliation, before the proposals table — in dispatch-id order (numeric: `g2` before `g10`), `1..N`; they never change after the table is shown. The review takes only whole numbers, so every split is its own numbered group. A run holds at most 999 groups: the rest wait for the next run. The summary names, separately, the server's `parts_left_over` (parts it held back) and the groups cut off after reconciliation.
+4. **Custom copies.** For each group, look for USER-created rows on the member elements — one {{tool:query_exposures}} `list_model` rows walk, `select: 'user'`, paged the same way, matched by `element_id`: the same walk as the header's awareness list, done once. Read each with {{tool:query_exposures}} `evidence` and check its description for the exact text `(custom of '<group name>')`. A hit means an earlier supersede's copy exists: that member never gets a fresh supersede. Give it its own group, marked `needs-human` with `[orphan-probe: existing custom copy — recovery path, not a fresh supersede]`. If the copy's technique ids (`exploited_by` with the ATLAS ids) lack any of the member's, mark it `[orphan-probe: custom copy '<copyId>' lacks <ids> of the original — confirm before recovery]` instead. The recovery — disposing the original as SUPERSEDED, or deleting an incomplete copy — is done in the platform UI.
+
+## The dossiers
+
+**Scratch.** The run's scratch directory (`<model-dir>/.dethereal/triage-run/run-<YYYYMMDD-HHMMSS>/`), created by the first file written into it with the edit tool. A failed write here stops the run before any dispatch, with the error: never dispatch a partial dossier.
+
+**Local evidence, per member element** (full mode):
+
+{{#harness claude,opencode}}
+Read these model JSON files with your read tool, never with an inline or multi-line script.
+{{/harness}}
+{{#harness codex}}
+Read each of these model JSON files with `cat '<file>'` or `sed -n '<a>,<b>p' '<file>'`, one file per command, never with an inline or multi-line script.
+{{/harness}}
+
+1. **The element**: by id — components and boundaries in the nested `structure.json` tree (`defaultBoundary`, then each boundary's `boundaries` and `components`), flows in `dataflows.json`, data items in `data-items.json`. After a push, local ids equal platform ids.
+2. **Its attributes**: `attributes/{components|boundaries|dataFlows|dataItems}/<elementId>.json` — the `attributes` object, copied verbatim into the dossier; the same map feeds `evaluate`. `classData.id` there is the class binding.
+3. **Its sources**: in `.dethereal/discovery.json`'s `elements`, the entry whose `suggestedType` is the element's kind (`boundary` for a `securityBoundary`; `component`, `dataFlow` and `dataItem` as they are) and whose `suggestedName` is the element's name (exact, then case-insensitive). Its `sources` give `file` and `line`; a file is relative to the project root, the directory that holds `.dethernety/`. For each source that is a YAML or JSON file, run the secret-files file's Secret-manifest search on its folder before the dossier lists it, once per folder in a run; you list sources, the analysts open them. A folder the search may not run on (through a symbolic link, or the search refused or failed): its YAML and JSON sources count as secret files. The dossier lists the resolved **paths, relative to the working directory, with line numbers, never excerpts**. A source whose file is in `unreadSecretFiles`, whose name the secret-files file lists, or that the search lists, is listed as "secret file, not read: `<file>`" and must not be read. A file that is absolute, starts with `~`, leaves the project root through `..`, or holds a quote, a line break or a control character is listed as "outside the project, not read: `<file>`" and must not be read either.
+4. **Any step failing** (no attribute file, no discovery entry, no sources): that member is `platform-evidence-only`, shown in the dossier and the proposals table, and capped at medium. Give it its own group if its group's other members have full evidence.
+
+**The knowledge graph** (regime `kg_present`, before any latch):
+
+- Per distinct class: {{tool:get_kg_chain}} `chain` with the class id. For a covered class, the **mechanical tier** only (the rules' condition groups and the attributes they read) goes into the dossier. The **authored tier** — threats, technique provenance, corpus entries — is **never written into an analyst's dossier**: keep it in the conversation for cross-examination and for showing to the operator, who sees it only as cited external content (`kind`, `id`, `canonicalUrl`, a one-line synthesis), never in your own voice. A rule marked `malformed` is reported as a data-quality note and gets no evaluation.
+- **An unread chain.** A read that fails with `kg_chain_unread` is not the latch: the coverage it asked about is unknown, never uncovered, and the run goes on. A `chain`: that class's groups are absent-tier, with that error's `marker`, and a run note names the class; other classes are read as usual. An `evaluate`: only that member is absent-tier, with the marker — its own group if its group's other members keep their tier.
+- Per member with an attribute map: {{tool:get_kg_chain}} `evaluate` with the class id, the group name as the rule name, and the member's attributes. Embed the result and its framing line, framed as of this run — never "the platform fired because". An evaluation that is entirely unevaluable is a data answer: `could not evaluate condition group <n>`, excluded from every claim and delta. An answer with `rule_found: false` (the class has no rule of that name) gives that member no evaluation: a data-quality note.
+- Members of one group with **different satisfied sets** are split before dispatch, one group per satisfied set, with the basis recorded.
+- **The latch.** A `chain` or `evaluate` answer with `unavailable: true` means the graph could not be read — not that the class is uncovered. On the first one: make no more `chain` or `evaluate` calls this run; show its `loss_notice` once, exactly as returned; the groups read before the latch keep their tier, and every group not yet read is absent-tier. Cross-examination and the task list run only on what was read before the latch, and are skipped entirely when the first `chain` call was the one that failed. The run note says the tier became **unreadable**, not absent; the header is not rewritten.
+
+**One dossier file per 8 groups**: `batch-<n>.md` in the scratch directory. Per group: its dispatch id and member exposure ids; the representative's full record ({{tool:query_exposures}} `evidence`; the representative must have a class binding, preferring one with an attribute file) and each member's differences; each member's attributes and resolved source paths, with the secret files marked; one {{tool:search_mitre_attack}} `lookup` per distinct technique id (its internal id, parent or sub-technique relation, tactics); the mechanical tier and evaluations, when covered; a provenance tag on every fact (`platform:<field>`, `attributes:<file>`, `source:<file:line>`, `kg:<node-id>`); the `platform-evidence-only` flags; and a data-quality note when the legacy technique list differs from `exploited_by`.
+
+## The analysts
+
+Per batch, at most 2 in flight:
+
+{{#delegate triage-analyst batch}}Batch file: `<the batch file's path, relative to the working directory>`. Batch id: `<batch-n>`. Groups in this batch: <their dispatch ids — return a verdict for each>. Evidence mode: <full, or: platform-only mode: cap every proposal at medium>. <For groups whose dossier has an evaluation: Dossiers carry a computed condition-group evaluation — confirm the computed trip against the cited sources; do not re-derive group logic in prose.>{{/delegate}}
+
+Collect every return; the proposals table is shown only after every batch has returned. An analyst that cannot be started stops the run, as the core rules say; a return the steps below can handle is not a failed delegation.
+
+## Reconciliation and hygiene
+
+1. **Parse** each return's JSON block. Unparseable: dispatch that batch once more with a reminder of the format; still unparseable: every group of the batch becomes `needs-human`, noted `analyst return unparseable`.
+2. **Reconcile** the groups dispatched with the proposals returned: a group without one becomes `needs-human`, noted `analyst returned no verdict`. An analyst split becomes separate groups; a `memberExceptions` entry gives that member its own group, with the exception as its ambiguity.
+3. **Per proposal, in order:**
+   - confidence `low` → `needs-human`, its reason as the ambiguity;
+   - `COMPENSATING_CONTROL` without a named control, or a reason that cites no evidence → `needs-human`. A `COMPENSATING_CONTROL` proposal with its control named still goes to the review as `needs-human` — only the operator sets that kind, with `edit` — showing the analyst's reason and control. `RISK_ACCEPTED` from the analyst → `needs-human`. A dispose of kind `SUPERSEDED` → `needs-human`, noted `analyst proposed an orchestrator-only kind`;
+   - a mute of any kind on a member scoring 7.0 or more, or a supersede that takes a score from 7.0 or more to below it → capped at medium and listed among the high-severity mutes, `per_row_only` (`accept-all` skips it; it is accepted only by its own number); give such a member its own group when its group's other members are below 7.0;
+   - a supersede whose changes are cosmetic only (no technique change, no score change across a severity band, no attack-vector change, no change of what the finding claims) → an affirm, its rationale folded into the reason, noted `group <id>: supersede downgraded to affirm (cosmetic-only modifications)`.
+4. **Refused sources**: every `refusedSources` entry is shown on its group's row as "`<file>`: secret file, not read"; nothing in the proposal may rest on that file's content.
+5. **Credential material**: every analyst and cross-examiner text goes through the run constants' data rule. When it redacts a key prefix or a token-shaped string in a group's draft reason or modifications, that group becomes needs-human without a proposal, noted `agent return contained credential-shaped material — redacted`.
+6. **One line, at most 1800 characters**: every reason and modification text goes to the review as one line, cleaned as the data rule says; so is every name, ambiguity, control, basis and file an agent returns before it is shown. A longer reason becomes `needs-human`, noted `draft reason too long`.
+7. **A copy's name**: a supersede whose copy name — `modifications.name`, or else the exposure's name — holds a single quote becomes `needs-human`, noted `the copy's name cannot hold a single quote`.
+
+## Cross-examination (knowledge graph present only)
+
+Skip it, with no note, when the regime is not `kg_present`, or when no surviving dispose or supersede sits on a covered group read before any latch. Affirms and needs-human groups are never cross-examined.
+
+Per batch of at most 8 such proposals, write `xbatch-<n>.md` in the scratch directory: per proposal, the analyst's verdict, kind, reason and citations, the rule's condition groups, and the group's **authored** tier with `kg:<node-id>` ids. Then, at most 2 in flight:
+
+{{#delegate kg-cross-examiner batch}}Batch file: `<the xbatch file's path, relative to the working directory>`. Batch id: `<xbatch-n>`. Proposals: <their dispatch ids — return object or concur for each>.{{/delegate}}
+
+Fold each return:
+
+- `object` → the group becomes `needs-human`, and **both views** are kept for the table, each attributed: the analyst's proposal, and the objection with its `kg:` citations. Never merged, never dropped.
+- `concur` → no change; concurrence never raises confidence.
+- A proposal missing from the return → treated as concur, noted `cross-examiner returned no verdict for group <id>`.
+- A cross-examiner that cannot be started, or a return that cannot be parsed → every group of that batch becomes `needs-human`, noted `cross-examination unavailable for group <id>`, and the run goes on: this replaces the core rules' stop. Never auto-object; never silent.

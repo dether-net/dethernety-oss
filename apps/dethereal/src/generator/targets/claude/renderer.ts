@@ -3,7 +3,7 @@
  */
 
 import { type AskLayout, renderAsk } from '../../ask-cues.js'
-import { FAIL_CLOSED, quoted } from '../common.js'
+import { BATCH_FAILURE, BATCH_FLIGHT, FAIL_CLOSED, quoted } from '../common.js'
 import type { InlineKind, TokenRenderer } from '../../tokens.js'
 import { PLUGIN_NAME } from '../../types.js'
 
@@ -35,7 +35,8 @@ export const claudeRenderer: TokenRenderer = {
     const text = kind === 'tool' ? `${MCP_TOOL_PREFIX}${name}` : kind === 'cmd' ? `/${PLUGIN_NAME}:${name}` : `${PLUGIN_NAME}:${name}`
     return inCode ? text : `\`${text}\``
   },
-  delegate(agent: string, prompt: string): string {
+  delegate(agent: string, prompt: string, batch = false): string {
+    if (batch) return `Invoke the \`Agent\` tool with \`subagent_type: "${PLUGIN_NAME}:${agent}"\` once per batch, each with this prompt:${quoted(prompt)}${BATCH_FLIGHT} Make those \`Agent\` calls in one message; they run at once. ${BATCH_FAILURE}`
     return `Invoke the \`Agent\` tool with \`subagent_type: "${PLUGIN_NAME}:${agent}"\` and this prompt:${quoted(prompt)}Wait for its result. ${FAIL_CLOSED}`
   },
   ask: (id: string, question: string, freeText: boolean, layout: AskLayout) => renderAsk('claude', id, question, freeText, layout),

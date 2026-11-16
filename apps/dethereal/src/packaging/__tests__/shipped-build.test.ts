@@ -16,7 +16,7 @@ import { build } from 'tsup'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { shippedBuild } from '../shipped-build.js'
-import { LICENSE_ALLOWLIST } from '../metafile-checks.js'
+import { LICENSE_ALLOWLIST, shippedChecks, SUBPATH_ONLY_WORKSPACES, type CheckResult } from '../metafile-checks.js'
 import { manifestToolNames } from '../../tools/manifest.js'
 import { shippedToolNames } from '../../utils/settlement-switch.js'
 import { ensureStateRoot, type InstallerEnv } from '../../installer/core/paths.js'
@@ -28,12 +28,14 @@ const PACKAGE_VERSION = (JSON.parse(fs.readFileSync(path.join(pkgRoot, 'package.
 describe('the shipped build', () => {
   let outDir: string
   let tmp: string
+  let checked: CheckResult | undefined
 
   beforeAll(async () => {
     const cacheDir = path.join(pkgRoot, 'node_modules', '.cache')
     fs.mkdirSync(cacheDir, { recursive: true })
     outDir = fs.mkdtempSync(path.join(cacheDir, 'dethereal-shipped-'))
-    await build({ ...shippedBuild, config: false, entry: { index: path.join(pkgRoot, 'src', 'index.ts') }, outDir, clean: false, silent: true })
+    // The shipped checks, as a new instance that reports what it judged.
+    await build({ ...shippedBuild, esbuildPlugins: [...(shippedBuild.esbuildPlugins ?? []).filter((p) => p.name !== 'dethereal-shipped-checks'), shippedChecks({ onChecked: (r) => { checked = r } })], config: false, entry: { index: path.join(pkgRoot, 'src', 'index.ts') }, outDir, clean: false, silent: true })
     tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dethereal-shipped-')))
   }, 120_000)
 
@@ -65,9 +67,17 @@ describe('the shipped build', () => {
     for (const name of ['open', 'cross-fetch', 'node-fetch', 'whatwg-url']) expect(inventory.map((p) => p.name)).not.toContain(name)
 
     // The republish guard watches exactly what the bundle holds, at the versions the lockfile resolves.
-    const guard = JSON.parse(execFileSync(process.execPath, [path.join(pkgRoot, 'scripts', 'check-republish.mjs'), '--describe'], { cwd: pkgRoot, encoding: 'utf8' })) as { bundledPackages: string[]; resolved: string[] }
+    const guard = JSON.parse(execFileSync(process.execPath, [path.join(pkgRoot, 'scripts', 'check-republish.mjs'), '--describe'], { cwd: pkgRoot, encoding: 'utf8' })) as { bundledPackages: string[]; resolved: string[]; subpathWorkspaces: Record<string, { sources: string[] }>; workspaces: string[] }
     expect([...guard.bundledPackages].sort()).toEqual([...new Set(inventory.map((p) => p.name))].sort())
     expect([...guard.resolved].sort()).toEqual(inventory.map((p) => `${p.name}@${p.version}`).sort())
+    // A workspace package bundled only through its pure subpaths: the guard watches the sources of exactly the
+    // files the metafile check lets into the bundle, and the package is one the bundle reaches.
+    expect(guard.subpathWorkspaces['packages/dt-module']?.sources.map((f) => f.replace(/^src\//, 'dist/').replace(/\.ts$/, '.js')).sort())
+      .toEqual([...SUBPATH_ONLY_WORKSPACES['@dethernety/dt-module']!].sort())
+    expect(guard.workspaces.some((w) => /(^|\/)packages\/dt-module$/.test(w))).toBe(true)
+    // The subpath check judged dt-module's files: a resolution it cannot place would leave it nothing to judge.
+    expect(checked?.errors).toEqual([])
+    expect(checked?.subpathFiles['@dethernety/dt-module']).toBeGreaterThanOrEqual(1)
 
     // Every file the manifest points at is built.
     const manifest = JSON.parse(fs.readFileSync(path.join(pkgRoot, 'package.json'), 'utf8')) as { main?: string; types?: string; bin?: Record<string, string> }

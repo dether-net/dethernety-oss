@@ -31,6 +31,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the JSON export too), outside the fingerprint, so renaming the model does not make it stale. A
   report from before 2.3.0 shows the model id instead. A failed export says *The report could not
   be exported. Try again.* See the threat report's *Reading the Report*, *Exporting*.
+- **`@dethernety/dt-module` adds `./condition-groups` and `./remediation-honesty`.** Neither is
+  exported from the package root, and each imports nothing outside its own files, so bundling one
+  brings no other dependency. `./condition-groups` holds the knowledge-graph condition operators
+  (`OPERATORS`, `isOperator`, `normalizeOperator`, `OPERATOR_ALIASES`, `NEGATED`, `UNARY`) and
+  evaluates a rule's `conditionGroups` (an OR of AND groups of `{ attribute, operator, value? }`
+  predicates) against an element's sparse attributes as the compiled Rego does: an absent attribute
+  satisfies only the five `NEGATED` operators, and a type mismatch, an unknown operator and
+  `regex_match` are unevaluable. Its functions are `evaluatePredicate`, `evaluateConditionGroups`,
+  `dedupeSubsumedGroups` (an empty group subsumes nothing), `deriveDeltas` (what would make each
+  holding group fail, with `sufficientAlone`), the tolerant `parseConditionGroups`, and
+  `explainConditionGroups` (verdicts, root causes and deltas in one call). `./remediation-honesty`
+  holds `FORBIDDEN_REMEDIATION_VERBS` (eleven terms such as "fixes" and "planned-fixed"),
+  `CITATION_ASYMMETRY_LINE` and `lintRemediationText`, which returns the terms found,
+  case-insensitive and at word boundaries.
+- **`@dether.net/dethereal`: triage of the platform's findings, on all three harnesses.**
+  `/dethereal:triage` (`$dethereal:triage` on Codex, `/dethereal-triage` on OpenCode) groups a
+  synced model's pending exposures, gathers each group's evidence from the platform and the local
+  model files, and proposes a disposition for each group with its confidence and citations. Two
+  new read-only agents make and check the proposals: the triage analyst and the knowledge-graph
+  cross-examiner. You review the grouped proposals one command at a time, and nothing is written
+  before one gated apply: the plugin prepares the writes, shows what each one does, and writes
+  them only when you type `yes`. The review and apply tools return the next question as `ask`,
+  which the skill shows exactly as returned. `--stale` reviews stale dispositions instead. Triage
+  works with or without the platform's knowledge graph and says when it ran without it; without
+  it, the proposals rest on the platform's and the model's own evidence and are not
+  cross-examined. Four tools are new (`triage_review`, `manage_dispositions`, `get_kg_chain`,
+  `get_class_guide`), `search_mitre_attack` gains `lookup` and `match`, and `query_exposures`
+  gains `list_model` and `evidence`. `list_model` answers in views, each within what the harnesses
+  take inline: `partition` (the default) gives the model's counts with no rows; `groups` gives the
+  pending findings triage takes, grouped on the server by name, type, category and definition
+  hash, in parts of at most 80; `rows` gives the rows `select` picks (`stale`, `user` or `all`).
+  The groups and rows views come in pages under 24,000 characters: follow `next_offset`, passing
+  `listing` back, until `truncated` is false (`listing_changed`: the model changed between pages,
+  start again). Long texts are cut; `evidence` returns them whole. After the summary, triage can
+  write a remediation task list: `triage_review` `tasks` checks it for the claims remediation copy
+  may not make and, only when it holds none, writes it into the run's own folder under
+  `.dethereal/triage-run/`, in one call and never over a file. A line that quotes a class guide's
+  text whole is the guide's words and is not checked. Dethereal Triage, previously a separate
+  plugin, is retired: its workflow is now part of Dethereal. See the Dethereal guide, *Triaging
+  Platform Findings*; it ships with 0.6.0.
 
 ### Changed
 
@@ -41,6 +81,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the plugin's Codex configuration reader now returns ordinary objects, keeping the installer's
   doctor (which compares the configuration against the expected one) working unchanged. It ships
   with 0.6.0.
+- **`@dether.net/dethereal` dependency updates** (`@apollo/client` 4.3.8, `graphql` 16.15.0, one
+  copy in the bundle); they ship with 0.6.0.
+- **`@dether.net/dethereal` updates `smol-toml` to 1.9.1**, which closes advisory
+  GHSA-r4xh-jqrq-34v2; smol-toml 1.9.x returns parsed TOML tables as null-prototype objects, so
+  the plugin's Codex configuration reader now returns ordinary objects, keeping the installer's
+  doctor (which compares the configuration against the expected one) working unchanged. It ships
+  with 0.6.0.
+- **`@dether.net/dethereal` needs Node.js 22.12.0 or later** (0.5.x needed 20.11.1), the same as
+  the platform; it ships with 0.6.0.
+- **`@dether.net/dethereal`: on Claude Code, a question asked in a plain message starts with its
+  tag**, `[prompt: <id>]`, as a dialog's question already did; it ships with 0.6.0.
 
 ### Removed
 
@@ -67,6 +118,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   database, not the node's own. The platform now installs `@neo4j/graphql` 7.2.0 with a patch
   (`patches/@neo4j__graphql@7.2.0.patch`) that starts each branch of the generated query from the
   node itself; the result is the same on Neo4j and Memgraph.
+- **`@dether.net/dethereal`: a secret-guard false positive.** A word with a line end in it (a
+  quoted multi-line commit message or script) was refused as an unclassifiable secret file; with a
+  space in it, it now names no file when nothing exists at that path, and its pieces are still
+  judged. One with no space, or with control characters at a `/` or at its end, stays refused.
+  Still refused by design: an interpreter's here-document after a part the guard cannot read word
+  by word (write the path out, or run a script from a file), and a here-document whose body names a
+  secret file, or names the server's folder next to a backquote or a `$`, even when only `cat` or
+  `tee` writes it (use the Write or Edit tool). See the plugin architecture.
+- **`@dether.net/dethereal`: a secret-guard gap, a symbolic link's target judged from the wrong
+  folder.** The system reads a link's relative target from the folder the link is made in, so
+  `ln -s ../cli/.env a/q && cat a/q`, run from the project root, passed. Every `ln` in a command
+  (after assignments and wrappers, run by `xargs` or `find -exec`, as `gln` or `busybox ln`, with
+  GNU's abbreviated long options) now has each relative target judged from where the link may land,
+  and a target that climbs also by what it names once it has climbed, which covers a link made
+  through another link or moved after it is made. A command judged by its text reads a climbing
+  path the same way. See the plugin architecture.
+- **`@dether.net/dethereal`: `search_mitre_attack` `techniques_by_tactic` takes the ATT&CK tactic
+  id.** The platform selects a tactic by its node id, so an ATT&CK id (`TA0008`) returned an empty
+  list. The id is now looked up among the platform's tactics first, and an unknown tactic is
+  refused instead of answered with an empty list.
+- **`@dether.net/dethereal`: `manage_analyses` `results` reports an empty document as no
+  results.** The platform answers an analysis with no results, an unknown id, or a document it could
+  not read with an empty document, which came back as `results: {}`; it now gives
+  `{ analysis_id, status: 'no_results', message }`.
+- **`@dether.net/dethereal`: the validation hint after a write leaves out the workflow's own
+  files.** A write under a model's `.dethereal/` folder (its state and run files) no longer asks to
+  validate the model; a write that also changes the model's own files still does, counting those.
+- **`@dether.net/dethereal`: with no platform URL set, the session-start line no longer claims the
+  local default.** The hook cannot see the server's environment, so it now says that no URL is set
+  in the shell or the plugin settings, and that `/dethereal:status` shows one the server was given.
+- **`@dether.net/dethereal`: `manage_analyses` `results` reads the analysis's main document**, the
+  one the platform's own results view reads. It used to ask with an empty filter, which analysis
+  modules answer with an error. An empty document, or one holding only an error, is reported as
+  `no_results`.
+- **`@dether.net/dethereal`: `get_mitre_defend` `techniques_by_tactic` takes the D3FEND tactic's
+  name** (`Harden`), as the `tactics` action lists them. The platform selects a tactic by its node
+  id, so the name is looked up first; an unknown tactic is refused, naming the tactics there are.
 
 ### Security
 
@@ -75,6 +163,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generated ones alike, with `UNAUTHENTICATED` and before the field runs. It skips this check only
   when authentication is off (outside production, with no OIDC configured and
   `ENABLE_NOAUTH=true`).
+- **`@dether.net/dethereal`: the secret guard denies a shell command whose check fails with an
+  internal error**, instead of letting it through unless its text named a secret file.
+- **`@dether.net/dethereal`: Codex agent files turn web search off.** Every generated Codex agent
+  file now sets `web_search = "disabled"`, so that an agent reading repository files has no search
+  query to send data out through; it ships with 0.6.0.
+
+### Known issues
+
+Known in `@dether.net/dethereal` 0.6.0:
+
+- **Importing an older model can be refused at the push gate with little more than counts.** When
+  the model's elements carry no class module and the class cache is empty, Gate 2 on
+  `/dethereal:sync push` can refuse the push with a message made mostly of counts (many
+  `module_unknown` entries). **Workaround:** generate the attribute stubs first
+  (`generate_attribute_stubs`, which the enrich step uses), which fills the class cache, then push.
+- **The secret guard refuses some harmless commands.** A here-document's body is always read as
+  commands, so a quoted here-document (`<<'EOF'`) whose text names a secret file, or names the
+  server's folder next to a backquote or a `$`, is refused even when it only writes a file.
+  **Workaround:** write such text with the edit tool (Write or Edit on Claude Code) instead.
+- **`manage_analyses` `status` can return an empty value** for a running or finished analysis on
+  some platform versions. **Workaround:** use `results`, which answers `no_results` until the
+  analysis has a document.
+- **A triage review whose record has grown past its size limit cannot be closed.** This is very
+  rare and happens only with a hand-edited record. The review stays open until it expires after two
+  hours unused, or until the server restarts.
+- **The secret guard refuses a command whose quoted text holds a lone `/` or `//` with a space on
+  each side,** reading it as the root folder: for example `git commit -m "a / b"`,
+  `grep -n 'a / b' file` or `jq -c '.x // empty' file`. **Workaround:** rephrase the text (for
+  example "or" for " / "), or drop a space next to the slash; in a jq filter you can also write
+  the filter without `//` (for example `.x | values`, or `select(.x != null)`).
+- **The secret guard judges each command in a line on its own.** It does not follow a later
+  command's read through a file that an earlier command in the same line copied, moved or linked,
+  and it judges a command built from variables or substitutions by the names it can see. A change
+  of folder made inside a condition or a loop is not always followed, so a later command in the
+  line may be judged from the folder the line started in. It is a second layer behind your
+  harness's permission prompts and sandbox, not a sandbox itself.
+- **The triage analyst may look for a source file under the model directory first**, then find it
+  under the project. This costs a read or two and does not change the result.
+- **The remediation task list is written only on macOS and Linux**, the platforms Dethereal
+  supports. Elsewhere, the triage run shows the list in the conversation instead.
+
 
 ## [0.16.0] - 2026-11-12
 
@@ -384,6 +513,14 @@ is published separately from this release.
 
 ### Changed
 
+
+  **Upgrading:** update Node before you update the plugin. The installer stops on an older Node
+  before it changes anything, but an update through Claude Code (`/plugin`, `claude plugin update`
+  or the marketplace's auto-update) does not. On a Node older than 22.12.0, the secret and config
+  guards then block every Read, Grep, Bash and file-write call, from the next session on, until
+  Node is updated or the plugin is turned off (on a Node older than 14.8, only on Claude Code
+  2.1.295 or later). See the Dethereal Getting Started guide,
+  [*Harness Versions*](docs/user/dethereal/GETTING_STARTED.md#harness-versions).
 - **`controlCandidates` reads a control class without `supportedTypes` as compatible with every
   element type.** Before, it read such a class as supporting none: the class was left out of the
   ranking, and `compatible` was false. Now the ranking includes it and its `compatible` is true.
@@ -673,6 +810,14 @@ is published separately from this release.
   tool did not make, or a fix made by hand. At a question that removes, deletes or publishes, a
   reply that picks no choice, a dismissal included, now declines it and is not asked again.
 
+
+
+
+
+
+
+
+
 - **dt-ui reads the zone the model's root boundary declares.** `DtModel.dumpModelData` left the
   root boundary's `zone` out of what it returned, so when dt-ui loaded a model, every boundary
   inheriting from the root read the default `INTERNAL`: no zone pill on the canvas, and *Unset →
@@ -684,6 +829,7 @@ is published separately from this release.
   into the plugin, which bundles dt-core. No plugin change.
 
 ### Security
+
 
 - **`@dether.net/dethereal` 0.5.2: the control audit log no longer records attribute values, and
   is no longer committed.** `.dethereal/control-audit.log` used to record the Control attribute

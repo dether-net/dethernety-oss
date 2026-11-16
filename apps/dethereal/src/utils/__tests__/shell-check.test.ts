@@ -239,11 +239,14 @@ describe('a read-only agent\'s shell on Codex', () => {
       expect(shellModelWrites(command, '', ['m']), command).not.toEqual([])
       expect(notOnlyReading(command), command).not.toBeNull()
     }
-    // Where the two differ: the replay counts these, which only read (a `>` or `rm` inside a pattern, jq's options).
-    for (const command of ["grep '>' m/manifest.json", 'grep -n rm m/manifest.json', 'jq -c . m/manifest.json']) {
+    // Where the two differ: the replay counts these, which only read (a `>` or `rm` inside a pattern).
+    for (const command of ["grep '>' m/manifest.json", 'grep -n rm m/manifest.json']) {
       expect(shellModelWrites(command, '', ['m']), command).not.toEqual([])
       expect(notOnlyReading(command), command).toBeNull()
     }
+    // Both read jq's -c as an output option: it only reads.
+    expect(shellModelWrites('jq -c . m/manifest.json', '', ['m'])).toEqual([])
+    expect(notOnlyReading('jq -c . m/manifest.json')).toBeNull()
   })
 })
 

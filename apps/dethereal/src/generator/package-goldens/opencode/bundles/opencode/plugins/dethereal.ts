@@ -704,7 +704,7 @@ const GUARDED = new Set(['read', 'grep', 'bash'])
 const WRITES = new Set(['write', 'edit', 'multiedit', 'patch', 'apply_patch'])
 const ALLOW = '{"deny":false}'
 /** Filled by the generator: the Dethereal tools that ask the operator before they run. */
-const ASK_TOOLS: readonly string[] = ["dethereal_login","dethereal_logout","dethereal_model_state_waive","dethereal_model_state_settle","dethereal_model_state_prune","dethereal_import_model","dethereal_export_model","dethereal_update_model","dethereal_create_threat_model","dethereal_update_attributes","dethereal_generate_attribute_stubs","dethereal_manage_controls","dethereal_manage_countermeasures","dethereal_manage_analyses"]
+const ASK_TOOLS: readonly string[] = ["dethereal_login","dethereal_logout","dethereal_model_state_waive","dethereal_model_state_settle","dethereal_model_state_prune","dethereal_import_model","dethereal_export_model","dethereal_update_model","dethereal_create_threat_model","dethereal_update_attributes","dethereal_generate_attribute_stubs","dethereal_manage_controls","dethereal_manage_countermeasures","dethereal_manage_analyses","dethereal_manage_dispositions"]
 /** The server's own folder in the home directory, as OpenCode spells a home path in its permission rules. */
 const STATE_ROOT_RULES = ['~/.dethernety', '~/.dethernety/*']
 const KEEP_STATE = 'Copy the block below verbatim at the end of the summary, under its own heading: the next turn re-reads the Dethereal state from it.'

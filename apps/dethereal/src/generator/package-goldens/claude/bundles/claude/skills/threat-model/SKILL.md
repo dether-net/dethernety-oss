@@ -32,7 +32,7 @@ The guided threat-modeling workflow: eleven steps from scope to publishing, in f
     `signed in`: check again and retry; `skip`: leave the step undone and say so.
 12. **The repository is the operator's:** no git command that changes it (`add`, `commit`, `reset`, `checkout`, `stash`, `revert`) unless the operator asks for exactly that; suggest it instead. An undo, the operator always runs.
 13. **The operator starts each command.** A `[next]` line is advice to the operator: never start the command it names yourself. Start another Dethereal skill only as a handover these instructions name; the operator starts every other one.
-14. **Model files through your edit tool.** Write `structure.json`, `dataflows.json`, `data-items.json`, `attributes/**` and `.dethereal/**` only with your edit tool — never through a shell: no heredoc, redirection, `tee`, in-place editor, script, `rm` or `mv`. Delete attribute files only through `mcp__plugin_dethereal_dethereal__model_state_prune`.
+14. **Model files through your edit tool.** Write `structure.json`, `dataflows.json`, `data-items.json`, `attributes/**` and `.dethereal/**` only with your edit tool — never through a shell: no heredoc, redirection, `tee`, in-place editor, script, `rm` or `mv`. Delete attribute files only through `mcp__plugin_dethereal_dethereal__model_state_prune`. Write no script anywhere, and nothing to a scratchpad or temporary folder the harness offers: files go only where these instructions say.
    Your edit tools: `Write` and `Edit`.
 
 ## Phases
@@ -104,12 +104,12 @@ Only at ENRICHING or REVIEWED (Step 6 onward; earlier, Step 6 maps them): when G
 
 1. If `.dethereal/scope.json` has no `crown_jewels`, an empty list, or no `adversary_classes` field, ask. An explicit empty `adversary_classes` list, or `none`, is an answer — never ask it again:
 
-   `[prompt: scope-crown-jewels]` What are the most valuable assets in this system — its crown jewels — and which adversary classes should this model consider (external, insider, supply_chain, others)? — a plain message; end your turn.
+   `[prompt: scope-crown-jewels]` What are the most valuable assets in this system — its crown jewels — and which adversary classes should this model consider (external, insider, supply_chain, others)? — the tag first, then a plain message; end your turn.
 
    Write the answer to the scope's `crown_jewels` and `adversary_classes` (as those ids), keeping the rest of the scope.
 2. Propose the mapping: each crown jewel to the elements that hold it, starting from components already marked `crownJewel: true`, then names that match — a component, else a data item, with the stores that hold it. Show it as a confirm table (jewel, element, type; the why behind `details`) with a row for every crown jewel of the scope — one that matches nothing is a row too, marked unmatched: it stays unmapped, and Gate 3's C6 fails, until its element is added (`/dethereal:add`). Then ask:
 
-   `[prompt: crown-jewel-confirm]` Confirm this crown-jewel mapping, or adjust specific rows? (confirm / adjust) — the table, then the question with its choices numbered, in one message; end your turn.
+   `[prompt: crown-jewel-confirm]` Confirm this crown-jewel mapping, or adjust specific rows? (confirm / adjust) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
 3. Write only what was confirmed, with your edit tool, in one message: `crownJewel: true` on each mapped component in `structure.json`, and `crown_jewel_elements` in the scope — each `crown_jewels` entry, verbatim, mapped to its element ids. At least one mapped element is a non-external component. Validate.
 
@@ -119,7 +119,7 @@ Steps 6 and 7 run this mapping too.
 
 A `directory-path` argument is used directly. Otherwise, if `.dethernety/models.json` lists exactly one model, use it implicitly; with several, show them as a numbered list (name, path, and `display_state` from `mcp__plugin_dethereal_dethereal__model_state` `get`), then ask:
 
-`[prompt: model-select]` Which model? (the number from the list, or a path) — a plain message; end your turn.
+`[prompt: model-select]` Which model? (the number from the list, or a path) — the tag first, then a plain message; end your turn.
 
 With none, suggest `/dethereal:create`. Read model files from disk at the start of each operation, never from memory.
 
@@ -147,7 +147,7 @@ Every state change goes through `mcp__plugin_dethereal_dethereal__model_state` `
 
 On invocation, call `mcp__plugin_dethereal_dethereal__model_state` with `action: 'get'` to find the current position. **Before** computing the step cursor, run the Drift Orchestration Protocol — drift logic slots between reading the state and computing the cursor. Then compute the step cursor from the state and the steps already done. Show a progress table with the `display_state` (Resuming a model), then ask:
 
-`[prompt: resume-cursor]` Continue from Step N, or jump to a step? (continue / a step number) — the table, then the question with its choices numbered, in one message; end your turn.
+`[prompt: resume-cursor]` Continue from Step N, or jump to a step? (continue / a step number) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
 **Undo.** When the operator asks to undo or revert changes, read the file below and follow it; if it cannot be read, suggest no command:
 

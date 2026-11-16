@@ -33,7 +33,7 @@ The control pass of enrich: enforcement, detection and governance controls, then
     `signed in`: check again and retry; `skip`: leave the step undone and say so.
 12. **The repository is the operator's:** no git command that changes it (`add`, `commit`, `reset`, `checkout`, `stash`, `revert`) unless the operator asks for exactly that; suggest it instead. An undo, the operator always runs.
 13. **The operator starts each command.** A `[next]` line is advice to the operator: never start the command it names yourself. Start another Dethereal skill only as a handover these instructions name; the operator starts every other one.
-14. **Model files through your edit tool.** Write `structure.json`, `dataflows.json`, `data-items.json`, `attributes/**` and `.dethereal/**` only with your edit tool — never through a shell: no heredoc, redirection, `tee`, in-place editor, script, `rm` or `mv`. Delete attribute files only through `mcp__plugin_dethereal_dethereal__model_state_prune`.
+14. **Model files through your edit tool.** Write `structure.json`, `dataflows.json`, `data-items.json`, `attributes/**` and `.dethereal/**` only with your edit tool — never through a shell: no heredoc, redirection, `tee`, in-place editor, script, `rm` or `mv`. Delete attribute files only through `mcp__plugin_dethereal_dethereal__model_state_prune`. Write no script anywhere, and nothing to a scratchpad or temporary folder the harness offers: files go only where these instructions say.
    Your edit tools: `Write` and `Edit`.
 
 **Every value you write** — control attributes included — has a cited source or the operator's answer: an unknown or declined value stays `null`, a default is proposed and never written unconfirmed, and a field a question decides is written only after its answer.
@@ -52,7 +52,7 @@ Read the file `${CLAUDE_SKILL_DIR}/control-library.md` in full.
 
 A `directory-path` argument is used directly. Otherwise, if `.dethernety/models.json` lists exactly one model, use it implicitly; with several, show them as a numbered list (name, path, and `display_state` from `mcp__plugin_dethereal_dethereal__model_state` `get`), then ask:
 
-`[prompt: model-select]` Which model? (the number from the list, or a path) — a plain message; end your turn.
+`[prompt: model-select]` Which model? (the number from the list, or a path) — the tag first, then a plain message; end your turn.
 
 With none, suggest `/dethereal:create`. Read model files from disk at the start of each operation, never from memory.
 
@@ -70,15 +70,15 @@ Read the file `${CLAUDE_SKILL_DIR}/relay.md` in full.
 3. **Each table it returns** is a proposal: show it whole (never a count), credential material as `[REDACTED]`; ask its question below, then write the boundary's confirmed controls (Persistence). Start it again for boundaries it left, or the rest after `controls-continue`. Controls the operator adds: Path Selection. No state transition.
 4. **The control library**, when a `controls[]` entry has a platform id: pull and find the sparse classes (Control Library Attribute Enrichment, steps 1–2), then the coverage table:
 
-   `[prompt: control-library-sparse]` Enrich the sparse attributes of these Controls now? (yes / pick / skip) — the table, then the question with its choices numbered, in one message; end your turn.
+   `[prompt: control-library-sparse]` Enrich the sparse attributes of these Controls now? (yes / pick / skip) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
    On `pick`:
 
-   `[prompt: control-library-pick]` Which Controls? Give their names or numbers. — a plain message; end your turn.
+   `[prompt: control-library-pick]` Which Controls? Give their names or numbers. — the tag first, then a plain message; end your turn.
 
    For each chosen Control, a table of every proposed key (value and `path:line`, or "ask") and its `assignedModelCount` — an edit changes every model using it:
 
-   `[prompt: control-library-edits]` Give the values for the "ask" rows and confirm or correct the proposed ones, by row; say "not sure" for a row you cannot answer — it stays empty. — a plain message; end your turn.
+   `[prompt: control-library-edits]` Give the values for the "ask" rows and confirm or correct the proposed ones, by row; say "not sure" for a row you cannot answer — it stays empty. — the tag first, then a plain message; end your turn.
 
    Apply each change through the engine action; then annotate, sweep for drift, check integrity (steps 3–4).
 5. **Validate and footer.** Call `mcp__plugin_dethereal_dethereal__validate_model_json` and render the footer from the Control Enrichment Instructions' Footer section.
@@ -89,7 +89,7 @@ Read the file `${CLAUDE_SKILL_DIR}/relay.md` in full.
 
 A model with no boundaries:
 
-`[prompt: controls-global-enforcement]` What enforcement controls protect this system? (Firewalls, WAFs, IDS/IPS, network access controls, or "none") — a plain message; end your turn.
+`[prompt: controls-global-enforcement]` What enforcement controls protect this system? (Firewalls, WAFs, IDS/IPS, network access controls, or "none") — the tag first, then a plain message; end your turn.
 
 More than six boundaries without enforcement controls:
 
@@ -97,15 +97,15 @@ More than six boundaries without enforcement controls:
 
 Each boundary with a pre-ranked table:
 
-`[prompt: controls-boundary-confirm]` Assign the controls marked Y for [Boundary Name]? (assign as marked / change marks / skip) — the table, then the question with its choices numbered, in one message; end your turn.
+`[prompt: controls-boundary-confirm]` Assign the controls marked Y for [Boundary Name]? (assign as marked / change marks / skip) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
-`[prompt: controls-boundary-additional]` Additional controls not in your library? (describe or "none") — a plain message; end your turn.
+`[prompt: controls-boundary-additional]` Additional controls not in your library? (describe or "none") — the tag first, then a plain message; end your turn.
 
 Each boundary with a greenfield table (no candidates, or the platform unreachable), with the ControlClasses proposed for classed elements:
 
-`[prompt: controls-boundary-bindings]` Assign the proposed controls and ControlClass bindings for [Boundary Name]? (assign / change / skip) — the table, then the question with its choices numbered, in one message; end your turn.
+`[prompt: controls-boundary-bindings]` Assign the proposed controls and ControlClass bindings for [Boundary Name]? (assign / change / skip) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
-`[prompt: controls-boundary-new]` Enter any other enforcement controls for [Boundary Name], or "none" to skip. — a plain message; end your turn.
+`[prompt: controls-boundary-new]` Enter any other enforcement controls for [Boundary Name], or "none" to skip. — the tag first, then a plain message; end your turn.
 
 After the crown-jewel boundaries, when others remain:
 
@@ -117,13 +117,13 @@ Each crown-jewel component, with the proposed component-scoped control or why bo
 
 ### Detection controls
 
-`[prompt: controls-detection]` Assign the monitoring tools marked Y as detection controls? (assign as marked / change marks) — the table, then the question with its choices numbered, in one message; end your turn.
+`[prompt: controls-detection]` Assign the monitoring tools marked Y as detection controls? (assign as marked / change marks) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
-`[prompt: controls-detection-additional]` Additional detection controls? (SOC monitoring, NDR, automated response, or "none") — a plain message; end your turn.
+`[prompt: controls-detection-additional]` Additional detection controls? (SOC monitoring, NDR, automated response, or "none") — the tag first, then a plain message; end your turn.
 
 ### Governance
 
-`[prompt: controls-governance]` Any governance controls to record — patch management, access reviews, change control, incident response? Describe them, or "none". — a plain message; end your turn.
+`[prompt: controls-governance]` Any governance controls to record — patch management, access reviews, change control, incident response? Describe them, or "none". — the tag first, then a plain message; end your turn.
 
 ### Re-runs
 

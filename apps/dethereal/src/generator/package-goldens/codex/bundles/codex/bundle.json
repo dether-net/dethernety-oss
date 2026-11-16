@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "harness": "codex",
   "version": "<VERSION>",
-  "generatedFrom": "7d558ec187d8932972c39a298f2a59f97e464261dd383a848a6d383c003c9d47",
-  "contentHash": "112553d437f71e1a2babbf6ded813a03a9eec43606688744065c059649f09a76",
+  "generatedFrom": "b3a3dc42cd0af44d15fb235d9601b5c693292a9dd89c90c06fd16c4892363cde",
+  "contentHash": "2472407c27fb887ceaaaac8c355be40921a1e3365066c73eb78476f7eb80358f",
   "files": [
     {
       "path": "bundles/codex/.agents/plugins/marketplace.json",
@@ -11,31 +11,39 @@
     },
     {
       "path": "bundles/codex/agents/dethereal-enrichment-applier.toml",
-      "sha256": "0dab3d5b17aaafef84d463bc2541b9856968fdb66cbbaf97e3c7eb1c69fcc83d"
+      "sha256": "1a8190010a7921d0a58ef284a70fb4a5dddb8fd9985b1a1d75678ea8709a5fe2"
     },
     {
       "path": "bundles/codex/agents/dethereal-infrastructure-scout-scoped.toml",
-      "sha256": "c0ad8aeba889660d0691ec11a1325bf276ae2860bd8d56641a3df48bc7dbaba2"
+      "sha256": "109ef1bdf9fce9a9242b82e4dd54dab0dad59948f07a5e1b80852a35a10a781a"
     },
     {
       "path": "bundles/codex/agents/dethereal-infrastructure-scout.toml",
-      "sha256": "54c62aaed9adf4ad16873aec9b3427243e7d7075232deeb329b4f08d94feeae2"
+      "sha256": "0b5ff7d4dee554eea62f9b1fef95278190470f90fb1f30091adfa95305fb623a"
+    },
+    {
+      "path": "bundles/codex/agents/dethereal-kg-cross-examiner.toml",
+      "sha256": "8cd50e286cef7485fa2e460052cfacbb0eb37fc0f935227b2e9eb70ffd44a33d"
     },
     {
       "path": "bundles/codex/agents/dethereal-model-reviewer.toml",
-      "sha256": "1609e014c390a750b2a22b07a6e4b015af599feca654a99dfcb70dbf17759b98"
+      "sha256": "c35912193d0bd4c7d8226c40cbf10dec7b17b65e452ca5ad958acc88f9fb26a5"
     },
     {
       "path": "bundles/codex/agents/dethereal-security-enricher.toml",
-      "sha256": "1cecec168fd33a0258279af552be91fbb63a657b98d3b9861f22041548246778"
+      "sha256": "f6fbc592d3a0672dd24eb9fbbd24ee468fb27ac63e17b118974e28e9049e8a96"
     },
     {
       "path": "bundles/codex/agents/dethereal-threat-modeler.toml",
-      "sha256": "2a455cac4fd85e3449f77bd4b1c06491339883605faa048f912967bf4431318d"
+      "sha256": "a17cb98f16f3929d47fbd464d75cac677d686beca3ccac73b1cf75000986f319"
+    },
+    {
+      "path": "bundles/codex/agents/dethereal-triage-analyst.toml",
+      "sha256": "46800ffd352836b9b4b2c05f742f3e1897cf5413d17d4c218236c9fdaccc9afa"
     },
     {
       "path": "bundles/codex/config.fragment.toml",
-      "sha256": "f4618d46d36bd2362f91a0a7635067ba5b6d73bcc901c29b872522cda527eb86"
+      "sha256": "f4f2b22d9fa1cee78835e1026be4ba581f7700b42866a3d8d332cea66fc99c39"
     },
     {
       "path": "bundles/codex/plugins/dethereal/.codex-plugin/plugin.json",
@@ -51,7 +59,7 @@
     },
     {
       "path": "bundles/codex/plugins/dethereal/bin/leaf-allowlist.json",
-      "sha256": "f78f7596dc024e183642b461700ae797f97276ce81271d6394dbe26dda547afe"
+      "sha256": "6686f26a7a7931012186f8cfc7508e6970f08c7fbc3f89d049411e558092ad67"
     },
     {
       "path": "bundles/codex/plugins/dethereal/bin/pre-tool-use.mjs",
@@ -59,7 +67,7 @@
     },
     {
       "path": "bundles/codex/plugins/dethereal/bin/runtime-check.mjs",
-      "sha256": "38187021b415599e5b696fe0178ff81dc4ecbe38b66d5c9b27c4bac99b13ea4b"
+      "sha256": "9a0c2d6af5b0cabd70b6bc1768623099a3bed8cdae3e9616a7ff98cb08d246fc"
     },
     {
       "path": "bundles/codex/plugins/dethereal/bin/secret-fallback.mjs",
@@ -75,7 +83,7 @@
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/add/SKILL.md",
-      "sha256": "a081d8175c294e2375d069b7c3a9b84e8cb309860338321cd6ec0f038b32f465"
+      "sha256": "1c84c34a9b9daf4f61c45f1ecdc83a66bbc162bee504592abbbd1d6a1ababa3b"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/add/git-undo.md",
@@ -95,11 +103,11 @@
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/add/secret-files.md",
-      "sha256": "3b3bc437b23f2b65c396d0d0e53259f64d5e6d623cf14cb20412505dbff78544"
+      "sha256": "1dc168f4c208cb57acd67da3a88df59da0ff3f11555bd075a04ff4607ae78da7"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/classify/SKILL.md",
-      "sha256": "fb19384797d1642732a2b7185b380849a5f4d7c36f8c48b513e0154947fcedd4"
+      "sha256": "00d831b2aceb21b4ed580344ea705d6e92e5e78a947310161a8ca2f029cf255b"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/classify/classification-protocol.md",
@@ -107,11 +115,11 @@
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/classify/secret-files.md",
-      "sha256": "3b3bc437b23f2b65c396d0d0e53259f64d5e6d623cf14cb20412505dbff78544"
+      "sha256": "1dc168f4c208cb57acd67da3a88df59da0ff3f11555bd075a04ff4607ae78da7"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/create/SKILL.md",
-      "sha256": "7fb9e91b2f7f975eac4a76a45c63ce18ab801a67600b6c00ea133fcd590ff690"
+      "sha256": "33caa5a48564fdcb8b68b2dde54f080285e5b3e515422723fe6fcadb9b6b3477"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/create/guidelines-core.md",
@@ -131,11 +139,11 @@
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/create/secret-files.md",
-      "sha256": "3b3bc437b23f2b65c396d0d0e53259f64d5e6d623cf14cb20412505dbff78544"
+      "sha256": "1dc168f4c208cb57acd67da3a88df59da0ff3f11555bd075a04ff4607ae78da7"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/discover/SKILL.md",
-      "sha256": "e0574a12fa24eca06bb8fd1247602dff845d951bef807800aef9032311ff9403"
+      "sha256": "1030b836ace60634325b99e1e8951c27635a6e3c815b615e42b6502386040d42"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/discover/decomposition.md",
@@ -163,11 +171,11 @@
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/discover/secret-files.md",
-      "sha256": "3b3bc437b23f2b65c396d0d0e53259f64d5e6d623cf14cb20412505dbff78544"
+      "sha256": "1dc168f4c208cb57acd67da3a88df59da0ff3f11555bd075a04ff4607ae78da7"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/enrich-controls/SKILL.md",
-      "sha256": "829a52078110af201dd2e4873b6fbe7e601842c0fa71243c7f54682b5e55d74c"
+      "sha256": "d870fb7c377bc70661effc2b0fd4ecfdb2a74f5166798c33b2a81d7c1cf3b0c7"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/enrich-controls/control-library.md",
@@ -187,11 +195,11 @@
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/enrich-controls/secret-files.md",
-      "sha256": "3b3bc437b23f2b65c396d0d0e53259f64d5e6d623cf14cb20412505dbff78544"
+      "sha256": "1dc168f4c208cb57acd67da3a88df59da0ff3f11555bd075a04ff4607ae78da7"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/enrich/SKILL.md",
-      "sha256": "9da52d5ef302aa2a65a700c0817fdccba602e68994d8522fb1dccafc001e805b"
+      "sha256": "f60e59174e83783523f66507ed8e2fd2ed3ab657d2df5bdae592388a8d292b87"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/enrich/enrich-skill-asks.md",
@@ -211,19 +219,19 @@
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/enrich/secret-files.md",
-      "sha256": "3b3bc437b23f2b65c396d0d0e53259f64d5e6d623cf14cb20412505dbff78544"
+      "sha256": "1dc168f4c208cb57acd67da3a88df59da0ff3f11555bd075a04ff4607ae78da7"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/help/SKILL.md",
-      "sha256": "df61e7e953164a6bf0999968c45fc81ade3f5c6455f0ebee5792ead82a3c16f9"
+      "sha256": "fd169951fcbf27d4dfa6365979fd6a4ee0c77aae8a281e192c4af6fa0778842b"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/login/SKILL.md",
-      "sha256": "723e1454895f8e996990ed1e823e9839395fdd5d8a0e349a4f42caed305f9265"
+      "sha256": "3dda654dd13bf756c66eddcd2fc6178cc988911b2a07ffb3b8f2044e664dac3d"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/remove/SKILL.md",
-      "sha256": "ec0d552df7472689929de3ead70129a0dd6d27bb5df8b3125752b8108744d9c9"
+      "sha256": "9f233c27bda157aad07b92002de012f09bcba19f7607b145e4a9806c3b409ada"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/remove/git-undo.md",
@@ -231,7 +239,7 @@
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/remove/secret-files.md",
-      "sha256": "3b3bc437b23f2b65c396d0d0e53259f64d5e6d623cf14cb20412505dbff78544"
+      "sha256": "1dc168f4c208cb57acd67da3a88df59da0ff3f11555bd075a04ff4607ae78da7"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/review/SKILL.md",
@@ -243,7 +251,7 @@
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/status/SKILL.md",
-      "sha256": "d37718b9de9dc82e53a4204911bc3949c768dcd21027ce3c7f65c8b605872c7b"
+      "sha256": "06fd6d2ab5c868d4fa8bccc31bded8419b10c3dff59d49e24c53d401b259be27"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/surface/SKILL.md",
@@ -255,7 +263,7 @@
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/sync-controls/SKILL.md",
-      "sha256": "57e9f9ae237a319a4464b2971c1c6f22ab9d5cad00c801e616ecccd31ce2252a"
+      "sha256": "d4a9784e4e6cb16c37fe493561e237708ea6e527eef16f1fc9287a42f7fbf02f"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/sync-controls/control-library-push.md",
@@ -263,7 +271,7 @@
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/sync-pull/SKILL.md",
-      "sha256": "f8d4d59c5a0bade7e37ca194c456df2d9b96ff8262a9a25d2d765eccc6fd193d"
+      "sha256": "de3766aa7375065373be2dcfea036369ef7a122045664c527fd159cf9c91a6b1"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/sync-pull/sync-pull-reference.md",
@@ -271,7 +279,7 @@
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/sync/SKILL.md",
-      "sha256": "7e52bc404d1dff102028f8d9f43dac75d364c0c2f0784b5bd2e3251784e3ed26"
+      "sha256": "950ee3255416e7919fdef6117b9d95fb8990d3c9987f7997758173f92cdc1dc2"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/sync/control-resolution.md",
@@ -283,7 +291,7 @@
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/threat-model/SKILL.md",
-      "sha256": "8e0b6b364877944a5d0f75c17a6d0986b8875033ec62f2ee32e224d7c6a90705"
+      "sha256": "cfac934a2080957f358fc4108f85e1dd84ea5357ee244f2f2a00163e901bbf9c"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/threat-model/drift-protocol.md",
@@ -295,27 +303,27 @@
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/threat-model/guided-build.md",
-      "sha256": "aa0fcf92aaa1b9dff931a159036bc11a77de0f217ea1817f38b7c4f2a23e43f7"
+      "sha256": "90178078c3ca3518c77918098965456185e70c448b093820754c47823f1c4ce1"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/threat-model/guided-classify.md",
-      "sha256": "fbcaaea80213c9bdd16073c8e32eb2404b389b09602305470c19815cd7f72c95"
+      "sha256": "ade154b5ab385836c144eff67d7b9a56f32b69a20e4ad35d59fe2637ae9ca573"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/threat-model/guided-enrich.md",
-      "sha256": "7cbf1685beae534efe5fcacede23eb4ffd71af2f8e46309548038ac7edce592a"
+      "sha256": "95fbd1ee910319cfe0b69d65900b9735384b88474aa2223bc40b7463b4e6a8ed"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/threat-model/guided-publish.md",
-      "sha256": "28b2952ac0bec0ffef09e08dd47aeb7bcb35deb19ecc015f1642a10c1d6223e5"
+      "sha256": "986e2e9588d8a6c020f6056249cfb8db2ed57fb4fb4d4f2d1c1f1515fdcc6c6c"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/threat-model/guided-review-quick.md",
-      "sha256": "4b319dca698941c334b6f3d78ba0d6a34d4eb53deb0760607dd6e8139eed9764"
+      "sha256": "0a5edb2268da4b4caad349c75b7328a348c84fe6368336786d289a3389a84cec"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/threat-model/guided-review.md",
-      "sha256": "7091fb31c524f89faf255638c46807d2a761cc5b652ebb94a2889bb554d74ec9"
+      "sha256": "3daf3c9812264fd2a017388b79bf578b2cbf153a4bd222ad7f12a635fc1f3fcc"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/threat-model/guidelines-core.md",
@@ -335,11 +343,35 @@
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/threat-model/secret-files.md",
-      "sha256": "3b3bc437b23f2b65c396d0d0e53259f64d5e6d623cf14cb20412505dbff78544"
+      "sha256": "1dc168f4c208cb57acd67da3a88df59da0ff3f11555bd075a04ff4607ae78da7"
+    },
+    {
+      "path": "bundles/codex/plugins/dethereal/skills/triage/SKILL.md",
+      "sha256": "4190b9b616e4058a2e75296267b8e0a83618d24208874824be21ade6a18664c0"
+    },
+    {
+      "path": "bundles/codex/plugins/dethereal/skills/triage/secret-files.md",
+      "sha256": "1dc168f4c208cb57acd67da3a88df59da0ff3f11555bd075a04ff4607ae78da7"
+    },
+    {
+      "path": "bundles/codex/plugins/dethereal/skills/triage/triage-evidence.md",
+      "sha256": "c184ae88150890037ad8d436e69c8b8cfa46841fc81f9f6a07086e1ef76699fa"
+    },
+    {
+      "path": "bundles/codex/plugins/dethereal/skills/triage/triage-review.md",
+      "sha256": "432a7d49f9e3f0c5bd4d89ae9fdc71b641ce692d576fc15a767ee83063b5ca12"
+    },
+    {
+      "path": "bundles/codex/plugins/dethereal/skills/triage/triage-stale.md",
+      "sha256": "65192eeb73ffd9501632c0757a552ae01dbb614c8618fb3050712d5cef51b9b7"
+    },
+    {
+      "path": "bundles/codex/plugins/dethereal/skills/triage/triage-tasks.md",
+      "sha256": "c75bc135c6c3d445cf3d0fc5c88d409b8d24f31f4e036f78315f4b3599d86cac"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/view/SKILL.md",
-      "sha256": "0d4ed785b34b3d8889aaa3e151217f902a214465ba5875ef366d9da1ee5f5d93"
+      "sha256": "1a0fe4a4f5b8d7396f5850c0958e0403ed48689aa0eedce85af28f43b98d01ec"
     }
   ],
   "placeholders": [

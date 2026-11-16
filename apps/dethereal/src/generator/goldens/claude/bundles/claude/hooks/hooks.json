@@ -117,7 +117,7 @@
         ]
       },
       {
-        "matcher": "^mcp__plugin_dethereal_dethereal__(auth_status|workspace_status|detect_drift|model_state|validate_model_json|get_model_schema|get_example_models|list_models|get_classes|match_classes|search_mitre_attack|get_mitre_defend|get_control_gaps|query_controls|query_exposures|query_countermeasures)$",
+        "matcher": "^mcp__plugin_dethereal_dethereal__(auth_status|workspace_status|detect_drift|model_state|validate_model_json|get_model_schema|get_example_models|list_models|get_classes|match_classes|search_mitre_attack|get_mitre_defend|get_control_gaps|query_controls|query_exposures|query_countermeasures|triage_review|get_kg_chain|get_class_guide)$",
         "hooks": [
           {
             "type": "command",

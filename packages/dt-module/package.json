@@ -39,6 +39,16 @@
       "require": "./dist/policy-hash.js",
       "default": "./dist/policy-hash.js"
     },
+    "./condition-groups": {
+      "types": "./dist/condition-groups.d.ts",
+      "require": "./dist/condition-groups.js",
+      "default": "./dist/condition-groups.js"
+    },
+    "./remediation-honesty": {
+      "types": "./dist/remediation-honesty.d.ts",
+      "require": "./dist/remediation-honesty.js",
+      "default": "./dist/remediation-honesty.js"
+    },
     "./test-database": {
       "types": "./dist/test-database.d.ts",
       "require": "./dist/test-database.js",
@@ -75,6 +85,12 @@
       ],
       "policy-hash": [
         "dist/policy-hash.d.ts"
+      ],
+      "condition-groups": [
+        "dist/condition-groups.d.ts"
+      ],
+      "remediation-honesty": [
+        "dist/remediation-honesty.d.ts"
       ],
       "test-database": [
         "dist/test-database.d.ts"

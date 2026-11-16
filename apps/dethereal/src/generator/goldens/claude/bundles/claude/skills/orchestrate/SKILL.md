@@ -27,6 +27,6 @@ The dialog keeps the answer structured; offer the two choices below.
 
 `[prompt: survey-confirm]` Keep the survey as reported? (keep / redo) — table first, then AskUserQuestion, the tag first in its question text.
 
-`[prompt: survey-notes]` Anything the survey missed? Say "none" to finish. — a plain message; end your turn.
+`[prompt: survey-notes]` Anything the survey missed? Say "none" to finish. — the tag first, then a plain message; end your turn.
 
 When both answers are in, suggest `/dethereal:audit`, which runs the `dethereal:reviewer` agent. An example invocation: `/dethereal:audit ./model`.

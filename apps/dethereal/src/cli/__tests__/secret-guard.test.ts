@@ -80,6 +80,16 @@ describe('secret guard: Read', () => {
     expect(reason(event('Read', { file_path: 'k8s/bundle.yaml' }))).toMatch(/secret-manifest/)
   })
 
+  it('denies a Secret line padded past the chunk carry (the head is no longer dropped)', () => {
+    file('k8s/padded.yaml', `apiVersion: v1\nkind: Secret${' '.repeat(300 * 1024)}\n`)
+    expect(reason(event('Read', { file_path: 'k8s/padded.yaml' }))).toMatch(/secret-manifest/)
+  })
+
+  it('does not deny a huge single line that is not a Secret manifest', () => {
+    file('k8s/not-secret.yaml', `description: ${'A'.repeat(300 * 1024)}\n`)
+    expect(decide(event('Read', { file_path: 'k8s/not-secret.yaml' })).deny).toBe(false)
+  })
+
   it.each([
     ['.env'], ['services/api/.env.production'], ['prod.env'], ['infra/terraform.tfstate'], ['infra/prod.tfvars'], ['certs/tls.key'],
     ['home/.ssh/id_ed25519'], ['.aws/credentials'], ['.kube/config'], ['ops/kubeconfig'], ['charts/values-secret.yaml'], ['deploy/secret.yml'], ['enc/values.dec'],
@@ -336,6 +346,17 @@ describe('secret guard: Bash, changing folder', () => {
   it("allows the workflow's own physical-path check", () => {
     setup()
     expect(decide(event('Bash', { command: "cd -- 'deploy/orders' && pwd -P" })).deny).toBe(false)
+  })
+
+  it.each(['deploy/orders', 'deploy/my orders'])("allows the workflow's two-step manifest search in %s, each step a command of its own, on every harness", (dir) => {
+    setup()
+    mkdirSync(path.join(project, 'deploy', 'my orders'), { recursive: true })
+    const grep = `grep -rliE '^[[:space:]]*[-{]?[[:space:]]*"?kind"?[[:space:]]*:[[:space:]]*.?Secret.?[[:space:]]*,?[[:space:]]*(#.*)?$' -- '${dir}'`
+    for (const command of [`(cd -- '${dir}' && pwd -P)`, grep]) {
+      expect(decide(event('Bash', { command })).deny, command).toBe(false)
+      expect(decideCodexAccess(rawEventFrom(event('Bash', { command })), env()).deny, `codex: ${command}`).toBe(false)
+      expect(decideOpenCodeAccess(rawEventFrom(JSON.stringify({ tool: 'bash', args: { command }, directory: project })), env()).deny, `opencode: ${command}`).toBe(false)
+    }
   })
 
   it('judges by name only after a cd it cannot follow', () => {

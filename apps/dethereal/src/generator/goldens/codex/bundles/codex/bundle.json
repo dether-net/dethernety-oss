@@ -3,7 +3,7 @@
   "harness": "codex",
   "version": "<VERSION>",
   "generatedFrom": "59708494500ba79a9f0642def6442660eb88b6049e1a079633f1c86214c380a5",
-  "contentHash": "efd40890df8e3109090bf258e99ca0d3061278905737052a527ba88ba9be173f",
+  "contentHash": "775ed4c6ab67d71499205a36657bbcc70fb99167a16e8f2d7628c006740a08a6",
   "files": [
     {
       "path": "bundles/codex/.agents/plugins/marketplace.json",
@@ -11,23 +11,23 @@
     },
     {
       "path": "bundles/codex/agents/dethereal-enricher.toml",
-      "sha256": "c219e9a91f99ebe6278d3792a0ef0c05acbf6bb9af7d6b31f4dbc9ab821eda2b"
+      "sha256": "434b021f2c0eec977b6ac79fca887d7dd7144906ff941b0c3114aadbb84d8f06"
     },
     {
       "path": "bundles/codex/agents/dethereal-lead.toml",
-      "sha256": "c5609b13b78d6062814e0bfcc10b071ad72ff6f90928468e8327e4dcbdd1f758"
+      "sha256": "2e3a2eb1d332b6dcf227c7586d2726c09d9551543657208da30ae0485820c122"
     },
     {
       "path": "bundles/codex/agents/dethereal-reviewer.toml",
-      "sha256": "b5a91afd11fdae9e9984dc713f3feeb91e75bf4847232671ac991df7bf774210"
+      "sha256": "fba7182ca0f0d80181cc42a30f6471a1d47c47175f12cd56374e664eb641eee9"
     },
     {
       "path": "bundles/codex/agents/dethereal-scout.toml",
-      "sha256": "a6d65abfa874f7353914e52b8854caa8ae1a41360459ac61145af85fa90b21e0"
+      "sha256": "7a8fa60f87494a3681bce067d44d7b66f1f405bd5cbcfd5b408e1d0775e7a274"
     },
     {
       "path": "bundles/codex/config.fragment.toml",
-      "sha256": "f4618d46d36bd2362f91a0a7635067ba5b6d73bcc901c29b872522cda527eb86"
+      "sha256": "f4f2b22d9fa1cee78835e1026be4ba581f7700b42866a3d8d332cea66fc99c39"
     },
     {
       "path": "bundles/codex/plugins/dethereal/.codex-plugin/plugin.json",
@@ -43,7 +43,7 @@
     },
     {
       "path": "bundles/codex/plugins/dethereal/bin/leaf-allowlist.json",
-      "sha256": "91f6415249501bc383d58bc465c08cf1d9323a6cfc27f16e5932a15f39b5fbd4"
+      "sha256": "49caa7898b25f4c608c8725e9b1940258568ef8ac0643943f8b8f7f0d1a77929"
     },
     {
       "path": "bundles/codex/plugins/dethereal/bin/pre-tool-use.mjs",
@@ -51,7 +51,7 @@
     },
     {
       "path": "bundles/codex/plugins/dethereal/bin/runtime-check.mjs",
-      "sha256": "38187021b415599e5b696fe0178ff81dc4ecbe38b66d5c9b27c4bac99b13ea4b"
+      "sha256": "9a0c2d6af5b0cabd70b6bc1768623099a3bed8cdae3e9616a7ff98cb08d246fc"
     },
     {
       "path": "bundles/codex/plugins/dethereal/bin/secret-fallback.mjs",

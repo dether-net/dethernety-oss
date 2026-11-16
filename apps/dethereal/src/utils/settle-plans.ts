@@ -1,10 +1,10 @@
 /**
- * Prepared settlements, held in this server process only: a plan is never written to disk, so nothing on disk can
- * forge or replay one. `prepare` checks a settle call and stores its input; `commit` runs that input once, under the
- * settlement lock, and writes only when the model is still what the plan was checked against.
+ * Prepared plans (settlements, disposition plans), held in this server process only: a plan is never written to
+ * disk, so nothing on disk can forge or replay one. `prepare` checks a call and stores its input; `commit` runs that
+ * input once, and writes only when what the plan was checked against still holds.
  *
- * A plan is bound to its model directory, to the baseline revision and the pending file it was checked against,
- * and to a fingerprint of everything it would write. It expires after `PLAN_LIMITS.ttlMs`, commits at most once,
+ * A plan is bound to its model directory and to a fingerprint of everything it would write; a settlement also to the
+ * baseline revision and the pending file it was checked against. It expires after `PLAN_LIMITS.ttlMs`, commits at most once,
  * and the oldest no commit is running is dropped past `PLAN_LIMITS.plans`.
  */
 import { randomBytes } from 'node:crypto'
@@ -27,7 +27,7 @@ export interface SettlePlan<I> {
   dir: string
   /** The settle input without its reply: the reply comes with the commit */
   input: I
-  bound: PlanBound
+  bound: PlanBound | null
   /** sha256 over everything the call would write and register */
   fingerprint: string
   /** The lines prepare returned: the commit passes them back, verbatim */
@@ -43,18 +43,19 @@ export interface SettlePlan<I> {
 /** Why a plan is spent: recorded, found stale (nothing written), or failed after part of its write. */
 export type PlanEnd = 'committed' | 'stale' | 'failed'
 
-export type PlanTake<I> =
+export type PlanTake<I, E extends string = PlanEnd> =
   | { status: 'ok'; plan: SettlePlan<I> }
   | { status: 'not_found' | 'expired' | 'other_model' | 'running' }
-  | { status: 'spent'; end: PlanEnd }
+  | { status: 'spent'; end: E }
 
 /** The process clock in milliseconds, immune to wall-clock changes. */
 const now = (): number => Number(process.hrtime.bigint() / 1_000_000n)
 
-export class SettlePlanStore<I> {
+/** `E` names how a plan can end: a settlement's ends by default; another two-phase tool may name its own. */
+export class SettlePlanStore<I, E extends string = PlanEnd> {
   private readonly plans = new Map<string, SettlePlan<I>>()
   /** Plans a commit ran, kept by id until they would have expired, with how they ended: a second commit is told which. */
-  private readonly spent = new Map<string, { until: number; end: PlanEnd }>()
+  private readonly spent = new Map<string, { until: number; end: E }>()
 
   /** Tests only: shifts the clock this store reads. */
   clockOffsetMs = 0
@@ -63,7 +64,8 @@ export class SettlePlanStore<I> {
     return now() + this.clockOffsetMs
   }
 
-  add(dir: string, input: I, bound: PlanBound, fingerprint: string, lines: string[]): SettlePlan<I> {
+  /** Hold a new plan; `bound` is null for a plan bound by its fingerprint alone. */
+  add(dir: string, input: I, bound: PlanBound | null, fingerprint: string, lines: string[]): SettlePlan<I> {
     this.sweep()
     // The oldest plan no commit is running goes first: a running commit keeps its plan to the end.
     while (this.plans.size >= PLAN_LIMITS.plans) {
@@ -83,7 +85,7 @@ export class SettlePlanStore<I> {
    * Take a plan for a commit, synchronously: it is marked running before the caller awaits anything, so two commits of
    * one plan never both run it. An expired plan is dropped; one for another directory is left as it is.
    */
-  take(id: string, dir: string): PlanTake<I> {
+  take(id: string, dir: string): PlanTake<I, E> {
     const spent = this.spent.get(id)
     if (spent) return { status: 'spent', end: spent.end }
     const plan = this.plans.get(id)
@@ -105,7 +107,7 @@ export class SettlePlanStore<I> {
   }
 
   /** A commit ran to an end: the plan is gone, and its id is kept with how it ended. */
-  consume(plan: SettlePlan<I>, end: PlanEnd): void {
+  consume(plan: SettlePlan<I>, end: E): void {
     if (this.plans.get(plan.id) !== plan) return
     this.plans.delete(plan.id)
     this.spent.set(plan.id, { until: plan.expiresAt, end })

@@ -518,15 +518,17 @@ These computed artifacts live on the platform, not in your local files. Run `/de
 After platform analysis completes:
 
 1. **Review findings** — run `/dethereal:surface` to see exposures and control gaps
-2. **Create controls** — add security controls through the platform GUI to address identified exposures
-3. **Link countermeasures** — connect controls to exposures so defense coverage analysis credits existing defenses
-4. **Track remediation** — use the platform's issue management to create, assign, and track resolution of findings
-5. **Iterate** — refine the model locally, re-publish, and re-analyze as your system evolves
+2. **Triage findings** — run `/dethereal:triage` to decide the platform's exposures in groups: the plugin proposes a disposition for each group with its evidence, you accept, edit or skip each one, and nothing is written to the platform until you answer the apply question. See [Triaging Platform Findings](TRIAGE.md)
+3. **Create controls** — add security controls through the platform GUI to address identified exposures
+4. **Link countermeasures** — connect controls to exposures so defense coverage analysis credits existing defenses
+5. **Track remediation** — use the platform's issue management to create, assign, and track resolution of findings
+6. **Iterate** — refine the model locally, re-publish, and re-analyze as your system evolves
 
-For managing security controls and issues discovered through analysis, see:
+For managing findings, security controls and issues discovered through analysis, see:
+- [Managing Findings](../MANAGING_FINDINGS.md)
 - [Working with Security Controls](../WORKING_WITH_SECURITY_CONTROLS.md)
 - [Issue Management Guide](../ISSUE_MANAGEMENT_GUIDE.md)
 
 ---
 
-**Next:** [Agents, Tools, and Hooks](AGENTS_AND_ARCHITECTURE.md) — how the plugin works under the hood
+**Next:** [Triaging Platform Findings](TRIAGE.md) — grouped proposals for the platform's findings, your review, and one gated apply

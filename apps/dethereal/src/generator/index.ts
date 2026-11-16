@@ -39,7 +39,7 @@ import {
 } from './lint.js'
 import { askLayoutsOf, lintRegistry, parseRegistry, REGISTRY_FILE } from './registry.js'
 import { byCodePoint, readWorkflow, treeHash } from './source.js'
-import { unreasonedPromptGrants } from './targets/common.js'
+import { mainSessionGrants, unreasonedPromptGrants } from './targets/common.js'
 import { targetFor } from './targets/index.js'
 import type { McpEntryOverride, RenderedAgent, RenderedSkill } from './targets/types.js'
 import { renderText, type ScanResult, scanTokens, type TokenRenderer, unrenderedTokenLines } from './tokens.js'
@@ -277,9 +277,9 @@ export function generateFromSource(options: GenerateFromSourceOptions): Map<stri
   }
   const guarded = (renderer: TokenRenderer): TokenRenderer => ({
     ...renderer,
-    delegate: (agent, prompt) => {
+    delegate: (agent, prompt, batch) => {
       assertShipped(agent)
-      return renderer.delegate(agent, prompt)
+      return renderer.delegate(agent, prompt, batch)
     },
     inline: (kind, name, inCode) => {
       if (kind === 'agent') assertShipped(name)
@@ -324,6 +324,9 @@ export function generateFromSource(options: GenerateFromSourceOptions): Map<stri
     agents.push({ name, meta: parsed.meta as AgentMeta, body: render(file, parsed.body, false).text })
     for (const tool of unreasonedPromptGrants(name, (parsed.meta as AgentMeta).tools)) {
       findings.push({ rule: 'leaf-grant', file, line: 0, message: `${tool} needs the operator's approval, which nobody can give an agent; record its allowed use or drop the grant` })
+    }
+    for (const tool of mainSessionGrants((parsed.meta as AgentMeta).tools)) {
+      findings.push({ rule: 'leaf-grant', file, line: 0, message: `${tool} is the main session's own tool, which no agent may hold; drop the grant` })
     }
   }
   findings.push(...(target.checkInput?.(skills, (name) => checked.layout.skills.get(name) ?? name, agents) ?? []))

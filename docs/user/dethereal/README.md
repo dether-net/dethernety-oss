@@ -11,7 +11,7 @@ tags: ['dethereal', 'plugin', 'claude-code', 'threat-modeling', 'overview']
 
 Dethereal is a threat modeling plugin for Claude Code, Codex and OpenCode that guides you through building structured threat models using conversational AI. You describe your system in natural language, and the plugin discovers infrastructure, maps trust boundaries and data flows, places each boundary on a trust gradient with approved channels (see [Boundary Trust Zones](../BOUNDARY_TRUST_ZONES.md)), enriches security attributes, and publishes the model to the Dethernety platform for analysis.
 
-The plugin provides 14 slash commands, 6 specialized AI agents, 30 MCP tools, and an 11-step guided workflow that takes you from a system description to an analysis-ready threat model: a quick first pass by default, fully enriched once you deepen it. A per-Control library mirrors the platform's reusable security controls into local files (`controls/<id>.json`) with shared-ownership safety prompts on push — see [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md#shared-ownership-prompts).
+The plugin provides 15 slash commands, 8 specialized AI agents, 34 MCP tools, and an 11-step guided workflow that takes you from a system description to an analysis-ready threat model: a quick first pass by default, fully enriched once you deepen it. A per-Control library mirrors the platform's reusable security controls into local files (`controls/<id>.json`) with shared-ownership safety prompts on push — see [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md#shared-ownership-prompts). Once the platform has analysed a model, `/dethereal:triage` puts each finding to you with an AI-assisted proposal and writes your decisions as dispositions only after you approve them — see [Triaging Platform Findings](TRIAGE.md).
 
 **Harnesses:** each status says how far the harness is tested. **Claude Code — Stable:** the main target; the full workflow is tested on every release. **Codex — Experimental:** runs the workflow end to end in our tests; expect rough edges. **OpenCode — Preview:** runs end to end, but in our tests the model can skip a checkpoint question or write a value different from the one you confirmed (see [Known Issues on OpenCode](#known-issues-on-opencode)). Claude Code installs the plugin from the Dethernety marketplace; Codex and OpenCode install it with `dethereal install` — see [Installation](GETTING_STARTED.md#installation). These guides show commands in the Claude Code form (`/dethereal:<command>`); see [Command Reference](COMMAND_REFERENCE.md#slash-command-syntax) for the Codex and OpenCode forms.
 
@@ -34,11 +34,13 @@ OpenCode is in Preview. These issues were seen in our tests; each has a workarou
 | [Quick Start](QUICK_START.md) | From install to your first threat model, in about 15 minutes |
 | [Getting Started](GETTING_STARTED.md) | Installation, authentication, and creating your first model |
 | [Guided Workflow](GUIDED_WORKFLOW.md) | The 11-step threat modeling process from scope to sync |
-| [Command Reference](COMMAND_REFERENCE.md) | All 14 slash commands with syntax, arguments, and examples |
+| [Command Reference](COMMAND_REFERENCE.md) | All 15 slash commands with syntax, arguments, and examples |
 | [Model Concepts](MODEL_CONCEPTS.md) | Components, boundaries, data flows, classes, quality scoring |
 | [Discovery and Enrichment](DISCOVERY_AND_ENRICHMENT.md) | Infrastructure scanning, security attributes, MITRE, credentials |
 | [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md) | Push/pull, conflict handling, git integration |
 | [Review and Analysis](REVIEW_AND_ANALYSIS.md) | Quality review, attack surface analysis |
+| [Triaging Platform Findings](TRIAGE.md) | Decide the platform's exposures from AI-assisted proposals, then apply them as dispositions |
+| [Triage With and Without the Knowledge Graph](TRIAGE_AND_THE_KNOWLEDGE_GRAPH.md) | What the knowledge graph adds to triage, and the notices when it cannot be used |
 | [Agents, Tools, and Hooks](AGENTS_AND_ARCHITECTURE.md) | AI agents, MCP tools, hooks, state machine |
 | [Glossary](GLOSSARY.md) | Plugin-specific terminology |
 
@@ -51,14 +53,14 @@ OpenCode is in Preview. These issues were seen in our tests; each has a workarou
 3. **[Guided Workflow](GUIDED_WORKFLOW.md)** — Run `/dethereal:threat-model` to continue your model; a new model is a quick first pass (priority-set enrichment, no Gate 3 review) that you deepen later with `--full`; add `--full` for the full run
 4. **[Model Concepts](MODEL_CONCEPTS.md)** — Understand what the model contains and how quality scoring works
 
-Coming from Dethereal 0.4.x? See [Upgrading from 0.4.x](GETTING_STARTED.md#upgrading-from-04x).
+Coming from Dethereal 0.5.x? See [Upgrading from 0.5.x](GETTING_STARTED.md#upgrading-from-05x). From 0.4.x? See [Upgrading from 0.4.x](GETTING_STARTED.md#upgrading-from-04x).
 
 ---
 
 ## Prerequisites
 
 - **A harness** — Claude Code (Stable; CLI, VS Code extension, or JetBrains plugin), Codex (Experimental) or OpenCode (Preview), at the versions listed in [Harness Versions](GETTING_STARTED.md#harness-versions): the installer refuses an OpenCode newer than the ones Dethereal is checked with unless you allow it
-- **Node.js 20.11.1 or later** — for running the MCP server; the plugin will not install or start on an older Node. **pnpm** as well, if you build from source
+- **Node.js 22.12.0 or later** — for running the MCP server; the plugin will not install or start on an older Node. **pnpm** as well, if you build from source
 - **Dethernety platform** — a running instance you operate, for sync and analysis (on this machine or another host)
 
 ---

@@ -17,7 +17,11 @@
  *   notice is written next to the bundle (`THIRD_PARTY_NOTICES`), with an
  *   inventory (`bundle-inputs.json`) for per-release diffs;
  * - no output may contain the build machine's home or working directory;
- * - no development code (acceptance tooling, the generator) may reach the bundle.
+ * - no development code (acceptance tooling, the generator) may reach the bundle;
+ * - a workspace package bundled only through its pure subpath entries contributes only those files, and
+ *   they import only each other, so none of that package's dependencies comes with them; it is bundled from its
+ *   workspace, never from a copy under `node_modules`, where the check could not tell its files, and the result
+ *   counts the files checked, so a build can tell the check ran.
  */
 import fs from 'node:fs'
 import os from 'node:os'
@@ -109,6 +113,44 @@ function packageRootOf(dir: string): string | null {
   packageRoots.set(dir, found)
   return found
 }
+/**
+ * Workspace packages the bundle may hold only through pure subpath entries: the files of each it may hold,
+ * by their path in the package. The package's own tests keep the entries' sources pure; this checks the build.
+ */
+export const SUBPATH_ONLY_WORKSPACES: Readonly<Record<string, readonly string[]>> = {
+  '@dethernety/dt-module': ['dist/condition-groups.js', 'dist/kg/condition-groups.js', 'dist/kg/condition-operators.js', 'dist/remediation-honesty.js'],
+}
+const workspaceRoots = new Map<string, { root: string; name: string } | null>()
+/** The subpath-only workspace package that holds `dir` (its nearest package.json), or null. */
+function subpathWorkspaceOf(dir: string): { root: string; name: string } | null {
+  if (workspaceRoots.has(dir)) return workspaceRoots.get(dir)!
+  const manifest = path.join(dir, 'package.json')
+  let found: { root: string; name: string } | null
+  let name: unknown
+  if (fs.existsSync(manifest)) {
+    try {
+      name = (JSON.parse(fs.readFileSync(manifest, 'utf8')) as { name?: unknown }).name
+    } catch {
+      name = undefined
+    }
+  }
+  if (typeof name === 'string') {
+    // The nearest named package.json decides; one without a name (a `{"type": …}` beside built files) does not.
+    found = Object.prototype.hasOwnProperty.call(SUBPATH_ONLY_WORKSPACES, name) ? { root: dir, name } : null
+  } else {
+    const parent = path.dirname(dir)
+    found = parent === dir ? null : subpathWorkspaceOf(parent)
+  }
+  workspaceRoots.set(dir, found)
+  return found
+}
+/** A bundled file of a subpath-only workspace package, as its package and its path in it; null otherwise. */
+function subpathWorkspaceFile(absFile: string): { name: string; rel: string } | null {
+  if (absFile.includes(`${path.sep}node_modules${path.sep}`)) return null
+  const ws = subpathWorkspaceOf(path.dirname(absFile))
+  return ws ? { name: ws.name, rel: path.relative(ws.root, absFile).split(path.sep).join('/') } : null
+}
+
 /** An input's exact path within this package (`src/...`), or null for a dependency's file. */
 function packagePath(absFile: string): string | null {
   if (absFile.includes(`${path.sep}node_modules${path.sep}`)) return null
@@ -147,6 +189,8 @@ function licenseText(root: string): string {
 export interface CheckResult {
   errors: string[]
   packages: BundledPackage[]
+  /** The files of each subpath-only workspace package the check judged, by package */
+  subpathFiles: Record<string, number>
 }
 
 /** Check a metafile produced from `workingDir`, and the output files' text. */
@@ -156,6 +200,7 @@ export function checkMetafile(meta: Metafile, workingDir: string, outputs: Reado
   const errors: string[] = []
   const packages = new Map<string, BundledPackage>()
   const usedExceptions = new Set<string>()
+  const subpathFiles: Record<string, number> = Object.fromEntries(Object.keys(SUBPATH_ONLY_WORKSPACES).map((name) => [name, 0]))
   // Sources are judged by their path in this package: without its root nothing could be judged.
   if (Object.keys(meta.inputs).length && !packageRootOf(path.resolve(workingDir))) errors.push(`${workingDir}: not inside the package; its sources cannot be checked`)
   for (const [input, info] of Object.entries(meta.inputs)) {
@@ -180,8 +225,23 @@ export function checkMetafile(meta: Metafile, workingDir: string, outputs: Reado
       }
       errors.push(`${input}: imports child_process`)
     }
+    const workspaceFile = subpathWorkspaceFile(path.resolve(workingDir, input))
+    if (workspaceFile) {
+      subpathFiles[workspaceFile.name]! += 1
+      const allowed = SUBPATH_ONLY_WORKSPACES[workspaceFile.name]!
+      if (!allowed.includes(workspaceFile.rel)) errors.push(`${input}: ${workspaceFile.name} may be bundled only through its pure subpaths, not ${workspaceFile.rel}`)
+      for (const imp of info.imports) {
+        // esbuild's own helpers (`<runtime>`) are no file of the workspace.
+        if (imp.path.startsWith('<')) continue
+        const target = subpathWorkspaceFile(path.resolve(workingDir, imp.path))
+        if (!target || target.name !== workspaceFile.name || !allowed.includes(target.rel)) errors.push(`${input}: imports ${imp.path}, outside ${workspaceFile.name}'s pure subpaths`)
+      }
+    }
     const pkg = packageOf(path.resolve(workingDir, input))
     if (!pkg) continue
+    if (Object.prototype.hasOwnProperty.call(SUBPATH_ONLY_WORKSPACES, pkg.name)) {
+      errors.push(`${input}: ${pkg.name} is bundled from node_modules, where its pure subpaths cannot be checked; bundle it from its workspace`)
+    }
     const manifest = JSON.parse(fs.readFileSync(path.join(pkg.root, 'package.json'), 'utf8')) as { name?: string; version?: string; license?: unknown }
     const key = `${pkg.name}@${manifest.version}`
     const found = packages.get(key)
@@ -215,7 +275,7 @@ export function checkMetafile(meta: Metafile, workingDir: string, outputs: Reado
   CODE_GENERATION_ALLOWED.forEach((g, i) => {
     if (generated[i]! > g.allowed) errors.push(`the bundle uses ${g.name} ${generated[i]} times; ${g.allowed} is allowed`)
   })
-  return { errors: [...new Set(errors)], packages: [...packages.values()].sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version)) }
+  return { errors: [...new Set(errors)], packages: [...packages.values()].sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version)), subpathFiles }
 }
 
 /** The notices file and the inventory, written next to the bundle. */
@@ -228,8 +288,8 @@ export function writeNotices(outDir: string, packages: BundledPackage[]): void {
     JSON.stringify(packages.map(({ name, version, license, bytes }) => ({ name, version, license, bytes })), null, 2) + '\n')
 }
 
-/** An esbuild plugin that fails the build on any check, and writes the notices. */
-export function shippedChecks(): { name: string; setup(build: any): void } {
+/** An esbuild plugin that fails the build on any check, and writes the notices; `onChecked` sees each result. */
+export function shippedChecks(options: { onChecked?: (result: CheckResult) => void } = {}): { name: string; setup(build: any): void } {
   return {
     name: 'dethereal-shipped-checks',
     setup(build) {
@@ -241,7 +301,9 @@ export function shippedChecks(): { name: string; setup(build: any): void } {
           const file = path.resolve(workingDir, o)
           return { path: file, text: fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '' }
         })
-        const { errors, packages } = checkMetafile(result.metafile, workingDir, outputs)
+        const checked = checkMetafile(result.metafile, workingDir, outputs)
+        options.onChecked?.(checked)
+        const { errors, packages } = checked
         // One message holding every finding: esbuild's thrown error lists only the first five messages.
         if (errors.length) return { errors: [{ text: `${errors.length} shipped-build check(s) failed:\n${errors.join('\n')}` }] }
         writeNotices(path.resolve(workingDir, build.initialOptions.outdir ?? 'dist'), packages)

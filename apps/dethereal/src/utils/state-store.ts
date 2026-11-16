@@ -256,7 +256,7 @@ export async function updateState(
 }
 
 /** The `.dethereal/` files the store may rewrite. */
-const WRITABLE_FILES: ReadonlySet<string> = new Set([STATE_FILE, 'scope.json', 'quality.json', 'loop-back.json'])
+const WRITABLE_FILES: ReadonlySet<string> = new Set([STATE_FILE, 'scope.json', 'quality.json', 'loop-back.json', 'triage-log.json'])
 
 /**
  * Read-modify-write one JSON object file directly under `.dethereal/`, with the
@@ -264,7 +264,8 @@ const WRITABLE_FILES: ReadonlySet<string> = new Set([STATE_FILE, 'scope.json', '
  * special files, the state lock held throughout, an atomic write, unknown keys
  * kept as `mutate` returns them, and no write when nothing changed.
  *
- * `file` is `state.json`, `scope.json` or `quality.json`; anything else is refused. The lock is
+ * `file` is one of WRITABLE_FILES (`state.json`, `scope.json`, `quality.json`, `loop-back.json`,
+ * `triage-log.json`); anything else is refused. The lock is
  * not reentrant: never call this from inside another store update.
  */
 export async function updateDetherealJson(

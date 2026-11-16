@@ -45,6 +45,12 @@ export { ModelStateWaiveTool, modelStateWaiveTool } from './model-state-waive.to
 export { ModelStateSettleTool, modelStateSettleTool } from './model-state-settle.tool.js'
 export { ModelStatePruneTool, modelStatePruneTool } from './model-state-prune.tool.js'
 
+// Triage of the platform's exposures
+export { TriageReviewTool, triageReviewTool } from './triage-review.tool.js'
+export { ManageDispositionsTool, manageDispositionsTool } from './manage-dispositions.tool.js'
+export { GetKgChainTool, getKgChainTool } from './get-kg-chain.tool.js'
+export { GetClassGuideTool, getClassGuideTool } from './get-class-guide.tool.js'
+
 import { BaseTool } from './base-tool.js'
 // Auth tools
 import { loginTool } from './auth/login.tool.js'
@@ -81,6 +87,11 @@ import { modelStateSettleTool } from './model-state-settle.tool.js'
 import { modelStatePruneTool } from './model-state-prune.tool.js'
 // Read-only security queries
 import { queryControlsTool, queryCountermeasuresTool, queryExposuresTool } from './query-security.tool.js'
+// Triage
+import { triageReviewTool } from './triage-review.tool.js'
+import { manageDispositionsTool } from './manage-dispositions.tool.js'
+import { getKgChainTool } from './get-kg-chain.tool.js'
+import { getClassGuideTool } from './get-class-guide.tool.js'
 import { TOOL_MANIFEST } from './manifest.js'
 import { StubTool } from './stub-tool.js'
 import { SETTLEMENT_ONLY_TOOLS, settlementOn } from '../utils/settlement-switch.js'
@@ -126,6 +137,11 @@ const implementedTools: BaseTool[] = [
   modelStateWaiveTool,
   modelStateSettleTool,
   modelStatePruneTool,
+  // Triage
+  triageReviewTool,
+  manageDispositionsTool,
+  getKgChainTool,
+  getClassGuideTool,
 ]
 
 /**
@@ -168,6 +184,7 @@ export const clientFreeTools: BaseTool[] = [
   ...stubTools,
   workspaceStatusTool,
   detectDriftTool,
+  triageReviewTool,
 ]
 
 /**
@@ -216,6 +233,10 @@ export const clientDependentTools: BaseTool[] = [
   queryControlsTool,
   queryExposuresTool,
   queryCountermeasuresTool,
+  // Triage
+  manageDispositionsTool,
+  getKgChainTool,
+  getClassGuideTool,
 ]
 
 export { WorkspaceStatusTool, workspaceStatusTool } from './workspace-status.tool.js'

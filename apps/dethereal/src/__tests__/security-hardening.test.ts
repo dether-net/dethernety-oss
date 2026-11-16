@@ -17,19 +17,20 @@ describe('Security Hardening', () => {
       }
     })
 
-    it('should not extract _token from args in buildToolContext', async () => {
+    it('should not extract _token from args in buildToolContext or the call handler', async () => {
       const fs = await import('fs/promises')
       const path = await import('path')
-      const indexPath = path.join(import.meta.dirname, '..', 'server.ts')
-      const content = await fs.readFile(indexPath, 'utf-8')
-
-      expect(content).not.toContain('args._token')
+      // The context is built in tool-context.ts; the tool arguments exist only in server.ts's call handler.
+      for (const file of [path.join('client', 'tool-context.ts'), 'server.ts']) {
+        const content = await fs.readFile(path.join(import.meta.dirname, '..', file), 'utf-8')
+        expect(content, file).not.toContain('args._token')
+      }
     })
 
     it('should not accept a caller-supplied token parameter in the token accessor', async () => {
       const fs = await import('fs/promises')
       const path = await import('path')
-      const indexPath = path.join(import.meta.dirname, '..', 'server.ts')
+      const indexPath = path.join(import.meta.dirname, '..', 'client', 'tool-context.ts')
       const content = await fs.readFile(indexPath, 'utf-8')
 
       // Parameterless by design: the accessor resolves the credential from the
@@ -40,14 +41,13 @@ describe('Security Hardening', () => {
     it('sends the access token as the bearer, never the identity token', async () => {
       const fs = await import('fs/promises')
       const path = await import('path')
-      const indexPath = path.join(import.meta.dirname, '..', 'server.ts')
+      const indexPath = path.join(import.meta.dirname, '..', 'client', 'tool-context.ts')
       const content = await fs.readFile(indexPath, 'utf-8')
 
       // The identity token is a valid JWT that the platform's own guard accepts, so
       // sending it fails only once a request leaves the platform — as an opaque server
-      // error, with nothing local to see. A source assertion is the available pin here:
-      // server.ts starts the server on import (top-level side effects), so the accessor cannot be
-      // invoked in-process without extracting it.
+      // error, with nothing local to see. A source assertion is the pin here: the accessor reads the
+      // stored session, which a unit test does not call in-process.
       //
       // BOTH return sites, because the refresh arm is the one a future edit misses and
       // its failure appears an hour after login rather than immediately.

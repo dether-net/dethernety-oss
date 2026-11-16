@@ -110,7 +110,7 @@ describe('H6: a quick run with nothing left to classify', () => {
    * onto it, a shell or server write with the paths it may touch, a change the harness saw and the replay did not, or
    * one the replay found when it saw the file again (`since`: -1 unexplained, or the event the file became unknown).
    */
-  type Change = { write: string; pointers?: string[]; move?: true; touches?: string[]; tool?: string; by?: 'shell' | 'server' | 'unobserved' | 'opaque'; since?: number }
+  type Change = { write: string; pointers?: string[]; move?: true; touches?: string[]; tool?: string; by?: 'shell' | 'server' | 'unobserved' | 'opaque'; since?: number; denied?: string }
   /**
    * A run from beats: a role runs an agent to its return; a prompt id is shown and answered; a reading is a `quality`
    * call and its result; a change writes a model file.
@@ -126,11 +126,11 @@ describe('H6: a quick run with nothing left to classify', () => {
       if (typeof beat === 'object' && 'write' in beat) {
         const file = `${MODEL}/${beat.write}`
         const touches = beat.touches ?? [file]
-        if (beat.by === 'shell') events.push(b.ev({ kind: 'shell', writesModel: true, touches }))
+        if (beat.by === 'shell') events.push(b.ev({ kind: 'shell', writesModel: true, touches, ...(beat.denied ? { denied: beat.denied } : {}) }))
         else if (beat.by === 'server') {
           const tool = beat.tool ?? 'dethereal.update_model'
           events.push(b.ev({ kind: 'tool_call', tool, callId: `w${i}`, input: { action: 'update', directory_path: MODEL } }))
-          events.push(b.ev({ kind: 'server_write', tool, callId: `w${i}`, touches }))
+          events.push(b.ev({ kind: 'server_write', tool, callId: `w${i}`, touches, ...(beat.denied ? { denied: beat.denied } : {}) }))
         } else if (beat.by === 'unobserved' || beat.by === 'opaque') {
           const at = b.ev({ kind: 'assistant', text: '…' })
           events.push(at)
@@ -213,6 +213,10 @@ describe('H6: a quick run with nothing left to classify', () => {
     ] as Change[]) {
       expect(h6Of([...head, {}, 'crown-jewel-confirm', change, ...tail]), JSON.stringify(change)).toEqual(['classification'])
     }
+    // A write the harness refused never ran: it changes nothing the reading stood for.
+    expect(h6Of([...head, {}, 'crown-jewel-confirm', { write: 'structure.json', by: 'shell', denied: 'user-rejected' }, ...tail])).toEqual([])
+    expect(h6Of([...head, {}, 'crown-jewel-confirm', { write: 'structure.json', by: 'server', denied: 'user-rejected' }, ...tail])).toEqual([])
+    expect(h6Of([...head, {}, 'crown-jewel-confirm', { write: 'structure.json', by: 'server' }, ...tail])).toEqual(['classification'])
     // A reading taken again after the change stands.
     expect(h6Of([...head, { open: 0 }, { write: 'structure.json', pointers: ['/defaultBoundary/boundaries/2/components/3/id'] }, {}, 'crown-jewel-confirm', ...tail])).toEqual([])
   })
@@ -267,7 +271,7 @@ describe('H6: the enrichment applier', () => {
   // The roles the shipped Claude bundle installs, as a run's bundle.json lists them.
   const bundle = JSON.parse(fs.readFileSync(path.join(PACKAGE, 'bundles', 'claude', 'bundle.json'), 'utf8')) as { files: Array<{ path: string }> }
   /** Step 8 as the workflow runs it: the enricher, the relay answered, the applier writing attributes, then the review. */
-  const step8 = ({ reviewed, applierDuringReview = false }: { reviewed: 'review-record' | 'push-consent'; applierDuringReview?: boolean }) => {
+  const step8 = ({ reviewed, applierDuringReview = false, serverWriteDuringReview }: { reviewed: 'review-record' | 'push-consent'; applierDuringReview?: boolean; serverWriteDuringReview?: { denied?: string } }) => {
     const late = applierDuringReview
     const b = eventBuilder()
     const events: TranscriptEvent[] = []
@@ -292,6 +296,7 @@ describe('H6: the enrichment applier', () => {
     const start = b.ev({ kind: 'subagent_start', callId: 'review', text: 'model-reviewer' })
     events.push(start)
     if (late) agent('enrichment-applier', (actor) => [write(actor)])
+    if (serverWriteDuringReview) events.push(b.ev({ kind: 'server_write', tool: 'dethereal.update_attributes', touches: ['threat-model/attributes/components/c-web.json'], ...serverWriteDuringReview }))
     events.push(b.ev({ kind: 'subagent_end', callId: 'review' }))
     ask(reviewed)
     const parsed = { events, reconciliation: { unobserved: [] } } as unknown as ParsedRun
@@ -305,5 +310,10 @@ describe('H6: the enrichment applier', () => {
 
   it('fails a quick run whose applier writes after the review started', () => {
     expect(step8({ reviewed: 'push-consent', applierDuringReview: true })).toContain('FAIL:write_after_review')
+  })
+
+  it('fails a server write during the review, and not one the harness refused', () => {
+    expect(step8({ reviewed: 'push-consent', serverWriteDuringReview: {} })).toContain('FAIL:write_after_review')
+    expect(step8({ reviewed: 'push-consent', serverWriteDuringReview: { denied: 'user-rejected' } })).not.toContain('FAIL:write_after_review')
   })
 })

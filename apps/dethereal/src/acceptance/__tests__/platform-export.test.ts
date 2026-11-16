@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { exportPlatformModel, type CallTool } from '../platform-export.js'
+import { exportPlatformModel, exportTriageModel, type CallTool } from '../platform-export.js'
 
 let tmp: string
 beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dethereal-pexport-')) })
@@ -74,3 +74,69 @@ describe('exportPlatformModel', () => {
     await expect(exportPlatformModel(fakeServer([]), 'm', path.join(tmp, 'x'))).rejects.toThrow(/exists/)
   })
 })
+
+describe('exportTriageModel', () => {
+  /** The fake server, with list_model answering the given rows for the exported directory. */
+  const withRows = (calls: Array<[string, Record<string, unknown>]>, rows: unknown[], modelId = 'model-1'): CallTool => {
+    const base = fakeServer(calls)
+    return async (name, args) => (name === 'query_exposures' && args.action === 'list_model' ? (calls.push([name, args]), { model_id: modelId, rows }) : base(name, args))
+  }
+
+  it('adds each exposure\'s lifecycle and def_hash from list_model over the exported directory', async () => {
+    const calls: Array<[string, Record<string, unknown>]> = []
+    const out = await exportTriageModel(withRows(calls, [{ exposure_id: 'e1', lifecycle: 'pending', def_hash: 'h1' }]), 'model-1', path.join(tmp, 'x'), new Date('2026-01-01T00:00:00Z'))
+    expect(out.exposures).toEqual({ c1: [{ id: 'e1', name: 'Weak auth', exploitedBy: ['T1078', 'T1110'], lifecycle: 'pending', def_hash: 'h1' }] })
+    expect(calls.at(-1)).toEqual(['query_exposures', { action: 'list_model', directory_path: path.join(tmp, 'x') }])
+  })
+
+  /** The fake server, with list_model answering in views: the partition by default, the rows view in pages of `size`. */
+  const withViews = (calls: Array<[string, Record<string, unknown>]>, rows: unknown[], size: number, changes = 0, modelId = 'model-1'): CallTool => {
+    const base = fakeServer(calls)
+    let left = changes
+    return async (name, args) => {
+      if (name !== 'query_exposures' || args.action !== 'list_model') return base(name, args)
+      calls.push([name, args])
+      if (args.view === undefined) return { model_id: modelId, view: 'partition', exposures: rows.length }
+      const offset = Number(args.offset ?? 0)
+      if (offset > 0 && left > 0) {
+        left--
+        throw Object.assign(new Error("the model's exposures changed since the first page — start again at offset 0"), { data: { codes: ['listing_changed'] } })
+      }
+      const page = rows.slice(offset, offset + size)
+      const next = offset + size < rows.length ? offset + size : undefined
+      return { model_id: modelId, view: 'rows', select: 'all', rows: page, total: rows.length, returned: page.length, offset, truncated: next !== undefined, ...(next !== undefined ? { next_offset: next } : {}), listing: 'abcdef0123456789' }
+    }
+  }
+  const twoRows = [{ exposure_id: 'e1', lifecycle: 'pending', def_hash: 'h1' }]
+
+  it('walks the rows view page by page, passing the listing back, and exports the same as the one-reply shape', async () => {
+    const calls: Array<[string, Record<string, unknown>]> = []
+    const out = await exportTriageModel(withViews(calls, twoRows, 1), 'model-1', path.join(tmp, 'x'), new Date('2026-01-01T00:00:00Z'))
+    const old = await exportTriageModel(withRows([], twoRows), 'model-1', path.join(tmp, 'y'), new Date('2026-01-01T00:00:00Z'))
+    expect({ ...out, files: undefined }).toEqual({ ...old, files: undefined })
+    const listCalls = calls.filter(([n, a]) => n === 'query_exposures' && a.action === 'list_model').map(([, a]) => a)
+    expect(listCalls[1]).toMatchObject({ view: 'rows', select: 'all' })
+  })
+
+  it('reads every page of a longer list, and restarts once when the model changed between pages', async () => {
+    const extra = [{ exposure_id: 'e1', lifecycle: 'pending', def_hash: 'h1' }, { exposure_id: 'e9', lifecycle: 'pending', def_hash: null }]
+    await expect(exportTriageModel(withViews([], extra, 1), 'model-1', path.join(tmp, 'a'))).rejects.toThrow(/no element read returned/)
+    const calls: Array<[string, Record<string, unknown>]> = []
+    const many = Array.from({ length: 3 }, () => twoRows[0])
+    const server = withViews(calls, many, 1, 1)
+    // e1 three times over: the walk reads all three pages, after one restart.
+    await exportTriageModel(server, 'model-1', path.join(tmp, 'b'))
+    const pages = calls.filter(([n, a]) => n === 'query_exposures' && a.view === 'rows')
+    expect(pages.map(([, a]) => a.offset ?? 0)).toEqual([0, 1, 0, 1, 2])
+    expect(pages[1]![1]).toMatchObject({ listing: 'abcdef0123456789' })
+    await expect(exportTriageModel(withViews([], many, 1, 2), 'model-1', path.join(tmp, 'c'))).rejects.toThrow(/changed since the first page/)
+  })
+
+  it('fails when the two reads do not name the same exposures, or list_model reads another model', async () => {
+    await expect(exportTriageModel(withRows([], []), 'model-1', path.join(tmp, 'a'))).rejects.toThrow(/not in list_model/)
+    await expect(exportTriageModel(withRows([], [{ exposure_id: 'e1', lifecycle: 'pending', def_hash: 'h1' }, { exposure_id: 'e9', lifecycle: 'pending', def_hash: null }]), 'model-1', path.join(tmp, 'b'))).rejects.toThrow(/no element read returned/)
+    await expect(exportTriageModel(withRows([], [{ exposure_id: 'e1', lifecycle: 'pending', def_hash: 'h1' }], 'model-2'), 'model-1', path.join(tmp, 'c'))).rejects.toThrow(/another model/)
+    await expect(exportTriageModel(withRows([], [{ exposure_id: 'e1', def_hash: 'h1' }]), 'model-1', path.join(tmp, 'd'))).rejects.toThrow(/without its id, lifecycle or def_hash/)
+  })
+})
+

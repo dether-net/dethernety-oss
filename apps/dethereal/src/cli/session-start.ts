@@ -84,8 +84,10 @@ function platformLines(status: WorkspaceStatus, harness?: Harness): string[] {
   if (problem === 'invalid_url') {
     return ['', '  The platform URL is not usable (it must use HTTPS unless it is local); platform tools will report why.']
   }
+  // The hook sees only its own environment and the plugin settings, never the server's: it says what it sees, and
+  // points at what does see the server's.
   if (status.platform.urlSource === 'default') {
-    return ['', `  Platform URL not set; using the local default. Sign in with ${commandFor('login', harness)} when needed.`]
+    return ['', `  No platform URL is set in this shell or the plugin settings; if the server was given one, ${commandFor('status', harness)} shows it. Sign in with ${commandFor('login', harness)} when needed.`]
   }
   return []
 }

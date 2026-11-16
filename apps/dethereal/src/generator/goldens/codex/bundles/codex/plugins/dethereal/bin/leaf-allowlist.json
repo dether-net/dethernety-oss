@@ -3,9 +3,11 @@
     "mcp": [
       "mcp__dethereal__auth_status",
       "mcp__dethereal__detect_drift",
+      "mcp__dethereal__get_class_guide",
       "mcp__dethereal__get_classes",
       "mcp__dethereal__get_control_gaps",
       "mcp__dethereal__get_example_models",
+      "mcp__dethereal__get_kg_chain",
       "mcp__dethereal__get_mitre_defend",
       "mcp__dethereal__get_model_schema",
       "mcp__dethereal__list_models",
@@ -24,9 +26,11 @@
     "mcp": [
       "mcp__dethereal__auth_status",
       "mcp__dethereal__detect_drift",
+      "mcp__dethereal__get_class_guide",
       "mcp__dethereal__get_classes",
       "mcp__dethereal__get_control_gaps",
       "mcp__dethereal__get_example_models",
+      "mcp__dethereal__get_kg_chain",
       "mcp__dethereal__get_mitre_defend",
       "mcp__dethereal__get_model_schema",
       "mcp__dethereal__list_models",

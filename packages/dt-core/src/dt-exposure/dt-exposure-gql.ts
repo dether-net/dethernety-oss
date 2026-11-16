@@ -142,6 +142,33 @@ export const UPDATE_EXPOSURE = gql`
   }
 `
 
+// The content fields createExposure does not write; a supersede copies them onto the copy afterwards.
+export const SET_EXPOSURE_CONTENT = gql`
+  mutation SetExposureContent(
+    $exposureId: ID!
+    $references: String
+    $mitigationSuggestions: [String!]
+    $detectionMethods: [String!]
+    $tags: [String!]
+    $techniques: [String!]
+  ) {
+    updateExposures(
+      where: { id: { eq: $exposureId } }
+      update: {
+        references: { set: $references }
+        mitigationSuggestions: { set: $mitigationSuggestions }
+        detectionMethods: { set: $detectionMethods }
+        tags: { set: $tags }
+        techniques: { set: $techniques }
+      }
+    ) {
+      exposures {
+        id
+      }
+    }
+  }
+`
+
 export const DELETE_EXPOSURE = gql`
   mutation DeleteExposure($exposureId: ID!) {
     deleteExposures(where: { id: { eq: $exposureId } }) {

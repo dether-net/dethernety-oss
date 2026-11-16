@@ -7,7 +7,7 @@
  * root paths that must not exist beside the generated bundle.
  */
 
-import { SETTLEMENT_ENV, SETTLEMENT_FLAG, SETTLEMENT_ON, STATE_ROOT_RULE } from '../common.js'
+import { MAIN_SESSION_ONLY, SETTLEMENT_ENV, SETTLEMENT_FLAG, SETTLEMENT_ON, STATE_ROOT_RULE } from '../common.js'
 import { TOOL_MANIFEST } from '../../../tools/manifest.js'
 import { autoActions } from '../../../cli/approve.js'
 import { emitFrontmatter } from '../../frontmatter.js'
@@ -161,12 +161,20 @@ function hooksConfig(override: McpEntryOverride | undefined, settlement: boolean
   })
 }
 
-/** `mcp:prompt` in `disallowedTools` stands for every Dethereal tool that needs the operator's approval. */
-function ownAgentKeys(own: AgentMeta['own']): AgentMeta['own'] {
+/**
+ * `mcp:prompt` in `disallowedTools` stands for every Dethereal tool that needs the operator's approval.
+ * An agent granted `mcp:*` (the server's wildcard) also has the main session's own tools disallowed,
+ * added to its list (or as its list), so the wildcard never reaches them.
+ */
+function ownAgentKeys(own: AgentMeta['own'], tools: readonly string[]): AgentMeta['own'] {
   const prompted = TOOL_MANIFEST.filter((t) => t.approval === 'prompt').map((t) => `${MCP_TOOL_PREFIX}${t.name}`).sort()
-  return own.map(([key, value]) =>
-    key === 'disallowedTools' && Array.isArray(value) ? [key, [...new Set(value.flatMap((v) => (v === 'mcp:prompt' ? prompted : [v])))]] : [key, value],
+  const mainOnly = tools.includes('mcp:*') ? MAIN_SESSION_ONLY.map((t) => `${MCP_TOOL_PREFIX}${t}`) : []
+  const keys = own.map(([key, value]): AgentMeta['own'][number] =>
+    key === 'disallowedTools' && Array.isArray(value)
+      ? [key, [...new Set([...value.flatMap((v) => (v === 'mcp:prompt' ? prompted : [v])), ...mainOnly])]]
+      : [key, value],
   )
+  return mainOnly.length && !keys.some(([key]) => key === 'disallowedTools') ? [...keys, ['disallowedTools', mainOnly]] : keys
 }
 
 function agentFile(meta: AgentMeta, body: string): string {
@@ -178,7 +186,7 @@ function agentFile(meta: AgentMeta, body: string): string {
       ['effort', meta.effort],
       ['maxTurns', meta.maxTurns],
       ['memory', meta.memory],
-      ...ownAgentKeys(meta.own),
+      ...ownAgentKeys(meta.own, meta.tools),
       ['tools', claudeTools(meta.tools)],
     ]) +
     `\n${STATE_ROOT_RULE}\n` +
