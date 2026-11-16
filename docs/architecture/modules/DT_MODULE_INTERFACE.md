@@ -1521,6 +1521,8 @@ The scoping prevents accidental collisions. It is not isolation: a module fronte
 
 A module that exports a report can use the host's report kit, at `window.__HOST_DEPENDENCIES__.reporting` or `useHostContext().reporting` (the same object). It brands the export, frames the module's sections for printing, draws the model diagram, reads the analysis's report details, and saves the file. The kit is optional: check `kit && kit.version >= 1`, and keep your own export when it is missing. Adding it did not change `HOST_API_VERSION`.
 
+`renderModelDiagram` returns the drawing as `svg` and, ready for a section, as `figure`. A drawing taller than a printed page is cut into several figures, so `figure` may hold several `<figure>` elements; `svg` is always the whole drawing.
+
 Report details, such as the client a report is prepared for, reach a report only through the kit at export. **Never put them, or anything else that identifies a client, in the object `getDocument()` returns**: agents read that payload.
 
 The members, the rules for a module's report, and an example are in [Dynamic Module System → Report Kit](../frontend/LLD/MODULE_SYSTEM.md#report-kit).

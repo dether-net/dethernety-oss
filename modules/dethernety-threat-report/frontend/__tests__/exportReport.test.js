@@ -12,6 +12,7 @@ import {
   coverageBody,
   crossingHtml,
   exportHtml,
+  formatUtc,
   kitCss,
 } from '../lib/exportReport.js'
 import { MODULE_NAME, MODULE_VERSION } from '../lib/moduleInfo.js'
@@ -489,7 +490,7 @@ describe('buildKitReport', () => {
     buildKitReport(kit, doc({ modelGraph: GRAPH }), null, { exportedAt: 'x' })
     expect(calls.diagram).toHaveLength(1)
     expect(calls.diagram[0].graph).toBe(GRAPH)
-    expect(calls.diagram[0].opts).toEqual({ caption: 'Layout as of 2026-06-04T00:00:00.000Z', crownJewelIds: ['c2'] })
+    expect(calls.diagram[0].opts).toEqual({ caption: 'Layout as of 4 Jun 2026, 00:00 UTC', crownJewelIds: ['c2'] })
   })
 
   it('says to recreate the report when the snapshot has no graph, and leaves the section out when nothing can be drawn', () => {
@@ -520,6 +521,18 @@ describe('buildKitReport', () => {
     // The standalone export keeps its filled chips, on every element's rows.
     const standalone = buildHtmlExport(TWO_ELEMENTS)
     expect(standalone).not.toContain('band-o')
+  })
+
+  it('prints its tables with separate borders inside their own box, and keeps a summary box whole', () => {
+    const css = kitCss()
+    expect(css).toContain('.threat-report-report table { border-collapse: separate; border-spacing: 0;')
+    expect(css).toMatch(/\.threat-report-report th, \.threat-report-report td \{ border: 0; border-right: 1px solid #ddd; border-bottom: 1px solid #ddd; \}/)
+    expect(css).toContain('.threat-report-report .summary { break-inside: avoid;')
+    // The top line belongs to the header cells, so a header repeated on the next page has it.
+    expect(css).toContain('.threat-report-report thead th, .threat-report-report table > tbody:first-child > tr:first-child > * { border-top: 1px solid #ddd; }')
+    expect(css).not.toMatch(/\.threat-report-report table \{[^}]*border-top/)
+    // The separate-border rule comes after the shared one it overrides.
+    expect(css.indexOf('border-collapse: separate')).toBeGreaterThan(css.indexOf('border-collapse: collapse'))
   })
 
   it('scopes every CSS rule under the report wrapper: no bare body, h1, table or footer rule', () => {
@@ -631,5 +644,16 @@ describe('lists escaped once, at the join', () => {
     })
     expect(html).toContain('flow: 1 live (a &amp; &lt;b&gt;)')
     expect(html).not.toContain('&amp;amp;')
+  })
+})
+
+describe('formatUtc', () => {
+  it('reads an ISO timestamp as the report kit does, and passes anything else through', () => {
+    expect(formatUtc('2026-11-15T10:00:00.000Z')).toBe('15 Nov 2026, 10:00 UTC')
+    expect(formatUtc('2026-11-15T23:30:00+02:00')).toBe('15 Nov 2026, 21:30 UTC')
+    expect(formatUtc('not a date')).toBe('not a date')
+    expect(formatUtc('2026-11-15T10:00:00')).toBe('2026-11-15T10:00:00')
+    expect(formatUtc('2026-02-30T10:00:00Z')).toBe('2026-02-30T10:00:00Z')
+    expect(formatUtc(undefined)).toBe('')
   })
 })

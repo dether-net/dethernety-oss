@@ -694,7 +694,43 @@ export function kitCss() {
     })
     .filter(Boolean)
     .join('\n')
-  return `${scoped}\n.${KIT_KIND}-report .band-o { background: transparent; border: 1px solid; }`
+  return [
+    scoped,
+    `.${KIT_KIND}-report .band-o { background: transparent; border: 1px solid; }`,
+    // A summary box is short: printed whole, never split across a page break.
+    `.${KIT_KIND}-report .summary { break-inside: avoid; page-break-inside: avoid; }`,
+    // Separate borders, each line drawn once inside its own box: collapsed borders straddle the table's edge, which
+    // print clips, and WebKit draws some shared lines twice as heavy.
+    `.${KIT_KIND}-report table { border-collapse: separate; border-spacing: 0; border-left: 1px solid #ddd; }`,
+    `.${KIT_KIND}-report th, .${KIT_KIND}-report td { border: 0; border-right: 1px solid #ddd; border-bottom: 1px solid #ddd; }`,
+    // The top line on the header cells, so a header repeated on the next page carries it too; on the first row where
+    // a table has no header.
+    `.${KIT_KIND}-report thead th, .${KIT_KIND}-report table > tbody:first-child > tr:first-child > * { border-top: 1px solid #ddd; }`,
+  ].join('\n')
+}
+
+/**
+ * An ISO timestamp as "15 Nov 2026, 10:00 UTC", the report kit's own format. Anything else as given: a time without a
+ * zone names no moment, and a date that does not exist would roll into the next month.
+ */
+export function formatUtc(value) {
+  if (!value) return ''
+  const text = String(value)
+  const zone = text.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/)?.[1]
+  const time = zone ? Date.parse(text) : NaN
+  if (!Number.isFinite(time)) return text
+  const offset = zone === 'Z' ? 0 : (zone[0] === '-' ? -1 : 1) * (Number(zone.slice(1, 3)) * 60 + Number(zone.slice(-2)))
+  if (new Date(time + offset * 60_000).toISOString().slice(0, 10) !== text.slice(0, 10)) return text
+  const formatted = new Intl.DateTimeFormat('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+    timeZone: 'UTC',
+  }).format(time)
+  return `${formatted} UTC`
 }
 
 // The model's diagram from the graph the report stored; a snapshot from before the graph was stored says so instead
@@ -705,7 +741,7 @@ function diagramSection(kit, doc) {
     return { id: 'model', title: 'Model', html: '<p class="none">Recreate the report to include the model diagram.</p>' }
   }
   const crownJewelIds = (graph.components ?? []).filter((c) => c?.crownJewel).map((c) => c.id)
-  const drawn = kit.renderModelDiagram(graph, { caption: `Layout as of ${doc?.generatedAt ?? ''}`, crownJewelIds })
+  const drawn = kit.renderModelDiagram(graph, { caption: `Layout as of ${formatUtc(doc?.generatedAt)}`, crownJewelIds })
   return drawn ? { id: 'model', title: 'Model', html: drawn.figure } : null
 }
 
