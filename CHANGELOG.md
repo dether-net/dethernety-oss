@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [0.17.0] - 2026-11-16
+
+dt-ws refuses a request without an authenticated user on every root query and mutation, the
+platform's, the modules' and the generated ones, with `UNAUTHENTICATED` and before the field runs,
+unless authentication is off. An installation can brand its reports, and an analysis carries report
+details such as the client a report is prepared for. Module reports can use a shared report kit for
+a branded, printable export with the model diagram; the threat report 2.3.0 uses it for its HTML
+export, and prints more cleanly (headings stay with what follows them, and table rows and summary
+boxes are not split across pages). The platform's dependencies are updated. See *Security*,
+*Added* and *Changed*.
+
+**Upgrading:** from 0.14.0, 0.15.0 or 0.16.0, `./byodt upgrade` does it (see the operator guide's
+Operations, *Upgrade with `./byodt upgrade`*). A 0.13.0 or 0.12.x deployment upgrades once with this
+release's installer, naming the deployment's folder (see Operations, *Upgrading from 0.13.0* and
+*Upgrading from 0.12.x*):
+
+```sh
+curl --proto '=https' --tlsv1.2 -fsSL https://github.com/dether-net/dethernety-oss/releases/download/v0.17.0/get-byodt.sh \
+  | sh -s -- --upgrade --dir /path/to/your/deployment
+```
+
+A deployment that skips releases reads the notes at the head of each skipped release in this
+changelog, so 0.13.0 to 0.17.0 also reads 0.14.0's, 0.15.0's and 0.16.0's, and 0.12.x to 0.17.0
+those of 0.13.0, 0.14.0, 0.15.0 and 0.16.0. After the upgrade, reports are unbranded until an
+operator adds a brand (see *Operators*).
+
+**Operators:** a report brand is configured in `branding/` in the deployment folder: `brand.json`,
+and the logo file it names, if any. `byodt` creates the folder empty, and the new `compose.yaml`
+mounts it read-only into the platform; after adding, replacing or removing a file there, run
+`./byodt restart platform`. Everything in the brand is public: anyone who can reach the deployment
+can read it without signing in, so put nothing confidential in it (see the operator guide's
+Configuration, *Branding your reports*). Building the console from source needs Go 1.26 or later
+(see *Changed*).
+
+**Module authors:** `@dethernety/dt-module` is 0.17.0. A module whose manifest declares
+`compatibility.dtModule` must move it to `^0.17.0` to be packaged against it: a caret on a 0.x
+version pins the minor, so `scripts/package-module.js` refuses `^0.16.0`. `@dethernety/dt-module`
+adds the `./condition-groups` and `./remediation-honesty` subpaths, and a module's frontend can
+export its report through the host's report kit, which draws the model diagram with
+`renderModelDiagram` (see *Added*). In dt-core, `executeSupersedeFlow` takes three optional
+arguments, `techniqueLinks`, `cloneContent` and `copyName`; without them it behaves as before.
+
+**API callers:** the top-level `elements` and `elementsConnection` queries are removed (see
+*Removed*). Every root query and mutation refuses a request without an authenticated user with
+`UNAUTHENTICATED`, unless authentication is off (see *Security*). New are the `reportDetails` and
+`suggestReportDetails` queries, the `setReportDetails` mutation and `Analysis.createdAt` (see
+*Added* and *Fixed*).
+
+**Dethereal users:** Dethereal 0.6.0: triage of the platform's findings now runs inside Dethereal on Claude Code, Codex and OpenCode, replacing the separate Dethereal Triage plugin; it needs Node.js 22.12.0 or later, and its known issues are listed under *Known issues*. Dethereal is published separately from this release.
+
 ### Added
 
 - **An installation can brand its reports.** `BRANDING_FILE` names a `brand.json` (a name, and
@@ -83,13 +134,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **`@dether.net/dethereal` dependency updates** (`@apollo/client` 4.3.8, `graphql` 16.15.0, one
-  copy in the bundle); they ship with 0.6.0.
-- **`@dether.net/dethereal` updates `smol-toml` to 1.9.1**, which closes advisory
-  GHSA-r4xh-jqrq-34v2; smol-toml 1.9.x returns parsed TOML tables as null-prototype objects, so
-  the plugin's Codex configuration reader now returns ordinary objects, keeping the installer's
-  doctor (which compares the configuration against the expected one) working unchanged. It ships
-  with 0.6.0.
+- **Dependency updates.** dt-ws moves to NestJS 11.2.10, `@apollo/server` 5.5.2, `ws` 8.23.0 and
+  `@langchain/langgraph-sdk` 1.16.0, and dt-ui to `vue-router` 5.5.1. The workspace's overrides
+  raise `hono` to ^4.13.16 and `@hono/node-server` to ^2.1.6. The Go module's OpenTelemetry
+  indirect dependencies move to 1.47.0, so `go.mod` now declares `go 1.26.0`: building the Go
+  module (the console) from source needs Go 1.26 or later.
 - **`@dether.net/dethereal` dependency updates** (`@apollo/client` 4.3.8, `graphql` 16.15.0, one
   copy in the bundle); they ship with 0.6.0.
 - **`@dether.net/dethereal` updates `smol-toml` to 1.9.1**, which closes advisory
