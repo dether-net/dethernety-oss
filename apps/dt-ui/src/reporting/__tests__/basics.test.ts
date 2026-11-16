@@ -92,4 +92,22 @@ describe('parseBrandingConfig', () => {
     expect(parseBrandingConfig({ name: 'x', ...logo, logoWidth: 0 })).toEqual({ name: 'x' })
     expect(parseBrandingConfig({ name: 'x', ...logo, logoHeight: 5000 })).toEqual({ name: 'x' })
   })
+
+  it('keeps a logo path only as the route, then exactly 64 lower-case hex digits', () => {
+    const hex = '0123456789abcdef'.repeat(4)
+    const kept = (logoUrl: unknown) => parseBrandingConfig({ name: 'x', ...logo, logoUrl })?.logoUrl
+    expect(kept(`/branding/logo/${hex}`)).toBe(`/branding/logo/${hex}`)
+    expect(kept(`/branding/logos/${hex}`)).toBeUndefined()
+    expect(kept(`/branding/logo${hex}`)).toBeUndefined()
+    expect(kept(`branding/logo/${hex}`)).toBeUndefined()
+    expect(kept(`\\branding\\logo\\${hex}`)).toBeUndefined()
+    expect(kept(`/x/branding/logo/${hex}`)).toBeUndefined()
+    expect(kept(`/branding/logo/${hex.toUpperCase()}`)).toBeUndefined()
+    expect(kept(`/branding/logo/${hex.slice(1)}`)).toBeUndefined()
+    expect(kept(`/branding/logo/${hex}0`)).toBeUndefined()
+    expect(kept(`/branding/logo/${hex}/`)).toBeUndefined()
+    expect(kept(`/branding/logo/${hex}.png`)).toBeUndefined()
+    expect(kept(`/branding/logo/${hex}\n`)).toBeUndefined()
+    expect(kept(42)).toBeUndefined()
+  })
 })

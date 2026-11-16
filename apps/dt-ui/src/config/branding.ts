@@ -11,11 +11,15 @@ export interface BrandingConfig {
 
 /** Where dt-ws serves the logo, by the SHA-256 of its bytes. */
 export const LOGO_PATH_PREFIX = '/branding/logo/'
-const LOGO_URL = new RegExp(`^${LOGO_PATH_PREFIX.replace(/\//g, '\\/')}[0-9a-f]{64}$`)
+const LOGO_DIGEST = /^[0-9a-f]{64}$/
 const LOGO_MAX_PIXELS = 2048
 
 const text = (value: unknown): string | undefined =>
   typeof value === 'string' && value.trim() !== '' ? value : undefined
+
+/** The logo's path: the prefix, then the 64 lower-case hex digits of its SHA-256, and nothing after. */
+const logoPath = (value: unknown): value is string =>
+  typeof value === 'string' && value.startsWith(LOGO_PATH_PREFIX) && LOGO_DIGEST.test(value.slice(LOGO_PATH_PREFIX.length))
 
 const pixels = (value: unknown): number | undefined =>
   Number.isInteger(value) && (value as number) > 0 && (value as number) <= LOGO_MAX_PIXELS ? (value as number) : undefined
@@ -46,7 +50,7 @@ export function parseBrandingConfig(raw: unknown): BrandingConfig | null {
   if (url) brand.url = url
   const footer = text(source.footer)
   if (footer) brand.footer = footer
-  const logoUrl = typeof source.logoUrl === 'string' && LOGO_URL.test(source.logoUrl) ? source.logoUrl : undefined
+  const logoUrl = logoPath(source.logoUrl) ? source.logoUrl : undefined
   const logoWidth = pixels(source.logoWidth)
   const logoHeight = pixels(source.logoHeight)
   if (logoUrl && logoWidth && logoHeight) Object.assign(brand, { logoUrl, logoWidth, logoHeight })
