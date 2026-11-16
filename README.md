@@ -64,7 +64,7 @@ Full instructions, configuration reference, and day-to-day operations are in the
 The recommended way if Node.js 18 or later is installed, or you are happy to install
 it. Node.js runs the installer only: the deployment itself never needs it. It is the
 natural fit if you will run the Dethereal plugin (for Claude Code, Codex or OpenCode) on
-the same machine: its MCP server runs on Node.js 20.11.1 or later, so a machine set up for
+the same machine: its MCP server runs on Node.js 22.12.0 or later, so a machine set up for
 Dethereal already meets the installer's need (see
 [Getting started with Dethereal](docs/user/dethereal/GETTING_STARTED.md#prerequisites)).
 Without Node.js, use [way 2](#2-with-get-byodtsh).
@@ -199,7 +199,7 @@ authentication (OIDC), database, policy engine, and module installation. See the
 - **MITRE ATT&CK / D3FEND** -- Exposure-to-technique mapping and defensive countermeasure recommendations
 - **File-based persistence** -- Export models as JSON files you can version-control alongside your code, edit offline, and re-import
 - **Issue tracking** -- Create issues from findings with automatic element association, filtering, and merge
-- **Dethereal — plugin for Claude Code, Codex and OpenCode** -- 14 commands, 6 specialized AI agents, 30 MCP tools, and an 11-step guided workflow for AI-assisted threat modeling. Includes a per-Control library mirrored to local files (`controls/<id>.json`) with shared-ownership safety prompts on push, an append-only control-decision audit log, and a WAL-protected ID-rebinding mechanism for crash-safe greenfield Controls. See [Dethereal Plugin docs](docs/user/dethereal/README.md).
+- **Dethereal — plugin for Claude Code, Codex and OpenCode** -- 15 commands, 8 specialized AI agents, 34 MCP tools, and an 11-step guided workflow for AI-assisted threat modeling. Includes a per-Control library mirrored to local files (`controls/<id>.json`) with shared-ownership safety prompts on push, an append-only control-decision audit log, and a WAL-protected ID-rebinding mechanism for crash-safe greenfield Controls. See [Dethereal Plugin docs](docs/user/dethereal/README.md).
 
 ## Architecture
 

@@ -51,6 +51,8 @@ export type Step =
   /** A server tool call (`native`: one of the harness's own tools, by its name); `result` is the text its result carries */
   | {
     kind: 'tool'; name: string; input: Record<string, unknown>; result?: string; isError?: boolean; native?: boolean
+    /** A refusal as the harness records it: the call never ran */
+    denied?: string
     /** Seconds between the call and its result */
     waitSeconds?: number
     /** An approval line for the call: asked a second after it; `decidedAfter` seconds after the call, the operator decided */
@@ -420,8 +422,10 @@ export async function buildRun(dir: string, script: Step[] = cleanScript(), opti
       }
     } else if (step.kind === 'write-content') write(step.file, step.content, step.before)
     else if (step.kind === 'tool') {
-      tool(step.native ? step.name : `mcp__plugin_dethereal_dethereal__${step.name}`, step.input, step.result, {
-        ...(step.isError ? { is_error: true } : {}), ...(step.waitSeconds !== undefined ? { waitSeconds: step.waitSeconds } : {}), ...(step.approval ? { approval: step.approval } : {}),
+      // A refused call is never approved: Claude Code records the refusal and no result of the tool.
+      tool(step.native ? step.name : `mcp__plugin_dethereal_dethereal__${step.name}`, step.input, step.denied ? UNANSWERED.rejected[0] : step.result, {
+        ...(step.isError || step.denied ? { is_error: true } : {}), ...(step.waitSeconds !== undefined ? { waitSeconds: step.waitSeconds } : {}), ...(step.approval && !step.denied ? { approval: step.approval } : {}),
+        ...(step.denied ? { toolDenialKind: step.denied, ...(step.denied === 'user-rejected' ? { toolUseResult: UNANSWERED.rejected[1] } : {}) } : {}),
       })
     }
     else if (step.kind === 'bash') {

@@ -1,10 +1,20 @@
 // exportReport.test.js — the JSON + self-contained printable HTML export lib.
 // Focus: HTML-escaping (the security-relevant esc() sink), the no-percentage /
 // honesty contract in JSON, the coverage-absent (coverage-tools not deployed)
-// path, and minimal-doc robustness. downloadBlob (the only DOM touch) is NOT
-// tested here. The pure builders are (string in, string out).
-import { describe, it, expect } from 'vitest'
-import { buildJsonExport, buildHtmlExport } from '../lib/exportReport.js'
+// path, and minimal-doc robustness. The pure builders are (string in, string
+// out); exportHtml runs against a stubbed document and a stand-in report kit.
+import { readFileSync } from 'node:fs'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import {
+  buildJsonExport,
+  buildHtmlExport,
+  buildKitReport,
+  coverageBody,
+  crossingHtml,
+  exportHtml,
+  kitCss,
+} from '../lib/exportReport.js'
+import { MODULE_NAME, MODULE_VERSION } from '../lib/moduleInfo.js'
 
 // --- fixtures ---------------------------------------------------------------
 // Ledger / doc shapes mirror ledger.test.js; coverage shape mirrors
@@ -35,6 +45,13 @@ const doc = (over = {}) => ({
   fingerprint: 'abc123def456',
   ledger: [ledgerEl({ findings: [finding()] })],
   ...over,
+})
+// Two elements with findings: a ledger with more than one group.
+const TWO_ELEMENTS = doc({
+  ledger: [
+    ledgerEl({ findings: [finding()] }),
+    ledgerEl({ id: 'c2', name: 'C2', findings: [finding({ id: 'e2', name: 'Another finding', score: 9 })] }),
+  ],
 })
 
 // coverage-tools graded-coverage facts (parsed) — same shape coverageMatrix.test.js uses.
@@ -401,5 +418,218 @@ describe('boundary crossings / data-flow policy export', () => {
     const qhtml = buildHtmlExport(quiet)
     expect(qhtml).toContain('<h2>Boundary Crossings</h2>')
     expect(qhtml).not.toMatch(/segmented|safe/i)
+  })
+})
+
+// --- the report kit's form ----------------------------------------------------
+// A stand-in kit that records what the report asks of it: the platform's own kit is tested in the platform.
+function fakeKit({ version = 1, figure = '<figure class="rk-figure">diagram</figure>' } = {}) {
+  const calls = { diagram: [], build: [], download: [] }
+  const kit = {
+    version,
+    currentUser: () => ({ displayName: 'Jane Doe' }),
+    brand: vi.fn(async () => ({ name: 'Example' })),
+    reportDetails: { get: vi.fn(async () => ({ client: 'Example Client' })) },
+    renderModelDiagram: (graph, opts) => {
+      calls.diagram.push({ graph, opts })
+      return figure ? { svg: '<svg/>', figure, width: 1, height: 1 } : null
+    },
+    buildReport: (input) => {
+      calls.build.push(input)
+      return '<!DOCTYPE html>report'
+    },
+    download: (report, name) => calls.download.push({ report, name }),
+  }
+  return { kit, calls }
+}
+
+const GRAPH = {
+  boundaries: [{ id: 'b1', name: 'B1', parentBoundaryId: null }],
+  components: [
+    { id: 'c1', name: 'C1', type: 'process', boundaryId: 'b1', crownJewel: false },
+    { id: 'c2', name: 'C2', type: 'store', boundaryId: 'b1', crownJewel: true },
+  ],
+  flows: [],
+}
+
+describe('buildKitReport', () => {
+  it('hands the kit the report: sections in order, the diagram after the summary, the ledger on its own page', () => {
+    const { kit, calls } = fakeKit()
+    buildKitReport(kit, doc({ modelName: 'Shop', modelGraph: GRAPH }), null, {
+      brand: { name: 'Example' },
+      clientName: 'Example Client',
+      exportedAt: '2026-11-21T09:00:00.000Z',
+      exportedBy: 'Jane Doe',
+      stale: true,
+    })
+    const input = calls.build[0]
+    expect(input.kind).toBe('threat-report')
+    expect(input.title).toBe('Threat Report — Residual-Risk Ledger')
+    expect(input.brand).toEqual({ name: 'Example' })
+    // Coverage needs live coverage facts and Boundary Crossings needs flows; this graph has a crown jewel, no flows.
+    expect(input.sections.map((s) => s.id)).toEqual(['summary', 'model', 'reachability', 'who-runs', 'ledger'])
+    expect(input.sections[1]).toEqual({ id: 'model', title: 'Model', html: '<figure class="rk-figure">diagram</figure>' })
+    expect(input.sections.at(-1)).toMatchObject({ id: 'ledger', pageBreakBefore: true })
+    expect(input.meta).toEqual({
+      modelName: 'Shop',
+      modelId: 'model-xyz',
+      clientName: 'Example Client',
+      module: { name: MODULE_NAME, version: MODULE_VERSION },
+      generatedAt: '2026-06-04T00:00:00.000Z',
+      fingerprint: 'abc123def456',
+      stale: true,
+      exportedAt: '2026-11-21T09:00:00.000Z',
+      exportedBy: 'Jane Doe',
+    })
+    expect(input.cover.notes[0]).toMatch(/Point-in-time snapshot/)
+  })
+
+  it('draws the stored graph with its crown jewels and a layout caption, never the live model', () => {
+    const { kit, calls } = fakeKit()
+    buildKitReport(kit, doc({ modelGraph: GRAPH }), null, { exportedAt: 'x' })
+    expect(calls.diagram).toHaveLength(1)
+    expect(calls.diagram[0].graph).toBe(GRAPH)
+    expect(calls.diagram[0].opts).toEqual({ caption: 'Layout as of 2026-06-04T00:00:00.000Z', crownJewelIds: ['c2'] })
+  })
+
+  it('says to recreate the report when the snapshot has no graph, and leaves the section out when nothing can be drawn', () => {
+    const { kit, calls } = fakeKit()
+    buildKitReport(kit, doc(), null, { exportedAt: 'x' })
+    expect(calls.build[0].sections.find((s) => s.id === 'model').html).toContain('Recreate the report to include the model diagram.')
+    const empty = fakeKit({ figure: null })
+    buildKitReport(empty.kit, doc({ modelGraph: GRAPH }), null, { exportedAt: 'x' })
+    expect(empty.calls.build[0].sections.some((s) => s.id === 'model')).toBe(false)
+  })
+
+  it('prints no client, model name or exporter it was not given, and falls back to the model id', () => {
+    const { kit, calls } = fakeKit()
+    buildKitReport(kit, doc(), null, { exportedAt: 'x' })
+    const { meta } = calls.build[0]
+    expect(meta.modelName).toBeUndefined()
+    expect(meta.clientName).toBeUndefined()
+    expect(meta.exportedBy).toBeUndefined()
+    expect(meta.modelId).toBe('model-xyz')
+  })
+
+  it('outlines the band chips, so they still read printed without background graphics', () => {
+    const { kit, calls } = fakeKit()
+    buildKitReport(kit, doc(), null, { exportedAt: 'x' })
+    const html = calls.build[0].sections.map((s) => s.html).join('')
+    expect(html).toContain('class="band band-o"')
+    expect(html).not.toMatch(/class="band" style="background:/)
+    // The standalone export keeps its filled chips, on every element's rows.
+    const standalone = buildHtmlExport(TWO_ELEMENTS)
+    expect(standalone).not.toContain('band-o')
+  })
+
+  it('scopes every CSS rule under the report wrapper: no bare body, h1, table or footer rule', () => {
+    const css = kitCss()
+    for (const rule of css.split('\n').filter(Boolean)) {
+      for (const selector of rule.slice(0, rule.indexOf('{')).split(',')) {
+        expect(selector.trim()).toMatch(/^\.threat-report-report /)
+      }
+    }
+    expect(css).not.toMatch(/(^|\n)\s*(body|h1|table|footer)\b/)
+    expect(css).toContain('.threat-report-report .band-o')
+  })
+
+  it('carries the same section content as the standalone export', () => {
+    const { kit, calls } = fakeKit()
+    const d = { ...TWO_ELEMENTS, modelGraph: GRAPH }
+    buildKitReport(kit, d, null, { exportedAt: 'x' })
+    const ledger = calls.build[0].sections.find((s) => s.id === 'ledger').html
+    expect(ledger).toContain('C2')
+    expect(buildHtmlExport(d)).toContain(ledger.replace(/class="band band-o" style="color:([^;]+);border-color:[^"]+"/g, 'class="band" style="background:$1"'))
+  })
+})
+
+describe('exportHtml', () => {
+  const downloads = []
+  beforeEach(() => {
+    downloads.length = 0
+    vi.stubGlobal('document', {
+      createElement: () => ({ click() {} }),
+      body: { appendChild: (a) => downloads.push(a.download), removeChild() {} },
+    })
+    vi.stubGlobal('URL', { createObjectURL: () => 'blob:x', revokeObjectURL() {} })
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('goes through the report kit when the platform has one, with the brand and the analysis\'s client', async () => {
+    const { kit, calls } = fakeKit()
+    vi.stubGlobal('window', { __HOST_DEPENDENCIES__: { reporting: kit } })
+    await exportHtml(doc({ modelName: 'Shop' }), null, { analysisId: 'an-1' })
+    expect(kit.reportDetails.get).toHaveBeenCalledWith('an-1')
+    expect(calls.build[0].meta.clientName).toBe('Example Client')
+    expect(calls.build[0].meta.exportedBy).toBe('Jane Doe')
+    expect(calls.build[0].meta.exportedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(calls.download[0].name).toEqual({ kind: 'threat-report', stamp: '2026-06-04T00-00-00-000Z' })
+    expect(downloads).toEqual([])
+  })
+
+  it('exports without a brand or a client when reading them fails', async () => {
+    const { kit, calls } = fakeKit()
+    kit.brand.mockRejectedValue(new Error('offline'))
+    kit.reportDetails.get.mockRejectedValue(new Error('offline'))
+    vi.stubGlobal('window', { __HOST_DEPENDENCIES__: { reporting: kit } })
+    await exportHtml(doc(), null, { analysisId: 'an-1' })
+    expect(calls.build[0].brand).toBeNull()
+    expect(calls.build[0].meta.clientName).toBeUndefined()
+    expect(calls.download).toHaveLength(1)
+  })
+
+  it('keeps its own export, unchanged, without the kit or with an older one', async () => {
+    for (const host of [{}, { __HOST_DEPENDENCIES__: { reporting: fakeKit({ version: 0 }).kit } }]) {
+      vi.stubGlobal('window', host)
+      await exportHtml(doc(), null, { analysisId: 'an-1' })
+    }
+    expect(downloads).toEqual(['threat-report-2026-06-04T00-00-00-000Z.html', 'threat-report-2026-06-04T00-00-00-000Z.html'])
+  })
+})
+
+describe('the JSON export', () => {
+  it('carries the model name the snapshot stored', () => {
+    const out = JSON.parse(buildJsonExport(doc({ modelName: 'Shop' })))
+    expect(out.snapshot.modelName).toBe('Shop')
+  })
+})
+
+describe('MODULE_VERSION', () => {
+  it('is the version in package.json', () => {
+    const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
+    expect(MODULE_VERSION).toBe(pkg.version)
+  })
+})
+
+// The joined lists escape each entry once, at the join: an entry built with esc() was escaped twice and printed
+// "&amp;". The two builders are called directly, since the entries come from fixed vocabularies today.
+describe('lists escaped once, at the join', () => {
+  it('prints a structural-gap class as written', () => {
+    const html = coverageBody({
+      summary: { directPrevent: 0, directDetect: 0, mitigation: 0, d3fend: 0, detectOnly: 0, uncovered: 0, soft: 1 },
+      rows: [],
+      offGrid: { softCount: 1 },
+      structuralGaps: ['A & <B>'],
+    })
+    expect(html).toContain('no control supports any A &amp; &lt;B&gt;')
+    expect(html).toContain('soft/unmapped (no ATT&amp;CK mapping)')
+    expect(html).not.toContain('&amp;amp;')
+  })
+
+  it('prints a flow\'s worst band as written', () => {
+    const html = crossingHtml({
+      flow: 'F',
+      source: 'S',
+      target: 'T',
+      sensitivity: '',
+      verdict: null,
+      membranes: [],
+      hiddenMembranes: 0,
+      onFlowLive: 1,
+      onFlowWorstBand: 'a & <b>',
+      onFlowControl: false,
+    })
+    expect(html).toContain('flow: 1 live (a &amp; &lt;b&gt;)')
+    expect(html).not.toContain('&amp;amp;')
   })
 })

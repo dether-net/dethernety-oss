@@ -86,7 +86,8 @@ export function covers(target: string, p: string): boolean {
   return p === target
 }
 
-const WRITE_OPERATOR = /(^|[^0-9&<>])>>?(?!&)|\btee\b|\bsed\s+(-[a-zA-Z]*i|--in-place)|\bperl\s+-[a-zA-Z]*i|\b(cp|mv|rm|rmdir|touch|install|truncate|ln|unlink|dd)\b|<<|\b(python3?|node|ruby|perl|jq|awk|deno|bun)\b[^|;&]*\s-[ce]\b|\bgit\s+(checkout|restore|reset|stash|apply|am|mv|rm|clean)\b|\bapply_patch\b/
+// jq has no in-place option: it writes only through a redirection or a downstream writer (`tee`, `sponge`, `dd`), so it is not among the interpreters.
+const WRITE_OPERATOR = /(^|[^0-9&<>])>>?(?!&)|\btee\b|\bsponge\b|\bsed\s+(-[a-zA-Z]*i|--in-place)|\bperl\s+-[a-zA-Z]*i|\b(cp|mv|rm|rmdir|touch|install|truncate|ln|unlink|dd)\b|<<|\b(python3?|node|ruby|perl|awk|deno|bun)\b[^|;&]*\s-[ce]\b|\bgit\s+(checkout|restore|reset|stash|apply|am|mv|rm|clean)\b|\bapply_patch\b/
 
 /**
  * The working directory the rest of a command runs in, after the `cd`s it begins with
@@ -378,7 +379,8 @@ export function replay(events: TranscriptEvent[], options: ReplayOptions = {}): 
     } else if (e.kind === 'file_read' && e.path && e.modelFile && e.content !== undefined && !e.isError) {
       resync(e.path, e.content, e.seq, e.source === 'numbered')
     } else if (e.kind === 'server_write' && e.touches) {
-      touch(e.touches, e.seq)
+      // A refused call never ran: it is an attempt on record, and changes no file.
+      if (!e.denied) touch(e.touches, e.seq)
     } else if (e.kind === 'shell' && typeof e.text === 'string') {
       const targets = shellModelWrites(e.text, e.cwdRel ?? '', modelDirs(), options.projectRoot ?? null)
       if (targets.length) {

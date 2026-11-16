@@ -1,6 +1,6 @@
 ---
 title: 'Command Reference'
-description: 'Complete reference for all 14 Dethereal slash commands'
+description: 'Complete reference for all 15 Dethereal slash commands'
 category: 'documentation'
 position: 5
 navigation: true
@@ -37,7 +37,7 @@ Only `review` and `surface` run as a dedicated AI agent. The other commands run 
 
 | Agent | Role | Commands |
 |-------|------|----------|
-| *(no agent)* | Runs in the main conversation — no dedicated agent, so no agent-level tool allowlist applies | status, login, help, view, sync, create, add, remove, classify, enrich, discover, threat-model |
+| *(no agent)* | Runs in the main conversation — no dedicated agent, so no agent-level tool allowlist applies | status, login, help, view, sync, create, add, remove, classify, enrich, discover, threat-model, triage |
 | model-reviewer | Read-only quality analysis | review, surface |
 
 Specialist agents started by commands:
@@ -49,6 +49,8 @@ Specialist agents started by commands:
 | security-enricher | Classification, enrichment and the control pass | enrich (`--focus controls`), threat-model |
 | enrichment-applier | Writes what your reply to the enrichment relay decides | threat-model (Step 8) |
 | model-reviewer | Read-only review | threat-model |
+| triage-analyst | Read-only: proposes a disposition for each group of findings | triage |
+| kg-cross-examiner | Read-only: challenges proposals to mute or rewrite a finding, from the knowledge graph | triage (with the knowledge graph) |
 
 The threat-modeler agent is not started by any command. You can start it yourself to edit a model's files: on Claude Code with `@agent-dethereal:threat-modeler`, on Codex by asking the conversation to start the `dethereal-threat-modeler` agent, and on OpenCode by mentioning `@dethereal-threat-modeler`. It sends other work to the command that runs it — removing elements to `/dethereal:remove`, for example. On Claude Code, when you start it directly, it hands a scan, classification proposals, enrichment and a review to the specialist agents itself; on Codex and OpenCode it runs as a subagent of your conversation, which relays its questions, and starts no other agent (see [threat-modeler](AGENTS_AND_ARCHITECTURE.md#threat-modeler-model-editor)).
 
@@ -463,6 +465,32 @@ Produces 8 analysis sections:
 8. Cross-model analysis boundaries
 
 See [Review and Analysis](REVIEW_AND_ANALYSIS.md) for details.
+
+---
+
+### `/dethereal:triage [directory-path] [--stale] [--element <id>]`
+
+Triage the platform's exposures for a synced model that the platform has analysed: grouped proposals from the triage-analyst agent, which you decide one command per reply, then a gated apply. It changes no model file. It writes dispositions to the platform only after you answer `yes` to the apply question, and keeps its record and working files in the model's `.dethereal/` directory, out of git.
+
+```
+> /dethereal:triage
+> /dethereal:triage --element <element-id>
+> /dethereal:triage --stale
+```
+
+| Argument | Effect |
+|----------|--------|
+| `directory-path` | The model directory; without it, the working directory when it holds a synced model, else the usual model resolution |
+| `--stale` | Review stale dispositions instead of pending findings |
+| `--element <id>` | Triage only that element's findings |
+
+**Review commands**, one per reply: `accept <n> [<n> …]`, `skip <n> [<n> …]`, `show <n>`, `edit <n> rationale: <text>`, `edit <n> kind: <KIND> [rationale: <text>]`, `accept-all` and `done`. `COMPENSATING_CONTROL` and `RISK_ACCEPTED` need your rationale, and so does any edit that decides a needs-human group; a supersede is accepted or skipped only. With `--stale`: `reaffirm`, `clear`, `skip`, `show` and `done`.
+
+**The apply question** is `Apply N dispositions? Type yes or cancel.` Approve the harness prompts for prepare and commit each on its own, never with an "always" choice.
+
+**Requires** a sign-in, a synced model and a platform analysis run. With the knowledge graph, a second agent (kg-cross-examiner) challenges proposals that would mute or rewrite a finding, and triage can write a remediation task list; see [Triage With and Without the Knowledge Graph](TRIAGE_AND_THE_KNOWLEDGE_GRAPH.md).
+
+See [Triaging Platform Findings](TRIAGE.md) for the full run.
 
 ---
 

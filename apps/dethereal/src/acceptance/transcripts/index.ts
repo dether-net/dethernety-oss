@@ -93,7 +93,8 @@ export function parseRun(harness: Harness, input: string, options: ParseOptions 
     if (e.kind === 'tool_result' && e.tool && e.callId) {
       const call = calls.get(e.callId)
       const scope = serverWriteScope(e.tool, call?.input, relPath)
-      if (scope) push({ ts: e.ts, actor: e.actor, actorId: e.actorId, turn: e.turn, kind: 'server_write', tool: e.tool, callId: e.callId, isError: e.isError, touches: scope })
+      // A call the harness refused never ran: its write is an attempt on record, as for a refused shell.
+      if (scope) push({ ts: e.ts, actor: e.actor, actorId: e.actorId, turn: e.turn, kind: 'server_write', tool: e.tool, callId: e.callId, isError: e.isError, touches: scope, ...(call?.denied ? { denied: call.denied } : {}) })
     }
   }
 

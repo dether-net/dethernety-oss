@@ -131,6 +131,10 @@ what it needs:
 - `services.openDispositionDialog` — the host's reusable disposition dialog,
   used to triage a finding (the module owns no write path).
 
+The HTML export also reads the host's report kit, at
+`window.__HOST_DEPENDENCIES__.reporting`, when the user exports (see
+[Export](#7-export)).
+
 ### Graceful degradation
 
 The bridge is treated as best-effort. `openDispositionDialog` may be absent on an
@@ -139,7 +143,8 @@ views hide the Review/Edit affordance rather than rendering a silently-inert
 button. If `analysisStore` or the analysis id is missing, Generate surfaces a
 clear error instead of throwing. The live coverage and fingerprint fetches both
 degrade to `null` on any failure — the report still renders, just without the
-optional data. This "missing evidence is not a failure" posture runs through the
+optional data. Without the report kit, or with a kit older than version 1, the
+HTML export keeps its own standalone form. This "missing evidence is not a failure" posture runs through the
 whole frontend.
 
 ---
@@ -180,7 +185,8 @@ given and describes where they are enforced.
 | [`whoRunsIt.js`](../../../modules/dethernety-threat-report/frontend/lib/whoRunsIt.js) | The words for who runs an element, over the snapshot `operation` block: the profile block (`whoRunsItView`), the exposure detail line (`whoRunsItLine`), and the HTML export's rows (`entryTexts`, `hasOperationToShow`). Free of dt-core values: the rules ran in the backend. It states a declaration and how it was decided, never a judgement. |
 | [`completenessFlags.js`](../../../modules/dethernety-threat-report/frontend/lib/completenessFlags.js) | Model-wide "silent-green" guards: under-analyzed high-value elements, orphan components outside any boundary. Surfaced banner-first. |
 | [`reportNavigation.js`](../../../modules/dethernety-threat-report/frontend/lib/reportNavigation.js) | Pure state-transition reducers for the in-component navigation (views, drills, filter chips). |
-| [`exportReport.js`](../../../modules/dethernety-threat-report/frontend/lib/exportReport.js) | Pure builders for the JSON and self-contained printable-HTML exports, plus the single DOM touch that downloads them. |
+| [`exportReport.js`](../../../modules/dethernety-threat-report/frontend/lib/exportReport.js) | Builders for the JSON export and the two forms of the HTML export: the standalone document (`buildHtmlExport`) and the report built through the host's report kit (`buildKitReport`, with its scoped CSS from `kitCss`). `exportHtml` picks the form; `downloadBlob` is the single DOM touch of the standalone form. See [Export](#7-export). |
+| [`moduleInfo.js`](../../../modules/dethernety-threat-report/frontend/lib/moduleInfo.js) | `MODULE_NAME` and `MODULE_VERSION`, the module as the export's cover names it. A test keeps `MODULE_VERSION` equal to the version in `package.json`. |
 
 ### How the engines reuse each other
 
@@ -253,7 +259,7 @@ emits `generate`.
 
 A segmented control (`role="tablist"`) switches between the five views in
 `VIEWS`, in place — no routes, no remount. Below it sits an export action that
-serializes the current snapshot to JSON or self-contained HTML (see [Export](#7-export)). A breadcrumb
+serializes the current snapshot to JSON or printable HTML (see [Export](#7-export)). A breadcrumb
 row renders the active filter chips with per-chip removal.
 
 ### The surfaces
@@ -591,34 +597,126 @@ re-checks the live fingerprint — the model has changed, so the report reads
 ## 7. Export
 
 [`exportReport.js`](../../../modules/dethernety-threat-report/frontend/lib/exportReport.js)
-produces two artifacts from the current snapshot. `buildJsonExport` and
-`buildHtmlExport` are pure (string in, string out) and unit-tested; `downloadBlob`
-is the single DOM touch that triggers the browser download.
+produces two artifacts from the current snapshot: JSON and printable HTML. The
+HTML export has two forms, picked when the user exports. The builders are
+unit-tested: `buildJsonExport` and `buildHtmlExport` are pure (string in, string
+out), and `buildKitReport` is pure except for the kit it is handed.
 
-- **JSON** — a structured serialization of the snapshot for downstream tooling.
-  In its coverage section, `tactics` (top level, and on each technique) are
-  ATT&CK tactic objects `{ id, name, order }` in matrix order, the same shape the
-  coverage facts carry (see
-  [`Tactic`](../dethernety-coverage-tools/coverage-facts.md#tactic)).
-- **Printable HTML** — a fully self-contained document: inline `<style>`,
-  hard-coded hex colors (a standalone file cannot resolve the host theme tokens),
-  and no external assets. It opens anywhere and prints to PDF via the browser's
-  Print dialog.
+### JSON
 
-Both formats build their coverage section from the same `buildCoverageView`
-honesty layer, their reachability from the same `modeAReachability` engine, and
-their **Boundary Crossings** section from the same `computeCrossings` engine —
-the declared-zone data-flow policy — as the live views (each section is simply
-omitted when its inputs are absent: coverage when the coverage module is not
-deployed, boundary crossings when the model has no boundaries or flows). The
+A structured serialization of the snapshot for downstream tooling. In its
+coverage section, `tactics` (top level, and on each technique) are ATT&CK tactic
+objects `{ id, name, order }` in matrix order, the same shape the coverage facts
+carry (see [`Tactic`](../dethernety-coverage-tools/coverage-facts.md#tactic)).
+Since 2.3.0 the snapshot carries the model's name (`modelName`, see
+[`SnapshotDoc`](./data-model.md#snapshotdoc)), so the JSON export does too. It
+carries no client name.
+
+### HTML: two paths
+
+`exportHtml` checks for the host's report kit at
+`window.__HOST_DEPENDENCIES__.reporting`. The kit's members and the rules for a
+module's report are in
+[Module Interface → Report kit](../modules/DT_MODULE_INTERFACE.md#report-kit) and
+[Dynamic Module System → Report Kit](../frontend/LLD/MODULE_SYSTEM.md#report-kit);
+this section covers only how the Threat Report uses it.
+
+```mermaid
+flowchart TD
+    A[User exports HTML] --> B{"reporting kit present<br/>and version >= 1?"}
+    B -- no --> S["buildHtmlExport + downloadBlob<br/>(standalone document)"]
+    B -- yes --> R["kit.brand() + kit.reportDetails.get(analysisId)<br/>(a failed read gives none)"]
+    R --> K["buildKitReport → kit.buildReport"]
+    K --> D[kit.download]
+```
+
+| Path | When | What the file has |
+|---|---|---|
+| Report kit | The host provides the kit at version 1 or later | The installation's brand, the client on the cover, the model diagram, and the module's name and version |
+| Standalone | No kit, or a kit below version 1 (an older host) | The standalone document, unchanged |
+
+Both paths save `threat-report-<generatedAt>.html`.
+
+### Through the report kit
+
+At the click, `exportHtml` takes the export time and reads two things in
+parallel: the installation's brand (`kit.brand()`) and the analysis's report
+details (`kit.reportDetails.get(analysisId)`). A read that fails gives no brand or
+no client, and the export goes ahead. `buildKitReport` then hands
+`kit.buildReport` the report:
+
+- **Sections, in order:** Summary, Model, MITRE Coverage & Gaps, Crown-Jewel
+  Reachability, Boundary Crossings, Who runs it, and the Residual-Risk Ledger,
+  which starts on a new page. Each section other than Model has the same content
+  as in the standalone form, and is left out when its inputs are absent, as there.
+- **Cover and footer facts:** the model's name from the snapshot, the model id,
+  the client name from the report details, the module's name and version (from
+  [`moduleInfo.js`](../../../modules/dethernety-threat-report/frontend/lib/moduleInfo.js)),
+  the generation time and fingerprint, the export time, who exported (from
+  `kit.currentUser()`), and whether the report is stale (the shell passes the
+  lifecycle's stale state). A fact the module does not have is left out: a
+  snapshot from before 2.3.0, or of a model without a name, has no model name,
+  and the model id identifies the model instead. The provenance note goes on the cover.
+- **Outlined severity bands:** the band chips are outlined (`band-o`) rather than
+  filled, so a band still reads when the page is printed without background
+  graphics. The standalone form keeps filled chips.
+- **Scoped CSS:** `kitCss()` scopes every rule the sections share under
+  `.threat-report-report`, the wrapper the kit puts around the sections, so no
+  rule can restyle the kit's cover or footer. The standalone form's page rules
+  (body, title, footer) are not passed to the kit.
+
+### The model diagram
+
+The Model section comes from `kit.renderModelDiagram`, drawn from the model graph
+frozen in the snapshot (`modelGraph`), never from the live model. Its caption
+reads "Layout as of `<generatedAt>`", and crown jewels are marked. A snapshot
+without a model graph shows "Recreate the report to include the model diagram."
+in its place. When the kit draws nothing, the section is left out.
+
+### The client name
+
+The client name comes only from the analysis's report details, read through the
+kit at export. The module never writes it into the snapshot, and `getDocument`
+never returns it: agents read that payload (see
+[Module Interface → Report kit](../modules/DT_MODULE_INTERFACE.md#report-kit)).
+The JSON export carries no client either. An end-to-end test that runs against a
+database in CI
+([`report-details-privacy.e2e.spec.ts`](../../../modules/dethernety-threat-report/test/report-details-privacy.e2e.spec.ts))
+sets a client on an analysis, generates the report, and checks that the client is
+in neither the stored snapshot nor the `getDocument` payload, while the model name
+is in both. It also checks that renaming the model leaves the fingerprint, and so
+the report's freshness, unchanged.
+
+### The standalone form
+
+Without the kit, the export is a fully self-contained document: inline `<style>`,
+hard-coded hex colors (a standalone file cannot resolve the host theme tokens),
+and no external assets. `downloadBlob` saves it. It opens anywhere and prints to
+PDF via the browser's Print dialog.
+
+### What every format shares
+
+Every format builds its coverage section from the same `buildCoverageView`
+honesty layer, its reachability from the same `modeAReachability` engine, and its
+**Boundary Crossings** section from the same `computeCrossings` engine — the
+declared-zone data-flow policy — as the live views (each section is omitted when
+its inputs are absent: coverage when the coverage module is not deployed,
+boundary crossings when the model has no boundaries or flows). The
 boundary-crossings payload carries the per-flow declared-zone verdicts
 (violation / warning / advisory, allowed staying silent), the conduit-error and
 dead-conduit surfaces, and the same honesty caveat the view shows — a verdict is
-declared intent as drawn, never verified enforcement. Both formats also carry a
-provenance footer that states plainly what the artifact is: a point-in-time
-snapshot of the *modeled* posture — not a live or deployed-state scan — with
-findings deliberately not rolled into a single risk score and no coverage
-percentage implied.
+declared intent as drawn, never verified enforcement. Every format also states
+plainly what the artifact is: a point-in-time snapshot of the *modeled* posture —
+not a live or deployed-state scan — with findings deliberately not rolled into a
+single risk score and no coverage percentage implied. The JSON carries this in
+its `provenance` block, the standalone HTML in its footer, and the kit's report
+as a note on its cover.
+
+### When an export fails
+
+If the HTML export fails, the report shows "The report could not be exported.
+Try again." A failed brand or report-details read is not a failure: the export
+goes ahead without it.
 
 ---
 

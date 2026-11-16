@@ -113,9 +113,12 @@ export function parseCodex(dir: string): CodexParse {
       case 'contextCompaction':
         events.push({ ...base, kind: 'compaction' })
         break
-      default:
-        if (!KNOWN_ITEMS.has(String(d.type))) unknownTypes[String(d.type)] = (unknownTypes[String(d.type)] ?? 0) + 1
+      default: {
+        // By the key the switch reads: an item filed under another type than its body names is still counted.
+        const kind = String(r.item_type)
+        if (!KNOWN_ITEMS.has(kind)) unknownTypes[kind] = (unknownTypes[kind] ?? 0) + 1
         break
+      }
     }
   }
   return { events, cwd, unknownTypes }

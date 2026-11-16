@@ -1639,6 +1639,92 @@ The knowledge-graph connection has its own version and its own entry: see [The d
 
 ---
 
+## Report branding
+
+The setup is in [Configuration → Branding your reports](./CONFIGURATION.md#branding-your-reports), and the brand file's rules in the [Configuration guide → Report branding](../../CONFIGURATION_GUIDE.md#report-branding).
+
+**Where the errors show.**
+
+| From | Where to read it |
+|---|---|
+| `byodt` itself | The terminal, before anything starts. A problem with `branding/` stops the command only when the folder cannot be mounted at all; everything else is a warning. |
+| The platform | `./byodt logs platform`, once, when it starts. It never refuses to start over the brand: it logs what it could not use and goes on without it. |
+
+### Reports are not branded
+
+**Cause.** The platform reads the brand once, when it starts. Either it has not started since you changed `branding/`, or it found something it could not use. A brand file it cannot use leaves reports unbranded; a logo it cannot use leaves them without a logo, and the rest of the brand still applies.
+
+**Fix.** Apply the brand first, and read what `byodt` prints while it does:
+
+```sh
+./byodt restart platform
+```
+
+Any `warning:` about `branding/` names the problem; see [`byodt` warns about `branding/`](#byodt-warns-about-branding). Then read what the platform logged when it started:
+
+```sh
+./byodt logs platform
+```
+
+Find the lines that start with `Brand`. Their paths are the platform's own: `/branding/` is your `branding/` folder, and `<logo>` below stands for the file name `brand.json` gives as `logo`.
+
+| Log line | Cause, and fix |
+|---|---|
+| `Brand loaded from /branding/brand.json with a logo` | The brand and the logo apply. Without `with a logo`, the brand applies with no logo: `brand.json` names none, or another line says why it was dropped. |
+| `Brand file /branding/brand.json does not exist; reports are unbranded` | Information, not an error: the normal line of a deployment with no brand. If you meant to add one, `branding/` has no `brand.json`. Check the file's name, and that it sits in `branding/` itself. |
+| `Brand file /branding/brand.json could not be read (EACCES); reports are unbranded` | The platform's account cannot read the file, or cannot enter the folder. `chmod 0644 branding/brand.json` and `chmod 0755 branding`. |
+| `Brand file /branding/brand.json refused: brand.json is not a regular file; reports are unbranded` | `brand.json` is a symbolic link, or not a file. Copy the file into `branding/` instead. |
+| `Brand file /branding/brand.json refused: brand.json is over 8192 bytes; reports are unbranded` | The file is larger than 8 KiB. Shorten it. |
+| `Brand file /branding/brand.json refused: …; reports are unbranded` | The content breaks a rule, which the line names, such as `it is not valid JSON`, `"name" is required` or `"url" must start with https://`. Fix the value. |
+| `Brand file /branding/brand.json: "logo" must be a plain file name in the same folder; reports carry no logo` | The `logo` value holds a `/` or a `\`, or starts with `.`. Put the logo in `branding/` and give its file name only. |
+| `Brand logo /branding/<logo> does not exist; reports carry no logo` | No file of that name is in `branding/`. Check the name, letter case included. |
+| `Brand logo /branding/<logo> could not be read (EACCES); reports carry no logo` | `chmod 0644 branding/<logo>` |
+| `Brand logo /branding/<logo> refused: …; reports carry no logo` | The line names the reason: `<logo> is not a regular file` (a symbolic link: copy the file in), `<logo> is over 262144 bytes` (256 KiB), `it is not a PNG, JPEG or WebP image`, or `it is …×… pixels, over the 2048×2048 limit`. Replace the logo. |
+
+`Brand file /branding/brand.json: ignoring unknown keys …` is not an error: the brand applies, without the keys it names. Check them for a misspelt field name.
+
+After any fix, run `./byodt restart platform` again.
+
+### `byodt` warns about `branding/`
+
+`byodt` looks over `branding/` before `up`, `restart`, `update`, `upgrade`, `models pull` and `compose`. These warnings do not stop the command. Each one names its fix; until you apply it, the platform may leave reports unbranded, or anyone the warning names can change what they show.
+
+| Message (beginning) | Fix |
+|---|---|
+| `warning: branding is a symbolic link owned by uid …, not by you: …` | Check where it points (`ls -l branding`). Remove the link, or give it to you. |
+| `warning: branding/ is owned by uid …, not by you: …` | Check what is in it (`ls -la branding/`). Give it to you with `sudo chown "$(id -u):$(id -g)" branding`, or move it aside. |
+| `warning: branding/ cannot be entered by every account, and the platform reads it under its own: reports will be unbranded.` | `chmod 0755 branding` |
+| `warning: branding/ can be changed by other accounts, and your reports show what it holds.` | `chmod go-w branding` |
+| `warning: branding/… is owned by uid …, not by you: …` | Check the file (`ls -l` on the named path). Give it to you with `sudo chown "$(id -u):$(id -g)"` on the named path, or move it aside. |
+| `warning: branding/… is a symbolic link, which does not resolve inside the platform: reports will not use it. Copy the file there instead.` | Replace the link with a copy of the file. |
+| `warning: branding/… is not readable by every account, and the platform reads it under its own: reports will not use it.` | `chmod 0644` on the named path. |
+| `warning: branding/… can be changed by other accounts, and your reports show what it holds.` | `chmod go-w` on the named path. |
+| `warning: branding/ holds a name with characters other than letters, digits, dots, dashes and underscores, which byodt does not print. Check what is there (ls -lab branding/), and rename or remove it.` | Look with `ls -lab branding/`, which shows such characters escaped. Rename the entry to letters, digits, dots, dashes and underscores (and change `logo` in `brand.json` if it names it), or remove it. `byodt` checks nothing else about that entry until you do. |
+
+Root counts as you: a folder or file root owns gets no ownership warning. A group that may write gets no warning when it is your own private group (a group named after you, as on hosts whose settings make every new file group-writable). Any other group that may write, or write access for every account, gets the `can be changed by other accounts` warning.
+
+### `branding is not a directory`
+
+```
+error: branding is not a directory. Move it aside and run the command again: byodt creates it.
+```
+
+**Cause.** Something other than a directory, such as a file, sits where the deployment mounts its brand folder.
+
+**Fix.** Rename or move it out of the bundle directory, and run the command again. `byodt` creates an empty `branding/`; copy your `brand.json` and logo into it.
+
+### `branding is a symbolic link to nothing`
+
+```
+error: branding is a symbolic link to nothing (ls -l branding). Remove it, or point it at a directory, and run the command again.
+```
+
+**Cause.** `branding` is a symbolic link whose target is gone, so the container engine has nothing to mount.
+
+**Fix.** Check where it points with `ls -l branding`. Remove the link, and `byodt` creates an empty `branding/` on the next start. Or point it at a directory of yours that holds the brand.
+
+---
+
 ## Permissions and rootless engines
 
 ### Permission denied writing to `modules/`, `schema/`, or `data/`
@@ -1651,7 +1737,7 @@ The knowledge-graph connection has its own version and its own entry: see [The d
 ./byodt up
 ```
 
-Do not tighten these directories by hand — the next start widens them again, and the deployment needs them writable. The certificate directory `tls/` is the deliberate exception: it stays restrictive, is mounted read-only, and only you write to it. So is `proxy-ca/`, which holds an outbound proxy's CA: it is mounted read-only, and `byodt` refuses it when anyone but you can write to it (see [Configuration → A proxy that inspects TLS](./CONFIGURATION.md#a-proxy-that-inspects-tls)).
+Do not tighten these directories by hand — the next start widens them again, and the deployment needs them writable. The certificate directory `tls/` is the deliberate exception: it stays restrictive, is mounted read-only, and only you write to it. So is `proxy-ca/`, which holds an outbound proxy's CA: it is mounted read-only, and `byodt` refuses it when anyone but you can write to it (see [Configuration → A proxy that inspects TLS](./CONFIGURATION.md#a-proxy-that-inspects-tls)). And so is `branding/`, which holds your report brand: it is mounted read-only, and `byodt` warns when another account can change it (see [`byodt` warns about `branding/`](#byodt-warns-about-branding) for which accounts count).
 
 ### The database becomes corrupt on macOS or Windows
 

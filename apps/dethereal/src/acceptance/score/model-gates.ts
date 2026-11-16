@@ -648,7 +648,7 @@ function asksForDropped(s: Shown, shown: readonly Shown[], events: readonly Tran
   const last = gets(settle.event, s.event).pop()
   if (!before || !last || typeof last.data.content_hash !== 'string' || last.data.content_hash !== before.data.content_hash) return false
   const writes = events.some((e) => e.seq > last.event && e.seq < s.event &&
-    (e.kind === 'server_write' || (e.kind === 'shell' && e.writesModel && !e.denied) || (e.kind === 'file_write' && isModelFile(e.path ?? ''))))
+    ((e.kind === 'server_write' && !e.denied) || (e.kind === 'shell' && e.writesModel && !e.denied) || (e.kind === 'file_write' && isModelFile(e.path ?? ''))))
   if (writes) return false
   const u = last.data.unregistered_changes as { rows?: unknown; rows_total?: unknown } | undefined
   type Row = { group?: unknown; element_id?: unknown; field?: unknown; shown?: unknown; removed?: unknown }

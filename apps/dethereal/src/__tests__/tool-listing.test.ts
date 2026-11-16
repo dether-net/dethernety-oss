@@ -13,6 +13,7 @@ const REQUIRES_USER = [
   'update_model',
   'update_attributes',
   'create_threat_model',
+  'manage_dispositions',
 ]
 
 // Prompted tools that stay unflagged: each asks under the harness's own rules, and the

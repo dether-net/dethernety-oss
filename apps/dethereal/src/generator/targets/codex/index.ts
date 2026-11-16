@@ -204,6 +204,8 @@ function agentFile(meta: AgentMeta, body: string): string {
     ['description', meta.description],
     ['model_reasoning_effort', meta.effort],
     ['sandbox_mode', tools.write ? 'workspace-write' : 'read-only'],
+    // Every Dethereal agent file sets web search to disabled: an agent reads repository files, and a search query is a way out.
+    ['web_search', 'disabled'],
     ['developer_instructions', agentPreamble(meta) + body.replace(/^\n+/, '')],
   ])
 }

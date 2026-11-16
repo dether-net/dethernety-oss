@@ -1,7 +1,7 @@
 import { DtUtils } from '../dt-utils/dt-utils.js'
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
-import { DispositionKind, DispositionMutationResult, Exposure, ExposureTechniqueLinks, TechniqueLink } from '../interfaces/core-types-interface.js'
+import { DispositionKind, DispositionMutationResult, Exposure, ExposureContent, ExposureTechniqueLinks, TechniqueLink } from '../interfaces/core-types-interface.js'
 import { fromLinkConnection, techniqueLinkConnect, TechniqueLinkConnection } from '../dt-utils/technique-links.js'
 import { buildLinkOps } from '../dt-utils/link-delta.js'
 import {
@@ -10,6 +10,7 @@ import {
   ADD_EXPOSURE,
   GET_EXPOSURE_TECHNIQUE_LINKS,
   UPDATE_EXPOSURE,
+  SET_EXPOSURE_CONTENT,
   DELETE_EXPOSURE,
   DISPOSE_EXPOSURE,
   CLEAR_DISPOSITION,
@@ -292,6 +293,32 @@ export class DtExposure {
       variables: { exposureId },
       dataPath: 'clearDisposition',
       action: 'clearDisposition',
+    })
+  }
+
+  /**
+   * Set the content fields createExposure does not write (references, mitigation suggestions, detection
+   * methods, tags, the legacy technique list). Each field is set as given; a field left out, or null, is
+   * cleared.
+   * @param exposureId - The ID of the exposure to update
+   * @param content - The fields to set
+   * @returns The id of the updated exposure
+   */
+  setExposureContent = async (
+    { exposureId, content }: { exposureId: string, content: ExposureContent }
+  ): Promise<{ id: string }> => {
+    return this.dtUtils.performMutation<{ id: string }>({
+      mutation: SET_EXPOSURE_CONTENT,
+      variables: {
+        exposureId,
+        references: content.references ?? null,
+        mitigationSuggestions: content.mitigationSuggestions ?? null,
+        detectionMethods: content.detectionMethods ?? null,
+        tags: content.tags ?? null,
+        techniques: content.techniques ?? null,
+      },
+      dataPath: 'updateExposures.exposures[0]',
+      action: 'setExposureContent',
     })
   }
 

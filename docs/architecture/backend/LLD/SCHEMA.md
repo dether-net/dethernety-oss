@@ -786,12 +786,14 @@ Service: [`ElementBindingService`](../../../../apps/dt-ws/src/gql/resolver-servi
 All core types implement the `Element` interface:
 
 ```graphql
-interface Element {
+interface Element @query(read: false, aggregate: false) {
   id: ID!
   name: String!
   description: String
 }
 ```
+
+The interface has no top-level read or aggregate query: read elements through their own types or through a relationship field.
 
 Types implementing Element: Model, Component, DataFlow, SecurityBoundary, Data, Control, Module, Exposure, Countermeasure, Analysis, AnalysisClass, ComponentClass, DataFlowClass, SecurityBoundaryClass, ControlClass, DataClass, IssueClass, Issue, Folder, and all MITRE types.
 

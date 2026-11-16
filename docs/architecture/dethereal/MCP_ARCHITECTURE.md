@@ -35,7 +35,7 @@ Which tools run without asking is decided once, in the tool manifest (see [Tool 
 | Principle | Implementation |
 |-----------|----------------|
 | **Protocol Compliance** | MCP server over stdio via `@modelcontextprotocol/sdk`, offering the tools capability |
-| **dt-core Integration** | All backend communication through `@dethernety/dt-core` classes — no raw GraphQL queries |
+| **dt-core Integration** | Every platform write goes through `@dethernety/dt-core` classes. The few reads dt-core has no class for are the server's own read-only GraphQL documents (see [The server's own read documents](#the-servers-own-read-documents)) |
 | **Split-File Format** | Directory-based model storage with per-element attribute files |
 | **Stateless Tools** | Each tool execution is independent with cached authentication |
 | **Type Safety** | Full TypeScript with Zod schema validation on all inputs |
@@ -63,11 +63,11 @@ Which tools run without asking is decided once, in the tool manifest (see [Tool 
 │                                                                             │
 │  3. dt-core DATA ACCESS LAYER                                               │
 │     ─────────────────────────                                               │
-│     All GraphQL operations routed through dt-core classes:                  │
+│     Every platform write is routed through dt-core classes:                 │
 │     DtImportSplit, DtExportSplit, DtUpdateSplit, DtModule, DtModel,         │
 │     DtClass, DtExposure, DtControl, DtControlLibrary, DtCountermeasure,     │
 │     DtAnalysis, DtMitreAttack, DtMitreDefend.                               │
-│     No raw GraphQL queries in tool implementations.                         │
+│     Reads dt-core has no class for are the server's own documents.          │
 │                                                                             │
 │  4. BROWSER-BASED OAUTH                                                     │
 │     ─────────────────────────                                               │
@@ -112,14 +112,15 @@ Which tools run without asking is decided once, in the tool manifest (see [Tool 
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                    │                                         │
 │  ┌────────────────────────────────────────────────────────────────────────┐  │
-│  │                            Tool Registry (30 tools)                    │  │
+│  │                            Tool Registry (34 tools)                    │  │
 │  │  ┌─────────────────────────┐  ┌─────────────────────────────────────┐  │  │
-│  │  │ Client-Free Tools (12)  │  │ Client-Dependent Tools (18)         │  │  │
+│  │  │ Client-Free Tools (13)  │  │ Client-Dependent Tools (21)         │  │  │
 │  │  │ • Authentication (3)    │  │ • Model CRUD (5)                    │  │  │
 │  │  │ • Reference (2)         │  │ • Element Management (4)            │  │  │
 │  │  │ • Validation (1)        │  │ • MITRE Frameworks (2)              │  │  │
 │  │  │ • Local Workspace (2)   │  │ • Security Elements (6)             │  │  │
 │  │  │ • Workflow State (4)    │  │ • Analysis (1)                      │  │  │
+│  │  │ • Triage (1)            │  │ • Triage (3)                        │  │  │
 │  │  └─────────────────────────┘  └─────────────────────────────────────┘  │  │
 │  │  Per-tool list: Tool Categories below                                  │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
@@ -159,6 +160,7 @@ Which tools run without asking is decided once, in the tool manifest (see [Tool 
 │  │ • JWT Token Issuance    │  │   │  │ • Controls, Countermeasures     │  │
 │  └─────────────────────────┘  │   │  │ • MITRE ATT&CK / D3FEND        │  │
 └───────────────────────────────┘   │  │ • Analyses                      │  │
+                                    │  │ • Knowledge graph (if loaded)   │  │
                                     │  └─────────────────────────────────┘  │
                                     └───────────────────────────────────────┘
 ```
@@ -209,7 +211,7 @@ Only local work happens before the transport connects (the project root is resol
 
 ### Base Tool Classes (`src/tools/base-tool.ts`)
 
-Abstract base classes define the tool interface. All 30 tools extend one of two concrete base classes:
+Abstract base classes define the tool interface. All 34 tools extend one of two concrete base classes:
 
 ```typescript
 export interface ToolContext {
@@ -262,14 +264,18 @@ export abstract class ClientDependentTool extends BaseTool { requiresClient = tr
 | **Validation** | `validate_model_json` | `ClientFreeTool` | 1 |
 | **Local Workspace** | `workspace_status`, `detect_drift` | `ClientFreeTool` | 2 |
 | **Workflow State** | `model_state`, `model_state_waive`, `model_state_settle`, `model_state_prune` | `ClientFreeTool` | 4 |
+| **Triage (review)** | `triage_review` | `ClientFreeTool` | 1 |
 | **Model CRUD** | `create_threat_model`, `import_model`, `export_model`, `update_model`, `list_models` | `ClientDependentTool` | 5 |
 | **Element Management** | `get_classes`, `match_classes`, `update_attributes`, `generate_attribute_stubs` | `ClientDependentTool` | 4 |
 | **MITRE Frameworks** | `search_mitre_attack`, `get_mitre_defend` | `ClientDependentTool` | 2 |
 | **Security Elements** | `manage_controls`, `manage_countermeasures`, `get_control_gaps`, `query_controls`, `query_exposures`, `query_countermeasures` | `ClientDependentTool` | 6 |
 | **Analysis** | `manage_analyses` | `ClientDependentTool` | 1 |
-| **Total** | | | **30** |
+| **Triage (writes and evidence)** | `manage_dispositions`, `get_kg_chain`, `get_class_guide` | `ClientDependentTool` | 3 |
+| **Total** | | | **34** |
 
-`model_state_settle` is listed only with the settlement on, so a server with the default lists 29 tools; see [Settlement Switch](#settlement-switch).
+`model_state_settle` is listed only with the settlement on, so a server with the default lists 33 tools; see [Settlement Switch](#settlement-switch).
+
+The four triage tools serve the `triage` skill, together with two actions each of `search_mitre_attack` (`lookup`, `match`) and `query_exposures` (`list_model`, `evidence`); see [Triage Tools](#triage-tools). `triage_review` is a `ClientFreeTool` so that its `tasks` action needs a session only for the class guides it reads; its `open` refuses without a platform client, and `reply` and `get` work on the review the server holds.
 
 `model_state_prune` is a write action and always asks for the operator's approval: it deletes the attribute files of elements the model no longer has. The server deletes only the files it finds orphaned itself (a structured attribute file named for an element id that is in no element group), all or nothing and at most 50 a call; a call that leaves more returns the next call's files as `next_files`. The call must name exactly those files, and each must still hold the bytes the server read. A flat file, a file named for another id, or one whose name differs from a live element id only in letter case is listed as not deleted. With the settlement on, it does not drop the removed elements' registered values; `model_state_settle` drops those once the operator acknowledges them. With it off, the prune runs the same checks, reads and writes no settlement file and needs no key, and its description does not name the settle tool.
 
@@ -307,6 +313,17 @@ apps/dethereal/src/
 │   ├── query-security.tool.ts      # query_controls, query_exposures, query_countermeasures
 │   ├── manage-exposures.tool.ts    # Exposure reader behind query_exposures (not a registered tool)
 │   └── *.tool.ts                   # One file per remaining tool (see Tool Categories)
+├── triage/                         # The triage domain behind the triage tools
+│   ├── review.ts                   # A review: its groups, decisions and reply grammar (no I/O)
+│   ├── store.ts                    # The open reviews, held in this process only
+│   ├── dispositions.ts             # Disposition plans: checks, lines, writes and outcomes
+│   ├── log.ts                      # The triage record (.dethereal/triage-log.json) and its caps
+│   ├── exposures.ts                # A model's exposures in one read; one exposure's evidence
+│   ├── model-views.ts              # The list_model views (partition, groups, rows), their pages and caps
+│   ├── kg.ts                       # Knowledge-graph capability probe and chain read
+│   ├── notices.ts                  # The fixed texts triage shows about the knowledge graph
+│   ├── model.ts                    # The platform model a model directory names
+│   └── text.ts, turns.ts           # Display cleaning; one call at a time per key
 ├── utils/
 │   ├── directory-utils.ts          # Read/write split-file model directories, apply ID mappings
 │   ├── file-utils.ts               # Path operations, JSON I/O, backups
@@ -316,6 +333,7 @@ apps/dethereal/src/
 │   ├── gates.ts                    # Quality Gates 1–3
 │   ├── loop-back.ts                # Loop-back guard
 │   ├── settlement*.ts              # Settlement baseline, state and machine registrations
+│   ├── settle-plans.ts             # In-memory plans of the two-phase tools (settlement, dispositions)
 │   ├── registrable.ts              # What may be registered as the operator's value
 │   ├── manifest-modules.ts         # Derived manifest.json module list
 │   ├── project-root.ts             # Project root resolution
@@ -501,7 +519,18 @@ The two are not interchangeable. `bearer` is the OAuth **access token** — only
 
 ### Tool Manifest and Listing
 
-`src/tools/manifest.ts` is the frozen contract of every tool: its name, its approval class (`auto` runs without a prompt in harnesses that ask per tool, `prompt` always asks), its actions and top-level inputs, and `requiresUser` for tools that must never run unattended. A test holds the registered tools to it. The per-harness bundles read their approvals from it: the Claude Code approve hook, Codex's `approval_mode` entries and OpenCode's `permission` rules. Today 16 tools are `auto` and 14 are `prompt`; on Claude Code the approve hook also approves one action of a `prompt` tool, `model_state_settle` `prepare`, which records nothing in the model.
+`src/tools/manifest.ts` is the frozen contract of every tool: its name, its approval class (`auto` runs without a prompt in harnesses that ask per tool, `prompt` always asks), its actions and top-level inputs, and `requiresUser` for tools that must never run unattended. A test holds the registered tools to it. The per-harness bundles read their approvals from it: the Claude Code approve hook, Codex's `approval_mode` entries and OpenCode's `permission` rules. Today 19 tools are `auto` and 15 are `prompt`; on Claude Code the approve hook also approves one action of a `prompt` tool, `model_state_settle` `prepare`, which records nothing in the model.
+
+The triage tools' classes:
+
+| Tool | Approval | `requiresUser` | Why |
+|------|----------|:-:|-----|
+| `triage_review` | `auto` | -- | It reads the model and records the operator's replies in the model's own triage record; `tasks` writes the remediation task list under a fixed name in the run's own scratch directory, which is kept out of git, and never over a file. It never changes the platform. Only the main session holds it (see [PLUGIN_ARCHITECTURE.md → Main-session-only tools](PLUGIN_ARCHITECTURE.md#main-session-only-tools)) |
+| `manage_dispositions` | `prompt` | yes | It writes dispositions and creates supersede copies on the platform; `prepare` and `commit` both ask |
+| `get_kg_chain` | `auto` | -- | Read-only knowledge-graph evidence |
+| `get_class_guide` | `auto` | -- | Read-only class guidance |
+
+`search_mitre_attack` and `query_exposures` stay `auto` with their new read actions.
 
 `tools/list` (`src/tool-listing.ts`) lists each tool with its name, description and flattened input schema. A tool whose manifest entry has `requiresUser` also carries `_meta["anthropic/requiresUserInteraction"]: true`: Claude Code then asks even under allow rules, and refuses the call where no one can answer. Other harnesses ignore the key and apply their own approval rules.
 
@@ -685,7 +714,7 @@ export class QueryExposuresTool extends ClientDependentTool<ExposuresInput, unkn
 }
 ```
 
-The example is simplified: the shipped `query_exposures` (in `query-security.tool.ts`) also checks each action's required fields and hands the platform call to an internal exposure reader that is not registered as a tool of its own.
+The example is simplified: the shipped `query_exposures` (in `query-security.tool.ts`) also checks each action's required fields, hands the platform call to an internal exposure reader that is not registered as a tool of its own, and has two more actions, `list_model` and `evidence` (see [`query_exposures`](#query_exposures)).
 
 ### Error Propagation
 
@@ -1362,22 +1391,24 @@ Call it after classification so attribute files carry the exact field names the 
 
 #### `search_mitre_attack`
 
-Search and browse ATT&CK techniques, tactics, and mitigations (D26).
+Search and browse ATT&CK techniques, tactics, and mitigations (D26); resolve an exact ATT&CK or ATLAS id; match free text to candidate techniques.
 
 | Property | Value |
 |----------|-------|
 | **Base class** | `ClientDependentTool` |
-| **Input** | `{ action: 'search' \| 'tactics' \| 'techniques_by_tactic' \| 'technique' \| 'mitigations' \| 'mitigation', query?: string, tactic_id?: string, attack_id?: string }` |
-| **dt-core class** | `DtMitreAttack` |
+| **Input** | `{ action: 'search' \| 'tactics' \| 'techniques_by_tactic' \| 'technique' \| 'mitigations' \| 'mitigation' \| 'lookup' \| 'match', query?: string, tactic_id?: string, attack_id?: string, framework?: 'attack' \| 'atlas' \| 'both', top_n?: number }` — `lookup` takes `attack_id` only; `match` takes `query`, `framework` and `top_n` only |
+| **dt-core class** | `DtMitreAttack` (the browsing actions); `lookup` and `match` use the server's own documents |
 
 | Action | dt-core Method | Required Params | Notes |
 |--------|---------------|-----------------|-------|
 | `search` | `findMitreAttackTechniques` | `query` | Matched on the platform as a technique-name `contains` filter. Returns at most 20, with `total` and `truncated`. |
 | `tactics` | `getMitreAttackTactics` | -- | Returns all 15 tactics. |
-| `techniques_by_tactic` | `getMitreAttackTechniquesByTactic` | `tactic_id` (e.g., "TA0001") | |
+| `techniques_by_tactic` | `getMitreAttackTactics`, then `getMitreAttackTechniquesByTactic` | `tactic_id`: the ATT&CK tactic id (e.g., "TA0008") | The platform selects a tactic by its node id, so the ATT&CK id is looked up among the platform's tactics first (a node id is still accepted). Returns `{ techniques, tactic_id }`, with the ATT&CK id. An unknown tactic is refused (`Tactic … not found`), not answered with an empty list. |
 | `technique` | `getMitreAttackTechnique` | `attack_id` (e.g., "T1190") | Anti-hallucination guardrail: validates technique exists before annotating. |
 | `mitigations` | `getMitreAttackMitigations` | -- | Returns all mitigations. |
 | `mitigation` | `getMitreAttackMitigation` | `attack_id` (e.g., "M1036") | |
+| `lookup` | -- | `attack_id`: an exact ATT&CK id (`T1078.001`) or ATLAS id (`AML.T0051`) | An id starting `AML.` is read as ATLAS, any other as ATT&CK. Returns `{ technique: { id, framework, attackId, name, description, deprecated, decreasedUsage, subtechnique, version, refUrl, parentTechnique, tacticNames } }`, where `id` is the internal node id. A miss is `not_found`: the technique does not exist on the platform. `deprecated` is ATLAS-only and advisory; `decreasedUsage` is ATT&CK-only, and such a technique is still valid. |
+| `match` | -- | `query` (at most 500 characters) | Runs the platform's matching cascade (exact id, id prefix, name, description, vector similarity) over `framework` (`attack` by default, `atlas`, or `both`), `top_n` candidates (default 5, clamped to 1–20). Returns `{ query, candidates: [{ mitreId, name, description, tactic, kind, matchType, similarityScore }], unmatched, vectorAvailable, vectorDisabledReason }`. With `both`, the two frameworks' candidates merge by tier, then by similarity. A candidate carries no internal id: `lookup` is the id authority. |
 
 > The plugin provides `search_mitre_attack` for user-initiated reference browsing. Systematic technique-to-component mapping (STRIDE-to-ATT&CK evaluation) is performed by platform analysis modules, not the plugin.
 
@@ -1395,6 +1426,8 @@ Renamed from `search_mitre_defend` because the underlying `DtMitreDefend` class 
 
 dt-core has no name search for D3FEND techniques, unlike ATT&CK's `findMitreAttackTechniques`; one would be needed before this tool could filter by name.
 
+**`techniques_by_tactic`** takes `tactic_id` as the D3FEND tactic's name (e.g., "Harden"), as `tactics` lists them. The platform selects a tactic by its node id, so the tool first reads the tactics (`fetchMitreDefendTactics`) and looks the name up, in any letter case; a node id, the tactic's URI or the URI's fragment is still accepted. It then calls `getMitreDefendTechniquesByTactic` with the node id and returns `{ techniques, tactic_id }`, with the tactic's name. An unknown tactic is refused (`D3FEND tactic … not found`), naming the tactics there are, instead of being answered with an empty list.
+
 ### Security Element Tools (Client-Dependent)
 
 Reading controls, exposures and countermeasures goes through the three read-only `query_*` tools, which run without an approval prompt; every write stays in a `manage_*` tool, which always asks. The `query_*` tools share `query-security.tool.ts`: each accepts only its read actions and a strict, bounded set of inputs (ids limited to `[A-Za-z0-9_-]`, at most 128 characters), and a `list` returns at most `limit` items (default 100, at most 500) with `total` holding the full count and `truncated: true` when items were cut.
@@ -1406,10 +1439,33 @@ Read-only access to platform-computed exposures (D25). It replaced `manage_expos
 | Property | Value |
 |----------|-------|
 | **Base class** | `ClientDependentTool` |
-| **Input** | `{ action: 'list' \| 'get', element_id?: string, exposure_id?: string, limit?: number }` |
-| **dt-core class** | `DtExposure` |
+| **Input** | `{ action: 'list' \| 'get' \| 'list_model' \| 'evidence', element_id?: string, exposure_id?: string, limit?: number, directory_path?: string, view?: 'partition' \| 'groups' \| 'rows', select?: 'stale' \| 'user' \| 'all', offset?: number, listing?: string }` |
+| **dt-core class** | `DtExposure` (`list`, `get`); `list_model` and `evidence` use the server's own documents |
 
-`list` reads the exposures of `element_id`; `get` reads one by `exposure_id`. **Create/update/delete are NOT supported.** Exposures are computed by OPA/Rego policy evaluation on the platform. Plugin-created exposures would pollute the analysis engine's evidence chain (`Component → HAS_EXPOSURE → Exposure → EXPLOITED_BY → Technique`) with unverified claims.
+`list` reads the exposures of `element_id`; `get` reads one by `exposure_id`. Two actions serve triage:
+
+- **`list_model`** (`directory_path`) reads the exposures of the platform model the directory was pushed as, and answers in one of three views (below). The directory must name a model in its sync record, synced with the platform this server is configured for (`not_synced`, `other_platform` otherwise). The server reads the whole model in one read, bounded to 60 seconds and 4 MiB of result (`read_timed_out`, `model_too_large`); a missing model is `model_not_found`. `element_id` narrows any view to one element; an id the model does not have is refused with `element_not_found`.
+- **`evidence`** (`exposure_id`) reads one exposure's full evidence: description, references, techniques, tags, mitigation suggestions, detection methods, and the exploiting ATT&CK and ATLAS techniques with their internal ids.
+
+**The `list_model` views.** A whole model in one answer can be larger than a harness takes inline: a model with a few hundred exposures came to about 280 KB. So `list_model` answers with one view of the model at a time, chosen by `view`. The views are built in `src/triage/model-views.ts`.
+
+| View | What it returns | Result |
+|------|-----------------|--------|
+| `partition` (the default) | Counts only, no rows | `{ model_id, model_name, view, exposures, totals, triage, user_pending, elements, without_exposures, element?, warnings? }` |
+| `groups` | The triage set, grouped on the server, in parts | `{ model_id, view, element_id?, groups, rows_total, parts_total, parts_left_over, returned, offset, truncated, next_offset?, listing }` |
+| `rows` | The rows `select` picks | `{ model_id, view, select, element_id?, rows, total, returned, offset, truncated, next_offset?, listing }` |
+
+- **`partition`.** `exposures` is the model's exposure count. `totals` counts `pending`, `confirmed`, `disposed`, `stale`, `user` and `system`. `triage` counts the pending exposures not created by USER (the triage set); `user_pending` the pending ones created by USER. `elements` is the model's element count; `without_exposures` holds the count of elements with no exposure, and names them (`elements`) only when there are at most 10. With `element_id`, `element` holds that element's id, name, kind and the same counts; the other numbers still count the whole model. Only this view adds the triage files to the model's `.dethereal/.gitignore` (see [The triage record](#the-triage-record)); a `.gitignore` it cannot update is a warning.
+- **`groups`.** The triage set, grouped by the exact tuple (name, type, category, definition hash): two definitions that share a name never merge, and a null and an empty string are different values. The groups come in that tuple's order, with ids `g<k>`. A group's members, ordered by element id and exposure id, are filled into parts of at most 80 members and at most 20,000 characters; a group that needs more than one part has parts `g<k>#<m>`. Each part carries the group's shared fields once (`name`, `type`, `category`, `def_hash`, `attack_ids`, `atlas_ids`), `size` (the whole group's member count, across its parts) and its `members`, each `{ exposure_id, element_id, element_name, element_kind, element_class_id, score, attack_vector, unresolved_references_count }`. The view returns at most 999 parts across all its pages: `parts_total` counts them all, and `parts_left_over` those held back. `rows_total` counts the rows of the triage set.
+- **`rows`.** `select` picks the rows: `stale` (a stale disposition, any lifecycle), `user` (created by USER, any lifecycle) or `all` (the default). Rows are ordered by name, type, category, definition hash, then exposure id. Each row carries the exposure, its element and the element's class, its lifecycle (`pending`, `confirmed` or `disposed`), its disposition fields, its ATT&CK and ATLAS ids and its definition hash. `total` counts the rows selected.
+
+**Pages.** The groups and rows views come in pages: as many whole items (parts, or rows) as keep the result, as it is sent, under 24,000 characters, and at least one item a page. `returned` is the page's item count. A caller follows `next_offset`, passing `listing` back, until `truncated` is false. `listing` is a 16-hex-character hash of the rows the view pages over: each row's id, the fields its order and grouping rest on, its lifecycle, staleness and creator, and every field a group member carries (element id, name, kind and class id, score, attack vector, unresolved-reference count). So any change that would move where a group's parts split changes the listing. Past offset 0 it is required (`listing_required`). When the model's current listing differs from the one passed, the call is refused with `listing_changed`: the model changed between pages, so the caller starts again at offset 0.
+
+**Caps on returned strings.** Every string a view returns is capped, counted in characters as it is sent, JSON escapes included; session secrets are redacted before the cut. Names and other text fields, the disposition reason included, are cut to 200 characters; a group member's element name to 64. An ATT&CK or ATLAS id list keeps its first 50 ids, each cut to 32 characters, with `attack_ids_count` or `atlas_ids_count` giving the full count when the list was cut. A class id (`element_class_id` on a group member, `element_class.id` on a row) is passed back to other tools, so it is never cut below 128 characters. In the rows view, `unresolved_references` keeps its first 5 entries of at most 200 characters each, with `unresolved_references_count` when it was cut. The full texts stay in `evidence`.
+
+**Input rules.** The schema refuses `view` outside `list_model`, `select` outside the rows view, `offset` and `listing` outside the groups and rows views, and `listing` at offset 0, each with a message naming the field. `limit` applies to `list` only. The other refusals above (`not_synced`, `other_platform`, `model_not_found`, `read_timed_out`, `model_too_large`, `element_not_found`, `listing_required`, `listing_changed`) name their code in `data.codes`.
+
+**Create/update/delete are NOT supported.** Exposures are computed by OPA/Rego policy evaluation on the platform. Plugin-created exposures would pollute the analysis engine's evidence chain (`Component → HAS_EXPOSURE → Exposure → EXPLOITED_BY → Technique`) with unverified claims.
 
 After model import, the plugin reads back computed exposures: *"12 exposures found on your model. Run analysis for full findings and remediation roadmaps."*
 
@@ -1423,7 +1479,7 @@ Read-only access to the platform's security controls.
 | **Input** | `{ action: 'list' \| 'get' \| 'rank', control_id?: string, folder_id?: string, class_ids?: string[], name?: string, class_type?: string, element_ids?: string[], module_id?: string, module_name?: string, element_types?: string[], top_n?: number, limit?: number }` |
 | **dt-core class** | `DtControl` |
 
-`list` filters controls by folder (or `'all'`), class IDs, name substring, class type, supported elements or module; `get` reads one by `control_id`; `rank` scores candidate controls for `element_types` (`PROCESS`, `EXTERNAL_ENTITY`, `STORE`, `BOUNDARY`), optionally within `module_id`, and returns the top `top_n` (1–50, default 5). `limit` applies to `list` only; `element_types` and `top_n` to `rank` only.
+`list` filters controls by folder (or `'all'`), class IDs, name substring, class type, supported elements or module; `get` reads one by `control_id`; `rank` scores candidate controls for `element_types` (`PROCESS`, `EXTERNAL_ENTITY`, `STORE`, `BOUNDARY`, `DATA_FLOW`, `DATA`), optionally within `module_id`, and returns the top `top_n` (1–50, default 5). `limit` applies to `list` only; `element_types` and `top_n` to `rank` only.
 
 #### `query_countermeasures`
 
@@ -1518,10 +1574,309 @@ Analyses hang off a model **element**, not a model — there is no `model_id` pa
 | `create` | `{ analysis }` — the created analysis object, carrying its ID | Call `run` |
 | `run` | `{ session_id, status: 'started', next }` | Poll `status` |
 | `status` | `{ analysis_id, status }` | When complete, call `results` |
-| `results` | `{ analysis_id, results }`, or `{ analysis_id, status: 'no_results', message }` when nothing is available yet | Display to user |
+| `results` | `{ analysis_id, results }`, the analysis's main document (`getDocument` with `filter: { document: 'index' }`, the document the platform's own results view reads); or `{ analysis_id, status: 'no_results', message }` when the platform answers with nothing, an empty document, or a document holding only an error: the analysis has no results yet, does not exist, or its results could not be read | Display to user |
 | `delete` | `{ deleted, analysis_id }` | -- |
 
 The contract carries no progress or back-off metadata: `status` returns the raw status value with no `progress` object, and an incomplete `results` call returns `status: 'no_results'` rather than a `retry_after_seconds` hint. Callers must choose their own polling interval.
+
+### Triage Tools
+
+Triage reviews the platform's computed exposures for one model. The `triage` skill reads them through `query_exposures` `list_model`, which groups them on the server (see [`query_exposures`](#query_exposures)), has its specialist agents propose a disposition for each group, and puts the proposals to the operator. The tools make the review deterministic and gate every write:
+
+- `triage_review` reads each of the operator's replies as one command, and checks and writes the remediation task list.
+- `manage_dispositions` writes what a closed review decided, only after the operator's answer to the apply question.
+- `get_kg_chain` and `get_class_guide` supply read-only evidence.
+
+What a disposition is, and what its kinds mean, is the platform's: see [ADR-007: Finding disposition lifecycle](../decisions/007-finding-disposition-lifecycle.md) and the [glossary](../../GLOSSARY.md#finding-disposition). Every triage tool that takes a model directory names its platform model the same way, from the directory's sync record, which must have been made against the platform this server is configured for (`not_synced`, `other_platform` otherwise). The decision to build triage into this server is [ADR-014](../decisions/014-open-source-triage-and-evaluator.md); the operator's view of a run is [Triaging Platform Findings](../../user/dethereal/TRIAGE.md).
+
+```mermaid
+sequenceDiagram
+    participant O as Operator
+    participant S as Main session (triage skill)
+    participant R as triage_review
+    participant D as manage_dispositions
+    participant P as Platform
+    S->>R: open (directory, mode, groups)
+    R->>P: read the model's exposures
+    R-->>S: review_id, grammar, ask
+    loop each reply
+        S->>O: the result, then ask
+        O->>S: one reply
+        S->>R: reply, verbatim
+        R-->>S: command and decisions, or a refusal, with ask while open
+    end
+    Note over R: accept-all or done closes the review
+    S->>D: prepare (review_id)
+    D->>P: read the model again
+    D-->>S: plan_id, lines, ask
+    S->>O: the lines, then ask (the apply question)
+    O->>S: yes or cancel
+    S->>D: commit (plan_id, lines, reply)
+    D->>P: read again, write only if nothing changed
+    D-->>S: written, failed, outcomes
+```
+
+`prepare` and `commit` each pass through the harness's approval prompt, since `manage_dispositions` is a `prompt` tool (see [Tool Manifest and Listing](#tool-manifest-and-listing)).
+
+#### `triage_review`
+
+The operator's review of triage proposals.
+
+| Property | Value |
+|----------|-------|
+| **Base class** | `ClientFreeTool` |
+| **Input** | `{ action: 'open' \| 'reply' \| 'get' \| 'tasks', directory_path?, mode?: 'review' \| 'stale', groups?, review_id?, reply?, run?, text?, guides? }` — `open` takes `directory_path`, `mode` and `groups`; `reply` takes `review_id` and `reply`; `get` takes `review_id`; `tasks` takes `directory_path`, `run`, `text` and, optionally, `guides` |
+| **Output** | `open`: `{ review_id, mode, groups (their count), grammar, ask, warnings? }`; `reply`: `{ review_id, command, decisions, closed, show?, ask?, warnings? }`; `get`: `{ review_id, mode, groups (as opened), decisions, closed, ask? }`; `tasks`: `{ written: true, path, chars, quotes_exempted, existing?, warnings? }` |
+| **dt-core class** | None: the model read is the server's own document |
+| **Approval** | `auto`; held by the main session only |
+
+**`open`** takes the proposals as the operator is shown them, one per numbered group of exposures: `{ group, exposure_ids, proposal?, needs_human?, per_row_only?, stale_superseded? }`, with a proposal `{ op, kind?, reason?, modifications?, verified_technique_ids? }`. A review (`mode: 'review'`) proposes `dispose` or `supersede`; a stale review (`mode: 'stale'`) proposes `reaffirm` or `clear` for dispositions the model's changes made stale.
+
+The groups are checked on their own before anything is read:
+
+- Each exposure is in one group only, and a review holds at most 200 exposures (`review_too_long`: open it in parts).
+- A `dispose` names `AFFIRMED`, `NOT_APPLICABLE` or `FALSE_POSITIVE` and carries its reason. `COMPENSATING_CONTROL` and `RISK_ACCEPTED` are the operator's to choose, in an edit, and are never proposed.
+- A `supersede` carries its `modifications` and is never `needs_human`: it is accepted or skipped.
+- Every text is one line of at most 1,800 characters, with no invisible or control characters (`text_invalid`). A copy's name holds no single quote, because the platform finds a copy's source by the copy's name in single quotes.
+
+`open` then reads the model once and keeps what each exposure of the review, and every other exposure on their elements, was at that moment; a plan later writes only exposures still as the review saw them. It refuses:
+
+- an exposure not in the model (`not_in_model`);
+- an exposure outside what the mode reviews now (`target_changed`, with the exposures listed): in a review, one no longer in the triage set (see [`query_exposures`](#query_exposures)) — decided since it was listed, or created by USER — so a proposal never replaces a decision no one reviewed; in a stale review, one that is not stale now;
+- proposals the platform would refuse: the first refusal's code, with every refused exposure listed with its group, code and why (see the rejection codes under [`manage_dispositions`](#manage_dispositions));
+- a review whose plan could outgrow what can be shown whole (`echo_too_large`, over 24,000 characters of compact JSON);
+- a second `open` of the directory while a review of it is open (`review_open`, with its `review_id`, which `get` resumes).
+
+In a stale review the server marks a group `stale_superseded` when any of its exposures is superseded; such a group is cleared or skipped, never reaffirmed.
+
+A `supersede`'s `modifications` are `{ name?, description?, score? (0–10), attackVector?, category?, techniques?: { add, remove } }`, with internal technique node ids as `search_mitre_attack` `lookup` returns them. Every added id must be among the proposal's `verified_technique_ids` and be an ATT&CK or ATLAS technique on the platform; every removed id must be on the exposure; the target must be undisposed or `AFFIRMED`.
+
+**`reply`** takes one reply exactly as the operator gave it and reads it as one command:
+
+| Mode | Commands |
+|------|----------|
+| `review` | `accept <n> [<n> …]` · `skip <n> [<n> …]` · `show <n>` · `edit <n> rationale: <text>` · `edit <n> kind: <KIND> [rationale: <text>]` · `accept-all` · `done` |
+| `stale` | `reaffirm <n> [<n> …]` · `clear <n> [<n> …]` · `skip <n> [<n> …]` · `show <n>` · `done` |
+
+`<KIND>` is one of `AFFIRMED`, `NOT_APPLICABLE`, `FALSE_POSITIVE`, `COMPENSATING_CONTROL` and `RISK_ACCEPTED`. The verb is read in any letter case, and group numbers are separated by spaces or commas. A later decision on a group replaces an earlier one.
+
+- A refused reply changes nothing: `reply_unparsed`, `verb_not_in_mode` (a verb of the other mode), `argument_invalid`, `group_unknown`, `edit_invalid`, `needs_operator_decision`, `text_invalid` or `review_closed`. Most refusals restate the grammar, which ends with the commands that close the review: `; accept-all and done close the review`, or in a stale review `; done closes the review`.
+- `COMPENSATING_CONTROL` and `RISK_ACCEPTED` need a rationale.
+- A `needs_human` group is not accepted (`needs_operator_decision`): the operator decides it with an edit that names a kind, and the reason is the operator's own rationale, from this edit or an earlier one.
+- A supersede group is accepted or skipped; an edit of it is refused, since its reason is the fixed supersede record.
+- `accept-all` accepts every pending group except the `needs_human` and `per_row_only` ones, which it skips; `done` skips every pending group. Both close the review.
+- After every reply but `show`, the plan's bound is checked again (`echo_too_large`).
+- Every reply is recorded before it takes effect (see [The triage record](#the-triage-record)). Once a review has recorded 70 replies, only a reply that closes it is taken.
+
+**`get`** returns the groups as opened and the decisions so far.
+
+**The next question comes from the tool.** While a review is open, the answers return `ask`: the question the operator is asked next, its tag first, on one line. In a review it is `[prompt: triage-review] Your command? One command per reply: accept, skip, show, edit, accept-all or done, as the hint above shows.`; in a stale review, the `triage-stale-review` question. The skill ends its message with it exactly as returned, so the question is copied, not recalled. The texts are in `src/triage/asks.ts`, and a generator test holds them equal to the skill's registered questions.
+
+- A successful `open` returns it; `reply` returns it unless the reply closed the review; `get` returns it unless the review is closed.
+- A refused reply carries it in its `data`: `reply_unparsed`, `verb_not_in_mode`, `argument_invalid`, `group_unknown`, `edit_invalid`, `needs_operator_decision`, `text_invalid` and `echo_too_large`. So does `record_full` for the reply count, since a closing reply is still taken.
+- A refusal the operator cannot answer with another reply carries none: `review_not_found`, `review_closed`, `not_model_dir`, `record_unwritable` and `record_too_large`.
+
+**Reviews live in memory.** An open review is held only by the server process that opened it, never written to disk: the record holds its replies, not the review. The process holds at most 20 reviews, dropping the least recently used first, and a review unused for 2 hours expires. A restart forgets every review. A missing review is `review_not_found`: open it again.
+
+**`tasks`** checks the remediation task list and writes it, in one call, so no unchecked list can stand at its path as if it were the checked one. It takes:
+
+- `directory_path`: the model directory;
+- `run`: the run's scratch directory name, `run-YYYYMMDD-HHMMSS`;
+- `text`: the composed list, at most 65,536 characters;
+- `guides` (optional): the class guides whose text the list quotes, at most 50 `{ class_id, element_kind, attribute_keys }`, with at most 20 keys each.
+
+The steps run in this order. Nothing is written unless every one passes:
+
+1. **The text.** Any control, format, invisible or bidirectional character, or lone surrogate, a tab or a carriage return included — anything but a plain line break — is refused `text_invalid`: such a character can split a word past the check. In practice these are emoji (their variation selectors and joiners), tabs, soft hyphens, and invisible and bidirectional characters. The refusal names each one, at most five, as its code point and line, in the message and as `data.characters` (`[{ line, code }]`).
+2. **The run directory.** The model directory holds `manifest.json` (`not_model_dir`), and `.dethereal`, `triage-run` and the run's directory already exist. They are checked one level at a time, without following or creating anything: a missing one is `run_not_found`, a link or a non-directory `not_confined`.
+3. **The guides.** Only when `guides` is given. This is the one step that needs a session: without one, the usual sign-in refusal. Each class must be one that some element of this model names, in its structure, flows, data items or attribute files (`guide_not_in_model`). Each guide is read as `get_class_guide` reads it; a failed read is `guide_unread`.
+4. **The check.** The text, without the lines that quote a guide (below), goes through dt-module's `lintRemediationText` (see [UTILITY_CLASSES.md → Pure subpaths](../modules/UTILITY_CLASSES.md#pure-subpaths-condition-groups-and-remediation-honesty)). Any claim found refuses `claims_found`, with `{ hits, written: false }`.
+5. **The write.** The triage files are kept out of git (see [The triage record](#the-triage-record)). The list goes to `.dethereal/triage-run/<run>/remediation-tasks-<YYYY-MM-DD>.md`, the date being the run name's own, not today's. The file is created at its path directly, readable by its owner only (0600), with one exclusive open that follows no link (on macOS, none in any part of the path), so it never replaces anything. Before writing any content, the server confirms where the file was created from its descriptor, never from the path: on macOS the open itself followed no link, and on Linux it reads the kernel's own name for the descriptor. Only then does it write. After writing, it checks through the descriptor that the file at the path is the one it created and has no second name. A directory swapped for a link therefore leaves at most an empty file where the link led, removed when the server still can, and the call refuses `not_confined`. Where the place cannot be confirmed (any system but macOS and Linux, or Linux without `/proc`), the list is not written: `tasks_unwritable`. A file that could not be written (no permission, no space, the directory gone) is `tasks_unwritable`, naming the path relative to the model directory. A failed write leaves nothing at the path.
+
+**A file already at the path** is left untouched. It counts as the list, and the call answers as written with `existing: true`, only when it is a plain file with no other name that holds exactly the bytes that just passed the check. A link, or a second name of another file, is never taken for the list. Anything else refuses `tasks_exist`, with `written: false`, naming the path and saying the call neither wrote nor checked that file.
+
+The result is `{ written: true, path, chars, quotes_exempted, existing?, warnings? }`. `path` is relative to the model directory; `warnings` says when the model's `.dethereal/.gitignore` could not be updated.
+
+**Quoted guide text.** A line of the list that quotes, whole, a field of a guide named in `guides` is the guide's words, not the list's, and is set aside before the check. `quotes_exempted` counts the lines set aside.
+
+- **The fields.** Each `howToObtain` step's instruction and expected output, and each string typical value, of at least 24 characters.
+- **The match.** Both sides are cleaned the same way: NFC, line breaks to spaces, control, invisible and bidirectional characters removed, NFC again, white space collapsed, trimmed. A line matches as written, or after an optional `- ` or `> ` prefix and one pair of surrounding straight or typographic quotes, so a field that itself starts with quotes or a prefix matches too.
+- **The lines around a quote** are checked separately, run by run, so a multi-word term is never found across a quote, nor hidden by one.
+- **What is not exempt.** The server reads the guide itself, so nothing the caller passes is exempt. A quote inside a longer sentence, one character off, or cut short is checked as usual, and so is one that the cleaning or a redaction changed.
+
+#### `manage_dispositions`
+
+Writes what a closed triage review decided, in two steps, with the operator's answer between them.
+
+| Property | Value |
+|----------|-------|
+| **Base class** | `ClientDependentTool` |
+| **Input** | `{ action: 'prepare' \| 'commit', directory_path, review_id?, plan_id?, lines?, reply? }` — `prepare` takes `review_id`; `commit` takes `plan_id`, `lines` and `reply` |
+| **Output** | `prepare`: `{ plan_id, expires_at, count, operations, lines, ask? }`; `commit`: `{ plan_id, written, failed, outcomes, warnings? }`, or `{ plan_id, cancelled: true, written: 0 }` |
+| **dt-core class** | `DtExposure` (`disposeExposure`, `clearDisposition`, `getExposureTechniqueLinks`) and `executeSupersedeFlow` |
+| **Approval** | `prompt`, with `requiresUser`; called from the main session only |
+
+**`prepare`** needs a closed review of the same directory and the same platform model (`review_not_found`, `review_open`, `other_model`). It reads the model once, checks each operation of the review against the platform now and against what the review saw when it was opened, and writes nothing. Each operation is `{ index, group, exposure_id, op, kind?, status: 'ready' | 'rejected', code?, clone? }`; `count` is the number ready. A rejected operation carries one of these codes:
+
+| Code | Why the operation is not applied |
+|------|----------------------------------|
+| `not_in_model` | The exposure is not in this model on the platform |
+| `target_changed` | The exposure changed since the review was opened, or the element a copy would be created on did |
+| `target_superseded` | The exposure is superseded: its copy is the live finding |
+| `target_disposed` | A supersede needs the exposure undisposed or affirmed |
+| `evidence_unread` | The exposure's evidence could not be read |
+| `kind_not_pickable` | The kind cannot be set here |
+| `reason_empty` | The reason is empty |
+| `reason_too_long` | The reason is over 2,000 characters with its marker |
+| `not_disposed` | The exposure has no disposition to reaffirm |
+| `technique_not_verified` | A technique to add is not among the proposal's verified ids, or is no ATT&CK or ATLAS technique on the platform |
+| `remove_not_present` | A technique to remove is not on the exposure |
+| `empty_supersede` | The supersede changes no field and no technique |
+| `copy_exists` | The element already has an exposure with the copy's name, or another supersede of the plan creates it |
+| `copy_name_invalid` | The copy's name would hold a single quote |
+
+**The lines** are what the operator is shown before the apply question, and what `commit` takes back. In order:
+
+1. The platform model: `Platform model "<name>" (<id>)`.
+2. A summary that counts the writes: dispose, supersede, clear and reaffirm, how many replace a disposition, how many set `COMPENSATING_CONTROL` or `RISK_ACCEPTED`, and how many are not applied.
+3. Each group's writes: one line per kind and reason of its disposes, then its clears, its reaffirms and its supersedes.
+4. One line per rejection code: `Not applied (<code>): <why>: <the exposures>`.
+
+Platform and agent text in a line is put on one line, with every invisible or control character shown as `?`, and `"` and `\` escaped. Free texts are double-quoted; kinds and ids are escaped but not quoted. An exposure reads `"<name>" on "<element>" #<id>`, the id given whole or as its shortest tail of at least 8 characters that tells the plan's exposures apart (`#…<tail>`). A write over an existing disposition adds `(replacing <KIND>: "<reason>")`.
+
+**What each write is:**
+
+- **dispose** — the kind, and the reason followed by a marker: ` — AI-assisted triage, operator-approved`, or ` — AI-assisted triage, operator-edited` when the reason is the operator's own rationale. With the marker, a reason is at most 2,000 characters.
+- **clear** — the disposition is cleared.
+- **reaffirm** — the exposure's kind again, with its reason renewed: the earlier reason without its marker or an earlier renewal note, then ` [re-affirmed <YYYY-MM-DD> after model change]` and the approved marker.
+- **supersede** — a user-authored copy named `<name> (custom)` is created on the element the review names (the element of the exposure's row in the model read, always an element of this model), with the changed fields, the techniques added and removed, and the source's references, mitigation suggestions, detection methods and tags. Its description ends with `(custom of '<source name>')`. The source is marked `SUPERSEDED` with the reason `Superseded by user-authored exposure '<copy name>'`.
+
+**The apply question.** When `count` is at least 1, `prepare` returns it as `ask`, its tag first, on one line: `[prompt: triage-apply] Apply <count> dispositions? Type yes or cancel.` With no ready operation there is no `ask`, and nothing is asked. The skill shows the lines first, then ends its message with `ask` exactly as returned, as in the review (see [`triage_review`](#triage_review)).
+
+**`commit`** is described under [The two-phase gate](#the-two-phase-gate).
+
+#### `get_kg_chain`
+
+Read-only evidence from the platform's knowledge graph.
+
+| Property | Value |
+|----------|-------|
+| **Base class** | `ClientDependentTool` |
+| **Input** | `{ action: 'probe' \| 'chain' \| 'evaluate', class_id?, rule_name?, attributes? }` — `chain` takes `class_id` and, optionally, `rule_name`; `evaluate` takes `class_id`, `rule_name` and `attributes` |
+| **dt-core class** | None: the server's own documents (`kgCapability`, `kgRules`) |
+| **Approval** | `auto` |
+
+- **`probe`** reports whether the graph can be used here: `{ regime: 'kg_present' }`, or `{ regime: 'kg_absent', reason, notice, marker }` with `reason` `module_not_loaded`, `not_entitled` or `no_data`. Absence is a normal answer. A missing module is detected by the platform refusing the capability document at validation. A probe that cannot tell — an error, or a missing or malformed capability answer — is a tool error with code `kg_probe_failed`, the line to show the operator in `notice`, and `marker`: the state is then unknown, which is never read as absent. Every probe clears the latch.
+- **`chain`** reads one class's rules: `{ covered: false, classId }` when the class has none, otherwise `{ covered: true, classId, rules, threats, corpus, ruleMitreRefs }`. A rule is `{ ruleId, name, kind, conditionGroups, malformed?, readAttributes }`, with `malformed` when the stored groups are not an array of arrays. A rule is matched to an exposure by name. `rule_name` narrows the lists; whether the class is covered is decided before it.
+- **`evaluate`** runs one rule's recorded condition groups, through the shared evaluator (see [UTILITY_CLASSES.md → Pure subpaths](../modules/UTILITY_CLASSES.md#pure-subpaths-condition-groups-and-remediation-honesty)), against the attribute map the caller supplies; the tool reads no attribute value itself, and an attribute that is not known is left out of the map. It returns `{ covered: true, classId, ruleId, ruleName, evaluatedAt, framing, verdicts, satisfied, unevaluable, deltas }`, where `framing` is the line the result is shown with: the rule's recorded condition evaluated against the supplied values, a counterfactual statement. Group indexes are the same in `chain` and `evaluate`. A rule the class does not have returns `{ covered, classId, rule_found: false }`, with `covered` saying whether the class has any rules.
+- A refused session on `chain` or `evaluate` is a tool error naming `login`, not a loss of the graph. Every other failed read is answered as described under [The knowledge-graph latch](#the-knowledge-graph-latch).
+
+#### `get_class_guide`
+
+A class's authored configuration guidance, for the attributes asked about.
+
+| Property | Value |
+|----------|-------|
+| **Base class** | `ClientDependentTool` |
+| **Input** | `{ class_id, element_kind: 'component' \| 'securityBoundary' \| 'dataFlow' \| 'dataItem', attribute_keys: string[] }` — 1 to 100 keys |
+| **Output** | `{ entries: [{ optionName, howToObtain: [{ type, instruction, command?, expectedOutput?, source? }], optionDescription?, typicalValues?, valueType? }] }` |
+| **dt-core class** | None: the server's own document, one per class type |
+| **Approval** | `auto` |
+
+`element_kind` selects the class type whose `guide` is read. Only the entries for the requested keys with at least one usable step are returned. The authored security impact is never copied, so it cannot leave the tool. A missing or malformed guide, or keys with no guidance, return `{ entries: [] }`; a failed platform read is a tool error.
+
+#### The two-phase gate
+
+Nothing reaches the platform from a review until the operator has seen the plan's lines and answered the apply question. The gate has three stages:
+
+1. **Review.** `triage_review` holds the open review in memory (at most 20 per process; one unused for 2 hours expires) and records each reply before it takes effect.
+2. **Prepare.** `manage_dispositions` `prepare` checks the closed review and returns a plan: `plan_id` (128 random bits, in hex), `expires_at` and the lines. A plan is held only by the process that prepared it, never written to disk, and a restart forgets it. It expires 30 minutes after `prepare`, commits at most once, and the process holds at most 20 disposition plans, dropping the oldest whose commit is not running. It is bound to its model directory and to a fingerprint: a sha256 over the state of every exposure its ready operations touch (disposition kind, stale flag, definition hash, reason and time, name, score and attack vector).
+3. **Commit.** `manage_dispositions` `commit` takes `plan_id`, the lines exactly as `prepare` returned them, and the operator's answer exactly as given.
+
+`commit` runs in this order:
+
+1. **The plan is taken.** `plan_not_found` (another process, or a restart), `plan_expired`, `plan_other_model` (another model directory), `busy` (a commit of it is running), or, for a plan already used, `plan_stale` or `plan_used`.
+2. **The lines and the answer are checked.** Lines that are not the plan's, exactly, are refused `lines_differ`. An answer other than `yes` or `cancel` (trimmed, in any letter case; a trailing ` (recommended)` is dropped) is refused `reply_not_answer`. Either refusal is recorded, nothing is written, and the plan stays committable. `reply_not_answer` carries the apply question again in its `data` as `ask`, with the plan's count of ready operations; so does `record_full` when the refused answers are at their cap, since `yes` and `cancel` are still taken. `lines_differ` and every other `commit` refusal carry none.
+3. **`cancel`** is recorded, uses the plan up, and writes nothing.
+4. **`yes` is recorded first.** An answer the record cannot hold writes nothing (`record_full`, `record_too_large`, `record_unwritable`) and leaves the plan committable.
+5. **One at a time.** The commits to one platform model run one at a time in this process.
+6. **The targets are read again.** The directory's platform model and its exposures are read once more. A directory that now names another model, a fingerprint that differs, or a copy's name that has appeared on its element since `prepare`, ends the plan as stale: `plan_stale`, with the changed exposures in `changed`, and nothing written. A read that fails writes nothing and leaves the plan committable.
+7. **The writes.** The ready operations are written in order, continuing past a failure. Each outcome is `{ index, exposure_id, op, status, kind?, reason?, clone_id?, clone_name?, content_warning?, error?, error_code? }`, with `status`:
+   - `applied` — the write took;
+   - `failed` — the platform refused it, or it could not be made. A supersede that failed did not mark its source `SUPERSEDED`; a copy that was created all the same is named in `clone_id`;
+   - `partial` — a supersede created its copy, but the source was not marked `SUPERSEDED` (or whether it was is unknown), or the copy lacks the source's references, mitigations, detections and tags. The error names the copy; preparing again does not repair it.
+8. **The outcome is recorded** on the recorded `yes`: the counts written and failed. A record that cannot be updated then is a warning; the writes stand. The plan is used up, as committed or as failed, and a second commit answers `plan_used`.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Prepared: prepare
+    Prepared --> Prepared: lines_differ, reply_not_answer, record_full, record_too_large or record_unwritable on yes, read failure (nothing written)
+    Prepared --> Expired: 30 minutes
+    Prepared --> Cancelled: commit, cancel
+    Prepared --> Stale: commit, yes, the targets changed
+    Prepared --> Committed: commit, yes, every write applied
+    Prepared --> Failed: commit, yes, a write failed or was partial
+    Cancelled --> [*]
+    Stale --> [*]
+    Committed --> [*]
+    Failed --> [*]
+    Expired --> [*]
+```
+
+**What the gate does not do:**
+
+- The server cannot tell the operator's `yes` from the model's: the harness's approval prompt for `commit` is the gate.
+- A harness's built-in sub-agents, which are not Dethereal's agents, can reach `triage_review`; they write nothing to the platform without the `commit` prompt.
+- Two server processes committing to one model do not hold each other back; each re-reads the model before writing.
+
+#### The triage record
+
+`.dethereal/triage-log.json`, in the model directory, is this machine's record of its reviews: every reply a review received, with what it did, and every answer to the apply question.
+
+```typescript
+{
+  reviews: [{
+    review_id, mode, opened_at, groups,          // groups: their count
+    replies: [{ at, outcome: { verb } | { refused }, ...text }],
+    applies: [{ at, plan_id, ...text,
+                outcome: { answer: 'yes' } | { cancelled: true } | { written, failed } | { write_error: true } | { refused } }]
+  }]
+}
+// text: { reply } verbatim, or { reply_start, reply_length, reply_sha256 }
+```
+
+- **Verbatim or hashed.** A reply or answer of at most 2,000 characters that is clean text is kept verbatim. A longer one, or one holding invisible or control characters, is kept as its first 200 characters, its length and its sha256.
+- **Recorded first.** A reply or an answer takes effect only once it is recorded. A record that cannot be written refuses it, with nothing taken: `record_unwritable` (for a record that cannot be read, the message asks the operator to move it aside and try again), `not_model_dir` (the directory has no `manifest.json`), or one of the caps below.
+- **Two refusal codes for the caps.** `record_full` is a count reached; some replies or answers are still taken after it, as the table says. `record_too_large` is the record's size: after it nothing is taken, a closing `done` included.
+
+| Cap | Value | When it is reached |
+|-----|-------|--------------------|
+| Reviews in the record | 20 | The oldest review is dropped; the active review never is |
+| Size of the record | 896 KiB | The oldest reviews are dropped; a reply or answer that would take the active review alone past it is refused `record_too_large` |
+| Replies per review | 70 | A reply that does not close the review is refused `record_full`, with the review question as `ask`; `done` and `accept-all` are still taken, and a refused reply is answered unrecorded (`recorded: false`) |
+| Refused answers per review | 20 | A further refused answer is `record_full`, with the apply question as `ask`; `yes` and `cancel` can still be given |
+| Answers per review | 40 | Any further answer is `record_full`: open a new review |
+
+**Kept out of git.** The record and `.dethereal/triage-run/`, where the skill writes its run files (dossiers and batch files) and `tasks` writes the task list, are this machine's. Before the server first writes the record or a task list in a process, and on `query_exposures` `list_model` in the partition view (the view a triage run reads first; the groups and rows views write nothing), it adds `triage-log.json` and `triage-run/` to the model's `.dethereal/.gitignore`, keeping any line already there; a `.gitignore` it cannot update is a warning. Under `triage-run/` the server writes only the task list (see [`triage_review`](#triage_review) `tasks`).
+
+#### The knowledge-graph latch
+
+The knowledge graph is optional evidence: a failure to read it must not stop the triage that uses it, and must never be taken for a class without rules.
+
+- **The latch.** The first `chain` or `evaluate` read that fails (other than a refused session) latches the server process. That answer is `{ unavailable: true, latched: true, classId, reason, loss_notice, marker }`, `reason` being one redacted line of at most 300 characters (`module_not_loaded` when the platform refused the document at validation). Every later `chain` and `evaluate` answers the same, without `loss_notice`, without asking the platform, until the next `probe` clears the latch. The latch belongs to the process: a new server process starts without it.
+- **`kg_chain_unread` is not a latch.** A `chain` or `evaluate` read that returns no rules list is a tool error with code `kg_chain_unread` and `marker`: whether the class has rules is unknown, and the answer is never `covered: false`. The next call asks the platform again.
+- **The marker.** `marker`, `[no knowledge-graph evidence]`, comes on every answer that leaves a proposal without graph evidence: `kg_absent`, `kg_probe_failed`, every latched answer and `kg_chain_unread`. The skill copies it into the proposals table as given.
+- **The notices.** What the operator is told about the graph is fixed in `src/triage/notices.ts`, shown as written and pinned by a test byte for byte: `KG_NOT_AVAILABLE_NOTICE` (`module_not_loaded`, `not_entitled`), `KG_NO_DATA_NOTICE` (`no_data`), `KG_LOSS_NOTICE` (the read that set the latch) and `kgProbeFailureNotice(cause)` (`kg_probe_failed`). The user guide quotes them in [Triage With and Without the Knowledge Graph](../../user/dethereal/TRIAGE_AND_THE_KNOWLEDGE_GRAPH.md).
+
+| Answer | The graph | Notice | Latch | Marker |
+|--------|-----------|--------|-------|:-:|
+| `probe`: `kg_present` | Present | -- | Cleared | -- |
+| `probe`: `kg_absent`, `module_not_loaded` or `not_entitled` | Absent | `KG_NOT_AVAILABLE_NOTICE` | Cleared | yes |
+| `probe`: `kg_absent`, `no_data` | Absent | `KG_NO_DATA_NOTICE` | Cleared | yes |
+| `probe`: `kg_probe_failed` | Unknown | `kgProbeFailureNotice(cause)` | Cleared | yes |
+| `chain` or `evaluate`: a failed read | Lost for this process | `KG_LOSS_NOTICE`, the first time | Set | yes |
+| `chain` or `evaluate`: `kg_chain_unread` | Unknown for this class | -- | Unchanged | yes |
+| `chain` or `evaluate`: a refused session | -- (tool error naming `login`) | -- | Unchanged | -- |
 
 ---
 
@@ -1721,13 +2076,29 @@ See SYNC_AND_SOURCE_OF_TRUTH.md for the full sync architecture (dual-authority m
 | `DtModule` | `get_classes` | Query modules and class definitions |
 | `DtModel` | `list_models` | List and query models on the platform |
 | `DtClass` | `match_classes`, `generate_attribute_stubs`, `get_classes` | Class catalog matching and class template fetching |
-| `DtExposure` | `query_exposures` | Read platform-computed exposures |
+| `DtExposure` | `query_exposures` (`list`, `get`), `manage_dispositions` | Read platform-computed exposures; write, clear and renew dispositions, and read a source's technique links for a supersede |
 | `DtControl` | `manage_controls`, `query_controls`, `get_control_gaps`, `validate_model_json` (online `coverage`) | Writing, assigning, listing, reading and ranking security controls; model-wide control gap analysis |
 | `DtControlLibrary` | `manage_controls` (control-library actions) | Control-library sync with the per-control files under `controls/` |
 | `DtCountermeasure` | `manage_countermeasures`, `query_countermeasures` | Write and read the countermeasures that link controls to exposures |
-| `DtMitreAttack` | `search_mitre_attack` | ATT&CK technique search and browsing |
+| `DtMitreAttack` | `search_mitre_attack` (the browsing actions) | ATT&CK technique search and browsing |
 | `DtMitreDefend` | `get_mitre_defend` | D3FEND technique browsing |
 | `DtAnalysis` | `manage_analyses` | Analysis lifecycle (create, run, poll, results) |
+| `executeSupersedeFlow` (a dt-core function) | `manage_dispositions` (supersede) | Create the user-authored copy, set its content, and mark the source `SUPERSEDED` |
+
+### The server's own read documents
+
+dt-core has no class for some reads, so the server sends its own GraphQL documents for them. Each is a read; every platform write still goes through dt-core.
+
+| Document | Source | Used by |
+|----------|--------|---------|
+| Platform capability probe (`Data.controls`) | `src/client/platform-capabilities.ts` | The check before a gated call (see [Tool Execution Flow](#tool-execution-flow), step 6) |
+| A model's exposures in one read; one exposure's evidence | `src/triage/exposures.ts` | `query_exposures` `list_model` and `evidence`, `triage_review` `open`, `manage_dispositions` |
+| The technique ids a supersede adds | `src/triage/dispositions.ts` | `triage_review` `open`, `manage_dispositions` `prepare` |
+| Knowledge-graph capability (`kgCapability`) and one class's rules (`kgRules`) | `src/triage/kg.ts` | `get_kg_chain` |
+| A class's guide, one document per class type | `src/tools/get-class-guide.tool.ts` | `get_class_guide`, `triage_review` `tasks` |
+| Exact ATT&CK and ATLAS technique lookup; the matching cascade (`matchMitreTechniques`) | `src/tools/search-mitre-attack.tool.ts` | `search_mitre_attack` `lookup` and `match` |
+
+The knowledge-graph documents select only fields that a remotely served graph declares as well, so the same documents validate on every deployment that has a knowledge graph.
 
 ### Apollo Client Configuration
 
@@ -1805,7 +2176,7 @@ When `authDisabled` is `true`, the OIDC fields (`oidcClientId`, `oidcDomain`) ar
 | **JWT Validation** | All GraphQL requests include Bearer token (validated by backend) |
 | **URL Policy** | The platform URL must use HTTPS unless its host is `localhost`, `127.0.0.1` or `::1`; it may not carry a user name or password; and plain HTTP is refused while Node's environment proxy is on (`NODE_USE_ENV_PROXY`, or `--use-env-proxy` in `NODE_OPTIONS` or on the command line). The server starts anyway, so the harness does not show it as missing, but every platform tool reports the problem instead of reaching the network; `auth_status`, `logout` and the local tools still run (D61) |
 | **Runtime Trust** | A Node runtime that could expose the bearer is refused the same way: a trust anchor, OpenSSL configuration or TLS key log the agent could have planted, or TLS checks turned off (`tls`); or code loaded before the server started — a preload, an inspector, a library injected by the loader (`tripwire`, which asks for the session to be signed out and revoked). `logout` then removes the local session but sends nothing |
-| **No Raw Queries** | All operations via dt-core classes (validated, parameterized queries) |
+| **Writes Through dt-core** | Every platform write goes through dt-core classes; the server's own documents are parameterized reads (see [The server's own read documents](#the-servers-own-read-documents)) |
 | **Input Validation** | Zod schema validation on all tool inputs before execution |
 
 ### File System Security
@@ -1836,11 +2207,11 @@ The protected set is built from what the read reported (`protectedAttributeFiles
 
 ### Exposure Management Security
 
-Exposures are **read-only** in the MCP server. Create/update/delete operations are restricted to platform analysis modules. This prevents unverified claims from polluting the analysis evidence chain.
+The MCP server never creates, edits or deletes a platform-computed exposure: they are derived by the platform's policies, and plugin-written exposures would put unverified claims in the analysis evidence chain. What it writes about one is the platform's own decision record, through `manage_dispositions`: a disposition, and for a supersede the user-authored copy the platform's supersede flow creates. Those writes go through the [two-phase gate](#the-two-phase-gate) only, after the operator's `yes`.
 
 ### Approval Display
 
-A tool that asks for approval is only as safe as what the operator is shown, and on some harnesses the approval dialog does not show a call's values (the Codex and OpenCode dialogs do not show the values `model_state_settle` registers). The plugin therefore never relies on the dialog: on every harness, the display is the chat's confirmation table — for `model_state_settle` also the result's echo, and for `model_state_prune` the table of files the operator confirmed — see [`model_state_settle`: The chat table is the display](#model_state_settle).
+A tool that asks for approval is only as safe as what the operator is shown, and on some harnesses the approval dialog does not show a call's values (the Codex and OpenCode dialogs do not show the values `model_state_settle` registers). The plugin therefore never relies on the dialog: on every harness, the display is the chat's confirmation table — for `model_state_settle` also the result's echo, and for `model_state_prune` the table of files the operator confirmed — see [`model_state_settle`: The chat table is the display](#model_state_settle). For `manage_dispositions` the display is the plan's lines, which the conversation shows before the apply question and which `commit` must pass back exactly as `prepare` returned them (see [The two-phase gate](#the-two-phase-gate)).
 
 ---
 
@@ -1918,7 +2289,7 @@ approval_mode = "approve"
 }
 ```
 
-The OpenCode entry goes into the scope's `opencode.json` (or `opencode.jsonc`), with one `ask` rule for each of the 14 `prompt` tools (two shown), and a rule that denies the built-in `explore` agent every `dethereal_*` tool.
+The OpenCode entry goes into the scope's `opencode.json` (or `opencode.jsonc`), with one `ask` rule for each of the 15 `prompt` tools (two shown), and a rule that denies the built-in `explore` agent every `dethereal_*` tool.
 
 **Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
@@ -1957,7 +2328,7 @@ The OpenCode entry goes into the scope's `opencode.json` (or `opencode.jsonc`), 
 
 ## 11. History
 
-This architecture grew out of the earlier, smaller MCP server described in [ARCHITECTURE.md](ARCHITECTURE.md). The upgrade kept the base classes, the auth module, the Apollo client and the MCP protocol layer, and added the platform tools for listing models, browsing MITRE ATT&CK and D3FEND, controls, countermeasures, exposures and analyses, together with `sync.json` and the `quality` action of `validate_model_json`. The tool surface has kept growing since; [Tool Categories](#tool-categories) lists the tools registered today. The decisions that shaped it are recorded in [DECISIONS.md](DECISIONS.md), among them D24 (`get_mitre_defend`), D25 (exposures are read-only), D26 (`search_mitre_attack`) and D28 (`manage_countermeasures`).
+This architecture grew out of the earlier, smaller MCP server described in [ARCHITECTURE.md](ARCHITECTURE.md). The upgrade kept the base classes, the auth module, the Apollo client and the MCP protocol layer, and added the platform tools for listing models, browsing MITRE ATT&CK and D3FEND, controls, countermeasures, exposures and analyses, together with `sync.json` and the `quality` action of `validate_model_json`. The tool surface has kept growing since; [Tool Categories](#tool-categories) lists the tools registered today. The decisions that shaped it are recorded in [DECISIONS.md](DECISIONS.md), among them D24 (`get_mitre_defend`), D25 (exposures are read-only), D26 (`search_mitre_attack`) and D28 (`manage_countermeasures`). The triage tools came with the `triage` skill; [ADR-014](../decisions/014-open-source-triage-and-evaluator.md) records why they are part of this server, and why their condition-group evaluator lives in dt-module.
 
 ---
 

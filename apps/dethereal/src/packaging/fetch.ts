@@ -4,7 +4,7 @@
  * built-ins at run time, which an ES module bundle cannot serve.
  */
 const fetchShim = (...args: Parameters<typeof fetch>): ReturnType<typeof fetch> => {
-  if (typeof globalThis.fetch !== 'function') throw new Error('Dethereal needs Node.js 20.11.1 or newer')
+  if (typeof globalThis.fetch !== 'function') throw new Error('Dethereal needs Node.js 22.12.0 or newer')
   return globalThis.fetch(...args)
 }
 

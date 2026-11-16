@@ -26,6 +26,7 @@ describe('scanning', () => {
       '{{include shared/a.md}}',
       '{{include shared/b.md as-file}}',
       '{{#delegate scout}}Do it.{{/delegate}}',
+      '{{#delegate scout batch}}Do each.{{/delegate}}',
       '{{#ask id=pick-one}}Pick? (a / b){{/ask}}',
       '{{#ask id=free text}}',
       'Anything else?',
@@ -35,8 +36,9 @@ describe('scanning', () => {
     expect(scan.findings).toEqual([])
     expect(scan.tokens.map((t) => t.token.kind)).toEqual([
       'harness-open', 'inline', 'inline', 'inline', 'inline', 'harness-close', 'include', 'include',
-      'delegate-open', 'delegate-close', 'ask-open', 'ask-close', 'ask-open', 'ask-close',
+      'delegate-open', 'delegate-close', 'delegate-open', 'delegate-close', 'ask-open', 'ask-close', 'ask-open', 'ask-close',
     ])
+    expect(scan.tokens.filter((t) => t.token.kind === 'delegate-open').map((t) => (t.token as { batch: boolean }).batch)).toEqual([false, true])
     expect(scan.tokens[1]!.harnesses).toEqual(['claude', 'codex'])
     expect(scan.tokens[6]!.harnesses).toBeNull()
   })
@@ -52,6 +54,7 @@ describe('scanning', () => {
     ['{{include shared/x.txt}}', 'include path must be shared/<name>.md'],
     ['{{#ask id=Bad_Id}}q{{/ask}}', 'bad ask id'],
     ['{{#ask id=x extra}}q{{/ask}}', 'unknown token'],
+    ['{{#delegate scout parallel}}q{{/delegate}}', 'unknown token'],
     ['text {{ unbalanced', 'unbalanced token braces'],
   ])('rejects %s', (text, expected) => {
     expect(messages(text).join('\n')).toContain(expected)
@@ -150,6 +153,14 @@ describe('Claude renderings', () => {
     )
   })
 
+  it('delegates a batch: one agent per batch, as many at once as the step allows, a failure left to the step', () => {
+    expect(claude('{{#delegate scout batch}}Survey it.{{/delegate}}')).toBe(
+      'Invoke the `Agent` tool with `subagent_type: "dethereal:scout"` once per batch, each with this prompt: “Survey it.” ' +
+        'Start as many at once as this step allows in flight, then wait for all of their results before starting more. Make those `Agent` calls in one message; they run at once. ' +
+        'If an agent cannot be started, or one returns without doing the work, do what this step says for that case — where it says nothing, stop and tell the operator; never do its work yourself.',
+    )
+  })
+
   it('quotes a multi-paragraph delegation prompt as a blockquote', () => {
     const out = claude('{{#delegate scout}}\nFirst.\n\nSecond.\n{{/delegate}}')
     expect(out).toContain('this prompt:\n\n> First.\n>\n> Second.\n\nWait for its result.')
@@ -164,7 +175,7 @@ describe('Claude renderings', () => {
 
   it('asks a choice that follows a table in the message that shows it, not in a dialog', () => {
     const out = renderText('{{#ask id=push-confirm}}Push now? (push / skip){{/ask}}', { harness: 'claude', renderer: claudeRenderer, shared: () => undefined, allowAsFile: true, askLayouts: new Map([['push-confirm', 'table' as const]]) }).text
-    expect(out).toBe('`[prompt: push-confirm]` Push now? (push / skip) — the table, then the question with its choices numbered, in one message; end your turn.')
+    expect(out).toBe('`[prompt: push-confirm]` Push now? (push / skip) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.')
     expect(out).not.toContain('AskUserQuestion')
     // Only Claude changes: the other harnesses already ask a choice in their own way.
     expect(askCue('codex', 'push-confirm', false, 'table')).toBe(askCue('codex', 'push-confirm', false))
@@ -175,7 +186,7 @@ describe('Claude renderings', () => {
 
   it('asks a choice marked for one message in a message on every harness, never a dialog or the question tool', () => {
     const out = renderText('{{#ask id=loop}}Loop back? (loop back / skip){{/ask}}', { harness: 'claude', renderer: claudeRenderer, shared: () => undefined, allowAsFile: true, askLayouts: new Map([['loop', 'message' as const]]) }).text
-    expect(out).toBe('`[prompt: loop]` Loop back? (loop back / skip) — what it follows, then the question with its choices numbered, in one message; end your turn.')
+    expect(out).toBe('`[prompt: loop]` Loop back? (loop back / skip) — the tag first, then the question with its choices numbered, after what it follows, in one message; end your turn.')
     const opencode = askCue('opencode', 'loop', false, 'message')
     expect(opencode).toContain('not the `question` tool')
     expect(opencode).not.toContain('header')
@@ -191,8 +202,19 @@ describe('Claude renderings', () => {
 
   it('asks a free-text question as a plain message that ends the turn', () => {
     const out = claude('{{#ask id=notes text}}Anything missed?{{/ask}}')
-    expect(out).toBe('`[prompt: notes]` Anything missed? — a plain message; end your turn.')
+    expect(out).toBe('`[prompt: notes]` Anything missed? — the tag first, then a plain message; end your turn.')
     expect(out).not.toContain('AskUserQuestion')
+  })
+
+  it('names the tag in every Claude cue that is not a dialog, keeping the plain-message wording, and leaves the other harnesses as they are', () => {
+    for (const cue of [askCue('claude', 'x', true), askCue('claude', 'x', false, 'table'), askCue('claude', 'x', false, 'message')]) {
+      expect(cue.startsWith('— the tag first, then ')).toBe(true)
+    }
+    expect(askCue('claude', 'x', true)).toContain('a plain message; end your turn')
+    expect(askCue('claude', 'x', false)).toContain('the tag first in its question text')
+    expect(askCue('codex', 'x', true)).toBe('— a plain message; end your turn.')
+    expect(askCue('opencode', 'x', true)).toBe('— a plain message; end your turn; unanswered → ask again.')
+    expect(askCue('codex', 'x', false, 'message')).toBe('— what it follows, then a numbered list, in one message; end your turn.')
   })
 
   it('reads an as-file sibling from the skill directory', () => {

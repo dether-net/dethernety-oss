@@ -252,7 +252,9 @@ enum DataOrigin {
 }
 
 """Base interface implemented by all graph-stored entities."""
-interface Element {
+# Elements are read through their own types or through a relationship field, so the interface has no top-level
+# read or aggregate query.
+interface Element @query(read: false, aggregate: false) {
   "Unique identifier"
   id: ID!
   "Display name"
@@ -1596,6 +1598,25 @@ extend type Mutation {
     @deprecated(reason: "Use createAnalysisIdempotent — `createAnalyses` uses `connect` directives that produce duplicate IS_INSTANCE_OF edges on re-run. Removal planned for the next major release.")
 }
 
+"""
+What a report needs to know about an analysis that the analysis does not hold itself. Stored with the analysis's
+bindings to elements, and read and written only through reportDetails, setReportDetails and suggestReportDetails.
+"""
+type ReportDetails {
+  "The client the report is prepared for"
+  client: String
+  "When the details were last set (ISO 8601, UTC)"
+  updated: String
+}
+
+"""
+The report details a set writes. A key given is written, null clears it, and a key left out stays as it is.
+"""
+input ReportDetailsInput {
+  "The client the report is prepared for: at most 120 characters, with no control or text-direction character"
+  client: String
+}
+
 type Mutation {
   "Link one or more elements to an issue"
   addElementsToIssue(
@@ -1818,6 +1839,14 @@ type Mutation {
   deleteAnalysis(
     analysisId: String!
   ): Boolean!
+    @authentication
+
+  """
+  Set an analysis's report details on every binding of the analysis. A key given is written, null clears it, and a
+  key left out stays as it is; `updated` is stamped by the server. Refused for an unknown analysis or one bound to no
+  element. Returns the details as stored.
+  """
+  setReportDetails(analysisId: ID!, details: ReportDetailsInput!): ReportDetails
     @authentication
 
   "Re-embed all class nodes when the embedding model changes"
@@ -2364,6 +2393,14 @@ type Query {
     analysisId: String!
     filter: JSON!
   ): JSON!
+    @authentication
+
+  "An analysis's report details, such as the client a report is prepared for. Null for an unknown analysis or one bound to no element."
+  reportDetails(analysisId: ID!): ReportDetails
+    @authentication
+
+  "The newest client name among the other analyses of the element(s) this analysis is bound to, with the time that analysis's details were set, offered as a suggestion; null when there is none"
+  suggestReportDetails(analysisId: ID!): ReportDetails
     @authentication
 
   "List the module frontends the UI can load: allowed modules with a frontend, sorted by name"

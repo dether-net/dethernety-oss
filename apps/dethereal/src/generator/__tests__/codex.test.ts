@@ -48,6 +48,15 @@ describe('Codex renderings', () => {
     )
   })
 
+  it('spawns a batch before the first wait, closes each agent, and leaves a failure to the step', () => {
+    expect(codex('{{#delegate scout batch}}Survey it.{{/delegate}}')).toBe(
+      'Use the `spawn_agent` tool with `agent_type: "dethereal-scout"`, `fork_turns: "none"` once per batch, each with this message: “Survey it.” ' +
+        'Start as many at once as this step allows in flight, then wait for all of their results before starting more. Spawn each of those before the first `wait_agent`, collect each final answer with `wait_agent`, ' +
+        "and close each agent with `close_agent` once you have it — a finished agent counts against the session's agent limit until it is closed; if you have no `close_agent` tool, go on. A `spawn_agent` that fails on the agent limit is an agent that could not be started. " +
+        'If an agent cannot be started, or one returns without doing the work, do what this step says for that case — where it says nothing, stop and tell the operator; never do its work yourself.',
+    )
+  })
+
   it('asks choices as a numbered list after the table, and ends the turn', () => {
     expect(codex('{{#ask id=push-confirm}}Push now? (push / skip){{/ask}}')).toBe('`[prompt: push-confirm]` Push now? (push / skip) — table first, a numbered list; end your turn.')
     expect(codex('{{#ask id=notes text}}Anything else?{{/ask}}')).toBe('`[prompt: notes]` Anything else? — a plain message; end your turn.')
@@ -67,8 +76,9 @@ describe('Codex tools for an agent', () => {
   it('reads through the shell, writes through apply_patch, and names its Dethereal tools', () => {
     expect(codexTools(['fs-read', 'mcp:get_classes'])).toEqual({ mcp: ['mcp__dethereal__get_classes'], useShell: true, write: false, literal: [] })
     expect(codexTools(['fs-write'])).toMatchObject({ useShell: true, write: true })
-    // A leaf cannot ask for approval: every Dethereal tool means every tool that needs none.
-    expect(codexTools(['mcp:*']).mcp).toEqual(TOOL_MANIFEST.filter((t) => t.approval === 'auto').map((t) => `mcp__dethereal__${t.name}`).sort())
+    // A leaf cannot ask for approval: every Dethereal tool means every tool that needs none, but the main session's own.
+    expect(codexTools(['mcp:*']).mcp).toEqual(TOOL_MANIFEST.filter((t) => t.approval === 'auto' && t.name !== 'triage_review').map((t) => `mcp__dethereal__${t.name}`).sort())
+    expect(codexTools(['mcp:*']).mcp).not.toContain('mcp__dethereal__triage_review')
     expect(codexTools(['mcp:*']).mcp).not.toContain('mcp__dethereal__update_attributes')
     expect(codexTools(['mcp:model_state'])).toMatchObject({ useShell: false, write: false })
   })
@@ -131,7 +141,7 @@ describe('the fixture workflow for Codex', () => {
 
   it('writes agents as leaves: read-only sandbox without writes, no maxTurns or memory, Codex-only prose', () => {
     const scout = file('agents/dethereal-scout.toml')
-    expect(scout).toMatch(/^name = "dethereal-scout"\ndescription = ".+"\nmodel_reasoning_effort = "medium"\nsandbox_mode = "read-only"\ndeveloper_instructions = """\n/)
+    expect(scout).toMatch(/^name = "dethereal-scout"\ndescription = ".+"\nmodel_reasoning_effort = "medium"\nsandbox_mode = "read-only"\nweb_search = "disabled"\ndeveloper_instructions = """\n/)
     expect(file('agents/dethereal-enricher.toml')).toContain('sandbox_mode = "workspace-write"')
     const lead = file('agents/dethereal-lead.toml')
     expect(lead).toContain('do it yourself with the read tools')
@@ -149,7 +159,7 @@ describe('the fixture workflow for Codex', () => {
       [
         'auth_status', 'workspace_status', 'detect_drift', 'validate_model_json', 'get_model_schema', 'get_example_models',
         'list_models', 'get_classes', 'match_classes', 'search_mitre_attack', 'get_mitre_defend', 'get_control_gaps', 'model_state',
-        'query_controls', 'query_exposures', 'query_countermeasures',
+        'query_controls', 'query_exposures', 'query_countermeasures', 'triage_review', 'get_kg_chain', 'get_class_guide',
       ].sort(),
     )
     expect(approved.every((t) => manifestToolNames().includes(t!))).toBe(true)
@@ -242,12 +252,22 @@ describe('the TOML files, read back by an independent parser', () => {
   it('gives every agent file what the Codex role loader requires', () => {
     for (const [p, content] of tomlFiles.filter(([f]) => f.includes('/agents/'))) {
       const role = parseToml(content) as Record<string, unknown>
-      expect(Object.keys(role), p).toEqual(['name', 'description', 'model_reasoning_effort', 'sandbox_mode', 'developer_instructions'])
+      expect(Object.keys(role), p).toEqual(['name', 'description', 'model_reasoning_effort', 'sandbox_mode', 'web_search', 'developer_instructions'])
       expect(role.name, p).toMatch(/^dethereal-[a-z0-9-]+$/)
       expect(String(role.description).trim(), p).not.toBe('')
       expect(String(role.developer_instructions).trim(), p).not.toBe('')
       expect(['read-only', 'workspace-write']).toContain(role.sandbox_mode)
       expect(['low', 'medium', 'high']).toContain(role.model_reasoning_effort)
+    }
+  })
+
+  it('turns web search off in every agent file the package ships', () => {
+    const dir = path.join(PACKAGE_GOLDENS, 'codex', 'bundles', 'codex', 'agents')
+    const agents = readdirSync(dir).filter((f) => f.endsWith('.toml'))
+    expect(agents.length).toBeGreaterThanOrEqual(8)
+    for (const f of agents) {
+      expect(f, f).toMatch(/^dethereal-/)
+      expect((parseToml(readFileSync(path.join(dir, f), 'utf8')) as { web_search?: unknown }).web_search, f).toBe('disabled')
     }
   })
 

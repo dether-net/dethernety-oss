@@ -34,7 +34,7 @@ function variant(changes: Record<string, string | undefined>): Map<string, strin
   return source
 }
 
-function findingsOf(changes: Record<string, string | undefined>, harness: 'claude' | 'codex' = 'claude'): string[] {
+function findingsOf(changes: Record<string, string | undefined>, harness: 'claude' | 'codex' | 'opencode' = 'claude'): string[] {
   try {
     generateFromSource({ pkg, source: variant(changes), harness })
   } catch (err) {
@@ -163,6 +163,8 @@ describe('the fixture workflow for Claude', () => {
       maxTurns: 20,
       memory: 'project',
       color: 'cyan',
+      // The server's wildcard reaches every tool but the main session's own, which are disallowed.
+      disallowedTools: ['mcp__plugin_dethereal_dethereal__triage_review'],
       tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash', 'mcp__plugin_dethereal_dethereal__*', 'Agent(dethereal:scout)', 'Agent(dethereal:reviewer)'],
     })
     expect(file('bundles/claude/agents/lead.md')).toContain('`subagent_type: "dethereal:scout"`')
@@ -228,6 +230,11 @@ describe('leaf grants', () => {
     const found = findingsOf({ 'agents/scout.md': scout.replace('  - mcp:get_classes\n', '  - mcp:get_classes\n  - mcp:model_state_settle\n  - mcp:model_state_prune\n') })
     expect(found).toContainEqual(expect.stringMatching(/^leaf-grant agents\/scout\.md: model_state_settle needs the operator's approval/))
     expect(found).toContainEqual(expect.stringMatching(/^leaf-grant agents\/scout\.md: model_state_prune needs the operator's approval/))
+  })
+
+  it.each(['claude', 'codex', 'opencode'] as const)('refuse the main session’s own tools to every agent, though they need no approval (%s)', (harness) => {
+    const found = findingsOf({ 'agents/scout.md': scout.replace('  - mcp:get_classes\n', '  - mcp:get_classes\n  - mcp:triage_review\n') }, harness)
+    expect(found).toContainEqual("leaf-grant agents/scout.md: triage_review is the main session's own tool, which no agent may hold; drop the grant")
   })
 })
 

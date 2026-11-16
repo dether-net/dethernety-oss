@@ -42,16 +42,17 @@ const manifest = (version: string, extra: Record<string, unknown> = {}) =>
     name: '@dether.net/fixture',
     version,
     files: ['dist', 'bundles/claude'],
-    devDependencies: { zod: '4.0.0', '@dethernety/dt-core': 'workspace:*', vitest: '^1.0.0' },
+    devDependencies: { zod: '4.0.0', '@dethernety/dt-core': 'workspace:*', '@dethernety/dt-module': 'workspace:*', vitest: '^1.0.0' },
     ...extra,
   }, null, 2)
 
 /** A lockfile resolving the package, a linked workspace package and a build tool, with transitive packages. */
-const lockfile = (o: { zod?: string; zodSpec?: string; tslib?: string; vitestTslib?: string; dtCoreRxjs?: string } = {}) => {
+const lockfile = (o: { zod?: string; zodSpec?: string; tslib?: string; vitestTslib?: string; dtCoreRxjs?: string; dtModuleTslib?: string } = {}) => {
   const zod = o.zod ?? '4.0.0'
   const tslib = o.tslib ?? '2.0.0'
   const vitestTslib = o.vitestTslib ?? '1.0.0'
   const rxjs = o.dtCoreRxjs ?? '7.0.0'
+  const dtModuleTslib = o.dtModuleTslib ?? '2.8.1'
   return stringify({
     lockfileVersion: '9.0',
     importers: {
@@ -59,12 +60,17 @@ const lockfile = (o: { zod?: string; zodSpec?: string; tslib?: string; vitestTsl
         devDependencies: {
           zod: { specifier: o.zodSpec ?? '4.0.0', version: zod },
           '@dethernety/dt-core': { specifier: 'workspace:*', version: 'link:../../packages/dt-core' },
+          '@dethernety/dt-module': { specifier: 'workspace:*', version: 'link:../../packages/dt-module' },
           vitest: { specifier: '^1.0.0', version: '1.0.0' },
         },
       },
       'packages/dt-core': {
         dependencies: { graphql: { specifier: '^16.0.0', version: '16.0.0' } },
         devDependencies: { rxjs: { specifier: '^7.0.0', version: rxjs } },
+      },
+      // Bundled only through its pure subpaths: its own dependencies (and their bundled-name packages) never ship.
+      'packages/dt-module': {
+        dependencies: { '@nestjs/common': { specifier: '^11.0.0', version: '11.0.0' } },
       },
     },
     snapshots: {
@@ -74,6 +80,8 @@ const lockfile = (o: { zod?: string; zodSpec?: string; tslib?: string; vitestTsl
       'vitest@1.0.0': { dependencies: { tslib: vitestTslib } },
       [`tslib@${vitestTslib}`]: {},
       [`rxjs@${rxjs}`]: {},
+      '@nestjs/common@11.0.0': { dependencies: { tslib: dtModuleTslib } },
+      ...(dtModuleTslib !== tslib && dtModuleTslib !== vitestTslib ? { [`tslib@${dtModuleTslib}`]: {} } : {}),
     },
   })
 }
@@ -117,6 +125,10 @@ beforeAll(() => {
   write('packages/dt-core/src/__tests__/helper.ts', 'export const h = 1\n')
   write('packages/dt-core/src/index.test.ts', 'export const t = 1\n')
   write('packages/dt-core/src/NOTES.md', '# notes\n')
+  write('packages/dt-module/package.json', JSON.stringify({ name: '@dethernety/dt-module', version: '0.15.0', exports: { '.': './dist/index.js', './condition-groups': './dist/condition-groups.js', './remediation-honesty': './dist/remediation-honesty.js' }, devDependencies: { vitest: '^1.0.0' } }, null, 2))
+  write('packages/dt-module/tsconfig.json', '{ "compilerOptions": { "target": "ES2023" } }\n')
+  write('packages/dt-module/tsconfig.build.json', '{ "extends": "./tsconfig.json" }\n')
+  for (const f of ['src/condition-groups.ts', 'src/kg/condition-groups.ts', 'src/kg/condition-operators.ts', 'src/remediation-honesty.ts', 'src/index.ts']) write(`packages/dt-module/${f}`, 'export const a = 1\n')
   mkdirSync(path.dirname(script), { recursive: true })
   copyFileSync(REAL_SCRIPT, script)
   // The script reads the lockfile with this package's own yaml parser.
@@ -297,6 +309,53 @@ describe('bundled workspace packages', () => {
     reset()
     write(file, '// changed\n')
     expect(run().status).toBe(0)
+  })
+})
+
+describe('a workspace package bundled only through its pure subpaths', () => {
+  it('refuses a change to a subpath file, and to its compiler configuration', () => {
+    reset()
+    write('packages/dt-module/src/kg/condition-operators.ts', 'export const a = 2\n')
+    const r = run()
+    expect(r.status).toBe(1)
+    expect(r.stderr).toMatch(/packages\/dt-module\/src\/kg\/condition-operators\.ts/)
+    reset()
+    write('packages/dt-module/tsconfig.build.json', '{ "extends": "./tsconfig.json", "compilerOptions": { "target": "ES2020" } }\n')
+    const c = run()
+    expect(c.status).toBe(1)
+    expect(c.stderr).toMatch(/packages\/dt-module\/tsconfig\.build\.json/)
+  })
+
+  it('refuses a change to its module type or a bundled entry\'s exports, and ignores the rest of its manifest', () => {
+    reset()
+    const pkgFile = path.join(repo, 'packages/dt-module/package.json')
+    const base = JSON.parse(readFileSync(pkgFile, 'utf-8'))
+    write('packages/dt-module/package.json', JSON.stringify({ ...base, type: 'module' }, null, 2))
+    expect(run().stderr).toMatch(/packages\/dt-module\/package\.json \(its type or a bundled entry's exports\)/)
+    reset()
+    write('packages/dt-module/package.json', JSON.stringify({ ...base, exports: { ...base.exports, './condition-groups': './dist/other.js' } }, null, 2))
+    const e = run()
+    expect(e.status).toBe(1)
+    expect(e.stderr).toMatch(/packages\/dt-module\/package\.json \(its type or a bundled entry's exports\)/)
+    reset()
+    write('packages/dt-module/package.json', JSON.stringify({ ...base, version: '0.16.0', devDependencies: { vitest: '^2.0.0' }, exports: { ...base.exports, '.': './dist/main.js' } }, null, 2))
+    expect(run().status).toBe(0)
+  })
+
+  it('ignores the rest of its source, and its own dependencies', () => {
+    reset()
+    write('packages/dt-module/src/index.ts', 'export const a = 2\n')
+    expect(run().status).toBe(0)
+    reset()
+    write('pnpm-lock.yaml', lockfile({ dtModuleTslib: '2.8.9' }))
+    expect(run().status).toBe(0)
+  })
+
+  it('leaves its dependencies out of what the guard says the bundle resolves', () => {
+    reset()
+    const d = JSON.parse(execFileSync('node', [script, '--describe'], { cwd: pluginDir, encoding: 'utf-8' })) as { resolved: string[]; workspaces: string[] }
+    expect(d.resolved.filter((r) => r.startsWith('tslib@'))).toEqual(['tslib@2.0.0'])
+    expect(d.workspaces).toContain('packages/dt-module')
   })
 })
 

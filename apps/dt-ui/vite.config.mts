@@ -153,6 +153,18 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           secure: false
         },
+        // The report kit reads the installation's brand from /config, and its logo from /branding, in a dev build too.
+        // Anchored: a plain key matches by prefix, and would take any page route that starts with /config.
+        '^/config$': {
+          target: 'http://localhost:3003',
+          changeOrigin: true,
+          secure: false
+        },
+        '^/branding/': {
+          target: 'http://localhost:3003',
+          changeOrigin: true,
+          secure: false
+        },
       },
     },
     // https://vitejs.dev/config/

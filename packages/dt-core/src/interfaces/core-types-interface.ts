@@ -494,6 +494,15 @@ export interface ExposureTechniqueLinks {
   exploitedByAtlas: TechniqueLink[]
 }
 
+/** Exposure fields that createExposure does not write: set on an exposure after it exists. */
+export interface ExposureContent {
+  references?: string | null
+  mitigationSuggestions?: string[] | null
+  detectionMethods?: string[] | null
+  tags?: string[] | null
+  techniques?: string[] | null
+}
+
 export interface Countermeasure extends Element {
   id: string;
   name: string;

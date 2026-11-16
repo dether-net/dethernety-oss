@@ -33,7 +33,7 @@ The control library of `/dethereal:sync`: its push, and the three recovery verbs
     `signed in`: check again and retry; `skip`: leave the step undone and say so.
 12. **The repository is the operator's:** no git command that changes it (`add`, `commit`, `reset`, `checkout`, `stash`, `revert`) unless the operator asks for exactly that; suggest it instead. An undo, the operator always runs.
 13. **The operator starts each command.** A `[next]` line is advice to the operator: never start the command it names yourself. Start another Dethereal skill only as a handover these instructions name; the operator starts every other one.
-14. **Model files through your edit tool.** Write `structure.json`, `dataflows.json`, `data-items.json`, `attributes/**` and `.dethereal/**` only with your edit tool — never through a shell: no heredoc, redirection, `tee`, in-place editor, script, `rm` or `mv`. Delete attribute files only through `mcp__plugin_dethereal_dethereal__model_state_prune`.
+14. **Model files through your edit tool.** Write `structure.json`, `dataflows.json`, `data-items.json`, `attributes/**` and `.dethereal/**` only with your edit tool — never through a shell: no heredoc, redirection, `tee`, in-place editor, script, `rm` or `mv`. Delete attribute files only through `mcp__plugin_dethereal_dethereal__model_state_prune`. Write no script anywhere, and nothing to a scratchpad or temporary folder the harness offers: files go only where these instructions say.
    Your edit tools: `Write` and `Edit`.
 
 ## What runs here
@@ -53,7 +53,7 @@ Before any verb, call `mcp__plugin_dethereal_dethereal__auth_status` with `verif
 
 A `directory-path` argument is used directly. Otherwise, if `.dethernety/models.json` lists exactly one model, use it implicitly; with several, show them as a numbered list (name, path, and `display_state` from `mcp__plugin_dethereal_dethereal__model_state` `get`), then ask:
 
-`[prompt: model-select]` Which model? (the number from the list, or a path) — a plain message; end your turn.
+`[prompt: model-select]` Which model? (the number from the list, or a path) — the tag first, then a plain message; end your turn.
 
 With none, suggest `/dethereal:create`. Read model files from disk at the start of each operation, never from memory.
 
@@ -72,11 +72,11 @@ Read it before the first step, and again after any context compaction. If it can
    - Alone, no conflicting keys: push without a question.
    - Exactly one control needs a decision, it is shared, has no conflicting keys and its ownership is known: show the single-control prompt (reference), then
 
-     `[prompt: shared-control]` This control is used by other models too: your change applies to all of them. (cancel / push-anyway) — the table, then the question with its choices numbered, in one message; end your turn.
+     `[prompt: shared-control]` This control is used by other models too: your change applies to all of them. (cancel / push-anyway) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
    - Anything else (two or more to decide, any conflicting key, unknown ownership): show the review screen (reference), then repeat until the operator types `done`:
 
-     `[prompt: shared-control-review]` Give your decisions with the verbs above, one or more per message; type done to push. — a plain message; end your turn.
+     `[prompt: shared-control-review]` Give your decisions with the verbs above, one or more per message; type done to push. — the tag first, then a plain message; end your turn.
 
      Show the decision table and the `done` before any push.
 5. **Push** each decided control with `push-brownfield` (reference: Apply decisions); report what the tool returned.
@@ -94,7 +94,7 @@ For a control whose local `attributes` diverge from `platformAttributes` with no
 2. Read `controls/<control id>.json`. Absent: tell the operator to run `/dethereal:enrich` `--focus controls` to pull it, and stop. Find the class entry whose `classId` matches and note its 0-based index; none matches: list the class ids and stop.
 3. Show every diverging key, platform value → local value. This is what the next push publishes. Then:
 
-   `[prompt: promote-confirm]` Record these local values as your edit, to be pushed next time? (promote / cancel) — the table, then the question with its choices numbered, in one message; end your turn.
+   `[prompt: promote-confirm]` Record these local values as your edit, to be pushed next time? (promote / cancel) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
 4. On `promote`: `mcp__plugin_dethereal_dethereal__manage_controls` with `action: 'promote-external-edit'`, `directory_path`, `control_id`, `class_idx`. `NO_DIVERGENCE`: nothing to promote; say so.
 5. `[done] Promoted the external edit on <control id> [class <class id>].` `[next]` When you're ready: `/dethereal:sync` `push`. The audit entry of that push records `editedBy: external`.
@@ -121,7 +121,7 @@ Marks a control `tombstoned` locally; the platform Control is not deleted (that 
    `verified: false` or `rejected` not empty: this machine did not write it for this model — it is never replayed. Offer cancel or clear only; `retry` is refused and the question asked again.
 4. `cancel`: the journal stays; stop. `retry`: inspect again first, then `mcp__plugin_dethereal_dethereal__manage_controls` `pull-controls` with `control_ids: []` (it replays on entry); at most twice, then only cancel or clear. `clear`:
 
-   `[prompt: clear-journal-confirm]` Deleting the journal leaves the control files and references as they are, for you to reconcile. Type clear-journal to confirm; anything else cancels. — a plain message; end your turn.
+   `[prompt: clear-journal-confirm]` Deleting the journal leaves the control files and references as they are, for you to reconcile. Type clear-journal to confirm; anything else cancels. — the tag first, then a plain message; end your turn.
 
    Only the exact text `clear-journal` deletes, with `action: 'clear-wal'`. Then suggest checking that exactly one of `controls/<tempId>.json` and `controls/<serverId>.json` exists and that no reference still holds the temp id; the platform Control created before the journal stays.
 5. `MODEL_TREE_UNSAFE` at any step: show its message and stop; never delete or move files to get past it.

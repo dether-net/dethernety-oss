@@ -105,6 +105,15 @@ describe('postCompaction', () => {
     const main = [ev({ kind: 'compaction' }), ev({ kind: 'file_write', path: 'tm/structure.json', modelFile: true })]
     expect(postCompaction(main, []).findings.map((f) => f.code)).toEqual(['no_state_reread'])
   })
+
+  it('takes a state read the harness refused for no re-read: it never ran', () => {
+    const read = (denied?: string) => {
+      builder.reset()
+      return [ev({ kind: 'compaction' }), ev({ kind: 'tool_call', tool: 'dethereal.model_state', input: { action: 'get' }, ...(denied ? { denied } : {}) }), ev({ kind: 'file_write', path: 'tm/structure.json', modelFile: true })]
+    }
+    expect(postCompaction(read(), []).findings).toEqual([])
+    expect(postCompaction(read('user-rejected'), []).findings.map((f) => f.code)).toEqual(['no_state_reread'])
+  })
 })
 
 describe('proposal tables', () => {

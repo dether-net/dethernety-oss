@@ -682,6 +682,16 @@ Implements: `Element`
 | `issueClass` | `[IssueClass!]!` | Class this issue is an instance of (→ `IS_INSTANCE_OF`) |
 | `elementsWithExtendedInfo` | `[IssueElement!]!` | All linked elements with model context and exposure info (computed via Cypher) |
 
+### ReportDetails
+
+What a report needs to know about an analysis that the analysis does not hold itself. Stored with the analysis's
+bindings to elements, and read and written only through reportDetails, setReportDetails and suggestReportDetails.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `client` | `String` | The client the report is prepared for |
+| `updated` | `String` | When the details were last set (ISO 8601, UTC) |
+
 ### OrphanSweepLabelCount
 
 One (label, count) row in an OrphanSweepReport — `count` is the number of nodes of `label` deleted (or, on a dry-run, that would be deleted).
@@ -1584,6 +1594,14 @@ A streamed response from an AI analysis agent.
 
 Input object types passed as arguments to queries and mutations.
 
+### ReportDetailsInput
+
+The report details a set writes. A key given is written, null clears it, and a key left out stays as it is.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `client` | `String` | The client the report is prepared for: at most 120 characters, with no control or text-direction character |
+
 ### MatchElementInput
 
 A single element to match against the class catalog.
@@ -1747,6 +1765,30 @@ Get a document from the analysis document store
 |----------|------|
 | `analysisId` | `String!` |
 | `filter` | `JSON!` |
+
+### reportDetails
+
+An analysis's report details, such as the client a report is prepared for. Null for an unknown analysis or one bound to no element.
+
+**Returns:** `ReportDetails`
+
+**Arguments:**
+
+| Argument | Type |
+|----------|------|
+| `analysisId` | `ID!` |
+
+### suggestReportDetails
+
+The newest client name among the other analyses of the element(s) this analysis is bound to, with the time that analysis's details were set, offered as a suggestion; null when there is none
+
+**Returns:** `ReportDetails`
+
+**Arguments:**
+
+| Argument | Type |
+|----------|------|
+| `analysisId` | `ID!` |
 
 ### getFrontendModuleManifest
 
@@ -2131,6 +2173,21 @@ Delete an analysis and its associated data
 | Argument | Type |
 |----------|------|
 | `analysisId` | `String!` |
+
+### setReportDetails
+
+Set an analysis's report details on every binding of the analysis. A key given is written, null clears it, and a
+key left out stays as it is; `updated` is stamped by the server. Refused for an unknown analysis or one bound to no
+element. Returns the details as stored.
+
+**Returns:** `ReportDetails`
+
+**Arguments:**
+
+| Argument | Type |
+|----------|------|
+| `analysisId` | `ID!` |
+| `details` | `ReportDetailsInput!` |
 
 ### reindexClassEmbeddings
 

@@ -2,6 +2,8 @@
 
 **Model files, once per step.** Read a model file once in a step and keep it: after your own write succeeds, the file holds what you wrote — do not read it again. Read it again only after a failed write or validate, a compaction or summary, or a write you did not make with your edit tool: an agent's (any model file) or a push (every model file). Nothing else rewrites a model file: `mcp__plugin_dethereal_dethereal__validate_model_json` never does, and `mcp__plugin_dethereal_dethereal__generate_attribute_stubs` writes only attribute files — read one again after it before you edit it. After any such write, read the file again before a whole-file write of it. The same holds for `.dethereal/discovery.json` and `.dethereal/scope.json`: never read a file to see what you wrote — your write is the file, and your edit tool edits it without a read first.
 
+Read model JSON files with your read tool, never with an inline or multi-line script.
+
 **Model-file writes, one message per answer.** Everything one operator answer changes in `structure.json`, `dataflows.json`, `data-items.json`, `.dethereal/discovery.json` and the attribute files (in the enrich skill, as Writing and validating says) goes in one message: every edit to every one of those files, as parallel calls; one edit per element is fine. A read those edits need goes in the message before. Validate in the message after, once every edit has succeeded. Never spread one answer's edits over two messages; only a failed edit is redone, after reading its file again. A whole-file write replaces a file's edits only when it is shorter.
 
 **Tools, once per phase.** Dethereal's tools load on demand. At this phase's entry, load every tool this file names that is not loaded yet with one `ToolSearch` call — `select:` and all their names, comma-separated — never one call per tool, and never a call for a tool already loaded.
@@ -17,13 +19,13 @@
 
    Show a class change — a classified element the agent proposes to reclassify — as its own row, with its current and proposed class. A `yes` covers only the rows shown; never a change that was not a row. It never adds a module: the other-module list is shown apart, and is not a row.
 
-   `[prompt: classification-confirm]` Confirm these classes, or modify rows? (yes / modify / skip) — the table, then the question with its choices numbered, in one message; end your turn.
+   `[prompt: classification-confirm]` Confirm these classes, or modify rows? (yes / modify / skip) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
 4. **Modules.** When the other-module list is not empty:
 
 When a match comes from a module that is not active, the class is never a row of the confirm table: show the elements and the modules that would classify them as a table — element, current class (if any), module, class — then ask:
 
-`[prompt: classify-add-module]` Add these modules to the active modules and classify the elements with them? (add / skip) — the table, then the question with its choices numbered, in one message; end your turn.
+`[prompt: classify-add-module]` Add these modules to the active modules and classify the elements with them? (add / skip) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
 On `add`, look up each module's id with `mcp__plugin_dethereal_dethereal__get_classes` (`view: 'modules'`, `module_name`), then update `activeModules` in the scope and classify those elements again: the modules are written, as `{id, name}`, before anything is classified. The new proposals — a class, or a change from the current class — go through the confirm question the elements came from, for those rows only; the rows confirmed before are kept. On `skip`, the elements keep their classes or stay unclassified, the gap on record. The question is asked once per run: an element still unclassified after `add` goes to the gap question. Only this answer adds a module; with no `activeModules` in the scope, every installed module is already active and the question never arises.
 
@@ -49,7 +51,7 @@ Model each sensitive data type once, and link it to every element that handles i
 
 **Data items.** The boundary-crossing flows without a data item, and the sensitive data types found:
 
-`[prompt: data-item-handlers]` What data crosses each of these flows? Which elements originate, carry, process, store or contain each data type (PII, credentials, financial, health, session, or none)? Say "not sure" where you do not know. — a plain message; end your turn.
+`[prompt: data-item-handlers]` What data crosses each of these flows? Which elements originate, carry, process, store or contain each data type (PII, credentials, financial, health, session, or none)? Say "not sure" where you do not know. — the tag first, then a plain message; end your turn.
 
 **Before the table.** Classify the proposed items — in the guided workflow as Step 7 says, in the enrich skill as the Enrichment Protocol's DATA class step says. Then run the four advisory lifecycle checks on the classified proposal — every crown-jewel store has classified data items; every origin, every process that reads, transforms or caches a sensitive item, and the boundary containing a crown-jewel item reference it — and add what they find to it, as items or links marked as gap fills; a gap-fill item is classified like the rest.
 
@@ -60,7 +62,7 @@ The proposed data items, matched to their DATA classes, as one confirm table —
 - **Credential:** binding a data item to a credential-like DATA class (e.g. User Credentials, Authentication Tokens) makes it a credential candidate — propose `is_credential: true` for it, never set it from the class alone; an answered `false` stays.
 - **Sensitivity:** propose it at no less than its floor, the higher of its flags' and its class's. Flags: PCI cardholder or PHI → restricted; PII, GDPR personal, SOX financial or CCPA personal → confidential. Class: a whole word in the class's catalog name, whatever the name means — credentials, tokens, secrets, passwords, private keys, signing keys, encryption keys, API keys, sessions, cookies, JWTs, payments, cards, cardholders, health, medical or PHI → restricted; personal, customer or PII → confidential.
 
-`[prompt: data-items-confirm]` Confirm these data items, their handling elements, their DATA class, their origin column and their credential column, or adjust specific rows? (accept all / adjust) — the table, then the question with its choices numbered, in one message; end your turn.
+`[prompt: data-items-confirm]` Confirm these data items, their handling elements, their DATA class, their origin column and their credential column, or adjust specific rows? (accept all / adjust) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
 An adjust that adds or renames an item, or changes its class, classifies those rows again (Before the table, the module question included where the skill asks it), recomputes their floor and credential column, and shows them again with `data-items-confirm` before anything is written.
 
@@ -68,7 +70,7 @@ Write only what was confirmed — the items in `data-items.json` with their `cla
 
 If C4 still fails after that write, or a lifecycle check finds a gap that was not offered as a gap-fill row (a display table, Relay): C4's failing flows first, by name, at most 10 then `+N more`; then one line per advisory check with its count and up to three names:
 
-`[prompt: data-item-gap]` Classify the missing data items now, or skip with the gap on record? (classify / skip) — the table, then the question with its choices numbered, in one message; end your turn.
+`[prompt: data-item-gap]` Classify the missing data items now, or skip with the gap on record? (classify / skip) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
 `skip` leaves C4 failing; it is not a waiver — waivers are offered only at Gate 3 (Step 9).
 
@@ -76,13 +78,13 @@ If C4 still fails after that write, or a lifecycle check finds a gap that was no
 
 If C7 fails — a data item's sensitivity below the floor its data class or a regulatory flag sets: an adjusted row, or an item written before — show those items: item, sensitivity, floor, and what sets the floor:
 
-`[prompt: sensitivity-floor]` Raise these data items to their floor sensitivity? A floor set by a data class or a regulatory flag cannot be waived: kept below it, Gate 3 keeps failing and the model cannot be recorded as REVIEWED. (raise / keep) — the table, then the question with its choices numbered, in one message; end your turn.
+`[prompt: sensitivity-floor]` Raise these data items to their floor sensitivity? A floor set by a data class or a regulatory flag cannot be waived: kept below it, Gate 3 keeps failing and the model cannot be recorded as REVIEWED. (raise / keep) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
 On `raise`, write the floor sensitivity to `data-items.json` for the items the operator confirmed.
 
 When the validator suggests other spellings for regulatory flags (advisory; nothing is blocked), show them: item, the flag as written, the suggested spelling:
 
-`[prompt: flag-spelling]` Replace these regulatory flags with the suggested spellings, or keep them as written? Nothing is blocked either way. (replace / keep) — the table, then the question with its choices numbered, in one message; end your turn.
+`[prompt: flag-spelling]` Replace these regulatory flags with the suggested spellings, or keep them as written? Nothing is blocked either way. (replace / keep) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
 On `replace`, write the new spellings to `data-items.json`; on `keep`, never change them.
 
@@ -98,7 +100,7 @@ On `replace`, write the new spellings to `data-items.json`; on `keep`, never cha
 7. **Crown jewels again.** Only when a `crown_jewels` entry still has no element in the scope's `crown_jewel_elements` and an element classified at Steps 6–7 matches it: run the mapping again (Crown jewels), its table holding only those jewels. With every crown jewel mapped, it is not asked again.
 8. **Restricted promotion** completes the trust skeleton deferred at Step 4, now that the flows and the data sensitivity exist. Read the zoning from item 6's call; only when items 6–7 wrote since, call `mcp__plugin_dethereal_dethereal__validate_model_json` `action: 'validate'`, `include: ['zoning']`, `assets: 'full'` again (core rule 6). Offer a row only when all three hold: `proposedTier` is `RESTRICTED`, `resolvedZone` is not `RESTRICTED`, and `declaredZone` is `null` or `INTERNAL` — never a boundary declared Public, Exposed, Vendor or Untrusted. Show it as completion, not reversal, in a confirm table: the boundaries, their zone now → Restricted, and why in a few words (e.g. "card data, app-tier ingress only"); a tighten-only change, never loosening or overwriting a declared zone. Name, in one line, the boundaries holding assets that cannot be Restricted yet (reachable from a DMZ, or vendor-touched): they stay Internal and are flagged at Step 9. Then ask:
 
-   `[prompt: restricted-promotion]` Promote these boundaries to Restricted, or adjust specific rows? (promote all / adjust) — the table, then the question with its choices numbered, in one message; end your turn.
+   `[prompt: restricted-promotion]` Promote these boundaries to Restricted, or adjust specific rows? (promote all / adjust) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
    Write `zone: RESTRICTED` to `structure.json`, in one message, only for the rows confirmed now. A boundary the operator declared Internal is offered, never overwritten unasked.
 

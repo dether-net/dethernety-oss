@@ -62,6 +62,20 @@ interface Platform {
   echoForm: 'alternate' | 'graphql'
 }
 
+/** A platform model with one exposure named `name`. */
+function triageModel(name: string) {
+  const exposure = {
+    id: 'canary-exposure', name, description: 'd', type: '1', category: 'c', score: 5, attackVector: 'NETWORK', createdBy: 'SYSTEM',
+    authoredBy: null, dispositionKind: null, dispositionReason: null, dispositionedBy: null, dispositionedAt: null, dispositionStale: null,
+    unresolvedReferences: null, exploitedBy: [], exploitedByAtlas: [],
+  }
+  return {
+    id: 'canary-model', name: 'canary', dataItems: [],
+    defaultBoundary: [{ id: 'canary-root', name: 'root', securityBoundaryClass: [], exposures: [], allDescendantBoundaries: [], allDescendantDataFlows: [],
+      allDescendantComponents: [{ id: 'canary-element', name: 'Canary', componentClass: [], exposures: [exposure] }] }],
+  }
+}
+
 async function startHostilePlatform(): Promise<Platform> {
   const platform = { bearers: [] as string[], graphqlRequests: 0, echoForm: 'alternate' } as Platform
   platform.server = createServer((req, res) => {
@@ -86,11 +100,18 @@ async function startHostilePlatform(): Promise<Platform> {
       return
     }
     if (req.url?.startsWith('/graphql')) {
-      req.resume()
+      let body = ''
+      req.on('data', (chunk: Buffer) => (body += chunk.toString('utf8')))
       req.on('end', () => {
         const auth = String(req.headers.authorization ?? '')
         platform.bearers.push(auth)
         platform.graphqlRequests += 1
+        // The triage model read is answered with data, the bearer in an exposure's name: it reaches the plan's lines.
+        if (/"operationName":"TriageModelExposures"/.test(body)) {
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ data: { models: [triageModel(`${ECHO} saw ${auth}`)] } }))
+          return
+        }
         // Alternate the two ways a platform can echo: a GraphQL error message,
         // and an HTTP error body. The echo text avoids words the GraphQL layer
         // treats as transient (it would retry with backoff).
@@ -183,6 +204,16 @@ async function writeSettleModel(sandbox: Sandbox): Promise<void> {
     JSON.stringify({ elementId: 'canary-element', elementName: 'Canary', elementType: 'PROCESS', attributes: { authentication_type: 'canary value' } }))
 }
 
+/** A model directory synced with `platformUrl`, for the triage tools to read the platform model it names. */
+async function writeTriageModel(sandbox: Sandbox, platformUrl: string): Promise<void> {
+  const dir = path.join(sandbox.cwd, 'canary-triage')
+  await mkdir(path.join(dir, '.dethereal'), { recursive: true })
+  await writeFile(path.join(dir, 'manifest.json'), JSON.stringify({ name: 'canary triage' }))
+  await writeFile(path.join(dir, '.dethereal', 'sync.json'), JSON.stringify({ platform_model_id: 'canary-model', platform_url: platformUrl }))
+}
+
+const TRIAGE_GROUPS = [{ group: 1, exposure_ids: ['canary-exposure'], proposal: { op: 'dispose', kind: 'FALSE_POSITIVE', reason: 'canary triage reason' } }]
+
 async function writeStore(sandbox: Sandbox, content: string): Promise<void> {
   await writeFile(path.join(sandbox.home, '.dethernety', 'tokens.json'), content, { mode: 0o600 })
 }
@@ -259,6 +290,10 @@ const ARGS: Record<string, Record<string, unknown>> = {
   manage_analyses: { action: 'list', element_id: 'canary-element' },
   query_controls: { action: 'list', folder_id: 'all' },
   query_exposures: { action: 'list', element_id: 'canary-element' },
+  get_kg_chain: { action: 'probe' },
+  get_class_guide: { class_id: 'canary-class', element_kind: 'component', attribute_keys: ['authentication_type'] },
+  // manage_dispositions is given a closed review of its own first (below), so its prepare reads the platform.
+  triage_review: { action: 'open', directory_path: 'canary-triage', mode: 'review', groups: TRIAGE_GROUPS },
   query_countermeasures: { action: 'list', control_id: 'canary-control' },
   generate_attribute_stubs: { directory_path: 'canary-model' },
   get_classes: { fields: ['id', 'name', 'module'] },
@@ -273,7 +308,7 @@ const ARGS: Record<string, Record<string, unknown>> = {
 }
 
 /** Tools that must have reached the hostile platform, or the echo channel was never exercised. */
-const MUST_REACH_PLATFORM = ['list_models', 'get_classes', 'search_mitre_attack', 'manage_controls', 'export_model', 'query_controls']
+const MUST_REACH_PLATFORM = ['list_models', 'get_classes', 'search_mitre_attack', 'manage_controls', 'export_model', 'query_controls', 'get_kg_chain', 'get_class_guide', 'triage_review', 'manage_dispositions']
 
 describe('token canary (built server over stdio)', () => {
   let root: string
@@ -309,6 +344,7 @@ describe('token canary (built server over stdio)', () => {
     const sandbox = await makeSandbox(root, 'live', path.dirname(entry))
     await writeStore(sandbox, storeWith(platform.url, session({ baseUrl: platform.url })))
     await writeSettleModel(sandbox)
+    await writeTriageModel(sandbox, platform.url)
     const s = await connect(entry, sandbox, platform.url)
     const leaks: string[] = []
     const reached: string[] = []
@@ -337,8 +373,29 @@ describe('token canary (built server over stdio)', () => {
       // login last-but-one, logout last: both touch the store the others read.
       const names = tools.map((t) => t.name).filter((n) => n !== 'login' && n !== 'logout')
       for (const name of [...names, 'login', 'logout']) {
+        let args = ARGS[name] ?? {}
+        if (name === 'manage_dispositions') {
+          const opened = textOf(await s.client.callTool({ name: 'triage_review', arguments: ARGS.triage_review! }))
+          leaks.push(...leaksIn('triage_review (for manage_dispositions)', opened))
+          // The loop's own open of the directory may still be open: a second open names it.
+          const answer = JSON.parse(opened) as { review_id?: string; data?: { review_id?: string } }
+          const review_id = answer.review_id ?? answer.data?.review_id
+          leaks.push(...leaksIn('triage_review reply', textOf(await s.client.callTool({ name: 'triage_review', arguments: { action: 'reply', review_id, reply: 'accept-all' } }))))
+          args = { action: 'prepare', directory_path: 'canary-triage', review_id }
+        }
+        if (name === 'manage_dispositions') {
+          // Past the review and the model read: the plan's lines carry the platform's name for the exposure, scrubbed.
+          const requests = platform.graphqlRequests
+          const prepared = textOf(await s.client.callTool({ name, arguments: args }))
+          if (platform.graphqlRequests > requests) reached.push(name)
+          leaks.push(...leaksIn('manage_dispositions prepare', prepared))
+          expect(prepared).toContain('[redacted]')
+          // The scrubbed lines are not the plan's: the commit refuses them, and only its answer is scanned.
+          const plan = JSON.parse(prepared) as { plan_id: string; lines: string[] }
+          args = { action: 'commit', directory_path: 'canary-triage', plan_id: plan.plan_id, lines: plan.lines, reply: 'yes' }
+        }
         const before = platform.graphqlRequests
-        const result = await s.client.callTool({ name, arguments: ARGS[name] ?? {} })
+        const result = await s.client.callTool({ name, arguments: args })
         const text = textOf(result)
         if (platform.graphqlRequests > before) reached.push(name)
         leaks.push(...leaksIn(name, text))

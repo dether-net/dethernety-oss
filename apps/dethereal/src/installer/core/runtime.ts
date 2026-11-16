@@ -30,8 +30,8 @@ import { ensureDirUnder, type InstallerEnv, type StatePaths, verifyDirectory } f
 import { readTarget, removeTarget, resolveTarget, sha256, syncDir, writeTarget } from './safe-write.js'
 
 export const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/
-/** The oldest Node the runtime supports (a global `fetch`, and the security releases of early 2024). */
-export const NODE_FLOOR = '20.11.1'
+/** The oldest Node the runtime supports: the same floor as the platform. */
+export const NODE_FLOOR = '22.12.0'
 const RUNTIME_PACKAGE_JSON = Buffer.from('{"type":"module"}\n')
 const MAX_RUNTIME_FILE = 32 * 1024 * 1024
 const COPIED_DIRS = ['dist', 'bundles']

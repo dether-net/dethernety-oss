@@ -2,6 +2,8 @@
 
 **Model files, once per step.** Read a model file once in a step and keep it: after your own write succeeds, the file holds what you wrote — do not read it again. Read it again only after a failed write or validate, a compaction or summary, or a write you did not make with your edit tool: an agent's (any model file) or a push (every model file). Nothing else rewrites a model file: `mcp__plugin_dethereal_dethereal__validate_model_json` never does, and `mcp__plugin_dethereal_dethereal__generate_attribute_stubs` writes only attribute files — read one again after it before you edit it. After any such write, read the file again before a whole-file write of it. The same holds for `.dethereal/discovery.json` and `.dethereal/scope.json`: never read a file to see what you wrote — your write is the file, and your edit tool edits it without a read first.
 
+Read model JSON files with your read tool, never with an inline or multi-line script.
+
 **Model-file writes, one message per answer.** Everything one operator answer changes in `structure.json`, `dataflows.json`, `data-items.json`, `.dethereal/discovery.json` and the attribute files (in the enrich skill, as Writing and validating says) goes in one message: every edit to every one of those files, as parallel calls; one edit per element is fine. A read those edits need goes in the message before. Validate in the message after, once every edit has succeeded. Never spread one answer's edits over two messages; only a failed edit is redone, after reading its file again. A whole-file write replaces a file's edits only when it is shorter.
 
 **Tools, once per phase.** Dethereal's tools load on demand. At this phase's entry, load every tool this file names that is not loaded yet with one `ToolSearch` call — `select:` and all their names, comma-separated — never one call per tool, and never a call for a tool already loaded.
@@ -45,7 +47,7 @@ Link local countermeasures to the platform-computed exposures, so defense covera
 3. No exposures: "Analysis results not available yet. Linking will be possible after the analysis engine processes this model." An error is not that: show it — the call was malformed or the platform unreachable.
 4. With exposures, show the table — exposure, component, candidate countermeasure, link — then ask:
 
-   `[prompt: linking]` Link these exposures to the candidate countermeasures now, change specific rows, or defer? (yes / modify / defer) — the table, then the question with its choices numbered, in one message; end your turn.
+   `[prompt: linking]` Link these exposures to the candidate countermeasures now, change specific rows, or defer? (yes / modify / defer) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
    `yes`: create the links with `mcp__plugin_dethereal_dethereal__manage_countermeasures`. Linking an existing countermeasure is an `update` with `exposure_ids`, and `update`, like `delete`, works only on a USER countermeasure: the tool refuses a SYSTEM one (derived from its control's class). For a SYSTEM one, tell the operator to supersede it into an editable copy in the platform (**Customize as an editable copy**), then link the copy. `modify`: take the rows the operator drops or changes, show the table again and ask again; a link is created only for a row they confirmed — a wrong link credits a control that does not mitigate the exposure. `defer`: say that the analysis undercounts the defenses until exposures are linked to countermeasures.
 
@@ -105,7 +107,7 @@ The Push Flow Reference holds the detail of the after-push steps: the summaries 
 
    With `baseline` `missing` or `legacy` every element is `no_baseline`: there is no usable record of the last pull or push, so the server cannot tell what changed. `unverifiable` means the record cannot be verified here: the directory was moved or renamed, the model copied, or another platform URL is set. Say which, in one line. When `changes_total` is above the rows shown, say `+N more`. Then ask:
 
-   `[prompt: push-conflict]` Push the local model (the platform elements listed are DELETED), pull the platform version first, or cancel? (push / pull / cancel) — the table, then the question with its choices numbered, in one message; end your turn.
+   `[prompt: push-conflict]` Push the local model (the platform elements listed are DELETED), pull the platform version first, or cancel? (push / pull / cancel) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
    - `push`: call `mcp__plugin_dethereal_dethereal__update_model` again with `overwrite_changed` = the refusal's `changed_ids` — the full set, never built from `changes` — and `overwrite_revision` = its `revision`. When there are more changes than the server can overwrite, it refuses and asks for a pull first: offer only `pull` or `cancel`. A refusal with `acknowledgement: "stale"` means the platform changed again: show the new changes and ask again.
    - `pull`: pull the platform version first, backing up local changes — never without the backup.
@@ -117,7 +119,7 @@ The Push Flow Reference holds the detail of the after-push steps: the summaries 
 3. **After the push:** read the updated model files — the push itself wrote back the id of each control it linked by name; show the push summary, any control link warning, and the local-only asset notice (all per the reference).
 4. **Stale control references.** For each control reference with a non-null `id`, check the id exists in the platform control list — **except a greenfield one**: an id starting `greenfield-`, or one whose `controls/<id>.json` has `lifecycle` `greenfield` or `partially-pushed`. The control-library push creates those after this step, so they are never stale here. If any others are missing, show them (name and id), then ask:
 
-   `[prompt: stale-controls]` These control references no longer exist on the platform. Clear their ids (the names stay, for re-matching), or keep them as they are? (clear ids / keep) — the table, then the question with its choices numbered, in one message; end your turn.
+   `[prompt: stale-controls]` These control references no longer exist on the platform. Clear their ids (the names stay, for re-matching), or keep them as they are? (clear ids / keep) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
    `clear ids`: set `id: null` on each stale reference — a changed `controls` list, handled as Control references says under Changed controls; `keep`: change nothing, and note the warning for manual review.
 5. If countermeasures exist in the model: suggest `/dethereal:surface` after analysis, to link controls to exposures.
@@ -181,7 +183,7 @@ Otherwise, show every entry as one table — `C# | element (or the model) | entr
 
 Then ask:
 
-`[prompt: control-resolve]` For each row, give a candidate's number, `create` (a new Control in the catalog, under this name), `remove` (drop the entry from its element), or the exact name of another Control. Every row needs an answer; `not now` cancels the push. — a plain message; end your turn.
+`[prompt: control-resolve]` For each row, give a candidate's number, `create` (a new Control in the catalog, under this name), `remove` (drop the entry from its element), or the exact name of another Control. Every row needs an answer; `not now` cancels the push. — the tag first, then a plain message; end your turn.
 
 Never pick for the operator, never remove, rename or strip a control to get a push through, and never push again while a row is unanswered. `not now` stops: nothing is pushed. In the guided workflow, go on as after a consent `skip`.
 

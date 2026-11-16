@@ -118,6 +118,88 @@ export function isSecretManifestText(text: string): boolean {
   return text.split('\n').some(isSecretManifestLine)
 }
 
+/**
+ * A streaming reader of the same `kind: Secret` test as {@link isSecretManifestLine}, for a file read
+ * chunk by chunk. Per line it keeps only a bounded head: each run of whitespace collapses to one
+ * marker — `isSecretManifestLine`'s `\s*` skips never see a run's length, and the marker is a line
+ * separator (U+2028) when the run held a line terminator (a carriage return, U+2028 or U+2029) so a
+ * comment still ends at it, else a plain space. The kept head is capped at `maxHead` characters; since
+ * the match is anchored at the line start, the `kind:` token is always within it, so the cap never
+ * drops it (the earlier fixed-size tail carry kept the end and dropped the head, so a `kind: Secret`
+ * line padded past the carry escaped). A line terminator seen in a comment past the cap is carried as
+ * one appended separator, so an over-cap comment that holds one still fails. The per-line verdict is
+ * `isSecretManifestLine` itself, so the comma, the optional characters and the comment rule stay
+ * exactly as the one-pass matcher reads them.
+ */
+export function createSecretManifestScanner(maxHead = 64): { push(chunk: string): boolean; end(): boolean } {
+  // A floor so the kept head always spans the whole `kind: … secret` prefix: below it the cap could
+  // drop the token from a matching line.
+  maxHead = Math.max(maxHead, 32)
+  // The line-separator marker (U+2028), built without a literal escape so the source stays ASCII.
+  const SEP = String.fromCharCode(0x2028)
+  let head = ''
+  let inRun = false
+  let runTerminators = 0
+  let runEndsWithCr = false
+  let capped = false
+  let sawTerminatorAfterCap = false
+  const resetLine = () => {
+    head = ''
+    inRun = false
+    runTerminators = 0
+    runEndsWithCr = false
+    capped = false
+    sawTerminatorAfterCap = false
+  }
+  const flushRun = (atLineEnd: boolean) => {
+    if (!inRun) return
+    // One carriage return at the very end of a line is stripped (isSecretManifestLine does `/\r$/`); any
+    // other terminator — a U+2028/U+2029, or a carriage return that is not the final character — ends a
+    // comment.
+    const terminators = atLineEnd && runEndsWithCr ? runTerminators - 1 : runTerminators
+    if (capped) {
+      if (terminators > 0) sawTerminatorAfterCap = true
+    } else {
+      head += terminators > 0 ? SEP : ' '
+      if (head.length >= maxHead) capped = true
+    }
+    inRun = false
+    runTerminators = 0
+    runEndsWithCr = false
+  }
+  const lineMatches = (): boolean => {
+    flushRun(true)
+    return isSecretManifestLine(capped && sawTerminatorAfterCap ? head + SEP : head)
+  }
+  const feedChar = (c: string): boolean => {
+    if (c === '\n') {
+      const matched = lineMatches()
+      resetLine()
+      return matched
+    }
+    if (SPACE.test(c)) {
+      inRun = true
+      // Capped at 2: enough to tell "one, strippable as a trailing \r" from "another remains", never more.
+      if (LINE_END.has(c)) runTerminators = Math.min(runTerminators + 1, 2)
+      runEndsWithCr = c === '\r'
+      return false
+    }
+    flushRun(false)
+    if (!capped) {
+      head += c
+      if (head.length >= maxHead) capped = true
+    }
+    return false
+  }
+  return {
+    push(chunk: string): boolean {
+      for (const c of chunk) if (feedChar(c)) return true
+      return false
+    },
+    end: () => lineMatches(),
+  }
+}
+
 const escapeRe = (s: string) => s.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&')
 /** The Secret-manifest search's pattern, exactly as the workflow's rule spells it. */
 export const SECRET_MANIFEST_PATTERN = '^[[:space:]]*[-{]?[[:space:]]*"?kind"?[[:space:]]*:[[:space:]]*.?Secret.?[[:space:]]*,?[[:space:]]*(#.*)?$'

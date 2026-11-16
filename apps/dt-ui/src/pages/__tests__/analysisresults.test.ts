@@ -46,6 +46,16 @@ const analysisStore = reactive({
 })
 vi.mock('@/stores/analysisStore', () => ({ useAnalysisStore: () => analysisStore }))
 vi.mock('@/components/Dialogs/Analysis/ModelAnalysisDialog.vue', () => ({ default: { render: () => null } }))
+vi.mock('@/components/Dialogs/Analysis/ReportDetailsDialog.vue', async () => {
+  const { defineComponent, h } = await import('vue')
+  return {
+    default: defineComponent({
+      props: { analysisId: String },
+      emits: ['closed'],
+      setup: (props) => () => h('div', { class: 'report-details-dialog', 'data-analysis': props.analysisId }),
+    }),
+  }
+})
 
 import { componentRegistry } from '@/services/ComponentRegistry'
 import AnalysisResults from '../analysisresults.vue'
@@ -173,5 +183,44 @@ describe('analysis results page — a lazily loaded view', () => {
     await flushPromises()
     expect(wrapper.find('.alert').exists()).toBe(false)
     expect(wrapper.find('.spinner').exists()).toBe(true)
+  })
+})
+
+describe('analysis results page — the Report details button', () => {
+  const reportDetailsButton = (wrapper: ReturnType<typeof mount>) => wrapper.find('button[aria-label="Report details"]')
+
+  it('is disabled until the loaded analysis is the one the route names', async () => {
+    const fetching = pending()
+    analysisStore.currentAnalysis = null
+    analysisStore.fetchAnalyses.mockImplementationOnce(async ({ analysisId }: { analysisId: string }) => {
+      await fetching.promise
+      return [{ id: analysisId, name: analysisId, analysisClass: { id: 'c', module: { id: 'm', name: 'report-module' } } }]
+    })
+    const wrapper = mount(AnalysisResults, { global: { stubs } })
+    await flushPromises()
+    expect(reportDetailsButton(wrapper).attributes('disabled')).toBeDefined()
+
+    fetching.resolve()
+    await flushPromises()
+    expect(reportDetailsButton(wrapper).attributes('disabled')).toBeUndefined()
+
+    // Another analysis is being opened: the one still loaded is not the route's.
+    analysisStore.fetchAnalyses.mockImplementationOnce(() => new Promise(() => {}))
+    route.query = { id: 'a2' }
+    await flushPromises()
+    expect(reportDetailsButton(wrapper).attributes('disabled')).toBeDefined()
+  })
+
+  it('opens the dialog for the analysis on the page, and a route change closes it', async () => {
+    const wrapper = mount(AnalysisResults, { global: { stubs } })
+    await flushPromises()
+    expect(wrapper.find('.report-details-dialog').exists()).toBe(false)
+
+    await reportDetailsButton(wrapper).trigger('click')
+    expect(wrapper.find('.report-details-dialog').attributes('data-analysis')).toBe('a1')
+
+    route.query = { id: 'a2' }
+    await flushPromises()
+    expect(wrapper.find('.report-details-dialog').exists()).toBe(false)
   })
 })

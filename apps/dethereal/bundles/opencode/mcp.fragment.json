@@ -27,7 +27,8 @@
     "dethereal_generate_attribute_stubs": "ask",
     "dethereal_manage_controls": "ask",
     "dethereal_manage_countermeasures": "ask",
-    "dethereal_manage_analyses": "ask"
+    "dethereal_manage_analyses": "ask",
+    "dethereal_manage_dispositions": "ask"
   },
   "agent": {
     "explore": {

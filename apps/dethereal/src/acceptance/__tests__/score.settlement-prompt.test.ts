@@ -91,7 +91,8 @@ describe('the settlement prompt after an orphaned-drop', () => {
       (e: typeof ev) => [e({ kind: 'server_write', tool: 'dethereal.update_attributes' })],
       (e: typeof ev) => [e({ kind: 'file_write', actor: 'dethereal:security-enricher', path: 'threat-models/m/structure.json' })],
     ]) expect(flagged(run({ between: write }))).toEqual(['settlement_prompt_shown'])
-    // A read in between changes nothing.
+    // A read in between changes nothing, and nor does a write the harness refused.
+    expect(flagged(run({ between: (e) => [e({ kind: 'server_write', tool: 'dethereal.update_attributes', denied: 'user-rejected' })] }))).toEqual([])
     expect(flagged(run({ between: (e) => [e({ kind: 'shell', text: 'python3 -c "print(1)"' })] }))).toEqual([])
   })
 

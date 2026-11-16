@@ -18,7 +18,7 @@ Otherwise, show every entry as one table — `C# | element (or the model) | entr
 
 Then ask:
 
-`[prompt: control-resolve]` For each row, give a candidate's number, `create` (a new Control in the catalog, under this name), `remove` (drop the entry from its element), or the exact name of another Control. Every row needs an answer; `not now` cancels the push. — a plain message; end your turn.
+`[prompt: control-resolve]` For each row, give a candidate's number, `create` (a new Control in the catalog, under this name), `remove` (drop the entry from its element), or the exact name of another Control. Every row needs an answer; `not now` cancels the push. — the tag first, then a plain message; end your turn.
 
 Never pick for the operator, never remove, rename or strip a control to get a push through, and never push again while a row is unanswered. `not now` stops: nothing is pushed. In the guided workflow, go on as after a consent `skip`.
 

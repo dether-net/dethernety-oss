@@ -34,7 +34,7 @@ The recommendation is **advisory only** — the operator can proceed with a larg
 
 On `narrow` or `decompose`, propose the split and show it as a table before anything is written — for `narrow`, the elements of the subsystem this model keeps (and what it leaves out); for `decompose`, each planned model with its elements and the cross-model links — then ask:
 
-`[prompt: decomposition-scope]` Is this the split you want? (confirm / change) — the table, then the question with its choices numbered, in one message; end your turn.
+`[prompt: decomposition-scope]` Is this the split you want? (confirm / change) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
 Apply the operator's changes and show the table again until they confirm. Only then write the model files for this model's elements and, for a plan, `.dethernety/decomposition-plan.json`.
 

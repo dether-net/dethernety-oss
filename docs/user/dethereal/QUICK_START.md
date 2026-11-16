@@ -36,7 +36,7 @@ flowchart LR
 | You need | Details |
 |---|---|
 | **A running Dethernety platform** | On this machine (`http://127.0.0.1:3000`, the default) or on another host reachable over HTTPS ([set its URL](#install)). Don't have one? See the platform [Quick Start](../QUICK_START.md). |
-| **Node.js 20.11.1 or later** | The plugin's server needs it; the plugin will not install or start on an older Node. |
+| **Node.js 22.12.0 or later** | The plugin's server needs it; the plugin will not install or start on an older Node. |
 | **One harness, at its minimum version** | Install the plugin into one of the harnesses below. |
 
 | Harness | Status | Minimum version |
@@ -143,5 +143,6 @@ For the details, see the platform [Quick Start — Run the Threat Report](../QUI
 
 - **Deepen the model:** run `/dethereal:threat-model --full` to re-enrich and run the full review (Gate 3). See [The 11-Step Guided Workflow](GUIDED_WORKFLOW.md).
 - **See the attack surface:** run `/dethereal:surface` for components, trust-boundary crossings, exposures and control coverage (read-only).
+- **Triage the findings:** once the platform has analysed the model, run `/dethereal:triage` to decide each exposure from AI-assisted proposals; nothing is written until you answer the apply question. See [Triaging Platform Findings](TRIAGE.md).
 - **[Getting Started](GETTING_STARTED.md)** — the complete install, authentication, and first-model reference.
 - **[The 11-Step Guided Workflow](GUIDED_WORKFLOW.md)** — the full process from scope to sync.

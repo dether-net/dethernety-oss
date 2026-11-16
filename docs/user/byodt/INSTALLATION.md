@@ -25,7 +25,7 @@ If your machine already meets the [requirements](#requirements), there are three
 
 From the first release that ships it, each release has an installer, `get-byodt.sh`. One command downloads the bundle, checks it, unpacks it into `./byodt`, and asks you a few questions. The first two ways run that installer; they differ only in how it reaches you.
 
-**With npx (recommended if you have Node.js).** The npm package carries the release's own `get-byodt.sh` and runs it. Use it if Node.js 18 or later is already installed, or you are happy to install it. Node.js runs the installer only: the deployment itself never needs it. If you will run the Dethereal plugin (for Claude Code, Codex or OpenCode) on the same machine, you have Node.js already: its MCP server runs on Node.js 20.11.1 or later, which also meets the installer's 18 (see [Getting started with Dethereal](../dethereal/GETTING_STARTED.md#prerequisites)).
+**With npx (recommended if you have Node.js).** The npm package carries the release's own `get-byodt.sh` and runs it. Use it if Node.js 18 or later is already installed, or you are happy to install it. Node.js runs the installer only: the deployment itself never needs it. If you will run the Dethereal plugin (for Claude Code, Codex or OpenCode) on the same machine, you have Node.js already: its MCP server runs on Node.js 22.12.0 or later, which also meets the installer's 18 (see [Getting started with Dethereal](../dethereal/GETTING_STARTED.md#prerequisites)).
 
 ```sh
 npx @dether.net/byodt@0.16.0
@@ -367,7 +367,7 @@ There are two ways to run it, and both run the same script, with the same option
 
 | Way | Use it when | Needs, beyond the [installer's tools](#requirements) |
 |---|---|---|
-| [With npx](#with-npx) (recommended) | Node.js is already installed, for example for [Dethereal](../dethereal/GETTING_STARTED.md#prerequisites) (20.11.1 or later), or you are happy to install it | Node.js 18 or later, to run the installer only. The deployment does not need it. |
+| [With npx](#with-npx) (recommended) | Node.js is already installed, for example for [Dethereal](../dethereal/GETTING_STARTED.md#prerequisites) (22.12.0 or later), or you are happy to install it | Node.js 18 or later, to run the installer only. The deployment does not need it. |
 | [With `get-byodt.sh` from the release](#with-get-byodtsh-from-the-release) | You would rather not have Node.js | Nothing more |
 
 Everything after these two sections applies to both.
@@ -892,7 +892,7 @@ You do not need to follow this to install, but it explains what you see in the l
 | Step | What it creates |
 |---|---|
 | **Configuration** | `.env`, copied from `.env.example`. The detected container engine is appended as `CONTAINER_ENGINE` and the database engine as `DB_ENGINE`, unless `.env` already sets them. On Neo4j, the image is also recorded as `NEO4J_IMAGE`. |
-| **Runtime directories** | `modules/`, `schema/`, `data/`, `data/models/`, `data/content-cache/`, `mode/`, `tls/` and `proxy-ca/` (unless you created it already), plus the database's own: `data/memgraph-log/` and `data/memgraph/` on Memgraph, `data/neo4j-logs/` and `data/neo4j/` on Neo4j. The data directory is created only for a host bind mount. |
+| **Runtime directories** | `modules/`, `schema/`, `data/`, `data/models/`, `data/content-cache/`, `mode/`, `tls/`, `proxy-ca/` and `branding/` (these two unless you created them already), plus the database's own: `data/memgraph-log/` and `data/memgraph/` on Memgraph, `data/neo4j-logs/` and `data/neo4j/` on Neo4j. The data directory is created only for a host bind mount. |
 | **Database password** | A freshly generated password in `.env.secrets`, mode `0600`. It is created once and never regenerated. See [Configuration → The generated secret file](./CONFIGURATION.md#the-generated-secret-file). |
 | **Mode layer** | `mode/mode.env`, seeded with the standalone defaults. |
 

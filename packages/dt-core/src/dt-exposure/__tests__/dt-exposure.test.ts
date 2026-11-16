@@ -230,3 +230,28 @@ describe('DtExposure.deleteExposure USER-copy-delete companion', () => {
     // performMutation was called exactly once for the delete attempt.
   })
 })
+
+describe('DtExposure.setExposureContent', () => {
+  it('sets the given fields on the exposure, and clears a field left out or null', async () => {
+    const { dt, calls, performMutation } = buildHarness()
+    performMutation.mockResolvedValueOnce({ id: 'exp-1' })
+    const out = await dt.setExposureContent({
+      exposureId: 'exp-1',
+      content: { references: 'https://example.com/advisory', tags: ['secrets'], techniques: null },
+    })
+    expect(out).toEqual({ id: 'exp-1' })
+    expect(calls()).toHaveLength(1)
+    expect(calls()[0]).toMatchObject({
+      action: 'setExposureContent',
+      dataPath: 'updateExposures.exposures[0]',
+      variables: {
+        exposureId: 'exp-1',
+        references: 'https://example.com/advisory',
+        mitigationSuggestions: null,
+        detectionMethods: null,
+        tags: ['secrets'],
+        techniques: null,
+      },
+    })
+  })
+})

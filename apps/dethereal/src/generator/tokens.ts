@@ -5,6 +5,7 @@
  *                  ({{skill:x}} is "the x skill", started as a handover: each harness says how)
  * Blocks:          {{#harness claude[,codex,opencode]}} … {{/harness}}   (tag lines stand alone)
  *                  {{#delegate x}} prompt {{/delegate}}
+ *                  {{#delegate x batch}} … {{/delegate}}  (one per batch, several in flight; the step says what a failure means)
  *                  {{#ask id=x}} question {{/ask}}   ·   {{#ask id=x text}} … {{/ask}} (free text)
  * Includes:        {{include shared/x.md}}           inlined (own line)
  *                  {{include shared/x.md as-file}}   emitted next to the skill, read on demand
@@ -23,7 +24,7 @@ export type Token =
   | { readonly kind: 'harness-open'; readonly harnesses: readonly Harness[] }
   | { readonly kind: 'harness-close' }
   | { readonly kind: 'include'; readonly path: string; readonly asFile: boolean }
-  | { readonly kind: 'delegate-open'; readonly agent: string }
+  | { readonly kind: 'delegate-open'; readonly agent: string; readonly batch: boolean }
   | { readonly kind: 'delegate-close' }
   | { readonly kind: 'ask-open'; readonly id: string; readonly freeText: boolean }
   | { readonly kind: 'ask-close' }
@@ -66,9 +67,9 @@ function parseToken(body: string): Token | string {
     if (!INCLUDE_PATH.test(m[1]!)) return `include path must be shared/<name>.md: ${m[1]}`
     return { kind: 'include', path: m[1]!, asFile: m[2] !== undefined }
   }
-  if ((m = body.match(/^#delegate (\S+)$/))) {
+  if ((m = body.match(/^#delegate (\S+)( batch)?$/))) {
     if (!NAME_PATTERN.test(m[1]!)) return `bad agent name ${m[1]}`
-    return { kind: 'delegate-open', agent: m[1]! }
+    return { kind: 'delegate-open', agent: m[1]!, batch: m[2] !== undefined }
   }
   if (body === '/delegate') return { kind: 'delegate-close' }
   if ((m = body.match(/^#ask id=(\S+)( text)?$/))) {
@@ -268,7 +269,8 @@ export function filterHarness(text: string, harness: Harness): string {
 /** How one harness spells each token. */
 export interface TokenRenderer {
   inline(kind: InlineKind, name: string, inCode: boolean): string
-  delegate(agent: string, prompt: string): string
+  /** A delegation; `batch` starts one agent per batch, as many at once as the step allows, and leaves a failure to the step. */
+  delegate(agent: string, prompt: string, batch?: boolean): string
   /** A question in a skill: the gate rules live once, in the core rules' asking rule (see `ask-cues.ts`). */
   ask(id: string, question: string, freeText: boolean, layout: AskLayout): string
   /** The instruction that replaces an `as-file` include: read `fileName` from the directory of skill `skill`. */
@@ -318,7 +320,7 @@ function expandIncludes(text: string, ctx: RenderContext, stack: readonly string
     .join('\n')
 }
 
-const DELEGATE = /\{\{#delegate ([a-z0-9-]+)\}\}([\s\S]*?)\{\{\/delegate\}\}/g
+const DELEGATE = /\{\{#delegate ([a-z0-9-]+)( batch)?\}\}([\s\S]*?)\{\{\/delegate\}\}/g
 const ASK = /\{\{#ask id=([a-z0-9-]+)( text)?\}\}([\s\S]*?)\{\{\/ask\}\}/g
 
 /**
@@ -347,8 +349,8 @@ function indented(rendered: string, source: string, offset: number): string {
 }
 
 function renderBlocks(text: string, renderer: TokenRenderer, inAgent = false, askLayouts: ReadonlyMap<string, AskLayout> = new Map()): string {
-  const delegated = text.replace(DELEGATE, (_, agent: string, prompt: string, offset: number, source: string) =>
-    indented(renderer.delegate(agent, prompt.trim()), source, offset),
+  const delegated = text.replace(DELEGATE, (_, agent: string, batch: string | undefined, prompt: string, offset: number, source: string) =>
+    indented(renderer.delegate(agent, prompt.trim(), batch !== undefined), source, offset),
   )
   return delegated.replace(ASK, (_, id: string, free: string | undefined, question: string, offset: number, source: string) => {
     if (inAgent) return indented(agentAsk(id, question.trim()), source, offset)

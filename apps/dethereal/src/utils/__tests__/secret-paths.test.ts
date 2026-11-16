@@ -4,6 +4,7 @@ import {
   SECRET_MANIFEST_PATTERN,
   SECRET_PATHS,
   SECRET_SUFFIXES,
+  createSecretManifestScanner,
   isSecretManifestLine,
   isSecretManifestText,
   isSecretPath,
@@ -80,6 +81,60 @@ describe('secret paths: Secret manifests by their content', () => {
 
   it('finds the Secret in any document of a multi-document file', () => {
     expect(isSecretManifestText('kind: Deployment\n---\nkind: Service\n---\r\nkind: Secret\r\n')).toBe(true)
+  })
+})
+
+describe('secret manifest scanner: streaming a file read in chunks', () => {
+  // A whole string, and the same string fed one byte-ish at a time: both must read the same as the
+  // one-pass text test, whatever the chunk boundaries.
+  const scanWhole = (text: string) => { const s = createSecretManifestScanner(64); return s.push(text) || s.end() }
+  const scanChunked = (text: string, size: number) => {
+    const s = createSecretManifestScanner(64)
+    for (let i = 0; i < text.length; i += size) if (s.push(text.slice(i, i + size))) return true
+    return s.end()
+  }
+  const PAD = 300 * 1024
+
+  it.each([
+    ['a trailing-whitespace-padded Secret line still denies (the carry bug let it escape)', 'kind: Secret' + ' '.repeat(PAD), true],
+    ['a trailing # comment past the cap still denies', 'kind: Secret #' + 'c'.repeat(PAD), true],
+    ['a comment past the cap that holds a line terminator does not match', 'kind: Secret #' + 'c'.repeat(PAD) + ' x', false],
+    ['a huge non-secret line is not denied', 'description: ' + 'A'.repeat(PAD), false],
+    ['a Secret line with huge non-whitespace trailing junk is not a match', 'kind: Secret ' + 'A'.repeat(PAD), false],
+    ['leading whitespace padding still denies', ' '.repeat(PAD) + 'kind: Secret', true],
+    ['leading line-terminator padding still denies', ' '.repeat(PAD) + 'kind: Secret', true],
+    ['two commas still match (the optional char after secret plus the optional comma)', 'kind: Secret,,', true],
+    ['three commas do not match', 'kind: Secret,,,', false],
+    ['a line terminator inside a short comment does not match', 'kind: Secret # note kind: Secret', false],
+  ])('%s', (_name, text, expected) => {
+    expect(scanWhole(text)).toBe(expected)
+    expect(isSecretManifestText(text)).toBe(expected)
+  })
+
+  it('reads the same whatever the chunk size, even when a token straddles a boundary', () => {
+    const cases = ['kind: Secret\nother', 'x'.repeat(100) + '\nkind: Secret', 'kind: Secret' + ' '.repeat(200_000), 'kind: Secret #' + 'c'.repeat(200_000) + ' z', 'not a secret\n'.repeat(5000) + 'kind: Secret']
+    for (const text of cases) for (const size of [1, 7, 64, 1024, 64 * 1024]) {
+      expect(scanChunked(text, size)).toBe(isSecretManifestText(text))
+    }
+  })
+
+  it('reads every crafted line exactly as the one-pass text test does, whole and chunked', () => {
+    const pieces = ['kind', 'KIND', 'Kind', 'secret', 'Secret', 'SECRET', ':', ' ', '  ', '\t', '"', '-', '{', ',', '#', 'x', 's', 'k', '\r', ' ', ' ', '}', "'", '\n']
+    const random = seeded(7)
+    const lines = ['kind: Secret', '  kind: "Secret"  # the db password', '- kind: secret,', '{"kind": "Secret",', 'kind:Secret', 'kind: xSecretx',
+      'kind :  Secret,  #', 'kind: Secret\r', 'kind: Secret #a b', 'kind: Secret # note\r', 'kind:#secret', 'kind: Secret,,', 'kind: Deployment\n---\nkind: Secret\n']
+    for (let r = 0; r < 40_000; r++) {
+      let line = ''
+      for (let k = 1 + (r % 12); k > 0; k--) line += random.pick(pieces)
+      lines.push(line)
+    }
+    const bad = lines.filter((l) => {
+      const whole = (() => { const s = createSecretManifestScanner(64); return s.push(l) || s.end() })()
+      return whole !== isSecretManifestText(l)
+    })
+    expect(bad).toEqual([])
+    // The corpus must exercise the match path, not only rejections.
+    expect(lines.filter((l) => isSecretManifestText(l)).length).toBeGreaterThan(20)
   })
 })
 

@@ -32,7 +32,7 @@ Remove elements from a Dethernety threat model, with its dependencies checked fi
     `signed in`: check again and retry; `skip`: leave the step undone and say so.
 12. **The repository is the operator's:** no git command that changes it (`add`, `commit`, `reset`, `checkout`, `stash`, `revert`) unless the operator asks for exactly that; suggest it instead. An undo, the operator always runs.
 13. **The operator starts each command.** A `[next]` line is advice to the operator: never start the command it names yourself. Start another Dethereal skill only as a handover these instructions name; the operator starts every other one.
-14. **Model files through your edit tool.** Write `structure.json`, `dataflows.json`, `data-items.json`, `attributes/**` and `.dethereal/**` only with your edit tool — never through a shell: no heredoc, redirection, `tee`, in-place editor, script, `rm` or `mv`. Delete attribute files only through `mcp__plugin_dethereal_dethereal__model_state_prune`.
+14. **Model files through your edit tool.** Write `structure.json`, `dataflows.json`, `data-items.json`, `attributes/**` and `.dethereal/**` only with your edit tool — never through a shell: no heredoc, redirection, `tee`, in-place editor, script, `rm` or `mv`. Delete attribute files only through `mcp__plugin_dethereal_dethereal__model_state_prune`. Write no script anywhere, and nothing to a scratchpad or temporary folder the harness offers: files go only where these instructions say.
    Your edit tools: `Write` and `Edit`.
 
 **Secret Files** (the core rules point to them) — read the file below before any configuration is read; if it cannot be read, stop:
@@ -43,7 +43,7 @@ Read the file `${CLAUDE_SKILL_DIR}/secret-files.md` in full.
 
 A `directory-path` argument is used directly. Otherwise, if `.dethernety/models.json` lists exactly one model, use it implicitly; with several, show them as a numbered list (name, path, and `display_state` from `mcp__plugin_dethereal_dethereal__model_state` `get`), then ask:
 
-`[prompt: model-select]` Which model? (the number from the list, or a path) — a plain message; end your turn.
+`[prompt: model-select]` Which model? (the number from the list, or a path) — the tag first, then a plain message; end your turn.
 
 With none, suggest `/dethereal:create`. Read model files from disk at the start of each operation, never from memory.
 
@@ -52,7 +52,7 @@ With none, suggest `/dethereal:create`. Read model files from disk at the start 
 1. **The model.** Resolve it (Model Resolution Protocol; none → suggest `/dethereal:create` and stop); read `structure.json`, `dataflows.json` and `data-items.json`; `mcp__plugin_dethereal_dethereal__model_state` `get`.
 2. **The element**, from the arguments or the conversation, matched by name (ignoring case) or id. With several matches, show them as a numbered list — type, name, boundary — then ask:
 
-   `[prompt: remove-select]` Which one do you want to remove? Give its number. — a plain message; end your turn.
+   `[prompt: remove-select]` Which one do you want to remove? Give its number. — the tag first, then a plain message; end your turn.
 
 3. **Crown jewel first.** An element is a crown jewel when its id is mapped in the scope's `crown_jewel_elements` (a mapped data item included), when it is the only store holding a mapped data item, when it is a component with `crownJewel: true` in `structure.json`, or another element with `crown_jewel: true` in its attribute file (top level or under `attributes`). For one, say that removing it means the analysis no longer treats it as a security-critical asset, then ask:
 
@@ -68,7 +68,7 @@ With none, suggest `/dethereal:create`. Read model files from disk at the start 
    A data item is modelled once and shared: it is a dependent to remove only when no remaining element lists it in `dataItemIds`. A dependent that is a crown jewel (step 3's test) is asked about as step 3 says, before the confirmation below; `no` stops the whole removal.
 5. **Confirm.** With dependencies, show them as a table — what is removed with the element, what is left orphaned, which attribute files are deleted with it (after the operator approves the deletion) — then ask:
 
-   `[prompt: remove-confirm]` Remove the element and everything listed, keep everything, or (for a component) remove only the component and leave its flows flagged for review? (yes / no / component only) — the table, then the question with its choices numbered, in one message; end your turn.
+   `[prompt: remove-confirm]` Remove the element and everything listed, keep everything, or (for a component) remove only the component and leave its flows flagged for review? (yes / no / component only) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
    On `component only`, list its flows: they now miss an endpoint and fail validation until they are reconnected (`/dethereal:add`) or removed.
 
@@ -82,7 +82,7 @@ With none, suggest `/dethereal:create`. Read model files from disk at the start 
    - `deleted`, with `remaining` — the next page is `next_files`. When every file in it was in the confirmed table, call again with exactly `next_files`; otherwise show `next_files` and `not_deleted` as a table and ask `prune-confirm` below. (A result without `next_files`: a call with the files you expect is refused with `files_differ`, which lists the page.)
    - `files_differ` — the server's orphaned set is not the one named (older orphans, or files it will not delete). Show `orphaned_files` and `not_deleted` (with each reason) as a table, then ask:
 
-     `[prompt: prune-confirm]` Delete exactly these orphaned attribute files? The files listed as not deleted stay: remove or fix them by hand in your own terminal. (delete / keep) — the table, then the question with its choices numbered, in one message; end your turn.
+     `[prompt: prune-confirm]` Delete exactly these orphaned attribute files? The files listed as not deleted stay: remove or fix them by hand in your own terminal. (delete / keep) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
      On `delete`, call again with `orphaned_files`; on `keep`, or a reply that picks neither, delete nothing — Gate 2 names them. With no `orphaned_files` (none, or an empty list), there is nothing to delete: show `not_deleted`, ask nothing and call nothing again.
    - `attribute_issues` — its `files` cannot be read as element attributes (a flat or broken file): nothing was deleted. Name them; the operator fixes them, or removes them by hand in their own terminal, before a prune.

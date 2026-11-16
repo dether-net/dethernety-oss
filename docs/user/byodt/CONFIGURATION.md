@@ -41,6 +41,7 @@ A configuration change is not live until the affected containers are **recreated
 | `DB_DATA`, `SNAPSHOT_INTERVAL_SEC`, `NEO4J_DATA`, `NEO4J_HEAP_SIZE` or `NEO4J_PAGECACHE_SIZE` | `./byodt restart db` |
 | `DB_ENGINE` | `./byodt down`, then `./byodt up` — see [The database engine](#the-database-engine) first |
 | A certificate in `tls/` (added, replaced, or removed) | `./byodt restart proxy` |
+| `brand.json` or its logo in `branding/` (added, replaced, or removed) | `./byodt restart platform` — see [Branding your reports](#branding-your-reports) |
 | Connected or disconnected the cloud, in the console | `./byodt restart` |
 | Mounted or unmounted a content module, in the console | `./byodt restart platform` |
 | Updated the knowledge graph, in the console | `./byodt restart platform` |
@@ -50,7 +51,7 @@ A configuration change is not live until the affected containers are **recreated
 Two rules of thumb behind that table:
 
 - **`./byodt up` re-reads `.env` and the mode layer** and recreates whatever their values changed. It is the general apply step, and it is safe to run at any time — on an already-running deployment with no changes, it does nothing.
-- **A change made only inside a mounted directory** — a certificate file, a module directory — does not change any container's configuration, so it needs that service recreated explicitly. That is why the certificate and content rows above name a specific service. Adding or removing the proxy's CA file is different: it switches the variables that point the services at it, which `./byodt up` sees. Replacing it changes nothing `up` sees, and the platform and the console read it only when they start.
+- **A change made only inside a mounted directory** — a certificate file, a module directory, a brand file — does not change any container's configuration, so it needs that service recreated explicitly. That is why the certificate, content and brand rows above name a specific service. Adding or removing the proxy's CA file is different: it switches the variables that point the services at it, which `./byodt up` sees. Replacing it changes nothing `up` sees, and the platform and the console read it only when they start.
 
 `./byodt restart` with no service recreates everything. Naming a service (`./byodt restart proxy`) recreates only that one, leaving its dependencies untouched.
 
@@ -429,6 +430,35 @@ There is one good reason to open it. Nothing in the console shows you who may cu
 
 ---
 
+## Branding your reports
+
+Reports can carry your organisation's name, a link, a footer line and a logo. The platform reads them from `branding/` in the bundle directory. `byodt` creates the folder (mode `0755`) on the first start, and never changes the mode of one that exists. **An empty folder means unbranded reports.**
+
+**What goes in it.** `brand.json`, and the logo file it names, if any:
+
+```
+branding/
+├── brand.json
+└── logo.png
+```
+
+The fields, the size limits and the logo formats are in the [Configuration guide → Report branding](../../CONFIGURATION_GUIDE.md#report-branding). Everything in the brand is public: anyone who can reach the deployment can read it without signing in, so put nothing confidential in it.
+
+**Apply it.** After you add, replace or remove a file in `branding/`, run `./byodt restart platform`. Why `./byodt up` is not enough, and how upgrades, `./byodt destroy` and backups treat the folder, are in [Operations → Report branding](./OPERATIONS.md#report-branding).
+
+**Keep it yours.** The platform reads the folder read-only, under its own account. Keep the folder `0755` and each file `0644`, owned by you:
+
+```sh
+chmod 0755 branding
+chmod 0644 branding/brand.json branding/logo.png
+```
+
+Copy the files in; do not link them. A symbolic link inside `branding/` does not resolve inside the platform's container. `branding` itself may be a symbolic link to a directory of yours.
+
+**What `byodt` checks.** Before `up`, `restart`, `update`, `upgrade`, `models pull` and `compose`, `byodt` looks over `branding/`. It stops the command only when `branding` cannot be mounted. Anything else it finds gets a warning that names the fix, and the command carries on. The refusals, the warnings and what the platform logs about the brand are in [Troubleshooting → Report branding](./TROUBLESHOOTING.md#report-branding).
+
+---
+
 ## Files `byodt` keeps for itself
 
 Besides your configuration, `byodt` keeps a few records in the bundle directory. Leave them in place: they belong to the deployment, not to a release. No release ships them; `byodt` writes them itself.
@@ -449,7 +479,7 @@ Two separate things, with different lifetimes:
 | What | Why | How |
 |---|---|---|
 | The graph | Your models, findings, and controls | `./byodt backup`, then copy the file off the machine. See [Backing up and restoring](./OPERATIONS.md#backing-up-and-restoring-the-graph). |
-| `.env`, `.env.secrets`, `mode/`, `tls/`, `proxy-ca/` | Your configuration, the database password and any proxy login, the posture, your certificate, and any proxy CA | Copy them somewhere private. They are small and change rarely. |
+| `.env`, `.env.secrets`, `mode/`, `tls/`, `proxy-ca/`, `branding/` | Your configuration, the database password and any proxy login, the posture, your certificate, any proxy CA, and any report brand | Copy them somewhere private. They are small and change rarely. |
 
 With those two, a lost machine costs you a re-download and a restore — not your work.
 

@@ -114,17 +114,26 @@ export class ManageAnalysesTool extends ClientDependentTool<ManageAnalysesInput,
         }
 
         case 'results': {
+          // The analysis's main document, as the platform's own results view reads it: an analysis module answers an
+          // empty filter with an error, not its results.
           const results = await dtAnalysis.getDocument({
             analysisId: input.analysis_id!,
-            filter: {}
+            filter: { document: 'index' }
           })
-          if (!results) {
+          // An empty document is what the platform answers for an analysis with no results, and for one it does not
+          // have; a document holding only an error is none either: never a finished analysis.
+          // A report analysis not yet run answers its one key with `{generated: false}`: no results either.
+          const keys = results && typeof results === 'object' && !Array.isArray(results) ? Object.keys(results) : null
+          const only = keys?.length === 1 ? (results as Record<string, unknown>)[keys[0]!] : undefined
+          const placeholder = only !== null && typeof only === 'object' && (only as { generated?: unknown }).generated === false
+          const empty = !results || (keys !== null && (keys.length === 0 || (keys.length === 1 && keys[0] === 'error') || placeholder))
+          if (empty) {
             return {
               success: true,
               data: {
                 analysis_id: input.analysis_id,
                 status: 'no_results',
-                message: 'No results available yet. Check "status" to verify the analysis has completed.'
+                message: 'No results: the analysis has none yet, does not exist, or could not be read. Check "status" to see whether it has completed.'
               }
             }
           }

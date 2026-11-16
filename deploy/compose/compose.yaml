@@ -150,9 +150,14 @@ services:
       http_proxy: ""
       NODE_USE_ENV_PROXY: ${BYODT_NODE_USE_ENV_PROXY:-}
       NODE_EXTRA_CA_CERTS: ${BYODT_NODE_EXTRA_CA_CERTS:-}
+      # The installation's brand for its reports, read at start: brand.json in branding/, with the logo it names.
+      # When brand.json is missing or unusable, reports are unbranded; a logo the platform cannot use is dropped.
+      BRANDING_FILE: /branding/brand.json
     volumes:
       # Read-only: the CA of a TLS-inspecting proxy, when there is one (byodt creates the directory).
       - ./proxy-ca:/proxy-ca:ro
+      # Read-only: the installation's brand for its reports (byodt creates the directory).
+      - ./branding:/branding:ro
       # Read-only: the platform loads modules the one-shot placed.
       - ./modules:/app/apps/dt-ws/custom_modules:ro
       # Single-file mount, so the generated no-auth schema lands beside the baked

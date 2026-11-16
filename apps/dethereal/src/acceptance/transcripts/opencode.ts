@@ -12,6 +12,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { RawEvent } from './types.js'
+import { SECRET_GUARD_MARKER } from '../../cli/secret-guard.js'
 
 type Rec = Record<string, any>
 
@@ -20,6 +21,31 @@ type Rec = Record<string, any>
  * error with this text and records no answer. Any other error is a failed dialog.
  */
 const DISMISSED = 'The user dismissed this question'
+
+/**
+ * OpenCode's error for a call a permission rule denies, and for one the operator declined (with or without feedback).
+ * Neither is a prefix of the product plugin's own refusals, which begin with the secret guard's marker or `Dethereal: `.
+ */
+const RULE_DENIED = 'The user has specified a rule which prevents you from using this specific tool call'
+const OPERATOR_DECLINED = 'The user rejected permission to use this specific tool call'
+/**
+ * A path a `task` prompt mentions, as OpenCode finds one (`@path`): OpenCode reads each mentioned file into the
+ * subagent's context itself, past the harness's own tools, so no tool call of the transcript shows that read.
+ */
+export const MENTION = /(?<![\w`])@(\.?[^\s`,.]*(?:\.[^\s`,.]+)*)/g
+/** The tools the product's plugin checks with its config guard, whose refusals begin `Dethereal: `. */
+const CONFIG_GUARDED = new Set(['write', 'edit', 'multiedit', 'patch', 'apply_patch'])
+
+/**
+ * Who refused a call that never ran, as its error says, in the kinds the Claude parser records: a rule or hook
+ * (the plugin's guards, a permission rule) or the operator. Any other error is a call that ran and failed.
+ */
+export function refusalKind(tool: string, error: string): 'permission-rule' | 'user-rejected' | undefined {
+  if (error.startsWith(SECRET_GUARD_MARKER) || error.startsWith(RULE_DENIED)) return 'permission-rule'
+  if (error.startsWith('Dethereal: ') && CONFIG_GUARDED.has(tool)) return 'permission-rule'
+  if (error.startsWith(OPERATOR_DECLINED)) return 'user-rejected'
+  return undefined
+}
 
 const readJson = (file: string): Rec[] => {
   try {
@@ -68,6 +94,14 @@ export function parseOpenCode(dir: string): OpenCodeParse {
   const parts = readJson(path.join(dir, 'opencode-parts.json'))
     .map((p): Rec => ({ ...p, d: JSON.parse(p.data) as Rec }))
     .sort((a, b) => a.time_created - b.time_created || (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0))
+  /** Whether a task of `parent`'s began its subagent: its result names the session, or a child session of `parent` holds a part within the call. */
+  const childBegan = (parent: string, st: Rec): boolean => {
+    if (typeof st.metadata?.sessionId === 'string' && st.metadata.sessionId) return true
+    const from = st.time?.start, to = st.time?.end
+    if (typeof from !== 'number' || typeof to !== 'number') return false
+    const children = new Set(sessions.filter((s) => s.parent_id === parent).map((s) => s.id))
+    return parts.some((p) => children.has(p.session_id) && p.time_created >= from && p.time_created <= to)
+  }
   const main = sessions.find((s) => !s.parent_id)
   const cwd: string | null = main?.directory ?? null
   const roleOf = new Map(messages.map((m) => [m.id as string, m.d.role as string]))
@@ -110,6 +144,9 @@ export function parseOpenCode(dir: string): OpenCodeParse {
         const tool = typeof d.tool === 'string' && d.tool.startsWith('dethereal_') ? `dethereal.${d.tool.slice('dethereal_'.length)}` : d.tool
         const output = String(st.output ?? st.error ?? '')
         const call = { actor: base.actor, actorId: base.actorId, turn: base.turn, tool, callId: d.callID as string }
+        // A refused call never ran; the attempt stays on record.
+        const refused = isError ? refusalKind(String(d.tool), String(st.error ?? '')) : undefined
+        const denied = refused ? { denied: refused } : {}
         if (tool === 'question') {
           events.push({ ...call, ts: start, kind: 'ask', input })
           const picked = st.metadata?.answers
@@ -119,16 +156,17 @@ export function parseOpenCode(dir: string): OpenCodeParse {
           break
         }
         if (tool === 'task') {
-          events.push({ ...call, ts: start, kind: 'subagent_start', input, text: input.subagent_type })
-          events.push({ ...call, ts: end, kind: 'subagent_end', text: output, isError })
+          const mentions = typeof input.prompt === 'string' ? [...new Set(Array.from(input.prompt.matchAll(MENTION), (m) => m[1]!).filter(Boolean))] : []
+          events.push({ ...call, ts: start, kind: 'subagent_start', input, text: input.subagent_type, ...(mentions.length ? { mentions } : {}), ...denied })
+          events.push({ ...call, ts: end, kind: 'subagent_end', text: output, isError, ...(childBegan(p.session_id, st) ? { started: true } : {}) })
           break
         }
         if (tool === 'bash') {
-          events.push({ ...call, ts: start, kind: 'shell', input, text: input.command })
+          events.push({ ...call, ts: start, kind: 'shell', input, text: input.command, ...denied })
           events.push({ ...call, ts: end, kind: 'tool_result', text: output, isError })
           break
         }
-        events.push({ ...call, ts: start, kind: 'tool_call', input })
+        events.push({ ...call, ts: start, kind: 'tool_call', input, ...denied })
         events.push({ ...call, ts: end, kind: 'tool_result', text: output, isError })
         if (isError) break
         if (tool === 'write') {

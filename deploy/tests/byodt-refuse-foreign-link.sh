@@ -87,8 +87,9 @@ OWNER=""
 rc="$(layout_run "$work/b1")"
 if [ "$rc" -eq 0 ] && [ "$(mode_of "$work/b1/data")" = 1777 ] && [ "$(mode_of "$work/b1/data/models")" = 1777 ] \
   && [ "$(mode_of "$work/b1/data/content-cache")" = 777 ] && [ "$(mode_of "$work/b1/data/memgraph")" = 777 ] \
-  && [ "$(mode_of "$work/b1/tls")" = 700 ]; then echo "ok   ensure_layout: data/ and data/models sticky, the other runtime dirs 0777, tls 0700"
-else echo "FAIL ensure_layout modes (rc $rc): data $(mode_of "$work/b1/data") models $(mode_of "$work/b1/data/models") cache $(mode_of "$work/b1/data/content-cache") $(cat "$work/b1.out")"; fail=1; fi
+  && [ "$(mode_of "$work/b1/tls")" = 700 ] && [ "$(mode_of "$work/b1/branding")" = 755 ]; then
+  echo "ok   ensure_layout: data/ and data/models sticky, the other runtime dirs 0777, tls 0700, branding 0755"
+else echo "FAIL ensure_layout modes (rc $rc): data $(mode_of "$work/b1/data") models $(mode_of "$work/b1/data/models") cache $(mode_of "$work/b1/data/content-cache") branding $(mode_of "$work/b1/branding" 2>&1) $(cat "$work/b1.out")"; fail=1; fi
 
 # Memgraph's layout makes no Neo4j directories.
 if [ ! -e "$work/b1/data/neo4j" ] && [ ! -e "$work/b1/data/neo4j-logs" ]; then

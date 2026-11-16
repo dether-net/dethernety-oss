@@ -21,6 +21,10 @@
  *   - the source of this package that reaches the bundle (src/, without tests, prose, fixture
  *     sources and the development code the build refuses to bundle);
  *   - the source of every workspace package it bundles (reached through a `link:` in the lockfile);
+ *     for a package bundled only through pure subpath entries (SUBPATH_WORKSPACES), only those
+ *     entries' files, its compiler configuration, and its manifest's `type` and those entries'
+ *     `exports`, and none of its dependencies (the entries import nothing outside their files: the
+ *     package's own purity test and the shipped build's metafile check hold that);
  *   - every file the tarball ships as committed (the `files` entries other than dist/);
  *   - the ranges a consumer would resolve (dependencies, peerDependencies, optionalDependencies).
  *
@@ -51,6 +55,31 @@ const BUNDLED_PACKAGES = [
   'ajv', 'ajv-formats', 'fast-deep-equal', 'fast-uri', 'graphql', 'graphql-tag', 'js-yaml', 'json-schema-traverse',
   'jsonc-parser', 'optimism', 'rxjs', 'smol-toml', 'tslib', 'zod', 'zod-to-json-schema',
 ]
+
+/**
+ * Workspace packages bundled only through pure subpath entries, by their lockfile path: the source files that
+ * reach the bundle, the compiler configuration that shapes them, and the `exports` entries the bundle resolves.
+ * Their dependencies are not walked. The shipped-build test keeps the sources equal to the metafile check's
+ * SUBPATH_ONLY_WORKSPACES.
+ */
+const SUBPATH_WORKSPACES = {
+  'packages/dt-module': {
+    sources: ['src/condition-groups.ts', 'src/kg/condition-groups.ts', 'src/kg/condition-operators.ts', 'src/remediation-honesty.ts'],
+    config: ['tsconfig.json', 'tsconfig.build.json'],
+    exports: ['./condition-groups', './remediation-honesty'],
+  },
+}
+
+/** The part of a subpath workspace's manifest the bundle depends on: its module type and the bundled entries. */
+function subpathManifestView(text, exportNames) {
+  if (text === null) return null
+  try {
+    const m = JSON.parse(text)
+    return JSON.stringify({ type: m.type ?? null, exports: exportNames.map((e) => m.exports?.[e] ?? null) })
+  } catch {
+    return 'unparseable'
+  }
+}
 
 /** Tools that run at build or test time only; their dependency trees are not walked. */
 const BUILD_ONLY = new Set(['tsup', 'tsx', 'typescript', 'vitest', 'yaml'])
@@ -135,7 +164,7 @@ function resolveBundle(lockText, lockDir) {
           const target = path.posix.normalize(path.posix.join(importerDir, version.slice('link:'.length)))
           if (workspaces.has(target)) continue
           workspaces.add(target)
-          visitImporter(target, ['dependencies'])
+          if (!Object.prototype.hasOwnProperty.call(SUBPATH_WORKSPACES, target)) visitImporter(target, ['dependencies'])
         } else {
           visit(name, version)
         }
@@ -186,6 +215,7 @@ if (describe) {
     bundledPackages: BUNDLED_PACKAGES,
     devOnlySources: DEV_ONLY_SOURCES,
     resolved: [...bundleAfter.versions].sort(),
+    subpathWorkspaces: SUBPATH_WORKSPACES,
     workspaces: bundleAfter.workspaces.map(rel).sort(),
   }))
   process.exit(0)
@@ -263,7 +293,16 @@ const shippedFiles = changedFiles(baseRef, committed.map((f) => rel(path.join(pk
 
 const workspaceSource = []
 for (const dir of new Set([...bundleBefore.workspaces, ...bundleAfter.workspaces])) {
-  for (const p of changedFiles(baseRef, [rel(path.join(dir, 'src'))])) if (!notShippedSource(p)) workspaceSource.push(p)
+  const subpath = SUBPATH_WORKSPACES[path.relative(lockDir, dir).split(path.sep).join('/')]
+  const watched = subpath ? [...subpath.sources, ...subpath.config].map((f) => rel(path.join(dir, f))) : [rel(path.join(dir, 'src'))]
+  for (const p of changedFiles(baseRef, watched)) if (!notShippedSource(p)) workspaceSource.push(p)
+  if (subpath) {
+    const manifestRel = rel(path.join(dir, 'package.json'))
+    const now = existsSync(path.join(dir, 'package.json')) ? readFileSync(path.join(dir, 'package.json'), 'utf-8') : null
+    if (subpathManifestView(fileAt(baseRef, manifestRel), subpath.exports) !== subpathManifestView(now, subpath.exports)) {
+      workspaceSource.push(`${manifestRel} (its type or a bundled entry's exports)`)
+    }
+  }
 }
 
 const total = manifestFields.length + ranges.length + resolved.length + ownSource.length + shippedFiles.length + workspaceSource.length

@@ -10,6 +10,8 @@ import { GlobalExceptionFilter } from './common/filters/global-exception.filter'
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { environmentValidation } from './config/environment.validation';
 import { SpaFallbackController } from './common/controllers/spa-fallback.controller';
+import { BrandingController } from './branding/branding.controller';
+import { BrandingService } from './branding/branding.service';
 import { join } from 'path';
 
 @Module({
@@ -57,8 +59,11 @@ import { join } from 'path';
     BootstrapModule,
     GqlModule,
   ],
-  controllers: [AppController, SpaFallbackController],
+  controllers: [AppController, BrandingController, SpaFallbackController],
   providers: [
+    // The installation's brand file, read once at start-up
+    BrandingService,
+
     // Global error handling
     {
       provide: APP_FILTER,

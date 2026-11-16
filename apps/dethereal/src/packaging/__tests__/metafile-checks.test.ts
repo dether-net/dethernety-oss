@@ -280,3 +280,59 @@ describe('a failed build', () => {
     }
   }, 60_000)
 })
+
+describe('a workspace package bundled only through its pure subpaths', () => {
+  /** dt-module's tree in the scratch repo; returns an input path for one of its files. */
+  function dtModuleFile(rel: string, text = 'module.exports = {}'): string {
+    writeFile('packages/dt-module/package.json', JSON.stringify({ name: '@dethernety/dt-module', version: '0.15.0' }))
+    writeFile(`packages/dt-module/${rel}`, text)
+    return path.relative(workingDir, path.join(tmp, 'packages', 'dt-module', rel))
+  }
+
+  it('passes the subpath files, importing only each other and the bundler\'s helpers', () => {
+    const entry = dtModuleFile('dist/condition-groups.js')
+    const groups = dtModuleFile('dist/kg/condition-groups.js')
+    const operators = dtModuleFile('dist/kg/condition-operators.js')
+    const honesty = dtModuleFile('dist/remediation-honesty.js')
+    const r = check(meta({
+      [entry]: [{ path: groups, kind: 'require-call' }, { path: operators, kind: 'require-call' }, { path: '<runtime>', kind: 'import-statement' }],
+      [groups]: [{ path: operators, kind: 'require-call' }],
+      [operators]: [],
+      [honesty]: [],
+    }))
+    expect(r.errors).toEqual([])
+  })
+
+  it('counts the files it judged, by package', () => {
+    const entry = dtModuleFile('dist/condition-groups.js')
+    const honesty = dtModuleFile('dist/remediation-honesty.js')
+    expect(check(meta({ [entry]: [], [honesty]: [] })).subpathFiles).toEqual({ '@dethernety/dt-module': 2 })
+    expect(check(meta({})).subpathFiles).toEqual({ '@dethernety/dt-module': 0 })
+  })
+
+  it('refuses the package bundled from node_modules, where its files cannot be judged', () => {
+    const copy = pkg('@dethernety/dt-module', 'AGPL-3.0-only')
+    const r = check(meta({ [copy]: [] }))
+    expect(r.errors).toContainEqual(expect.stringContaining('@dethernety/dt-module is bundled from node_modules, where its pure subpaths cannot be checked'))
+    expect(r.subpathFiles).toEqual({ '@dethernety/dt-module': 0 })
+  })
+
+  it('refuses any other file of the package', () => {
+    const index = dtModuleFile('dist/index.js')
+    expect(check(meta({ [index]: [] })).errors).toEqual([expect.stringContaining('may be bundled only through its pure subpaths, not dist/index.js')])
+  })
+
+  it('looks past a package.json without a name, such as one beside the built files', () => {
+    const index = dtModuleFile('dist/index.js')
+    writeFile('packages/dt-module/dist/package.json', JSON.stringify({ type: 'commonjs' }))
+    expect(check(meta({ [index]: [] })).errors).toEqual([expect.stringContaining('not dist/index.js')])
+  })
+
+  it('refuses a subpath file that imports a dependency or another file of the package', () => {
+    const groups = dtModuleFile('dist/kg/condition-groups.js')
+    const schema = dtModuleFile('dist/kg/schema.js')
+    const dep = pkg('@nestjs/common', 'MIT')
+    const r = check(meta({ [groups]: [{ path: dep, kind: 'require-call' }, { path: schema, kind: 'require-call' }] }))
+    expect(r.errors.filter((e) => e.includes("outside @dethernety/dt-module's pure subpaths"))).toHaveLength(2)
+  })
+})

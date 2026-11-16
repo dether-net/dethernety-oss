@@ -964,4 +964,4 @@ The two spellings are not interchangeable. The snake_case `crown_jewel` that can
 
 ---
 
-**Next:** [Command Reference](COMMAND_REFERENCE.md) — all 14 commands with syntax and examples
+**Next:** [Command Reference](COMMAND_REFERENCE.md) — all 15 commands with syntax and examples

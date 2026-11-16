@@ -1,7 +1,7 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Neo4jGraphQL } from '@neo4j/graphql';
-import { parse, GraphQLError } from 'graphql';
+import { defaultFieldResolver, parse, GraphQLError, GraphQLSchema } from 'graphql';
 import * as fs from 'fs/promises';
 import { accessSync } from 'fs';
 import * as path from 'path';
@@ -31,6 +31,28 @@ const UPSTREAM_REFUSAL_CODES = new Map<string, string>([
   ['invalid_token', 'UNAUTHENTICATED'],
   ['token_expired', 'UNAUTHENTICATED'],
 ]);
+
+/**
+ * Whether a root field or a module resolver needs a verified `context.user`.
+ * Authentication is off ONLY when all three conditions are met, mirroring
+ * SchemaService.resolveSchemaPath():
+ *   1. NODE_ENV is NOT 'production'
+ *   2. OIDC is NOT configured
+ *   3. ENABLE_NOAUTH is explicitly 'true'
+ */
+export function authenticationRequired(config: Pick<GqlConfig, 'oidcJwksUri' | 'enableNoauth'>): boolean {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const oidcConfigured = !!config.oidcJwksUri;
+  const noauthEnabled = !!config.enableNoauth;
+  return isProduction || oidcConfigured || !noauthEnabled;
+}
+
+/** The refusal of a request that needs a verified user and has none. */
+export function authenticationRequiredError(): GraphQLError {
+  return new GraphQLError('Authentication required', {
+    extensions: { code: 'UNAUTHENTICATED' },
+  });
+}
 
 @Injectable()
 export class SchemaService implements ISchemaService {
@@ -200,6 +222,7 @@ export class SchemaService implements ISchemaService {
     });
 
     const schema = await neoSchema.getSchema();
+    this.requireUserOnRootFields(schema);
     // The query guards price filters on @cypher fields; the executable schema keeps no directives to find them by.
     registerCypherFields(schema, typeDefs);
     return schema;
@@ -405,6 +428,35 @@ export class SchemaService implements ISchemaService {
   }
 
   /**
+   * Puts the gate module resolvers get in front of every Query and Mutation
+   * field of the composed schema: platform, module and generated alike. A
+   * request without a verified `context.user` is refused before the field's
+   * resolver runs, unless authentication is off (authenticationRequired).
+   * It covers every root field of the composed schema, including fields
+   * added later. The resolvers' own
+   * checks (requireAdmin, the `sub` checks) still run inside. Subscriptions
+   * are gated by their transports.
+   */
+  private requireUserOnRootFields(schema: GraphQLSchema): void {
+    if (!authenticationRequired(this.config)) return;
+    const logger = this.logger;
+    for (const type of [schema.getQueryType(), schema.getMutationType()]) {
+      if (!type) continue;
+      for (const field of Object.values(type.getFields())) {
+        const resolve = field.resolve ?? defaultFieldResolver;
+        const fieldPath = `${type.name}.${field.name}`;
+        field.resolve = (source, args, context, info) => {
+          if (!context?.user) {
+            logger.warn(`Resolver ${fieldPath} called without authentication`);
+            throw authenticationRequiredError();
+          }
+          return resolve(source, args, context, info);
+        };
+      }
+    }
+  }
+
+  /**
    * Merges module-contributed resolvers into the resolver map.
    * Each module resolver is wrapped with auth, timeout, logging, and error handling.
    *
@@ -461,11 +513,7 @@ export class SchemaService implements ISchemaService {
   ): ResolverFunction {
     const logger = this.logger;
     const timeoutMs = this.MODULE_RESOLVER_TIMEOUT_MS;
-    const isProduction = process.env.NODE_ENV === 'production';
-    const oidcConfigured = !!this.config.oidcJwksUri;
-    const noauthEnabled = !!this.config.enableNoauth;
-    // noauth only effective in non-production without OIDC — mirrors resolveSchemaPath()
-    const authRequired = isProduction || oidcConfigured || !noauthEnabled;
+    const authRequired = authenticationRequired(this.config);
     const fieldPath = `${moduleName}:${typeName}.${fieldName}`;
 
     return async (parent, args, context, info) => {
@@ -479,15 +527,10 @@ export class SchemaService implements ISchemaService {
       // "Bearer <anything>" through. context.user is undefined for an
       // invalid/absent token; in the no-OIDC non-prod dev mode it holds the
       // mock admin.
-      // The gate itself is skipped ONLY when all three conditions are met:
-      //   1. NODE_ENV is NOT 'production'
-      //   2. OIDC is NOT configured
-      //   3. ENABLE_NOAUTH is explicitly 'true'
+      // The gate itself is skipped only as authenticationRequired() says.
       if (authRequired && !context?.user) {
         logger.warn(`Module resolver ${fieldPath} called without authentication`);
-        throw new GraphQLError('Authentication required', {
-          extensions: { code: 'UNAUTHENTICATED' },
-        });
+        throw authenticationRequiredError();
       }
 
       // Invoke with timeout

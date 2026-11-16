@@ -207,6 +207,42 @@ On the first start with this profile, embedding every class once takes about 0.2
 
 The [BYODt bundle](user/byodt/CONFIGURATION.md#embedding) sets `EMBEDDING_ENABLED=true`, leaves `EMBEDDING_MODEL` unset, and keeps the weights in `./data/models` on the host (`EMBEDDING_MODEL_DIR=/models` in the container), so a recreate does not download them again. Its `console-init` step refuses, before it ingests, a platform model other than the one the release's MITRE data was embedded with, and the platform then does not start.
 
+### Report branding
+
+An installation can put its own name, link, footer line and logo on its reports. Write a `brand.json`, put the logo file (if any) in the same folder, and point `BRANDING_FILE` at the JSON.
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `BRANDING_FILE` | String | — | Path to `brand.json`. Unset or empty = reports are unbranded. A relative path resolves against the dt-ws working directory. |
+
+dt-ws reads the file once, at startup; changes apply on restart.
+
+**brand.json.** A JSON object of at most 8 KiB:
+
+| Field | Required | Rules |
+|-------|----------|-------|
+| `name` | Yes | 1–120 characters. |
+| `url` | No | `https://` only, without a user name or password; up to 300 characters. |
+| `footer` | No | A line of text, up to 300 characters. |
+| `logo` | No | A plain file name in the same folder as `brand.json`: no `/`, no `\`, no leading `.`. |
+
+Values are trimmed, and an empty optional value counts as unset. Control and text-direction characters are refused. Unknown keys are ignored and logged.
+
+```json
+{
+  "name": "Example Studio",
+  "url": "https://example.com",
+  "footer": "Prepared by Example Studio",
+  "logo": "logo.png"
+}
+```
+
+**Logo.** PNG, JPEG or WebP, recognised by its content, not its file name; SVG and every other format are refused. At most 256 KiB and at most 2048×2048 pixels. The logo and `brand.json` must be regular files, not symbolic links.
+
+**When something is wrong.** The brand file never stops dt-ws from starting. A missing `brand.json` is logged once as information (`Brand file <path> does not exist; reports are unbranded`): an installation may set `BRANDING_FILE` before it has a brand. An unreadable or invalid one is logged once as a warning. Either way, reports are unbranded. A file that is a symbolic link is refused, so a folder mounted from a Kubernetes ConfigMap or Secret (whose files are links) needs `subPath` mounts or copied files. A logo that is missing or refused, or a `logo` value that is not a plain file name, is logged and dropped; the rest of the brand still applies. On success the startup log reads `Brand loaded from <path>`, followed by `with a logo` when the logo was accepted.
+
+**What is served.** `GET /config` carries the brand as `branding` (see [Frontend Settings](#frontend-settings-served-via-config)), and the logo is served at `/branding/logo/<sha256>`. Both need no sign-in, so everything in the brand is public. The logo is meant for report exports, which embed it as a `data:` image. See [Security Model](SECURITY_MODEL.md#installation-branding).
+
 ### Frontend Settings (served via /config)
 
 These backend environment variables are served to the frontend through the `GET /config` endpoint:
@@ -215,6 +251,8 @@ These backend environment variables are served to the frontend through the `GET 
 |----------|------|---------|-------------|
 | `APP_URL` | URL | auto-detect | Application base URL (e.g., `https://app.example.com`) |
 | `APP_BASE_URL` | String | `/` | Base path for routing |
+| `SETTINGS_URL` | String | — | Served as `settingsUrl`: the target of a **Settings** item in the sidebar. Unset or empty hides the item. The frontend ignores a value that is not an `http(s)` URL or a path starting with `/`. |
+| `BRANDING_FILE` | String | — | Served as `branding`: `{ name, url?, footer?, logoUrl?, logoWidth?, logoHeight? }`, or `null` when the installation is unbranded. See [Report branding](#report-branding). |
 | `DEBUG_AUTH` | Boolean | `false` | Enable auth debug logging. Not served in production. |
 | `ENABLE_DEV_TOOLS` | Boolean | `false` | Enable development tools. Not served in production. |
 
@@ -388,6 +426,6 @@ When embedding is enabled, `GET /health` includes an `embedder` block with its `
 
 ## Configuration Validation
 
-All environment variables are validated at startup using [class-validator](https://github.com/typestack/class-validator). Invalid configuration causes the application to fail fast with descriptive error messages. This includes the embedding settings: an `EMBEDDING_THRESHOLD_<CORPUS>` that is not a number or lies outside -1..1, an `EMBEDDING_THREADS` outside 1–64, or, with embedding enabled, an `EMBEDDING_MODEL` this release does not offer, stops the backend from starting, with a message that names the variable (see [Embedding](#embedding-search-by-meaning)). The removed HTTP embedder's settings are not validated: they are ignored.
+All environment variables are validated at startup using [class-validator](https://github.com/typestack/class-validator). Invalid configuration causes the application to fail fast with descriptive error messages. This includes the embedding settings: an `EMBEDDING_THRESHOLD_<CORPUS>` that is not a number or lies outside -1..1, an `EMBEDDING_THREADS` outside 1–64, or, with embedding enabled, an `EMBEDDING_MODEL` this release does not offer, stops the backend from starting, with a message that names the variable (see [Embedding](#embedding-search-by-meaning)). The removed HTTP embedder's settings are not validated: they are ignored. For `BRANDING_FILE` only the type is checked at this stage; the brand file's content is checked when dt-ws loads it, and a bad file leaves reports unbranded instead of stopping the start (see [Report branding](#report-branding)).
 
 The validation schema is defined in [environment.validation.ts](../apps/dt-ws/src/config/environment.validation.ts). Database-specific validation is in [database.config.ts](../apps/dt-ws/src/database/database.config.ts).

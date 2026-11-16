@@ -107,6 +107,17 @@ describe('model files and scopes', () => {
     // Writes that name no model file, and reads of model files, are not model writes.
     expect(shellModelWrites('echo hi > notes.txt', '', dirs)).toEqual([])
     expect(shellModelWrites('cat tm/x/structure.json | jq .', '', dirs)).toEqual([])
+    // jq only reads: its -c and -e are output and exit-status options, bare or inside a shell's -c.
+    expect(shellModelWrites("jq -c '.elements' tm/x/structure.json", '', dirs)).toEqual([])
+    expect(shellModelWrites("jq -e '.boundaries | length' tm/x/structure.json", '', dirs)).toEqual([])
+    expect(shellModelWrites("/bin/zsh -lc \"jq -c '.flows[0]' tm/x/dataflows.json\"", '', dirs)).toEqual([])
+    // jq writes only when something downstream does: a redirection, tee, sponge, dd.
+    expect(shellModelWrites("jq -c '.a' tm/x/structure.json > tm/x/manifest.json", '', dirs)).toEqual(['tm/x/structure.json', 'tm/x/manifest.json'])
+    expect(shellModelWrites("jq '.a' tm/x/structure.json | tee tm/x/manifest.json", '', dirs)).toEqual(['tm/x/structure.json', 'tm/x/manifest.json'])
+    expect(shellModelWrites("jq -c '.a' tm/x/structure.json | sponge tm/x/structure.json", '', dirs)).toEqual(['tm/x/structure.json'])
+    expect(shellModelWrites("jq -n '{}' | dd of=tm/x/manifest.json", '', dirs)).toEqual(['tm/x/manifest.json'])
+    // Known limit: a quoted filter holding `>` still reads as a redirection.
+    expect(shellModelWrites("jq -e '.n > 1' tm/x/structure.json", '', dirs)).toEqual(['tm/x/structure.json'])
     expect(shellModelWrites('ls tm/x', '', dirs)).toEqual([])
     // A write through a command that only mentions a model file name, without a path the replay can place: anything.
     expect(shellModelWrites('node script.js > out && echo manifest.json', '/elsewhere', [], '/work/project')).toEqual(['*'])
@@ -136,6 +147,17 @@ describe('replay', () => {
     const r = replay(events)
     expect(r.opaque).toEqual([{ path: P, since: 1, resyncedAt: 2, pointer: '/s', before: 'A', after: 'B' }])
     expect(r.attributions.every((a) => a.event === 0)).toBe(true)
+  })
+
+  it('never makes a file unknown for a server write the harness refused: the call never ran', () => {
+    builder.reset()
+    const r = replay([
+      write('{"s":"A"}'),
+      ev({ kind: 'server_write', tool: 'dethereal.model_state', touches: ['tm/x/.dethereal/'], denied: 'user-rejected' }),
+      ev({ kind: 'file_read', path: P, modelFile: true, content: '{"s":"B"}' }),
+    ])
+    // The change is no longer the refused call's: nothing the transcript shows made it.
+    expect(r.opaque).toEqual([{ path: P, since: -1, resyncedAt: 2, pointer: '/s', before: 'A', after: 'B' }])
   })
 
   it('names the writes made while a file was unknown, since the change may be theirs', () => {
@@ -368,6 +390,16 @@ describe('reconcile', () => {
       tracked('tm/x/structure.json', start),
     ]
     expect(reconcile('opencode', events).unobserved).toEqual([{ path: 'tm/x/structure.json', harnessEvent: 1, window: [0, 1], shellInWindow: false }])
+  })
+
+  it('never counts a refused server write as the writer of a tracked change', () => {
+    const start = '2026-01-01T00:00:00Z'
+    const events = (denied?: string) => {
+      builder.reset()
+      return [ev({ kind: 'server_write', tool: 'dethereal.update_model', touches: ['tm/x/'], ...(denied ? { denied } : {}) }), tracked('tm/x/structure.json', start)]
+    }
+    expect(reconcile('opencode', events()).unobserved).toEqual([])
+    expect(reconcile('opencode', events('permission-rule')).unobserved).toEqual([{ path: 'tm/x/structure.json', harnessEvent: 1, window: [0, 1], shellInWindow: false }])
   })
 
   it('reports a write the harness did not track, without failing it', () => {

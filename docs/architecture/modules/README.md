@@ -181,7 +181,7 @@ This folder contains the following documentation:
 | **README.md** (this file) | Module system introduction and navigation |
 | [DT_MODULE_INTERFACE.md](./DT_MODULE_INTERFACE.md) | Core DTModule contract and metadata interfaces |
 | [BASE_CLASSES.md](./BASE_CLASSES.md) | Implementation patterns (OPA, LangGraph) |
-| [UTILITY_CLASSES.md](./UTILITY_CLASSES.md) | Helper classes (DbOps, LangGraph ops) |
+| [UTILITY_CLASSES.md](./UTILITY_CLASSES.md) | Helper classes (DbOps, LangGraph ops), ad-hoc Rego, the policy hash, and the pure subpaths `./condition-groups` and `./remediation-honesty` |
 | [DEVELOPMENT_GUIDE.md](./DEVELOPMENT_GUIDE.md) | Step-by-step module development guide |
 | [MODULE_PACKAGE_DESIGN.md](./MODULE_PACKAGE_DESIGN.md) | Module packaging and deployment system |
 

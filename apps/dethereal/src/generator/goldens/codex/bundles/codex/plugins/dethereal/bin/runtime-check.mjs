@@ -21,7 +21,7 @@ import path from 'node:path'
 export const STATE_DIR_NAME = '.dethernety'
 export const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/
 /** The oldest Node the runtime supports. */
-export const NODE_FLOOR = '20.11.1'
+export const NODE_FLOOR = '22.12.0'
 const CURRENT_MAX_BYTES = 64 * 1024
 const SHA = /^[0-9a-f]{64}$/
 

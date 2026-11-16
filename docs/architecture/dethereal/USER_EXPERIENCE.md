@@ -45,7 +45,7 @@ Dethereal is active.
   /dethereal:enrich   -- <reason from the workspace status>
 ```
 
-With several models it is one line (`Dethereal is active. 3 local threat models. Run /dethereal:status for details.`). A line about the platform is added only when something needs attention: the platform URL is not set (the local default is used), the URL is unusable, or the runtime is not trusted with the session. The orientation lists no platform models; pulling one is a `/dethereal:create` entry point. After a compaction the hook injects a reminder instead: re-read the workspace status and the model's state before continuing, never relying on the summary alone.
+With several models it is one line (`Dethereal is active. 3 local threat models. Run /dethereal:status for details.`). A line about the platform is added only when something needs attention: no platform URL is set in the shell or the plugin settings (the line points at `/dethereal:status`, which shows a URL the server was given, since the hook cannot see the server's environment), the URL is unusable, or the runtime is not trusted with the session. The orientation lists no platform models; pulling one is a `/dethereal:create` entry point. After a compaction the hook injects a reminder instead: re-read the workspace status and the model's state before continuing, never relying on the summary alone.
 
 ### Authentication Flow
 

@@ -27,7 +27,7 @@ describe('session-start banner: the platform line', () => {
 
   it('says nothing about the platform when it has no problem and a URL is set', () => {
     const text = renderSessionStart(status(), 'startup', 'claude')
-    expect(text).not.toMatch(/Platform calls are refused|not usable|Platform URL not set/)
+    expect(text).not.toMatch(/Platform calls are refused|not usable|No platform URL is set/)
   })
 })
 

@@ -7,6 +7,7 @@
 - [Host Dependency Injection](#host-dependency-injection)
 - [Component Registry](#component-registry)
 - [Host Context Composable](#host-context-composable)
+- [Report Kit](#report-kit)
 - [Application Initialization](#application-initialization)
 - [Module Development Guide](#module-development-guide)
 - [Security Considerations](#security-considerations)
@@ -215,6 +216,7 @@ static exposeHostDependencies(VueRuntime?: any, appContext?: any): void {
     __VUE__: VueRuntime,
     __JSONFORMS__: { core: JsonFormsCore, vue: JsonFormsVue },
     __APP_CONTEXT__: appContext,
+    reporting: getReportingKit(),
   }
 }
 ```
@@ -237,12 +239,16 @@ export interface HostDependencies {
     vue: typeof JsonFormsVue
   }
   __APP_CONTEXT__?: any
+  // The report kit. A module feature-detects it and keeps its own export when it is missing.
+  reporting?: ReportingKit
 }
 
 export const HOST_API_VERSION = 1
 ```
 
 `HOST_API_VERSION` is the version of this shape. A module frontend's manifest names the range it works with (`hostApi`); the host raises the version when the shape changes incompatibly, and refuses a module whose range excludes it.
+
+`reporting` is optional and only adds to the shape, so `HOST_API_VERSION` stays **1**. The kit carries its own `version`; see [Report Kit](#report-kit).
 
 ### Why Window Global?
 
@@ -319,7 +325,7 @@ This prevents accidental collisions between modules. It is **not isolation**: a 
 
 ### Context Structure
 
-**Source:** `useHostContext.ts:22-65`
+**Source:** `useHostContext.ts` (`useHostContext`). The block below is abridged.
 
 ```typescript
 export function useHostContext() {
@@ -335,8 +341,8 @@ export function useHostContext() {
   const safeResolveComponent = (name: string) => {
     try {
       return resolveComponent(name)
-    } catch {
-      console.warn(`[useHostContext] Component not found: ${name}`)
+    } catch (error) {
+      console.warn(`Failed to resolve component: ${name}`, error)
       return null
     }
   }
@@ -345,6 +351,9 @@ export function useHostContext() {
     // Navigation
     router,
     route,
+
+    // The same report kit as window.__HOST_DEPENDENCIES__.reporting (see "Report Kit")
+    reporting: getReportingKit(),
 
     // Pinia stores: analysisStore + issueStore only. This is an API-surface / coupling
     // choice (modules shouldn't reach into flowStore internals), NOT a data boundary —
@@ -355,10 +364,15 @@ export function useHostContext() {
       issueStore
     },
 
-    // Services
+    // Services (see "Exposed Services" below)
     services: {
       componentRegistry,
-      openDispositionDialog
+      openDispositionDialog,
+      affirmFinding,
+      clearFindingDisposition,
+      supersedeFinding,
+      deleteFinding,
+      openFindingIssueSelector
     },
 
     // Vue Composition API primitives
@@ -373,7 +387,7 @@ export function useHostContext() {
       nextTick,
       onMounted,
       onUnmounted,
-      resolveComponent
+      resolveComponent: safeResolveComponent
     },
 
     // Utilities — INCLUDING full token-scoped GraphQL. The dt-core accessors below are
@@ -478,6 +492,159 @@ The real control is the same as the backend's: **only load modules you trust** (
 allowlist + source validation in production; see
 [SECURITY_MODEL.md](../../../SECURITY_MODEL.md)). Treat a loaded module as part of the
 application's trust base.
+
+---
+
+## Report Kit
+
+**Source:** `apps/dt-ui/src/reporting/` (`index.ts` holds the `ReportingKit` interface)
+
+The report kit gives a module what it needs to export a report: the installation's brand, a print-ready frame around the module's own sections, the model diagram, the analysis's report details, and the download. Each module that uses it gets the same cover, page furniture and file handling, so no module builds its own.
+
+The kit is one frozen object per page. It is reachable two ways, and both are the same object:
+
+- `window.__HOST_DEPENDENCIES__.reporting`
+- `useHostContext().reporting`
+
+### Feature detection
+
+A module checks for the kit and its version before using it, and keeps its own export when the kit is missing or older:
+
+```javascript
+const kit = window.__HOST_DEPENDENCIES__?.reporting
+if (kit && kit.version >= 1) {
+  // build the export with the kit
+} else {
+  // your own export
+}
+```
+
+- Never throw when the kit is missing. An older host has no `reporting`.
+- `version` is raised only when a member is added. A member is never changed or removed, so `version >= n` is the whole check.
+- `HOST_API_VERSION` stays **1**: the kit is an optional addition to the host dependencies.
+
+### Members (version 1)
+
+| Member | What it does |
+|--------|--------------|
+| `version` | `1` |
+| `escapeHtml(text)` | Escapes text for HTML content or a quoted attribute. `null` and `undefined` give an empty string |
+| `currentUser()` | `{ displayName }` for the signed-in user, or `null` |
+| `brand()` | The installation's brand, `Promise<Brand \| null>`. Read once per page load; `null` when unbranded or when anything fails |
+| `reportDetails.get(analysisId)` | The analysis's report details, `Promise<{ client?, updated? } \| null>` |
+| `renderModelDiagram(graph, opts?)` | The model diagram as SVG: `{ svg, figure, width, height }`, or `null` |
+| `buildReport(input)` | A complete, self-contained HTML document: cover, the module's sections, and an "about this report" footer |
+| `download(report, name)` | Saves the report as `<kind>[-<variant>]-<stamp>.html` |
+
+### An export, step by step
+
+```mermaid
+sequenceDiagram
+  actor User
+  participant M as Module view
+  participant K as Report kit
+  User->>M: Click export
+  M->>M: exportedAt = now
+  M->>K: brand()
+  M->>K: reportDetails.get(analysisId)
+  M->>K: currentUser()
+  M->>K: renderModelDiagram(storedGraph, opts)
+  M->>K: buildReport(input)
+  K-->>M: HTML document
+  M->>K: download(report, name)
+```
+
+```javascript
+const kit = window.__HOST_DEPENDENCIES__?.reporting
+if (kit && kit.version >= 1) {
+  const exportedAt = new Date().toISOString()          // taken at the click
+  const [brand, details] = await Promise.all([kit.brand(), kit.reportDetails.get(analysisId)])
+  const diagram = kit.renderModelDiagram(snapshot.graph, { caption: strings.diagramCaption })
+
+  const report = kit.buildReport({
+    kind: 'example-report',
+    title: 'Example Report',
+    brand,
+    meta: {
+      modelName: snapshot.modelName,
+      modelId: snapshot.modelId,
+      clientName: details?.client,
+      module: { name: 'example-module', version: '1.0.0' },
+      generatedAt: snapshot.generatedAt,
+      fingerprint: snapshot.fingerprint,
+      exportedAt,
+      exportedBy: kit.currentUser()?.displayName,
+    },
+    sections: [
+      { id: 'summary', title: 'Summary', html: `<p>${kit.escapeHtml(snapshot.summary)}</p>` },
+      ...(diagram ? [{ id: 'model', title: 'Model', html: diagram.figure, pageBreakBefore: true }] : []),
+    ],
+    css: '.example-report .summary { font-size: 11pt; }',
+  })
+  kit.download(report, { kind: 'example-report', stamp: exportedAt.slice(0, 10) })
+}
+```
+
+### Rules for a module's report
+
+- **Section HTML and module CSS are the module's, and trusted.** `buildReport` escapes every field it prints itself, but it inserts `sections[].html` and `css` as given. The module escapes everything it puts into them; use `kit.escapeHtml`.
+- **Scope the module's CSS under `.<kind>-report`.** The sections sit inside `<main class="<kind>-report">`. `kind` must match `[a-z0-9-]+`; anything else falls back to `report`.
+- **Every word the frame prints comes from `strings`.** A report in another language passes all of them, and sets `locale` (for example `hu-HU`). The keys of `FrameStrings`, with their English defaults:
+
+  | Key | Default |
+  |-----|---------|
+  | `preparedFor` | Prepared for |
+  | `model` | Model |
+  | `modelId` | Model ID |
+  | `client` | Client |
+  | `generated` | Generated |
+  | `module` | Module |
+  | `fingerprint` | Fingerprint |
+  | `exported` | Exported |
+  | `exportedBy` | Exported by |
+  | `stale` | The model has changed since this report was generated. |
+  | `brandAppliedAtExport` | The brand on this report was applied when it was exported; it is not part of its content. |
+  | `aboutThisReport` | About this report |
+  | `page` | Page |
+  | `of` | of |
+
+- **`exportedAt` is taken by the module at the click,** not when the report was generated.
+- **`exportedBy` comes from `kit.currentUser()`.** It is the identity provider's name for the user; when the provider gives no name, the username or email is used. It is `null` when only an opaque id is known (a UUID or a long token with digits), so a subject id is never printed as a person's name. Leave `exportedBy` out when it is `null`.
+- **The brand is applied at export.** It is not part of the report's content, so it does not go into the report's fingerprint. A branded report says so in its footer (`brandAppliedAtExport`). Pass the result of `await kit.brand()` as `brand`, which keeps `buildReport` synchronous.
+- **No `<details>` in a report.** Disclosure prints unpredictably, so the frame turns every `<details>` and `<summary>` into a plain block that is always open.
+- **`pageMark` prints on every page,** the cover included, through one fixed-position element. Use it for a mark such as a draft notice.
+- **`download` is the only place that knows the output format.** Today it saves an `.html` file that the reader prints to PDF from the browser. A later format changes `download`, not the modules that call it.
+
+The document carries a Content-Security-Policy that allows inline styles and `data:` images only. No script runs in it and it loads nothing, so a report cannot reference external images, fonts or stylesheets. Running headers and the page numbers use CSS page margin boxes; they print where the browser supports them (Chromium-based browsers).
+
+### The model diagram
+
+**Source:** `reporting/diagram.ts`
+
+```typescript
+renderModelDiagram(graph: ModelGraph, opts?: DiagramOptions): DiagramResult | null
+```
+
+It draws the **model graph a report stored when it was generated**, never the live model: it fetches nothing, so the diagram matches the report's content. The graph holds `boundaries` (position, size, parent), `components` (position, size, type, boundary) and `flows` (source and target ids). Processes, stores and external entities each get their own shape.
+
+| Option | Effect |
+|--------|--------|
+| `caption` | The figure caption, from the caller's own strings. The renderer prints no text of its own |
+| `highlightIds` | Components outlined in the accent colour |
+| `highlightBoundaryIds` | Boundaries outlined in the accent colour |
+| `crownJewelIds` | Components marked with a star |
+| `entryPointIds` | Components marked with an arrow |
+
+The result is `{ svg, figure, width, height }`: a standalone `<svg>` with a `viewBox` and `width="100%"`, the same SVG in a `<figure>` (with the caption, when one is given), and the drawing's size. It returns `null` when there is no graph, nothing to draw, or a position or size that is present but not a finite number. The palette is neutral and print-safe: outlines and light fills, with no meaning carried by colour alone.
+
+### Report details
+
+**Source:** `reporting/reportDetails.ts`
+
+`kit.reportDetails.get(analysisId)` reads an analysis's report details: `{ client?, updated? }`, with a key present only when it holds a value, or `null` when the analysis has none. It reads them live on every call, so read them at the click.
+
+- **Read-only for modules.** The user sets them in the host's **Report details** dialog on the analysis results page. A module does not build its own editor.
+- **Never put report details, or anything that identifies a client, in a `getDocument` payload.** Agents read that payload. Report details reach a report only through the kit, at export.
 
 ---
 
@@ -790,6 +957,7 @@ watch(() => props.content, (newContent) => {
 | GraphQL (full CRUD) | From `useHostContext().utils` | `utils.dtUtils.performMutation(...)` — authenticated, governed server-side |
 | Router | From `useHostContext().router` | `router.push('/path')` |
 | Utilities | From `useHostContext().utils` | `utils.getPageDisplayName()` |
+| Report kit | From `useHostContext().reporting` or `window.__HOST_DEPENDENCIES__.reporting` (same object) | `if (kit && kit.version >= 1) kit.buildReport(...)`; see [Report Kit](#report-kit) |
 | Other module components | Direct import | `import MyDialog from './MyDialog.vue'` |
 | Host components (Vuetify) | Use in template directly | `<v-card>`, `<v-btn>` |
 

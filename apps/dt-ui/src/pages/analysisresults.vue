@@ -7,6 +7,7 @@
   import { moduleLoader, ModuleFrontendError, type ModuleFrontendErrorKind } from '@/services/ModuleLoader'
   import { timingMeasure } from '@/utils/userTiming'
   import ModelAnalysisDialog from '@/components/Dialogs/Analysis/ModelAnalysisDialog.vue'
+  import ReportDetailsDialog from '@/components/Dialogs/Analysis/ReportDetailsDialog.vue'
 
 
   interface SnackBar {
@@ -139,6 +140,8 @@
 
   loadAnalysis()
   watch(() => route.query.id, () => {
+    // A route change closes the report details dialog: it belongs to the analysis it was opened for.
+    reportDetailsFor.value = null
     // Guard against a navigate-away that nulls the id firing a spurious "No analysis ID" snackbar.
     if (route.path !== '/analysisresults') return
     loadAnalysis()
@@ -181,6 +184,16 @@
 
   const showAnalysisDialog = ref(false)
 
+  // The analysis the report details dialog is open for, captured when it opens; null when closed. Opening is allowed
+  // only once the loaded analysis is the one the route names.
+  const reportDetailsFor = ref<string | null>(null)
+  const canOpenReportDetails = computed(
+    () => !!analysisId.value && analysisStore.currentAnalysis?.id === analysisId.value,
+  )
+  const openReportDetails = () => {
+    if (canOpenReportDetails.value) reportDetailsFor.value = analysisId.value
+  }
+
 </script>
 
 <template>
@@ -215,6 +228,17 @@
           title="Analyses"
           variant="outlined"
           @click="showAnalysisDialog = true"
+        />
+        <v-btn
+          aria-label="Report details"
+          class="ma-2"
+          color="tertiary"
+          :disabled="!canOpenReportDetails"
+          icon="mdi-card-account-details-outline"
+          size="large"
+          title="Report details"
+          variant="outlined"
+          @click="openReportDetails"
         />
       </v-toolbar>
       <div class="analysis-content">
@@ -255,6 +279,13 @@
     :model-name="analysisElementName"
     :show="showAnalysisDialog"
     @analysis:closed="showAnalysisDialog = false"
+  />
+
+  <ReportDetailsDialog
+    v-if="reportDetailsFor"
+    :key="reportDetailsFor"
+    :analysis-id="reportDetailsFor"
+    @closed="reportDetailsFor = null"
   />
 
   <v-snackbar v-model="snackBar.show" :color="snackBar.color" timeout="5000" top>

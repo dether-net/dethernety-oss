@@ -6,6 +6,8 @@ effort: high
 maxTurns: 20
 memory: project
 color: cyan
+disallowedTools:
+  - mcp__plugin_dethereal_dethereal__triage_review
 tools:
   - Read
   - Glob

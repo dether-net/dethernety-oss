@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Dethernety GraphQL module includes a set of custom resolver services that extend the auto-generated Neo4j GraphQL API with specialized business logic. These services provide advanced functionality for module management, template generation, issue synchronization, analysis execution, and component attribute management.
+The Dethernety GraphQL module includes a set of custom resolver services that extend the auto-generated Neo4j GraphQL API with specialized business logic. These services provide advanced functionality for module management, template generation, issue synchronization, analysis execution, analysis report details, and component attribute management.
 
 ## Architecture Overview
 
@@ -23,6 +23,7 @@ graph TB
         EBS[ElementBindingService]
         DRS[DispositionResolverService]
         MMT[MatchMitreTechniquesResolverService]
+        RDR[ReportDetailsResolverService]
     end
 
     subgraph "Shared Services"
@@ -53,6 +54,7 @@ graph TB
     SCHEMA --> EBS
     SCHEMA --> DRS
     SCHEMA --> MMT
+    SCHEMA --> RDR
 
     MMR --> AUTH
     MMR --> MON
@@ -94,6 +96,9 @@ graph TB
     MMT --> MON
     MMT --> EMB
     MMT --> NEO4J
+
+    RDR --> AUTH
+    RDR --> NEO4J
 ```
 
 ## Service Index
@@ -107,7 +112,8 @@ graph TB
 7. [ElementBindingService](#7-elementbindingservice)
 8. [DispositionResolverService](#8-dispositionresolverservice)
 9. [MatchMitreTechniquesResolverService](#9-matchmitretechniquesresolverservice)
-10. [Shared Services](#10-shared-services)
+10. [ReportDetailsResolverService](#10-reportdetailsresolverservice)
+11. [Shared Services](#11-shared-services)
 
 ---
 
@@ -1243,7 +1249,96 @@ Auth flows through `AuthorizationService`; metrics through `MonitoringService`. 
 
 ---
 
-## 10. Shared Services
+## 10. ReportDetailsResolverService
+
+**Location**: [`src/gql/resolver-services/report-details-resolver.service.ts`](../../../../apps/dt-ws/src/gql/resolver-services/report-details-resolver.service.ts). The checks and the merge are pure functions in [`shared/report-details.ts`](../../../../apps/dt-ws/src/gql/resolver-services/shared/report-details.ts).
+
+### Purpose
+
+Holds an analysis's **report details**: what a report needs to know about an analysis that the analysis does not hold itself. Today there is one key, `client`, the client a report is prepared for. The service reads the details, sets them, and suggests a client name from the other analyses of the same element.
+
+### Surfaces
+
+| Kind | Field | Description |
+|------|-------|-------------|
+| Query | `reportDetails(analysisId: ID!): ReportDetails` | The analysis's report details. Null when the analysis is bound to no element, or does not exist |
+| Query | `suggestReportDetails(analysisId: ID!): ReportDetails` | The newest client name among the other analyses of the element(s) this analysis is bound to. Null when none has one |
+| Mutation | `setReportDetails(analysisId: ID!, details: ReportDetailsInput!): ReportDetails` | Merges `details` into the stored details on every binding. Returns the details as stored |
+
+`ReportDetails` carries `client` and `updated`, the time the details were last set (ISO 8601, UTC). See [ReportDetails in the API reference](../GRAPHQL_API_REFERENCE.md#reportdetails).
+
+### Storage
+
+A **binding** is an `ANALYZED_BY` edge into the analysis, from the element or model it analyses. The details are stored as one JSON string property, `metadata`, on every binding of the analysis. They are a JSON string because neither Neo4j nor Memgraph stores a map as a property.
+
+The `metadata` edge property is not declared in the GraphQL schema. No generated query, filter or connection reaches it. It is read and written only through the three fields above.
+
+### Set semantics
+
+`setReportDetails` merges the input into the stored details by key:
+
+- A key given is written.
+- A key given as null is cleared. A blank `client` is cleared too.
+- A key left out stays as it is.
+- A stored key this server does not know is kept.
+
+The input is checked before the transaction opens, so a bad value takes no lock. The set then runs in **one** write transaction:
+
+1. Lock the `Analysis` node. On Neo4j a second set waits here and then reads what the first committed. On Memgraph it conflicts, and the managed transaction retries it.
+2. Read every binding's stored value and take the newest by `updated`.
+3. Merge the input into it and stamp `updated` with the server's time (ISO 8601, UTC). The merge runs in TypeScript, because neither database parses JSON in Cypher.
+4. Write the same value to every binding, so the details do not depend on which binding remains.
+
+**Limits:**
+
+- `client` is trimmed. It may be at most 120 characters, counted as code points, so a character outside the Basic Multilingual Plane counts once.
+- `client` may not contain a control or text-direction character: C0 and C1 controls, the line and paragraph separators, the bidirectional formatting characters, and the invisible characters that can hide text from a reader (zero-width spaces, the byte-order mark, tag characters, the supplementary variation selectors and lone surrogates). ZWNJ and ZWJ, which some scripts need, are allowed.
+- The stored JSON may be at most 4 KiB in UTF-8. When kept unknown keys make it too large, the refusal message names them.
+
+### Read and suggest
+
+- **`reportDetails`** reads every binding and returns the newest value by `updated`. The bindings differ only when one was added since the last set. Only known keys are returned. A binding that holds something other than a JSON object reads as empty, and the service logs one warning.
+- **`suggestReportDetails`** reads the bindings of the other analyses of the element(s) this analysis is bound to. It returns the newest one that has a client name. It never reads the elements or the model themselves.
+
+### Error taxonomy
+
+Only `setReportDetails` refuses with these codes. Each refusal is a `GraphQLError` with its own `extensions.code`. In production only the code survives error masking (see [Error Formatting](./GRAPHQL_MODULE.md#error-formatting)), so a client branches on the code, not the message.
+
+| Code | Meaning |
+|------|---------|
+| `REPORT_DETAILS_CLIENT_TOO_LONG` | The trimmed client name is longer than 120 characters |
+| `REPORT_DETAILS_CLIENT_CHARACTERS` | The client name contains a control or text-direction character |
+| `REPORT_DETAILS_TOO_LARGE` | The merged details would be over 4 KiB |
+| `ANALYSIS_NOT_FOUND` | No analysis has this id |
+| `ANALYSIS_NOT_BOUND` | The analysis is bound to no element, so it has no report details |
+
+### Authz model
+
+The resolver checks for a verified user (`context.user`) and refuses with `UNAUTHENTICATED` when there is none. This is the same rule module resolvers follow (see [Resolver Wrapping and Security](./MODULE_CUSTOM_RESOLVERS.md#resolver-wrapping-and-security)); both use `authenticationRequired()` from [`src/gql/services/schema.service.ts`](../../../../apps/dt-ws/src/gql/services/schema.service.ts), whose gate in front of every root field also covers these three. The check is off only where the schema itself runs without authentication: outside production, with OIDC not configured and `ENABLE_NOAUTH` set.
+
+After the user check, `AuthorizationService.checkAuthorization` runs with resource type `Analysis` and the analysis id. A denial is a `ForbiddenException`.
+
+### Life cycle
+
+- Deleting the analysis, the element or the model removes the bindings, and the details with them.
+- Calling `createAnalysisIdempotent` again for the same element leaves the details as they are. Its `MERGE` of the binding has no property map.
+
+### Key invariants
+
+- **Single read and write path.** The `metadata` property on `ANALYZED_BY` is read and written only by this service.
+- **Same value on every binding.** A set writes one value to all bindings; a read takes the newest.
+- **Never in `getDocument`.** An analysis module must not put report details in its `getDocument` payload, because agents can read that payload. A module reads report details only through these fields.
+
+### Related
+
+- [ReportDetails in the API reference](../GRAPHQL_API_REFERENCE.md#reportdetails)
+- [setReportDetails in the API reference](../GRAPHQL_API_REFERENCE.md#setreportdetails)
+- [suggestReportDetails in the API reference](../GRAPHQL_API_REFERENCE.md#suggestreportdetails)
+- [Analysis in SCHEMA.md](./SCHEMA.md#analysis)
+
+---
+
+## 11. Shared Services
 
 ### AuthorizationService
 
@@ -1508,6 +1603,14 @@ subscription AnalysisUpdates {
     progress
     results
     error
+  }
+}
+
+# Set the client a report is prepared for
+mutation SetReportDetails {
+  setReportDetails(analysisId: "analysis-456", details: { client: "Example Corp" }) {
+    client
+    updated
   }
 }
 

@@ -2,6 +2,8 @@
 
 **Model files, once per step.** Read a model file once in a step and keep it: after your own write succeeds, the file holds what you wrote — do not read it again. Read it again only after a failed write or validate, a compaction or summary, or a write you did not make with your edit tool: an agent's (any model file) or a push (every model file). Nothing else rewrites a model file: `mcp__plugin_dethereal_dethereal__validate_model_json` never does, and `mcp__plugin_dethereal_dethereal__generate_attribute_stubs` writes only attribute files — read one again after it before you edit it. After any such write, read the file again before a whole-file write of it. The same holds for `.dethereal/discovery.json` and `.dethereal/scope.json`: never read a file to see what you wrote — your write is the file, and your edit tool edits it without a read first.
 
+Read model JSON files with your read tool, never with an inline or multi-line script.
+
 **Model-file writes, one message per answer.** Everything one operator answer changes in `structure.json`, `dataflows.json`, `data-items.json`, `.dethereal/discovery.json` and the attribute files (in the enrich skill, as Writing and validating says) goes in one message: every edit to every one of those files, as parallel calls; one edit per element is fine. A read those edits need goes in the message before. Validate in the message after, once every edit has succeeded. Never spread one answer's edits over two messages; only a failed edit is redone, after reading its file again. A whole-file write replaces a file's edits only when it is shorter.
 
 **Tools, once per phase.** Dethereal's tools load on demand. At this phase's entry, load every tool this file names that is not loaded yet with one `ToolSearch` call — `select:` and all their names, comma-separated — never one call per tool, and never a call for a tool already loaded.
@@ -64,7 +66,7 @@ A model already REVIEWED whose `reviewed_stale` is false needs no new record: th
 
 Call `mcp__plugin_dethereal_dethereal__validate_model_json` with `action: 'gates'` now, and show from it what the operator signs, as markdown: `verdict` beside `verdict_without_waivers`; every waiver in use — criterion and element, its `basis`, `reason` and `waived_at` date — with the `accepted_risk` ones listed apart as risk acceptances; the number of Tier 3 components with no zone (`tier_members.tier3_unzoned`: they escape the Tier 1–2 floors only because they are unzoned); `floored_data_outside_tier12`; `data_items_at_floor_or_public`; the four value shares from `report.values`; and the `limit` sentence. Then ask:
 
-`[prompt: review-record]` Record this model as REVIEWED — the answers are complete and consistent (Gates 2 and 3), not proven true, and the waivers shown stay on record? (record / not now) — the table, then the question with its choices numbered, in one message; end your turn.
+`[prompt: review-record]` Record this model as REVIEWED — the answers are complete and consistent (Gates 2 and 3), not proven true, and the waivers shown stay on record? (record / not now) — the tag first, then the question with its choices numbered, after the table, in one message; end your turn.
 
 On `record`, call `mcp__plugin_dethereal_dethereal__model_state` with `action: 'transition'`, `to: 'REVIEWED'` straight away — write nothing between the answer and the call. If the server refuses, show its message and `codes`, each entry of `failing_criteria`, and leave the state as it is. `review_hash_unavailable` means a file the review hash needs could not be read: show the files it names, for the operator to fix; never retry the transition until they are.
 
@@ -74,7 +76,7 @@ The verdicts come first, once (Gate Verdicts): the verdict line, what blocks, th
 
 A `content_hash` that is `null` is never "unchanged": show `content_hash_unavailable` — its `code` and the files it names (`files_total` past the list) — for the operator to fix, and do not loop back on it. When a loop-back is shown again and nothing changed since its last showing — `loop_back_round.nothing_changed` is true, or, with no round, the same non-null `content_hash` from `mcp__plugin_dethereal_dethereal__model_state` `get` and no new answer from the operator — say so first: another loop-back cannot change the result; only new answers can (give them in Step 8), or waive, or skip.
 
-`[prompt: gate3-loopback]` Gate 3 did not pass. Skip to sync anyway, loop back to Step 8 to fill the gaps, or waive named elements? Skipping leaves the model un-REVIEWED (ENRICHING). (skip to sync anyway / loop back / waive) — what it follows, then the question with its choices numbered, in one message; end your turn.
+`[prompt: gate3-loopback]` Gate 3 did not pass. Skip to sync anyway, loop back to Step 8 to fill the gaps, or waive named elements? Skipping leaves the model un-REVIEWED (ENRICHING). (skip to sync anyway / loop back / waive) — the tag first, then the question with its choices numbered, after what it follows, in one message; end your turn.
 
 - **skip to sync anyway** — the state stays ENRICHING; never transition to REVIEWED. Everything that shows the state from here on shows it un-REVIEWED.
 - **loop back** — first, before any write or Skill call, call `mcp__plugin_dethereal_dethereal__model_state` with only `action: 'loop_back'`: it opens the loop on Gate 3's failing elements, and only a change made after it counts. Then a value the operator gives with it, for a declined or empty field, is an answer: write it to the file that holds the field — its attribute file, or `data-items.json` for a data item's `sensitivity`, `regulatory_flags`, `origin` or `is_credential` — with your edit tool, on every element it names — failing or not; the loop's worklist does not limit it. Write only a key the element's attribute file or class template lists, or a floor key: a fact no field holds is said in one line, never a key made up for it. Then enter `enrich` at once (Enter a phase, in the skill), before any other call, with the gates report's `gate3.loopback` as its worklist; the gates run again only when that phase reaches Step 9.
@@ -87,7 +89,7 @@ A `content_hash` that is `null` is never "unchanged": show `content_hash_unavail
 1. Show the verdict line (`Gate 3 NOT COMPUTED`), the untouched elements — each by name with its listed fields, `+N more` from `untouched_total` — and the red flags as When Gate 3 fails says.
 2. Ask their open fields, one row each — unless this loop's enrich phase already asked exactly these rows: then that reply stands, and nothing is asked again.
 
-   `[prompt: enrich-questions]` Answer the rows you can, by row number; "not sure" leaves a row empty, never a guess. — a plain message; end your turn.
+   `[prompt: enrich-questions]` Answer the rows you can, by row number; "not sure" leaves a row empty, never a guess. — the tag first, then a plain message; end your turn.
 
 3. Write every value the reply gives to the file that holds the field — its attribute file, or `data-items.json` for a data item's `sensitivity`, `regulatory_flags`, `origin` or `is_credential` — with your edit tool, the files' edits in one message. Write only a key the element's attribute file or class template lists, or a floor key: a fact no field holds is said in one line, never a key made up for it. A field counts once it holds a real value — never `unknown` or another stand-in; the enricher's sourced values counted as soon as it wrote them.
 4. Drop each row that this question, or the reply it reuses, left unanswered or answered "not sure" — never a row from an earlier round's declines — with `mcp__plugin_dethereal_dethereal__model_state` `action: 'loop_back'`, `drop: [{ element_id, reason }]` (at most 50 a call). The reason is the operator's reply in its own words: verbatim, cut only when it is over 500 characters, as an excerpt with `[…]` where text was cut. Never write a reason yourself, and never drop to get past this. A refused drop — `loop_back_not_armed`, `loop_back_unknown_element`, or `reason_invalid` — is never fixed by rewording: show the refusal and ask that row again. `loop_back_unreadable`: open the loop again with only `action: 'loop_back'` (it lists every failing element again).
@@ -114,7 +116,7 @@ A waiver is the operator's decision that one criterion's failure is accepted for
 
    Take at most `remaining` elements per criterion: one element over the cap refuses the whole call.
 
-   `[prompt: waiver-select]` Which failures do you want to waive? Give their row numbers. — a plain message; end your turn.
+   `[prompt: waiver-select]` Which failures do you want to waive? Give their row numbers. — the tag first, then a plain message; end your turn.
 
 5. Show the four bases — `not_applicable`: the requirement does not apply; `not_observable`: the value cannot be observed; `accepted_risk`: the operator accepts the gap; `platform_limitation`: the platform cannot record it — then ask:
 
@@ -122,7 +124,7 @@ A waiver is the operator's decision that one criterion's failure is accepted for
 
 6. Ask for the reason:
 
-   `[prompt: waiver-reason]` In one sentence, in your own words: why is this gap accepted? For an accepted risk, name who accepts it and until when. — a plain message; end your turn.
+   `[prompt: waiver-reason]` In one sentence, in your own words: why is this gap accepted? For an accepted risk, name who accepts it and until when. — the tag first, then a plain message; end your turn.
 
 7. Only with the answers to these questions in this conversation (an inherited waiver's "use the same reason" is the `waiver-reason` answer), call `mcp__plugin_dethereal_dethereal__model_state_waive` per criterion, at most 5 elements a call, with `criterion`, the `element_ids`, `reason` = the operator's sentence exactly as given — never shortened, reworded or cleaned — and `basis`. If the tool refuses, show its message and each refused element with the reason it gives; a refused reason (its length, or characters it does not accept) goes back to the operator with `waiver-reason`. `no_waiver_key` — this machine has no usable waiver key; `waiver_grants_unavailable` — this machine's grants file beside the key cannot be used: nothing is granted, show the message for the operator to fix it. `waiver_grants_full` — this machine holds as many grants for this model as it can: revoke waivers no longer used first.
 8. Run the gates again, then `mcp__plugin_dethereal_dethereal__model_state` `get`, and show the new `display_state`.
@@ -133,7 +135,7 @@ On `no`, go back to the `gate3-loopback` question.
 
 Render `waivers[]` by status — `in_use`, `lapsed`, `resolved`, `unwaivable`, `unverified` — each with its criterion and element, its `basis` and `waived_at`, its `reason` when in use, and its `why` verbatim. An `unverified` waiver is inherited (`get` counts them as `waivers_inherited`): granted by another machine, a copy, or before waivers were bound to one machine; it does not count here. To use one, grant it here with the questions above, for the same criterion and elements, its `basis` shown as on record. At `waiver-reason`, show its `recorded_reason` first, labelled "recorded by another machine, not verified"; the operator confirms it or gives their own. Pass the recorded text as the `reason` only when the operator confirms it ("use the same reason"), exactly as recorded; an `{undisplayable}` one cannot be reused, so the operator gives their own. Waiving again otherwise always runs the questions above with a fresh reason. To withdraw waivers, show them by row, then ask:
 
-`[prompt: waiver-revoke]` Which waivers do you want to revoke? Give their row numbers, or say "none". — a plain message; end your turn.
+`[prompt: waiver-revoke]` Which waivers do you want to revoke? Give their row numbers, or say "none". — the tag first, then a plain message; end your turn.
 
 For each, call `mcp__plugin_dethereal_dethereal__model_state_waive` with `revoke: true`, its `criterion` and `element_ids`.
 

@@ -110,7 +110,7 @@ describe('a pull', () => {
     expect(g.registered.pull).toBe(r.registered)
     expect(g.settlements_recent.at(-1)).toMatchObject({ action: 'pull', model_id: 'M1', registered: r.registered, dropped: 0 })
     expect(readFileSync(path.join(dir, '.dethereal', '.gitignore'), 'utf8').split('\n').filter((l) => l && !l.startsWith('#')))
-      .toEqual(['settlement-baseline.json', 'settlements.json', 'sync.json', 'control-audit.log', 'relay/'])
+      .toEqual(['settlement-baseline.json', 'settlements.json', 'sync.json', 'control-audit.log', 'relay/', 'triage-log.json', 'triage-run/'])
 
     // This machine's pointer holds the revision signed, so an older baseline put back reads as rolled back.
     const pointers = readJson(path.join(home, '.dethernety', 'baseline-pointers.json')).models
@@ -473,7 +473,7 @@ describe('the per-machine files and the registry', () => {
     const ignore = path.join(dir, '.dethereal', '.gitignore')
     await fs.writeFile(ignore, '# mine\r\nnotes.md\r\n/settlements.json')
     await registerAll(dir)
-    expect(readFileSync(ignore, 'utf8')).toBe('# mine\r\nnotes.md\r\n/settlements.json\nsettlement-baseline.json\nsync.json\ncontrol-audit.log\nrelay/\n')
+    expect(readFileSync(ignore, 'utf8')).toBe('# mine\r\nnotes.md\r\n/settlements.json\nsettlement-baseline.json\nsync.json\ncontrol-audit.log\nrelay/\ntriage-log.json\ntriage-run/\n')
     await editJson(path.join(dir, 'attributes', 'components', 'c-web.json'), (d) => { d.attributes.asset_criticality = 'low' })
     const again = await modelStateSettleTool.run({ action: 'settle', directory_path: dir, reply: 'Yes.', items: [{ group: 'components', element_id: 'c-web', field: 'asset_criticality', decision: 'confirm', value: 'low' }] } as never, context) as any
     expect(again.success, again.error).toBe(true)
@@ -485,7 +485,7 @@ describe('the per-machine files and the registry', () => {
     const before = '# Written by Dethereal: settlement and sync records of this machine, never shared.\nsettlement-baseline.json\nsettlements.json\nsync.json\n'
     await fs.writeFile(olderIgnore, before)
     await registerAll(older)
-    expect(readFileSync(olderIgnore, 'utf8')).toBe(`${before}control-audit.log\nrelay/\n`)
+    expect(readFileSync(olderIgnore, 'utf8')).toBe(`${before}control-audit.log\nrelay/\ntriage-log.json\ntriage-run/\n`)
 
     const linked = await model()
     const target = path.join(root, `outside-${seq++}`)

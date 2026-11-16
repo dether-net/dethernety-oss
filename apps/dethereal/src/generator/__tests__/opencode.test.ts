@@ -8,6 +8,7 @@ import { agentPreamble, NEVER_MODEL_FILES, openCodeCommandRenderer, openCodeRend
 import { SECRET_PATHS, SECRET_SUFFIXES } from '../../utils/secret-paths.js'
 import { renderText } from '../tokens.js'
 import { TOOL_MANIFEST } from '../../tools/manifest.js'
+import { leafMcpTools } from '../targets/common.js'
 
 const pkg = { name: '@dether.net/dethereal', version: '1.2.3' }
 const out = generate({ pkg, workflowDir: FIXTURE_WORKFLOW, harness: 'opencode' })
@@ -46,6 +47,14 @@ describe('OpenCode renderings', () => {
     )
   })
 
+  it('starts a batch through the task tool in one message, and leaves a failure to the step', () => {
+    expect(oc('{{#delegate scout batch}}Survey it.{{/delegate}}')).toBe(
+      'Use the `task` tool with `subagent_type: "dethereal-scout"` once per batch, each with a 3–5 word `description` and this prompt: “Survey it.” ' +
+        'Start as many at once as this step allows in flight, then wait for all of their results before starting more. Make those `task` calls in one message. ' +
+        'If an agent cannot be started, or one returns without doing the work, do what this step says for that case — where it says nothing, stop and tell the operator; never do its work yourself.',
+    )
+  })
+
   it('names the question tool and its header, and asks again when no answer came', () => {
     expect(oc('{{#ask id=push-confirm}}Push now? (push / skip){{/ask}}')).toBe(
       '`[prompt: push-confirm]` Push now? (push / skip) — table first, the `question` tool, header `push-confirm`; unanswered → ask again.',
@@ -70,10 +79,15 @@ describe('agent permissions', () => {
       ['dethereal_validate_model_json', 'allow'],
     ])
     const all = permissionRules(['fs-write', 'shell', 'mcp:*'])
-    expect(Object.entries(all).slice(0, 5)).toEqual([['*', 'deny'], ['task', 'deny'], ['edit', expect.objectContaining({ '*': 'deny' })], ['bash', 'ask'], ['dethereal_*', 'allow']])
-    // A leaf cannot ask for approval: each tool that needs it is denied after the wildcard.
+    expect(Object.entries(all).slice(0, 4)).toEqual([['*', 'deny'], ['task', 'deny'], ['edit', expect.objectContaining({ '*': 'deny' })], ['bash', 'ask']])
+    // `mcp:*` is one allow per tool it stands for, never a wildcard: the main session's own tools are not among them.
+    const allowed = leafMcpTools(['mcp:*']).map((t) => [`dethereal_${t}`, 'allow'])
+    expect(allowed.map(([k]) => k)).not.toContain('dethereal_triage_review')
+    expect(Object.entries(all).slice(4, 4 + allowed.length)).toEqual(allowed)
+    // A leaf cannot ask for approval: each tool that needs it is denied after the allows.
     const denied = TOOL_MANIFEST.filter((t) => t.approval === 'prompt').map((t) => [`dethereal_${t.name}`, 'deny'])
-    expect(Object.entries(all).slice(5)).toEqual(denied)
+    expect(Object.entries(all).slice(4 + allowed.length)).toEqual(denied)
+    expect(Object.keys(all).filter((k) => k.startsWith('dethereal') && k.includes('*'))).toEqual([])
   })
 
   it('never grant a tool that needs approval: OpenCode would run it without asking', () => {

@@ -99,7 +99,7 @@ export function h7({ sheet, shown, replies, pairs, externalIngress, reviewable, 
 }
 
 const isStateRead = (e: TranscriptEvent) =>
-  (e.kind === 'tool_call' && ((e.tool === 'dethereal.model_state' && readOnlyCall(e)) || e.tool === 'dethereal.workspace_status')) ||
+  (e.kind === 'tool_call' && !e.denied && ((e.tool === 'dethereal.model_state' && readOnlyCall(e)) || e.tool === 'dethereal.workspace_status')) ||
   (e.kind === 'file_read' && /(^|\/)\.dethereal\/state\.json$/.test(e.path ?? '')) ||
   (e.kind === 'shell' && !e.writesModel && !e.denied && /\.dethereal\/state\.json/.test(e.text ?? ''))
 

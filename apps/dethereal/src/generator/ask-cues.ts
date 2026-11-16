@@ -20,13 +20,14 @@ export const DISMISSAL_RULE = 'A dismissed question is not answered.'
 export type AskLayout = 'dialog' | 'table' | 'message'
 
 export function askCue(harness: Harness, id: string, freeText: boolean, layout: AskLayout = 'dialog'): string {
-  if (freeText) return harness === 'opencode' ? '— a plain message; end your turn; unanswered → ask again.' : '— a plain message; end your turn.'
+  // Claude keeps a question's tag only where the cue names it: every Claude cue does.
+  if (freeText) return harness === 'opencode' ? '— a plain message; end your turn; unanswered → ask again.' : harness === 'claude' ? '— the tag first, then a plain message; end your turn.' : '— a plain message; end your turn.'
   switch (harness) {
     case 'claude':
       // A dialog alone shows the operator nothing else: a choice that follows a table is asked in the message that shows it
       // (a question group in a phase is the exception: one dialog after all its tables).
-      if (layout === 'table') return '— the table, then the question with its choices numbered, in one message; end your turn.'
-      if (layout === 'message') return '— what it follows, then the question with its choices numbered, in one message; end your turn.'
+      if (layout === 'table') return '— the tag first, then the question with its choices numbered, after the table, in one message; end your turn.'
+      if (layout === 'message') return '— the tag first, then the question with its choices numbered, after what it follows, in one message; end your turn.'
       return '— table first, then AskUserQuestion, the tag first in its question text.'
     case 'codex':
       if (layout === 'message') return '— what it follows, then a numbered list, in one message; end your turn.'

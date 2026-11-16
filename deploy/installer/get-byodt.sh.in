@@ -238,7 +238,7 @@ unpack() {
         # own records, and the runtime directories.
         case "$(printf '%s' "$rel" | tr 'A-Z' 'a-z')" in
           .env|.env.secrets|.env.tmp|.env.secrets.tmp|compose.override.yaml|.byodt-*|third-party-acknowledgement.log|\
-          backups|backups/*|tls|tls/*|proxy-ca|proxy-ca/*|data|data/*|modules|modules/*|schema|schema/*|mode|mode/*)
+          backups|backups/*|tls|tls/*|proxy-ca|proxy-ca/*|branding|branding/*|data|data/*|modules|modules/*|schema|schema/*|mode|mode/*)
             die "The bundle holds $rel, which belongs to a deployment, not a release; it was not used." ;;
         esac ;;
       *) die "The bundle holds an entry outside $top/; it was not used." ;;

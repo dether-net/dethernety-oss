@@ -206,6 +206,7 @@ Business logic implementation for specialized operations.
 | **ModuleManagementResolver** | Module lifecycle and class management |
 | **DispositionResolverService** | Records user decisions (dispositions) on SYSTEM-generated exposures and countermeasures |
 | **MatchMitreTechniquesResolverService** | Resolves user text to MITRE technique / mitigation candidates via a five-tier cascade |
+| **ReportDetailsResolverService** | Reads, sets and suggests an analysis's report details, such as the client a report is prepared for |
 
 ---
 
@@ -409,6 +410,8 @@ const details = await module.getDocument(scope, analysisId, analysisClassId, {
 ```
 
 The multi-key filter addresses the store directly, so its `namespace` must be an array of strings that contains the call's `scope`, and its `key` must be a string. The check is membership rather than position — the scope may appear anywhere in the namespace — so a module whose namespaces do not name the scope cannot be read through this mode. A filter that fails any of these checks returns an error object instead of a document; the `{ document: 'index' }` mode is unaffected, because its address comes from the graph configuration rather than from the caller.
+
+An analysis's report details, such as the client a report is prepared for, never go into a `getDocument` payload, because agents can read that payload. A module reads them only through the `reportDetails` and `suggestReportDetails` GraphQL fields (see [ReportDetailsResolverService](./LLD/CUSTOM_RESOLVER_SERVICES_DOCUMENTATION.md#10-reportdetailsresolverservice)).
 
 **Supported Analysis Engine Types:**
 

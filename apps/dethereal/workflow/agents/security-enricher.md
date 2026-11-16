@@ -25,8 +25,10 @@ disallowedTools:
   - mcp__plugin_dethereal_dethereal__detect_drift
   - mcp__plugin_dethereal_dethereal__export_model
   - mcp__plugin_dethereal_dethereal__generate_attribute_stubs
+  - mcp__plugin_dethereal_dethereal__get_class_guide
   - mcp__plugin_dethereal_dethereal__get_control_gaps
   - mcp__plugin_dethereal_dethereal__get_example_models
+  - mcp__plugin_dethereal_dethereal__get_kg_chain
   - mcp__plugin_dethereal_dethereal__get_model_schema
   - mcp__plugin_dethereal_dethereal__import_model
   - mcp__plugin_dethereal_dethereal__list_models
@@ -35,6 +37,7 @@ disallowedTools:
   - mcp__plugin_dethereal_dethereal__manage_analyses
   - mcp__plugin_dethereal_dethereal__manage_controls
   - mcp__plugin_dethereal_dethereal__manage_countermeasures
+  - mcp__plugin_dethereal_dethereal__manage_dispositions
   - mcp__plugin_dethereal_dethereal__model_state
   - mcp__plugin_dethereal_dethereal__model_state_settle
   - mcp__plugin_dethereal_dethereal__model_state_prune

@@ -10,6 +10,13 @@ import { PLUGIN_NAME } from '../types.js'
 export const FAIL_CLOSED =
   'If the agent cannot be started, or it returns without doing the work, stop and tell the operator; do not do its work yourself.'
 
+/** The last sentence of a batch delegation: the step that starts the batches says what a failed one means. */
+export const BATCH_FAILURE =
+  'If an agent cannot be started, or one returns without doing the work, do what this step says for that case — where it says nothing, stop and tell the operator; never do its work yourself.'
+
+/** How batches run: as many at once as the step allows, then every result before more start. */
+export const BATCH_FLIGHT = 'Start as many at once as this step allows in flight, then wait for all of their results before starting more.'
+
 /** The opening of a specialist agent's instructions on harnesses that give it no other role text. */
 export const LEAF_ROLE =
   'You run as a specialist agent for the orchestrating conversation. Nobody answers you from here: never wait for a reply. Where these instructions give a question tagged `[prompt: <id>]`, end with it exactly as they say; put anything else that needs the operator in your final answer. Never start other agents. Return your result as your final answer.'
@@ -40,11 +47,18 @@ export const LEAF_PROMPT_GRANTS: Readonly<Record<string, { readonly agents: read
 /** The server's settlement switch, as a bundle generated with `settlement` turns it on: the server's own names. */
 export { SETTLEMENT_ENV, SETTLEMENT_FLAG, SETTLEMENT_ON } from '../../utils/settlement-switch.js'
 
-/** Dethereal tools a specialist agent holds, by manifest name: `mcp:*` means the auto-approved ones. */
+/**
+ * Auto-approved tools only the main session holds: no specialist agent is granted one, on any harness.
+ * `mcp:*` leaves them out, and an explicit grant is refused at generation. `triage_review` opens and
+ * answers the operator's review of a triage, so it belongs to the conversation the operator talks to.
+ */
+export const MAIN_SESSION_ONLY: readonly string[] = ['triage_review']
+
+/** Dethereal tools a specialist agent holds, by manifest name: `mcp:*` means the auto-approved ones, less the main session's own. */
 export function leafMcpTools(entries: readonly string[]): string[] {
   const out = new Set<string>()
   for (const entry of entries) {
-    if (entry === 'mcp:*') for (const t of TOOL_MANIFEST) if (t.approval === 'auto') out.add(t.name)
+    if (entry === 'mcp:*') for (const t of TOOL_MANIFEST) if (t.approval === 'auto' && !MAIN_SESSION_ONLY.includes(t.name)) out.add(t.name)
     if (entry.startsWith('mcp:') && entry !== 'mcp:*') out.add(entry.slice(4))
   }
   return [...out].sort()
@@ -56,4 +70,9 @@ export function unreasonedPromptGrants(agent: string, entries: readonly string[]
     .filter((e) => e.startsWith('mcp:') && e !== 'mcp:*')
     .map((e) => e.slice(4))
     .filter((t) => TOOL_MANIFEST.find((m) => m.name === t)?.approval === 'prompt' && !LEAF_PROMPT_GRANTS[t]?.agents.includes(agent))
+}
+
+/** Explicit grants of a main-session-only tool: no agent may hold one. */
+export function mainSessionGrants(entries: readonly string[]): string[] {
+  return entries.filter((e) => e.startsWith('mcp:') && MAIN_SESSION_ONLY.includes(e.slice(4))).map((e) => e.slice(4))
 }

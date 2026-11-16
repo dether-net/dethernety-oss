@@ -556,8 +556,14 @@
     if (liveEditCount.value > 0) return
     const raw = props.content?.threat_report_dashboard ?? {}
     const doc = { ...raw, ledger: dedupeLedgerElements(raw.ledger ?? []) }
-    if (format === 'json') exportJson(doc, coverageData.value)
-    else exportHtml(doc, coverageData.value)
+    if (format === 'json') {
+      exportJson(doc, coverageData.value)
+      return
+    }
+    // Through the platform's report kit when it has one: the brand, the analysis's client and the model diagram.
+    exportHtml(doc, coverageData.value, { analysisId: props.analysisId, stale: lifecycle.value === 'stale' }).catch(() =>
+      notify('error', 'The report could not be exported. Try again.'),
+    )
   }
 
   // ---- Finding lifecycle actions -------------------------------------------------

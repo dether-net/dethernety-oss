@@ -9,7 +9,7 @@
  */
 
 import { type AskLayout, renderAsk } from '../../ask-cues.js'
-import { FAIL_CLOSED, flatAgentName, quoted } from '../common.js'
+import { BATCH_FAILURE, BATCH_FLIGHT, FAIL_CLOSED, flatAgentName, quoted } from '../common.js'
 import type { InlineKind, TokenRenderer } from '../../tokens.js'
 import { PLUGIN_NAME } from '../../types.js'
 
@@ -25,6 +25,14 @@ export function delegation(agent: string, prompt: string, trailing: string = FAI
   )
 }
 
+/** Start one leaf per batch, as many at once as the step allows; the step says what a failed one means. */
+export function batchDelegation(agent: string, prompt: string): string {
+  return (
+    `Use the \`task\` tool with \`subagent_type: "${agentName(agent)}"\` once per batch, each with a 3–5 word \`description\` and this prompt:${quoted(prompt)}` +
+    `${BATCH_FLIGHT} Make those \`task\` calls in one message. ${BATCH_FAILURE}`
+  )
+}
+
 export const openCodeRenderer: TokenRenderer = {
   inline(kind: InlineKind, name: string, inCode: boolean): string {
     if (kind === 'args') return 'the arguments given with the command, or those a skill that handed over to this one named'
@@ -32,7 +40,7 @@ export const openCodeRenderer: TokenRenderer = {
     const text = kind === 'tool' ? `${PLUGIN_NAME}_${name}` : kind === 'cmd' ? `/${agentName(name)}` : agentName(name)
     return inCode ? text : `\`${text}\``
   },
-  delegate: (agent: string, prompt: string) => delegation(agent, prompt),
+  delegate: (agent: string, prompt: string, batch?: boolean) => (batch ? batchDelegation(agent, prompt) : delegation(agent, prompt)),
   ask: (id: string, question: string, freeText: boolean, layout: AskLayout) => renderAsk('opencode', id, question, freeText, layout),
   asFile(fileName: string): string {
     return `Read the file \`${fileName}\` with the \`read\` tool, from this skill's base directory (shown when the skill was loaded), in full.`

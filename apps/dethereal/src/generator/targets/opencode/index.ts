@@ -131,7 +131,9 @@ export function permissionRules(tools: readonly string[], readsTaskFiles = false
   if (tools.includes('shell')) rules.bash = 'ask'
   if (readsTaskFiles) rules.external_directory = { [SKILL_FILES]: 'allow' }
   if (tools.includes('mcp:*')) {
-    rules[`${PLUGIN_NAME}_*`] = 'allow'
+    // One allow per tool `mcp:*` stands for, never a wildcard: that would match the tools that ask, and
+    // the main session's own, too.
+    for (const t of leafMcpTools(['mcp:*'])) rules[`${PLUGIN_NAME}_${t}`] = 'allow'
     // Approval-required tools stay out of a leaf's `mcp:*`: nobody can approve them there.
     for (const t of TOOL_MANIFEST) if (t.approval === 'prompt') rules[`${PLUGIN_NAME}_${t.name}`] = 'deny'
   }

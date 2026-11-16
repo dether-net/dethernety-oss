@@ -31,7 +31,7 @@ Help for the Dethereal threat-modeling commands. Arguments: $ARGUMENTS
     `signed in`: check again and retry; `skip`: leave the step undone and say so.
 12. **The repository is the operator's:** no git command that changes it (`add`, `commit`, `reset`, `checkout`, `stash`, `revert`) unless the operator asks for exactly that; suggest it instead. An undo, the operator always runs.
 13. **The operator starts each command.** A `[next]` line is advice to the operator: never start the command it names yourself. Start another Dethereal skill only as a handover these instructions name; the operator starts every other one.
-14. **Model files through your edit tool.** Write `structure.json`, `dataflows.json`, `data-items.json`, `attributes/**` and `.dethereal/**` only with your edit tool — never through a shell: no heredoc, redirection, `tee`, in-place editor, script, `rm` or `mv`. Delete attribute files only through `mcp__plugin_dethereal_dethereal__model_state_prune`.
+14. **Model files through your edit tool.** Write `structure.json`, `dataflows.json`, `data-items.json`, `attributes/**` and `.dethereal/**` only with your edit tool — never through a shell: no heredoc, redirection, `tee`, in-place editor, script, `rm` or `mv`. Delete attribute files only through `mcp__plugin_dethereal_dethereal__model_state_prune`. Write no script anywhere, and nothing to a scratchpad or temporary folder the harness offers: files go only where these instructions say.
    Your edit tools: `Write` and `Edit`.
 
 ## A named command
@@ -55,7 +55,7 @@ Getting started:    /dethereal:status, /dethereal:login, /dethereal:help
 Viewing:            /dethereal:view
 Modeling:           /dethereal:create, /dethereal:discover, /dethereal:add, /dethereal:remove
 Enrichment:         /dethereal:classify, /dethereal:enrich (controls: /dethereal:enrich --focus controls)
-Review & analysis:  /dethereal:review, /dethereal:surface
+Review & analysis:  /dethereal:review, /dethereal:surface, /dethereal:triage
 Sync:               /dethereal:sync
 
 Full workflow:      /dethereal:threat-model — the guided process, recommended for a new model
@@ -81,5 +81,6 @@ Write each suggestion's `command` the way the command list spells that command.
 | `/dethereal:enrich` | Security attributes, credentials, monitoring — and controls with `--focus controls` | `[all\|priority\|pick] [--focus credentials\|monitoring\|compliance\|controls] [--pick <element-id>]` |
 | `/dethereal:review` | Gates, quality breakdown, gaps and readiness (read-only) | `[directory-path] [--structure-only]` |
 | `/dethereal:surface` | Attack surface: components, boundary crossings, control coverage (read-only) | `[directory-path]` |
+| `/dethereal:triage` | Triage the platform's exposures: grouped proposals you review, then a gated apply | `[directory-path] [--stale] [--element <id>]` |
 | `/dethereal:sync` | Push to or pull from the platform, sync status, control-library recovery | `push\|pull\|status\|promote-external-edit\|tombstone\|repair-wal [directory-path]` |
 | `/dethereal:threat-model` | The guided end-to-end workflow, from scope to sync | `[system description or model path] [--full-scan] [--full\|--quick]` |

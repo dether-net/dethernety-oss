@@ -57,7 +57,7 @@ export interface ChangeElementBindingResult {
   errorCode: ElementBindingErrorCode | null
   errorMessage: string | null
 }
-import yaml from 'js-yaml';
+import { load as loadYaml } from 'js-yaml';
 
 /**
  * Decode a potentially base64-encoded guide string.
@@ -147,7 +147,7 @@ export class DtClass {
         if (data.guide) {
           try {
             const decodedGuide = decodeGuide(data.guide)
-            guideValue = yaml.load(decodedGuide) as object
+            guideValue = loadYaml(decodedGuide) as object
           } catch (yamlError) {
             console.warn(`Failed to parse guide YAML for class ${id}:`, yamlError)
             // Guide data is malformed - leave as undefined
@@ -507,7 +507,7 @@ export class DtClass {
         if (data.guide) {
           try {
             const decodedGuide = decodeGuide(data.guide)
-            guideValue = yaml.load(decodedGuide) as object
+            guideValue = loadYaml(decodedGuide) as object
           } catch (yamlError) {
             console.warn(`Failed to parse guide YAML for class ${classId}:`, yamlError)
             // Guide data is malformed - leave as undefined

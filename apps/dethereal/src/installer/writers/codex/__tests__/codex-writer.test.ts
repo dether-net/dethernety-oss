@@ -11,6 +11,7 @@ import { parse as parseToml } from 'smol-toml'
 import { PACKAGE_GOLDENS } from '../../../../generator/cli.js'
 import { withStateLock } from '../../../core/manifest.js'
 import { readManifest } from '../../../core/manifest.js'
+import { mutateManifest } from '../../../core/transaction.js'
 import { ensureStateRoot, type InstallerEnv, type StatePaths } from '../../../core/paths.js'
 import { installRuntime, type InstalledRuntime } from '../../../core/runtime.js'
 import { codexAppServerVersions, codexHookTrust, installCodex, installedCodexUrl, uninstallCodex } from '../index.js'
@@ -152,7 +153,7 @@ describe('the Codex writer', { timeout: 60_000 }, () => {
     expect(text).not.toMatch(/DETHERNETY_URL = /)
     expect(text).toContain('[plugins."dethereal@dethereal-local"]')
     expect(text).toContain(`source = "${path.join(paths.runtime, '0.5.0', 'bundles', 'codex')}"`)
-    expect(await agentsIn(path.join(codexHome, 'agents'))).toHaveLength(6)
+    expect(await agentsIn(path.join(codexHome, 'agents'))).toHaveLength(8)
     const { manifest } = await readManifest(paths, env)
     expect(manifest.installs['codex:user']?.runtimes).toEqual(['0.5.0'])
     expect((manifest.shared as Record<string, unknown>).codex).toMatchObject({ marketplace: { runtimeVersion: '0.5.0', state: 'done' }, plugin: { state: 'done' } })
@@ -234,6 +235,38 @@ describe('the Codex writer', { timeout: 60_000 }, () => {
     expect(await cfg()).toBe('')
   })
 
+  it('settles a pending config record an interrupted earlier install left, so a re-install is not blocked', async () => {
+    const before = 'model = "x"\n'
+    await fs.writeFile(cfgPath(), before)
+    await install('0.5.0')
+    expect(await cfg()).toContain('[mcp_servers.dethereal]')
+    // Reconstruct a hard-crash aftermath (no rollback ran): the config write never landed — the file
+    // is back at its pre-image — but its manifest record is still `pending`.
+    await fs.writeFile(cfgPath(), before)
+    await withStateLock(paths, env, (lock) => mutateManifest({ paths, env, lock }, (m) => {
+      m.installs['codex:user']!.files.find((f) => f.format === 'toml')!.state = 'pending'
+    }))
+    // The re-install drops the never-landed record (current is its pre-image) and succeeds, where
+    // before it threw conflict on the stale record.
+    await install('0.5.0')
+    expect(await cfg()).toContain('[mcp_servers.dethereal]')
+    const { manifest } = await readManifest(paths, env)
+    const toml = manifest.installs['codex:user']!.files.filter((f) => f.format === 'toml')
+    expect(toml).toHaveLength(1)
+    expect(toml[0]!.state).toBe('committed')
+  })
+
+  it('keeps a pending record the user changed and still refuses the re-install', async () => {
+    await fs.writeFile(cfgPath(), 'model = "x"\n')
+    await install('0.5.0')
+    // The user changed the config after the interrupted install: current is neither pre nor post.
+    await fs.writeFile(cfgPath(), 'model = "y"\nverbosity = "high"\n')
+    await withStateLock(paths, env, (lock) => mutateManifest({ paths, env, lock }, (m) => {
+      m.installs['codex:user']!.files.find((f) => f.format === 'toml')!.state = 'pending'
+    }))
+    await expect(install('0.5.0')).rejects.toMatchObject({ code: 'conflict' })
+  })
+
   it('refuses a Codex older than the version it was checked against', async () => {
     await writeControl({ version: '0.156.1' })
     await expect(install('0.5.0')).rejects.toMatchObject({ code: 'harness_cli_refused' })
@@ -257,7 +290,7 @@ describe('the Codex writer', { timeout: 60_000 }, () => {
     const trusted = await install('0.5.0', { scope: 'project', project: proj })
     expect(trusted.scope).toBe('project')
     expect(await fs.readFile(path.join(proj, '.codex', 'config.toml'), 'utf8')).toContain('[mcp_servers.dethereal]')
-    expect(await agentsIn(path.join(proj, '.codex', 'agents'))).toHaveLength(6)
+    expect(await agentsIn(path.join(proj, '.codex', 'agents'))).toHaveLength(8)
     // removing the project keeps the plugin the user entry still uses, and leaves no empty folders behind
     const r = await uninstall('project', proj)
     expect(r.pluginRemoved).toBe(false)

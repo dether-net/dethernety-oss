@@ -170,6 +170,7 @@ describe('which gates result is the first Gate 3', () => {
     expect(scene({ between: { tool: 'dethereal.model_state_settle', touches: ['threat-model/structure.json'] } })).toEqual(['needs-review:gate3_first_unread'])
     expect(scene({ between: { tool: 'dethereal.model_state_settle', touches: ['other-model/structure.json'] } })).toEqual([])
     expect(scene({ between: { kind: 'shell', writesModel: true, denied: 'user-rejected' } })).toEqual([])
+    expect(scene({ between: { tool: 'dethereal.model_state_settle', touches: ['threat-model/structure.json'], denied: 'user-rejected' } })).toEqual([])
     expect(scene({ between: { kind: 'shell', writesModel: true } })).toEqual(['needs-review:gate3_first_unread'])
     expect(scene({ dir: './threat-model' })).toEqual([])
   })

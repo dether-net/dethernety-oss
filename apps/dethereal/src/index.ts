@@ -11,7 +11,7 @@
 import { floorStop } from './node-floor.js'
 
 /** The oldest Node this build supports; the installer and `engines` say the same. */
-const NODE_FLOOR = [20, 11, 1]
+const NODE_FLOOR = [22, 12, 0]
 
 const args = process.argv.slice(2)
 // On an old Node every command stops; a guard hook stops so that the tool call is blocked.

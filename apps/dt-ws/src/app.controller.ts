@@ -5,6 +5,7 @@ import { GqlHealthService } from './gql/health/gql-health.service';
 import { ModuleRegistryService } from './gql/module-management-services/module-registry.service';
 import { EmbeddingService, type EmbedderState } from './gql/services/embedding.service';
 import { PLATFORM_VERSION } from './common/utils/platform-version';
+import { BrandingService } from './branding/branding.service';
 
 interface HealthCheckResult {
   status: 'healthy' | 'unhealthy' | 'degraded';
@@ -58,6 +59,7 @@ export class AppController {
     private readonly gqlHealthService: GqlHealthService,
     private readonly moduleRegistryService: ModuleRegistryService,
     @Optional() private readonly embeddingService?: EmbeddingService,
+    @Optional() private readonly brandingService?: BrandingService,
   ) {}
 
   @Get('config')
@@ -109,6 +111,10 @@ export class AppController {
       // Empty by default; the deployment decides the target. The backend is a
       // courier and never interprets it.
       settingsUrl: process.env.SETTINGS_URL || '',
+
+      // The installation's brand for reports (name, URL, footer line, logo URL), or null when
+      // unbranded. Public by design: it is meant to be seen.
+      branding: this.brandingService?.publicConfig() ?? null,
     };
 
     // Development-only configuration (not exposed in production)

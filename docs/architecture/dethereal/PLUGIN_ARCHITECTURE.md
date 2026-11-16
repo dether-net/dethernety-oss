@@ -25,7 +25,7 @@
 The Dethereal plugin turns an AI coding assistant — Claude Code, Codex or OpenCode — into a professional threat modeling workstation. Users install it for their harness with `dethereal install` (see [Installer and Runtime](#installer-and-runtime)) and gain:
 
 - **Skills** (slash commands) for guided and ad-hoc threat modeling workflows
-- **Subagents** specialized for discovery, modeling, enrichment, and review
+- **Subagents** specialized for discovery, modeling, enrichment, review and triage
 - **MCP server** for authenticated communication with the Dethernety platform
 - **Hooks** for session orientation, context preservation after compaction, post-write validation hints, a guard on harness permission configuration, a guard against agent reads of secret files, and (Claude Code) auto-approval of the Dethereal tools that need no operator approval — five hook commands, wired per harness (see [Hooks](#6-hooks))
 
@@ -39,6 +39,7 @@ The plugin assists users to perform the full data flow model creation lifecycle:
 4. **Enrich** with security attributes, MITRE ATT&CK technique mappings, and controls
 5. **Validate** model completeness and quality
 6. **Sync** local filesystem models with the Dethernety platform
+7. **Triage** the platform's findings for a model: grouped, evidence-grounded disposition proposals that the operator reviews, written to the platform only after the operator answers the apply question
 
 ### What It Does Not Do
 
@@ -71,22 +72,22 @@ apps/dethereal/
 │   ├── claude/
 │   │   ├── .mcp.json                  # MCP server registration: node ${CLAUDE_PLUGIN_ROOT}/dist/index.js
 │   │   ├── hooks/hooks.json           # SessionStart, PreToolUse, PostToolUse hooks
-│   │   ├── agents/                    # 6 agents: threat-modeler, infrastructure-scout,
+│   │   ├── agents/                    # 8 agents: threat-modeler, infrastructure-scout,
 │   │   │                              #   infrastructure-scout-scoped, security-enricher, model-reviewer,
-│   │   │                              #   enrichment-applier
-│   │   ├── skills/<name>/SKILL.md     # 17 skills: 14 slash commands + 3 companions,
+│   │   │                              #   enrichment-applier, triage-analyst, kg-cross-examiner
+│   │   ├── skills/<name>/SKILL.md     # 18 skills: 15 slash commands + 3 companions,
 │   │   │                              #   each with the reference files it reads on demand
 │   │   └── bundle.json                # File list and hashes of the bundle
 │   ├── codex/
 │   │   ├── .agents/plugins/marketplace.json   # Local marketplace for Codex's plugin CLI
 │   │   ├── plugins/dethereal/         # Codex plugin: .codex-plugin/plugin.json, skills/,
 │   │   │                              #   hooks/hooks.json and the hook scripts in bin/
-│   │   ├── agents/dethereal-*.toml    # The 6 agents as Codex agent files
+│   │   ├── agents/dethereal-*.toml    # The 8 agents as Codex agent files
 │   │   ├── config.fragment.toml       # [mcp_servers.dethereal] with per-tool approval modes
 │   │   └── bundle.json
 │   └── opencode/
-│       ├── skills/dethereal-<name>/   # The 17 skills, named dethereal-<name>
-│       ├── agents/dethereal-*.md      # The 6 agents, with their OpenCode permissions
+│       ├── skills/dethereal-<name>/   # The 18 skills, named dethereal-<name>
+│       ├── agents/dethereal-*.md      # The 8 agents, with their OpenCode permissions
 │       ├── commands/                  # dethereal-review, dethereal-surface (run as the model-reviewer)
 │       ├── plugins/dethereal.ts       # OpenCode plugin: guards, post-write hint, compaction reminder
 │       ├── mcp.fragment.json          # MCP server entry and the ask rules
@@ -100,7 +101,8 @@ apps/dethereal/
 ├── src/
 │   ├── index.ts                       # Entry: the MCP server without arguments, the CLI with arguments
 │   ├── server.ts                      # MCP server
-│   ├── tools/                         # The 30 tools; manifest.ts holds each tool's approval class
+│   ├── tools/                         # The 34 tools; manifest.ts holds each tool's approval class
+│   ├── triage/                        # Triage domain: review grammar, disposition plans, record, graph reads
 │   ├── auth/, client/, utils/         # Sign-in and session store, platform client, model files and state
 │   ├── cli/                           # Hook commands (session-start, post-write, config-guard, approve, secret-guard)
 │   ├── installer/                     # dethereal install | uninstall | doctor | gc
@@ -129,8 +131,9 @@ The published file list is `dist`, `.claude-plugin`, `bundles/claude`, `bundles/
 Rendering is only part of what the generator does; a generation with any finding fails, listing every finding:
 
 - **Lints** ([`lint.ts`](../../../apps/dethereal/src/generator/lint.ts)). Source rules read the harness-neutral workflow — for example, no literal Claude tool names, MCP tool names, `/dethereal:` commands or `$ARGUMENTS` outside a Claude-only block, and no reference to the session token store. Output rules read what one harness's rendering produced.
-- **Prompt registry** ([`registry.ts`](../../../apps/dethereal/src/generator/registry.ts), `workflow/shared/prompts.yaml`). Every question the workflow asks (`{{#ask id=…}}`) is registered with its owning skill, whether it is mandatory, its trigger, what is shown before it, what the answer decides and its closed set of options; the lint holds the workflow to the registry.
+- **Prompt registry** ([`registry.ts`](../../../apps/dethereal/src/generator/registry.ts), `workflow/shared/prompts.yaml`). Every question the workflow asks (`{{#ask id=…}}`) is registered with its owning skill, whether it is mandatory, its trigger, what is shown before it, what the answer decides and its closed set of options; the lint holds the workflow to the registry. A question renders as its tag (`[prompt: <id>]`), its text and a cue that says how to ask it on the harness ([`ask-cues.ts`](../../../apps/dethereal/src/generator/ask-cues.ts)). On Claude Code it is a dialog (`AskUserQuestion`, the tag first in its question text), or a plain message for a free-text question and one asked after a table or other output; every Claude Code cue names the tag first ("— the tag first, then a plain message; end your turn." and the like), since the model keeps a tag only where the cue names it. On Codex it is a numbered list or a plain message; on OpenCode the `question` tool, or a plain message.
 - **Rule ledger** ([`ledger.ts`](../../../apps/dethereal/src/generator/ledger.ts), `src/generator/ledger/`), checked separately rather than by a generation. Every rule extracted from the prose a workflow was migrated from is either placed — its anchor phrase present in every consumer's generated output, for every harness — or dropped with a recorded reason; `--ledger-check` fails on anything else.
+- **Batch delegation.** `{{#delegate <agent>}} … {{/delegate}}` starts one agent and waits for its result. `{{#delegate <agent> batch}} … {{/delegate}}` starts one agent per batch, as many at once as the step allows, then waits for all of their results before starting more; the step that starts the batches says what a failed one means. On Claude Code the batch is `Agent` calls made in one message; on Codex each batch's `spawn_agent` comes before the first `wait_agent`, and each agent is closed with `close_agent` once its answer is in; on OpenCode the batch is `task` calls made in one message ([`tokens.ts`](../../../apps/dethereal/src/generator/tokens.ts), each target's `renderer.ts`). The `triage` skill starts its triage-analyst and kg-cross-examiner batches this way.
 - **Per-harness output.** Tool names take each harness's prefix (`mcp__plugin_dethereal_dethereal__<tool>` on Claude Code, `mcp__dethereal__<tool>` on Codex, `dethereal_<tool>` on OpenCode); commands are `/dethereal:<name>`, `$dethereal:<name>` and `/dethereal-<name>`. Codex agents are TOML files; OpenCode skills and agents carry a `dethereal-` prefix. On Codex a delegation becomes `spawn_agent` / `wait_agent` / `close_agent`, and `review` and `surface` hand their work to the model-reviewer as a `task.md` beside the skill; on OpenCode they also ship as commands that run as the model-reviewer.
 
 ### Model Storage
@@ -303,6 +306,7 @@ The versions, and the `uninstall` and `doctor` flags, are documented for operato
 | `/dethereal:review` | Model completeness, quality dashboard, and structural validation | `[directory-path] [--structure-only]` |
 | `/dethereal:surface` | Attack surface summary with control gap analysis | `[directory-path]` |
 | `/dethereal:threat-model` | Guided workflow (scope through publishing); a new model is a quick model unless `--full` is given | `[system description or model path] [--full-scan] [--full\|--quick]` |
+| `/dethereal:triage` | Triage the platform's exposures for a model: grouped, evidence-grounded proposals the operator reviews, then a gated apply; `--stale` reviews stale dispositions instead | `[directory-path] [--stale] [--element <id>]` |
 
 #### Companion Skills (not user-invocable)
 
@@ -341,6 +345,7 @@ A parent skill hands over to these; they do not appear as slash commands.
 | `review` | yes | model-reviewer | fork | `[directory-path] [--structure-only]` | Includes structural validation |
 | `surface` | yes | model-reviewer | fork | `[directory-path]` | |
 | `threat-model` | yes | -- | -- | `[system description or model path] [--full-scan] [--full\|--quick]` | Primary guided workflow; starts all five specialist agents |
+| `triage` | yes | -- | -- | `[directory-path] [--stale] [--element <id>]` | Runs in the main conversation, which alone holds `triage_review`; starts Agent(triage-analyst) and Agent(kg-cross-examiner) in batches, and writes to the platform only through `manage_dispositions` |
 | `view` | yes | -- | -- | `[model-path] [--format tree\|json\|yaml]` | Reads model files and formats output |
 
 > Skills with `context: fork` run in a forked context and do not pollute the main conversation. No skill uses `disable-model-invocation`: every skill, `sync` included, needs LLM processing to read files, call MCP tools, ask the operator and format output. Only `review` and `surface` set `agent`: they run as the model-reviewer, with `background: false` so the review runs in the foreground. Every other skill runs in the main conversation and starts the specialist agents it needs via `Agent()` calls. The `effort` field is set on agents, not on skills — the agent's `effort` governs reasoning depth when the skill delegates to it (D44: removed redundant `effort` from skill frontmatter).
@@ -369,7 +374,7 @@ The skill has no `agent` frontmatter: it runs in the main conversation, asks the
 
 ### `/dethereal:help` Output
 
-The help output is **state-aware** — it shows a "Suggested now" section based on current model state, reducing cognitive load from 14 commands to 2-3 relevant ones. This saves LLM tokens by preempting "what should I do next?" follow-ups. The state detection is the `workspace_status` MCP tool, which returns a one-line context and up to three suggested commands.
+The help output is **state-aware** — it shows a "Suggested now" section based on current model state, reducing cognitive load from 15 commands to 2-3 relevant ones. This saves LLM tokens by preempting "what should I do next?" follow-ups. The state detection is the `workspace_status` MCP tool, which returns a one-line context and up to three suggested commands.
 
 ```
 Dethereal — threat modeling
@@ -382,7 +387,7 @@ Getting started:    /dethereal:status, /dethereal:login, /dethereal:help
 Viewing:            /dethereal:view
 Modeling:           /dethereal:create, /dethereal:discover, /dethereal:add, /dethereal:remove
 Enrichment:         /dethereal:classify, /dethereal:enrich (controls: /dethereal:enrich --focus controls)
-Review & analysis:  /dethereal:review, /dethereal:surface
+Review & analysis:  /dethereal:review, /dethereal:surface, /dethereal:triage
 Sync:               /dethereal:sync
 
 Full workflow:      /dethereal:threat-model — the guided process, recommended for a new model
@@ -402,7 +407,7 @@ The suggestions follow the first registered model's state. With no model registr
 
 **Purpose:** Edits a Dethernety threat model's files directly. The guided workflow, model creation, removing elements, discovery, drift reconciliation, classification, enrichment, the control pass, the review and sync run in the skills it names. On Claude Code, started directly, it also hands a scan, classification proposals, enrichment and a review to the specialist agents.
 
-**Tools:** Read, Write, Edit, Glob, Grep, Bash, AskUserQuestion, the Dethereal MCP tools that need no operator approval — `disallowedTools` removes the approval-required ones, listed in the frontmatter below — and `Agent(...)` for the four specialists: `infrastructure-scout`, `infrastructure-scout-scoped`, `security-enricher` and `model-reviewer`. The Codex and OpenCode agents hold the same subset but no `Agent(...)`: there it starts no other agent.
+**Tools:** Read, Write, Edit, Glob, Grep, Bash, AskUserQuestion, the Dethereal MCP tools that need no operator approval — `disallowedTools` removes the approval-required ones and `triage_review`, which only the main session holds (see [Main-Session-Only Tools](#main-session-only-tools)), listed in the frontmatter below — and `Agent(...)` for the four specialists: `infrastructure-scout`, `infrastructure-scout-scoped`, `security-enricher` and `model-reviewer`. The Codex and OpenCode agents hold the same subset but no `Agent(...)`: there it starts no other agent.
 
 **Frontmatter:**
 
@@ -423,11 +428,13 @@ disallowedTools:
   - mcp__plugin_dethereal_dethereal__manage_analyses
   - mcp__plugin_dethereal_dethereal__manage_controls
   - mcp__plugin_dethereal_dethereal__manage_countermeasures
+  - mcp__plugin_dethereal_dethereal__manage_dispositions
   - mcp__plugin_dethereal_dethereal__model_state_prune
   - mcp__plugin_dethereal_dethereal__model_state_settle
   - mcp__plugin_dethereal_dethereal__model_state_waive
   - mcp__plugin_dethereal_dethereal__update_attributes
   - mcp__plugin_dethereal_dethereal__update_model
+  - mcp__plugin_dethereal_dethereal__triage_review
 tools:
   - Read
   - Write
@@ -460,7 +467,7 @@ tools:
   Drift re-verification, creating a model, removing elements, the control pass, the gates' decisions and publishing still run in their skills. On Codex and OpenCode it starts no agent and routes all of that work to the skills.
 - On Claude Code, tells the operator to run those skills from a regular session, never from one started as this agent (`claude --agent`, or the `agent` setting): the skills need tools that ask for the operator's approval, which this agent does not hold
 
-**Subagent write convention:** The `infrastructure-scout` returns structured data (discovery report); the calling skill writes model files. The `security-enricher` writes directly to model attribute files in enrichment mode (it has Write/Edit access) — only cited and derived values into empty fields — and its return to a relay file; in classification and control-pass modes it writes nothing and returns its proposals for the conversation that started it to write once the operator confirms them. The `enrichment-applier` writes only attribute files, from the operator's reply to the relay. The `model-reviewer` is read-only.
+**Subagent write convention:** The `infrastructure-scout` returns structured data (discovery report); the calling skill writes model files. The `security-enricher` writes directly to model attribute files in enrichment mode (it has Write/Edit access) — only cited and derived values into empty fields — and its return to a relay file; in classification and control-pass modes it writes nothing and returns its proposals for the conversation that started it to write once the operator confirms them. The `enrichment-applier` writes only attribute files, from the operator's reply to the relay. The `model-reviewer`, the `triage-analyst` and the `kg-cross-examiner` are read-only: they return what they found, and the conversation that started them relays it.
 
 #### `infrastructure-scout` -- Discovery Agent
 
@@ -517,7 +524,7 @@ The plugin's own files — the model files, `attributes/`, `controls/`, `.dether
 
 **Purpose:** Enriches threat models with security attributes, credential topology, and control identification, in one of three modes: enrichment, classification proposals, and the control pass. MITRE ATT&CK technique coverage is derived platform-side from analysis exposures, not annotated by the agent.
 
-**Tools:** Read, Glob, Grep, Write, Edit, and the Dethereal MCP tools minus the 24 that `disallowedTools` removes — every tool that needs the operator's approval (the ones that change the model or the platform, sign in or out, or record the operator's decisions) and the read tools outside its work — which leaves six of the 30: `get_classes`, `match_classes`, `validate_model_json`, `query_controls`, `search_mitre_attack` and `get_mitre_defend`. The Codex agent's instructions name the same six, and it reads and searches with the shell (no command that changes anything) and changes files with `apply_patch`. The OpenCode agent's `permission` allows the same six, reading files, finding them by name (no content search), and editing only the model files and the plugin's state files.
+**Tools:** Read, Glob, Grep, Write, Edit, and the Dethereal MCP tools minus the 28 that `disallowedTools` removes — every tool that needs the operator's approval (the ones that change the model or the platform, sign in or out, or record the operator's decisions), `triage_review`, and the read tools outside its work — which leaves six of the 34: `get_classes`, `match_classes`, `validate_model_json`, `query_controls`, `search_mitre_attack` and `get_mitre_defend`. The Codex agent's instructions name the same six, and it reads and searches with the shell (no command that changes anything) and changes files with `apply_patch`. The OpenCode agent's `permission` allows the same six, reading files, finding them by name (no content search), and editing only the model files and the plugin's state files.
 
 **Frontmatter:**
 
@@ -534,8 +541,10 @@ disallowedTools:
   - mcp__plugin_dethereal_dethereal__detect_drift
   - mcp__plugin_dethereal_dethereal__export_model
   - mcp__plugin_dethereal_dethereal__generate_attribute_stubs
+  - mcp__plugin_dethereal_dethereal__get_class_guide
   - mcp__plugin_dethereal_dethereal__get_control_gaps
   - mcp__plugin_dethereal_dethereal__get_example_models
+  - mcp__plugin_dethereal_dethereal__get_kg_chain
   - mcp__plugin_dethereal_dethereal__get_model_schema
   - mcp__plugin_dethereal_dethereal__import_model
   - mcp__plugin_dethereal_dethereal__list_models
@@ -544,6 +553,7 @@ disallowedTools:
   - mcp__plugin_dethereal_dethereal__manage_analyses
   - mcp__plugin_dethereal_dethereal__manage_controls
   - mcp__plugin_dethereal_dethereal__manage_countermeasures
+  - mcp__plugin_dethereal_dethereal__manage_dispositions
   - mcp__plugin_dethereal_dethereal__model_state
   - mcp__plugin_dethereal_dethereal__model_state_settle
   - mcp__plugin_dethereal_dethereal__model_state_prune
@@ -553,6 +563,7 @@ disallowedTools:
   - mcp__plugin_dethereal_dethereal__update_attributes
   - mcp__plugin_dethereal_dethereal__update_model
   - mcp__plugin_dethereal_dethereal__workspace_status
+  - mcp__plugin_dethereal_dethereal__triage_review
 tools:
   - Read
   - Glob
@@ -636,7 +647,7 @@ tools:
 ---
 ```
 
-> The reviewer reads the platform through the read-only `query_exposures` and `query_countermeasures` tools, which accept only `list` and `get` and change nothing. Its prompt limits `model_state` to `action: 'get'` — the one part of the read-only mandate that rests on the prompt, because the `tools` allowlist grants whole tools, not single actions. Every platform write is out of the reviewer's reach: `manage_countermeasures` is not on its allowlist, and `manage_exposures` is retired.
+> The reviewer reads the platform through the read-only `query_exposures` and `query_countermeasures` tools. `query_countermeasures` accepts only `list` and `get`; `query_exposures` also accepts `list_model` and `evidence`, which serve triage, and `list_model`'s default view adds the triage files to the model's `.dethereal/.gitignore` (see [MCP_ARCHITECTURE.md → The triage record](MCP_ARCHITECTURE.md#the-triage-record)). The reviewer's prompt limits both tools to `list` and `get`, which change nothing, and `model_state` to `action: 'get'`. That part of the read-only mandate rests on the prompt, because the `tools` allowlist grants whole tools, not single actions. Every platform write is out of the reviewer's reach: `manage_countermeasures` is not on its allowlist, and `manage_exposures` is retired.
 
 **Checks performed:**
 - Structural validity (pass/fail)
@@ -648,6 +659,59 @@ tools:
 - Common gap detection (missing admin access, monitoring, backup flows)
 - Red flags: every insecure value recorded in the attribute files — a value the class guide's security impact marks insecure in either polarity, `fail_open` or `fallback` failure modes, unenforced boundaries, shared credentials — found with one search across `attributes/` and returned under a `### Red Flags (N)` heading, which the guided workflow shows verbatim
 - Top Findings, only when the task asks for them (the quick Step 9 does): at most five attack chains through the model — entry, each hop by its flow id, then the target, a hop the source shows but the model lacks marked `(not modelled)` — ranked by whether the chain reaches a crown jewel, the entry zone, the number of controls not in force on it and a shared credential; each finding's facts are read from the model files, with no ATT&CK, CWE or CAPEC ids and no numeric severity. Returned under `### Top Findings`, which the quick Step 9 relays verbatim, in its order ([`workflow/agents/model-reviewer.md`](../../../apps/dethereal/workflow/agents/model-reviewer.md))
+
+#### `triage-analyst` -- Exposure Triage Analyst
+
+**Purpose:** Evaluates a batch of grouped platform exposures against their evidence dossiers and returns a disposition proposal for each group, with its confidence and citations. It proposes; it never decides and never writes. The `triage` skill starts it, once per batch of at most 8 groups, at most 2 at once. Source: [`workflow/agents/triage-analyst.md`](../../../apps/dethereal/workflow/agents/triage-analyst.md).
+
+**Tools:** Read and `mcp__plugin_dethereal_dethereal__search_mitre_attack` — no other Dethereal tool, no search, no shell, no writes. The Codex agent reads files with the shell: its instructions limit it to commands that print a file, never a search or a listing, and the shell hook refuses any command that does more than read. It runs with `sandbox_mode = "read-only"` and `web_search = "disabled"`, and holds the same one Dethereal tool in `leaf-allowlist.json` (`write: false`). The OpenCode agent's `permission` allows reading, `dethereal_search_mitre_attack` and nothing else.
+
+**Frontmatter:**
+
+```yaml
+---
+name: triage-analyst
+description: Non-interactive exposure-triage analyst — evaluates grouped platform exposures against their evidence dossiers and returns disposition proposals with confidence and citations. Never writes.
+model: inherit
+effort: high
+maxTurns: 30
+tools:
+  - Read
+  - mcp__plugin_dethereal_dethereal__search_mitre_attack
+---
+```
+
+**Key characteristics:**
+- Its instructions limit it to the dossier file it was given and the source files the dossier cites, by relative path inside the project; a cited secret file is never opened, and a refused read is reported, never worked around
+- Looks for the evidence that would prove its leading verdict wrong before proposing it; where the evidence is not enough, the group is `needs-human`
+- Never proposes `RISK_ACCEPTED`, and proposes `COMPENSATING_CONTROL` only with the control named; in platform-only mode no proposal is above `medium`
+- Verifies every technique id it proposes with `search_mitre_attack` `lookup`; `match` only suggests candidates
+- Returns one JSON block and its tables as its final answer: no one answers it, so it never asks
+
+#### `kg-cross-examiner` -- Knowledge-Graph Cross-Examiner
+
+**Purpose:** The finding's defender. For each dispose or supersede proposal it is given, it finds the strongest objection grounded in the knowledge graph's authored reasoning chain, or concurs. It returns `object` or `concur` per proposal and never proposes verdicts of its own; an objection makes the group need the operator's decision, with both views shown. The `triage` skill starts it only when the knowledge graph is present, once per batch of at most 8 proposals, at most 2 at once. Source: [`workflow/agents/kg-cross-examiner.md`](../../../apps/dethereal/workflow/agents/kg-cross-examiner.md).
+
+**Tools:** Read — no Dethereal tool, no search, no shell, no writes. Everything it needs is in the one batch file it is given, and its instructions limit it to that file. The Codex agent reads that file with the shell: its instructions limit it to commands that print a file, and the shell hook refuses any command that does more than read. It runs with `sandbox_mode = "read-only"` and `web_search = "disabled"`, with no Dethereal tool in `leaf-allowlist.json` (`write: false`). The OpenCode agent's `permission` allows reading only.
+
+**Frontmatter:**
+
+```yaml
+---
+name: kg-cross-examiner
+description: Adversarial second lens for exposure triage — defends a platform finding against a mute or supersede proposal using the knowledge graph's authored reasoning chain. Never writes; never proposes verdicts of its own.
+model: inherit
+effort: high
+maxTurns: 12
+tools:
+  - Read
+---
+```
+
+**Key characteristics:**
+- An objection cites specific knowledge-graph content, tagged `kg:<node-id>`: a condition branch the proposal does not address, a technique provenance entry a removal ignores, or a source whose synthesis contradicts the proposal's premise. General doubt is not an objection
+- Sees only mute and supersede proposals; being started is no evidence that something is wrong, and concurring on a whole batch is a good return
+- A `concur` changes nothing and never raises a proposal's confidence
 
 ### Agent Interaction Pattern
 
@@ -677,13 +741,27 @@ User
   +--> Agent(model-reviewer)               -- validation phase
           Passes: model directory path
           Returns: review (gate verdicts, top issues); writes nothing
+
+/dethereal:triage (skill, runs in the main conversation)
+  |
+  +--> Agent(triage-analyst) x batch       -- 8 groups per batch, 2 in flight
+  |       Passes: the batch's dossier file path + batch id + evidence mode
+  |       Returns: a proposal per group; writes nothing
+  |
+  +--> Agent(kg-cross-examiner) x batch    -- knowledge graph present only
+  |       Passes: the cross-examination file path + batch id
+  |       Returns: object or concur per proposal; writes nothing
+  |
+  |    the skill handles directly          -- the review and the task list
+                                              (triage_review) and the gated
+                                              apply (manage_dispositions)
 ```
 
 **Subagent return contracts:** Subagent delegations pass the model directory path, not serialized model content. Each subagent reads current state from disk and returns its tables and findings; the skill relays them to the operator before the next question. This avoids 2,000-8,000 tokens of redundant model content in delegation round-trips.
 
 **While a specialist runs**, the skill asks nothing and writes nothing ([`core-rules.md`](../../../apps/dethereal/workflow/shared/core-rules.md) rule 4). On Claude Code and OpenCode, when the specialist runs in the background — started or resumed — the conversation ends its turn and the result arrives as a new message; it never sleeps, polls, or schedules a wakeup or loop for it. Codex waits with `wait_agent` (below). A specialist cut off by its turn limit with work left is started once more with only what is left — a fresh start or a resume; cut off again, the skill stops and tells the operator.
 
-The skills are the orchestrators: they carry the protocols and the operator's questions, and they start the specialist agents via `Agent()` calls — `/dethereal:threat-model` all five, `/dethereal:discover` the infrastructure-scout, and the control pass the security-enricher. `/dethereal:review` and `/dethereal:surface` run as the model-reviewer through their `agent` frontmatter. The `threat-modeler` edits models, asks questions (`AskUserQuestion` when it runs as the main conversation) and validates its edits. When a request needs a new model, removing elements, discovery, drift reconciliation, classification, enrichment, the control pass, the review, sync or the guided workflow, it names the skill that runs it and stops. On Claude Code, started directly, it hands the specialists' part — a scan, classification proposals, enrichment and a review — to the `infrastructure-scout`, `security-enricher` and `model-reviewer` via `Agent()` calls (see [`threat-modeler`](#threat-modeler----primary-modeling-agent)); on Codex and OpenCode it starts no other agent.
+The skills are the orchestrators: they carry the protocols and the operator's questions, and they start the specialist agents via `Agent()` calls — `/dethereal:threat-model` all five, `/dethereal:discover` the infrastructure-scout, the control pass the security-enricher, and `/dethereal:triage` the triage-analyst and the kg-cross-examiner, in batches (see [Batch delegation](#generator-lints-prompt-registry-rule-ledger-per-harness-output)). `/dethereal:review` and `/dethereal:surface` run as the model-reviewer through their `agent` frontmatter. The `threat-modeler` edits models, asks questions (`AskUserQuestion` when it runs as the main conversation) and validates its edits. When a request needs a new model, removing elements, discovery, drift reconciliation, classification, enrichment, the control pass, the review, sync or the guided workflow, it names the skill that runs it and stops. On Claude Code, started directly, it hands the specialists' part — a scan, classification proposals, enrichment and a review — to the `infrastructure-scout`, `security-enricher` and `model-reviewer` via `Agent()` calls (see [`threat-modeler`](#threat-modeler----primary-modeling-agent)); on Codex and OpenCode it starts no other agent.
 
 On Codex a skill starts an agent with `spawn_agent` (`agent_type: "dethereal-<agent>"`, `fork_turns: "none"`), waits for its final answer with `wait_agent` — again while it is still running, never ending its turn while it runs — and then closes it with `close_agent`, because a finished agent counts against the session's agent limit until it is closed. If no `close_agent` tool is available, the skill carries on; if a later `spawn_agent` then fails on the agent limit, it stops and tells the operator. `/dethereal:review` and `/dethereal:surface` hand their work to the model-reviewer the same way, as a task file next to the skill. Every Codex agent is a leaf: it never starts or messages another agent, and the plugin's agent-tool hook keeps it to its own tools (see [Codex Hooks](#codex-hooks)).
 
@@ -727,20 +805,22 @@ On Codex a skill starts an agent with `spawn_agent` (`agent_type: "dethereal-<ag
 
 #### MITRE Framework Tools
 
-**`search_mitre_attack`** -- Search and browse ATT&CK techniques, tactics, and mitigations (D26).
+**`search_mitre_attack`** -- Search and browse ATT&CK techniques, tactics, and mitigations (D26); resolve an exact ATT&CK or ATLAS id; match text to candidate techniques.
 
-Input: `{ action: 'search'|'tactics'|'techniques_by_tactic'|'technique'|'mitigations'|'mitigation', query?: string, tactic_id?: string, attack_id?: string }`
+Input: `{ action: 'search'|'tactics'|'techniques_by_tactic'|'technique'|'mitigations'|'mitigation'|'lookup'|'match', query?: string, tactic_id?: string, attack_id?: string, framework?: 'attack'|'atlas'|'both', top_n?: number }`
 
 | Action | API Method | Notes |
 |--------|-----------|-------|
 | `search` | `findMitreAttackTechniques` | Requires `query`, translated to a GraphQL name filter. Results capped at 20. |
 | `tactics` | `getMitreAttackTactics` | No params, returns all tactics. |
-| `techniques_by_tactic` | `getMitreAttackTechniquesByTactic` | Requires `tactic_id` (e.g., "TA0001"). |
+| `techniques_by_tactic` | `getMitreAttackTechniquesByTactic` | Requires `tactic_id`, the ATT&CK tactic id (e.g., "TA0008"), looked up among the platform's tactics first. An unknown tactic is refused, not answered with an empty list. |
 | `technique` | `getMitreAttackTechnique` | Requires `attack_id` (e.g., "T1190"). Used for ID validation. |
 | `mitigations` | `getMitreAttackMitigations` | No params, returns all mitigations. |
 | `mitigation` | `getMitreAttackMitigation` | Requires `attack_id` (e.g., "M1036"). |
+| `lookup` | -- (the server's own document) | Requires `attack_id`, an exact ATT&CK (`T1078.001`) or ATLAS (`AML.T0051`) id. Returns the platform technique with its internal node id, framework, parent technique and tactic names; a miss is `not_found`. |
+| `match` | -- (the server's own document) | Requires `query` (at most 500 characters). The platform's matching cascade over ATT&CK (default), ATLAS or `both`; `top_n` candidates (default 5, 1–20), by MITRE id only. |
 
-Wraps `DtMitreAttack` dt-core class methods. The `search` action passes `query` to the platform as a name-contains filter (`name: { contains: query }`), so a query matches technique names, not descriptions. The `technique` action with `attack_id` enables ID validation (confirm a technique exists before annotating), serving as the anti-hallucination guardrail. A search returns at most 20 techniques with the full `total` and a `truncated` flag; when it is truncated, the agent should refine the query.
+The browsing actions wrap `DtMitreAttack` dt-core class methods; `lookup` and `match` serve triage, and `lookup` is the id authority (see [MCP_ARCHITECTURE.md → `search_mitre_attack`](MCP_ARCHITECTURE.md#search_mitre_attack)). The `search` action passes `query` to the platform as a name-contains filter (`name: { contains: query }`), so a query matches technique names, not descriptions. The `technique` action with `attack_id` enables ID validation (confirm a technique exists before annotating), serving as the anti-hallucination guardrail. A search returns at most 20 techniques with the full `total` and a `truncated` flag; when it is truncated, the agent should refine the query.
 
 > The plugin provides `search_mitre_attack` for user-initiated reference browsing. Systematic technique-to-component mapping (STRIDE-to-ATT&CK evaluation) is performed by analysis modules, not the plugin.
 
@@ -748,15 +828,15 @@ Wraps `DtMitreAttack` dt-core class methods. The `search` action passes `query` 
 
 Input: `{ action: 'tactics' | 'techniques_by_tactic' | 'technique', tactic_id?: string, d3fend_id?: string }`
 
-Wraps `DtMitreDefend` dt-core class methods. Renamed from `search_mitre_defend` because the underlying `DtMitreDefend` class has no text search capability — only tactic listing, technique-by-tactic browsing, and technique lookup by ID. The D3FEND data comes from the mitre-frameworks module, which ingests a pinned D3FEND release into the graph database. For free-text lookup the plugin offers only `search_mitre_attack`, which searches ATT&CK techniques by name; D3FEND techniques are found by tactic browsing or by ID with `get_mitre_defend`. dt-core has no D3FEND counterpart to `findMitreAttackTechniques`.
+Wraps `DtMitreDefend` dt-core class methods. Renamed from `search_mitre_defend` because the underlying `DtMitreDefend` class has no text search capability — only tactic listing, technique-by-tactic browsing, and technique lookup by ID. The D3FEND data comes from the mitre-frameworks module, which ingests a pinned D3FEND release into the graph database. For free-text lookup the plugin offers only `search_mitre_attack`, which searches ATT&CK techniques by name; D3FEND techniques are found by tactic browsing or by ID with `get_mitre_defend`. dt-core has no D3FEND counterpart to `findMitreAttackTechniques`. `techniques_by_tactic` takes the tactic's name (e.g., "Harden"), as `tactics` lists them; since the platform selects a tactic by its node id, the name is looked up among the platform's tactics first, and an unknown tactic is refused with the names of the tactics there are.
 
 #### Security Element Tools
 
 **`query_exposures`** -- Read-only access to platform-computed exposures (D25). It replaced `manage_exposures`, which is retired and no longer registered.
 
-Input: `{ action: 'list'|'get', element_id?: string, exposure_id?: string, limit?: number }`
+Input: `{ action: 'list'|'get'|'list_model'|'evidence', element_id?: string, exposure_id?: string, limit?: number, directory_path?: string, view?: 'partition'|'groups'|'rows', select?: 'stale'|'user'|'all', offset?: number, listing?: string }`
 
-Wraps `DtExposure` dt-core class. **Create/update/delete are analysis module features**, not plugin capabilities. Exposures are computed by OPA/Rego policy evaluation on the platform — plugin-created exposures would pollute the analysis evidence chain (`Component → HAS_EXPOSURE → Exposure → EXPLOITED_BY → Technique`) with unverified claims.
+`list` and `get` wrap `DtExposure` dt-core class. `list_model` reads the exposures of a model directory's platform model and answers in one of three views, each within the harnesses' tool-output limits: `partition` (the default) the counts only, `groups` the triage set grouped on the server in parts of at most 80 members, and `rows` the rows `select` picks (`stale`, `user` or `all`); the groups and rows views come in pages, followed with `next_offset` and `listing`. `evidence` reads one exposure's full evidence. Both serve triage (see [MCP_ARCHITECTURE.md → `query_exposures`](MCP_ARCHITECTURE.md#query_exposures)). **Create/update/delete are analysis module features**, not plugin capabilities. Exposures are computed by OPA/Rego policy evaluation on the platform — plugin-created exposures would pollute the analysis evidence chain (`Component → HAS_EXPOSURE → Exposure → EXPLOITED_BY → Technique`) with unverified claims.
 
 After model import, the plugin reads back computed exposures: "12 exposures found on your model. Run analysis for full findings and remediation roadmaps." Manual exposure entry (pentest findings) belongs in a dedicated import module with explicit `source: "manual"` provenance.
 
@@ -808,6 +888,19 @@ Wraps `DtCountermeasure` dt-core class. Critical for the enrichment workflow con
 
 > **Temporal dependency:** Countermeasures created before model import will not have `exposure_ids` (no exposures exist yet). Without linking, the platform's defense coverage analysis will not credit these controls — a well-controlled system appears under-protected. The guided workflow handles this in Step 11: after sync, if the model has countermeasures, read back platform-computed exposures via `query_exposures(action: 'list')` and present a batch linking table: "The platform found N exposures. I'll match them to your existing controls. Please confirm." If the user defers, warn: "Your controls exist but are not linked to specific exposures. Analysis will undercount your defenses."
 
+#### Triage Tools
+
+The `triage` skill's tools. The full reference — the review grammar, the plan's lines, the two-phase gate, the triage record and the knowledge-graph latch — is [MCP_ARCHITECTURE.md → Triage Tools](MCP_ARCHITECTURE.md#triage-tools).
+
+| Tool | Auth | Approval | Purpose |
+|------|------|----------|---------|
+| `triage_review` | `open`, and `tasks` with `guides` | Run without asking; main session only | Opens a review of triage proposals and reads each of the operator's replies as one command; `tasks` checks the remediation task list and, only when it passes, writes it into the run's scratch directory, never over a file |
+| `manage_dispositions` | Yes | Ask first (`requiresUser`) | `prepare` plans what a closed review decided; `commit` writes it only on the operator's `yes`, and only if nothing changed since `prepare` |
+| `get_kg_chain` | Yes | Run without asking | Knowledge-graph evidence: `probe`, a class's rule `chain`, and `evaluate` of one rule's condition groups against supplied attributes |
+| `get_class_guide` | Yes | Run without asking | A class's authored guidance for the given attribute keys |
+
+**The skill asks what the tools return.** `triage_review` and `manage_dispositions` return the operator's next question as `ask`: the registered review or apply question, its tag first, on one line. The skill ends its message with it exactly as returned, so it copies the question rather than recalling it. A refusal the operator can answer is shown as its `error`, as returned, then its `ask`; after a compaction during a review, the skill calls `triage_review` `get` and relays its `ask`. `prepare`'s lines are shown unchanged in one fenced block before the apply question. On Claude Code, where the plugin's tools load on demand, the skill loads the tools it names with one tool search at its start.
+
 #### Model Discovery Tool
 
 **`list_models`** -- List threat models on the platform.
@@ -829,7 +922,7 @@ Input: `{ action: 'list_classes'|'list'|'create'|'run'|'status'|'results'|'delet
 **Polling contract** (see [MCP_ARCHITECTURE.md §6](MCP_ARCHITECTURE.md#6-tool-reference)):
 - `action: 'run'` returns `{ session_id, status: 'started' }`
 - `action: 'status'` returns the analysis's `status` value
-- `action: 'results'` returns the results once there are any, otherwise `{ status: 'no_results' }` with a message to check `status` first
+- `action: 'results'` reads the analysis's main document, the one the platform's own results view reads, and returns it once there are results, otherwise `{ status: 'no_results' }` with a message to check `status` first; an empty document, or one holding only an error (no results yet, an unknown id, or results that could not be read), is answered this way too
 
 There is no progress report and no retry hint; the caller polls `status` until it completes.
 
@@ -849,9 +942,10 @@ The registered tools, by category. The sections above describe a subset; [MCP_AR
 | MITRE Frameworks | `search_mitre_attack`, `get_mitre_defend` | 2 |
 | Security Elements | `manage_controls`, `manage_countermeasures`, `get_control_gaps`, `query_controls`, `query_exposures`, `query_countermeasures` | 6 |
 | Analysis | `manage_analyses` | 1 |
-| **Total** | | **30** |
+| Triage | `triage_review`, `manage_dispositions`, `get_kg_chain`, `get_class_guide` | 4 |
+| **Total** | | **34** |
 
-With the settlement off, the default, the server lists 29: `model_state_settle` is not served (see [MCP_ARCHITECTURE.md → Settlement Switch](MCP_ARCHITECTURE.md#settlement-switch)).
+With the settlement off, the default, the server lists 33: `model_state_settle` is not served (see [MCP_ARCHITECTURE.md → Settlement Switch](MCP_ARCHITECTURE.md#settlement-switch)).
 
 > **Output size constraint:** MCP tool output is limited to ~10,000 tokens. Tools returning large payloads (e.g., `get_model_schema`, `export_model`) should paginate, summarize, or write to disk and return a file path. The hybrid approach of embedding guidelines in agent prompts (rather than returning them from tools) mitigates this for schema tools.
 
@@ -865,16 +959,27 @@ Every tool has an approval class in the tool manifest ([`manifest.ts`](../../../
 
 | Approval | Count | Tools |
 |----------|-------|-------|
-| Run without asking | 16 | `auth_status`, `detect_drift`, `get_classes`, `get_control_gaps`, `get_example_models`, `get_mitre_defend`, `get_model_schema`, `list_models`, `match_classes`, `model_state`, `query_controls`, `query_countermeasures`, `query_exposures`, `search_mitre_attack`, `validate_model_json`, `workspace_status` |
-| Ask first | 14 | `create_threat_model`, `export_model`, `generate_attribute_stubs`, `import_model`, `login`, `logout`, `manage_analyses`, `manage_controls`, `manage_countermeasures`, `model_state_prune`, `model_state_settle`, `model_state_waive`, `update_attributes`, `update_model` |
+| Run without asking | 19 | `auth_status`, `detect_drift`, `get_class_guide`, `get_classes`, `get_control_gaps`, `get_example_models`, `get_kg_chain`, `get_mitre_defend`, `get_model_schema`, `list_models`, `match_classes`, `model_state`, `query_controls`, `query_countermeasures`, `query_exposures`, `search_mitre_attack`, `triage_review`, `validate_model_json`, `workspace_status` |
+| Ask first | 15 | `create_threat_model`, `export_model`, `generate_attribute_stubs`, `import_model`, `login`, `logout`, `manage_analyses`, `manage_controls`, `manage_countermeasures`, `manage_dispositions`, `model_state_prune`, `model_state_settle`, `model_state_waive`, `update_attributes`, `update_model` |
 
 How each harness applies it:
 
-- **Claude Code** — the plugin's `approve` hook (see [Auto-Approval](#auto-approval)) approves the 16, and, with the settlement on, also approves `model_state_settle` when its action is `prepare`, which records nothing in the model (the tool still carries the interaction hint, so Claude Code may still ask for it); your own deny and ask rules still apply, and the other 14 (`model_state_settle` `settle` and `commit` included) ask as your settings say.
-- **Codex** — the server entry sets `default_tools_approval_mode = "prompt"` and `approval_mode = "approve"` for each of the 16.
-- **OpenCode** — the 14 get an `ask` permission rule.
+- **Claude Code** — the plugin's `approve` hook (see [Auto-Approval](#auto-approval)) approves the 19, and, with the settlement on, also approves `model_state_settle` when its action is `prepare`, which records nothing in the model (the tool still carries the interaction hint, so Claude Code may still ask for it); your own deny and ask rules still apply, and the other 15 (`model_state_settle` `settle` and `commit` included) ask as your settings say.
+- **Codex** — the server entry sets `default_tools_approval_mode = "prompt"` and `approval_mode = "approve"` for each of the 19.
+- **OpenCode** — the 15 get an `ask` permission rule.
 
 Before it changes anything, the installer's summary says, per harness, which kinds of tools run without asking and how many others ask first; it does not list them by name. `dethereal doctor --json` prints both lists from the installed version, as the `tool approvals` check.
+
+### Main-Session-Only Tools
+
+An `auto` tool runs without a prompt, so a specialist agent that holds one uses it unattended. `triage_review` opens and answers the operator's review of a triage, so it belongs to the conversation the operator talks to: [`targets/common.ts`](../../../apps/dethereal/src/generator/targets/common.ts) lists it in `MAIN_SESSION_ONLY`. The generator keeps it out of every agent's grant, on every harness:
+
+- **`mcp:*` leaves it out.** An agent whose source grants `mcp:*` gets the `auto` tools less the main session's own. On Claude Code the agent's `disallowedTools` names it, beside the approval-required tools (see the [`threat-modeler`](#threat-modeler----primary-modeling-agent) and [`security-enricher`](#security-enricher----security-enricher-agent) frontmatter).
+- **An explicit grant is refused** at generation.
+- **Codex.** No agent's list in `leaf-allowlist.json` names it, so the agent-tool hook denies it to every Dethereal agent (see [Codex Hooks](#codex-hooks)).
+- **OpenCode.** An agent's `permission` has one `allow` per Dethereal tool it holds, never a wildcard — a wildcard would match the tools that ask, and the main session's own — then a `deny` for each approval-required tool. `triage_review` gets no rule and falls under the agent's `"*": deny`. The built-in `explore` agent is denied every `dethereal_*` tool.
+
+`manage_dispositions` needs no such entry: it is approval-required, which no agent holds. A harness's built-in sub-agents are not Dethereal's agents and can reach `triage_review`; they write nothing to the platform without `manage_dispositions` `commit`, which asks (see [MCP_ARCHITECTURE.md → The two-phase gate](MCP_ARCHITECTURE.md#the-two-phase-gate)).
 
 ### Error Propagation
 
@@ -911,7 +1016,7 @@ The package's CLI ([`src/cli/`](../../../apps/dethereal/src/cli/)) has five hook
 
 Codex adds an agent-tool hook of its own (see [Codex Hooks](#codex-hooks)); OpenCode runs the commands through its plugin (see [OpenCode Plugin](#opencode-plugin)).
 
-The generator's Claude target emits the hooks into `bundles/claude/hooks/hooks.json`, which the manifest names. Every hook runs the package's own CLI in exec form (argv, never a shell): `node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook <command> … --harness claude` ([`src/cli/`](../../../apps/dethereal/src/cli/)). Apart from the two guards (below), a hook never blocks a session: an unusable invocation exits 1 with a one-line reason on stderr. On a wrong `--harness` the secret guard fails closed on any Claude Code version: it denies the call, with a reason that names the wiring (see [Secret Guard](#secret-guard)). The two guards (`config-guard`, `secret-guard`) carry `"onFailure": "block"`: on Claude Code 2.1.295 or later, a guard that cannot answer — it fails to start, times out, exits with a code other than 0 or 2, or prints invalid JSON output — blocks the tool call. Older Claude Code versions ignore the key and load the hooks file as before (2.1.289 verified), so there a guard that cannot start, crashes or times out, or runs on a Node older than 14.8, lets the call run. Independently of the Claude Code version, on a Node from 14.8 up to 20.11.0 the entry stops a guard with exit code 2, which Claude Code reads as a block, and the reason `Dethereal needs Node.js 20.11.1 or newer (found <version>), so its <guard> can't check this call and blocks it. Update Node, or turn the Dethereal plugin off with /plugin.`; on such a Node every Read, Grep, Bash, Write, Edit, MultiEdit and NotebookEdit call is blocked until Node is updated or the plugin is turned off. On such a Node every other Dethereal command stops with exit 1 and the plain message ([`src/node-floor.ts`](../../../apps/dethereal/src/node-floor.ts)); an older Node cannot load the entry at all. Hooks have no platform session and never contact the platform. The Codex bundle ships its own hook scripts; see [Codex Hooks](#codex-hooks).
+The generator's Claude target emits the hooks into `bundles/claude/hooks/hooks.json`, which the manifest names. Every hook runs the package's own CLI in exec form (argv, never a shell): `node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook <command> … --harness claude` ([`src/cli/`](../../../apps/dethereal/src/cli/)). Apart from the two guards (below), a hook never blocks a session: an unusable invocation exits 1 with a one-line reason on stderr. On a wrong `--harness` the secret guard fails closed on any Claude Code version: it denies the call, with a reason that names the wiring (see [Secret Guard](#secret-guard)). The two guards (`config-guard`, `secret-guard`) carry `"onFailure": "block"`: on Claude Code 2.1.295 or later, a guard that cannot answer — it fails to start, times out, exits with a code other than 0 or 2, or prints invalid JSON output — blocks the tool call. Older Claude Code versions ignore the key and load the hooks file as before (2.1.289 verified), so there a guard that cannot start, crashes or times out, or runs on a Node older than 14.8, lets the call run. Independently of the Claude Code version, on a Node from 14.8 up to 22.11.0 the entry stops a guard with exit code 2, which Claude Code reads as a block, and the reason `Dethereal needs Node.js 22.12.0 or newer (found <version>), so its <guard> can't check this call and blocks it. Update Node, or turn the Dethereal plugin off with /plugin.`; on such a Node every Read, Grep, Bash, Write, Edit, MultiEdit and NotebookEdit call is blocked until Node is updated or the plugin is turned off. On such a Node every other Dethereal command stops with exit 1 and the plain message ([`src/node-floor.ts`](../../../apps/dethereal/src/node-floor.ts)); an older Node cannot load the entry at all. Hooks have no platform session and never contact the platform. The Codex bundle ships its own hook scripts; see [Codex Hooks](#codex-hooks).
 
 ### Hook Definitions (`bundles/claude/hooks/hooks.json`)
 
@@ -953,7 +1058,7 @@ An abbreviated entry:
 - **No models:** the entry commands (`/dethereal:create`, `/dethereal:status`, `/dethereal:help`) and a plain-language prompt suggestion.
 - **One model:** its name, state, quality score and stale-element count, with up to three suggested next commands.
 - **Several models:** the count, and a pointer to `/dethereal:status`.
-- **Platform URL not set:** a note that the local default is used, and `/dethereal:login` when needed; an unusable URL is reported as such.
+- **Platform URL not set:** `No platform URL is set in this shell or the plugin settings; if the server was given one, /dethereal:status shows it. Sign in with /dethereal:login when needed.` The hook sees only its own environment and the plugin settings, never the server's, so it says what it sees and points at the command that reports the server's URL; it does not claim the server uses the local default. An unusable URL is reported as such.
 - **Settlement on:** one more line, `Settlement on: values the operator has not confirmed hold back REVIEWED and a push.`
 - **Switch set, but not on:** when `DETHEREAL_SETTLEMENT` is set to anything but exactly `on` (an empty value included), one more line, ``Settlement off: DETHEREAL_SETTLEMENT is set, but not to `on`.`` The line is fixed text and never shows the value, since a repository's own settings can set it; `workspace_status` likewise carries only a boolean, `settlementSwitchNotOn`. A hook whose command carries `--settlement` does not read the environment, so it never prints this line.
 
@@ -971,7 +1076,7 @@ After a compaction, `hook session-start --source compact` injects a reminder to 
 
 **Event:** `PostToolUse` (matcher: `Write|Edit|MultiEdit`)
 
-`hook post-write` reads the event from stdin, finds which registered threat models the written files belong to, and, if any, tells the model to validate them with `validate_model_json`. It prints nothing for a file outside every model, and must stay fast because it fires on every file write in the session.
+`hook post-write` reads the event from stdin, finds which registered threat models the written files belong to, and, if any, tells the model to validate them with `validate_model_json`. It prints nothing for a file outside every model, nor for a file under a model's `.dethereal/` folder: that folder holds the workflow's own state and run files, not the model, and the steps that write there validate through their own tools. A write that also touches the model's own files still gets the hint, counting only those. It must stay fast because it fires on every file write in the session.
 
 > **Note:** Model changes made via MCP tools (e.g., `update_model`, `export_model`) that write files internally do not trigger this hook because the file writes happen inside the MCP server process, not via Claude Code's Write/Edit tools.
 
@@ -1010,19 +1115,23 @@ It fails closed on guarded paths only, when it cannot judge (unreadable event or
 
 **Event:** `PreToolUse` (matcher: `^mcp__plugin_dethereal_dethereal__(<auto-approved tools>|model_state_settle)$`, `model_state_settle` with the settlement on) — Claude Code only
 
-`hook approve` ([`approve.ts`](../../../apps/dethereal/src/cli/approve.ts)) approves the 16 Dethereal tools the tool manifest marks `auto` — tools that only read, or whose every change the server validates — so Claude Code asks for them no more than Codex or OpenCode do (see [Tools by Approval](#tools-by-approval)). A skill's `allowed-tools` would approve them only until the operator's next message. For one of those exact tool names it answers `permissionDecision: allow`. With the settlement on, it also approves one action of a tool that otherwise asks, listed in `AUTO_ACTIONS`: `model_state_settle` with `action: 'prepare'`, which checks a settlement and records nothing in the model (see [MCP_ARCHITECTURE.md](MCP_ARCHITECTURE.md#model_state_settle)). With the settlement off, that tool is not served, and the hook approves nothing of it. The hook counts the settlement as on when its command carries `--settlement`, which a bundle generated with the settlement on adds, or when its environment has `DETHEREAL_SETTLEMENT` exactly `on` (see [MCP_ARCHITECTURE.md → Settlement Switch](MCP_ARCHITECTURE.md#settlement-switch)). `model_state_settle` is still listed with the interaction hint (`anthropic/requiresUserInteraction`, see [MCP_ARCHITECTURE.md](MCP_ARCHITECTURE.md#tool-manifest-and-listing)), so Claude Code may still ask for a `prepare` the hook approved. The hook never approves `commit`, which records the prepared decisions, or `settle`, nor a call whose `action` is missing or is not exactly `prepare`. For any other tool or action, a malformed event or an error it prints nothing, and Claude Code asks as usual. It never denies and never asks, and the operator's own deny and ask rules still apply over it. The generator builds the matcher from the same two lists the hook reads — the tool manifest's `auto` tools and `AUTO_ACTIONS` — so the matcher and the hook cannot disagree. It accepts only `--harness claude`.
+`hook approve` ([`approve.ts`](../../../apps/dethereal/src/cli/approve.ts)) approves the 19 Dethereal tools the tool manifest marks `auto` — tools that only read, or whose every change the server validates — so Claude Code asks for them no more than Codex or OpenCode do (see [Tools by Approval](#tools-by-approval)). A skill's `allowed-tools` would approve them only until the operator's next message. For one of those exact tool names it answers `permissionDecision: allow`. With the settlement on, it also approves one action of a tool that otherwise asks, listed in `AUTO_ACTIONS`: `model_state_settle` with `action: 'prepare'`, which checks a settlement and records nothing in the model (see [MCP_ARCHITECTURE.md](MCP_ARCHITECTURE.md#model_state_settle)). With the settlement off, that tool is not served, and the hook approves nothing of it. The hook counts the settlement as on when its command carries `--settlement`, which a bundle generated with the settlement on adds, or when its environment has `DETHEREAL_SETTLEMENT` exactly `on` (see [MCP_ARCHITECTURE.md → Settlement Switch](MCP_ARCHITECTURE.md#settlement-switch)). `model_state_settle` is still listed with the interaction hint (`anthropic/requiresUserInteraction`, see [MCP_ARCHITECTURE.md](MCP_ARCHITECTURE.md#tool-manifest-and-listing)), so Claude Code may still ask for a `prepare` the hook approved. The hook never approves `commit`, which records the prepared decisions, or `settle`, nor a call whose `action` is missing or is not exactly `prepare`. For any other tool or action, a malformed event or an error it prints nothing, and Claude Code asks as usual. It never denies and never asks, and the operator's own deny and ask rules still apply over it. The generator builds the matcher from the same two lists the hook reads — the tool manifest's `auto` tools and `AUTO_ACTIONS` — so the matcher and the hook cannot disagree. It accepts only `--harness claude`.
 
 ### Secret Guard
 
 **Event:** `PreToolUse` (matcher: `^(Read|Grep|Bash)$`)
 
-`hook secret-guard` ([`secret-guard.ts`](../../../apps/dethereal/src/cli/secret-guard.ts)) holds the workflow's secret-file rule when an agent does not follow it. A secret file is a file in the project named by the shared list in [`secret-paths.ts`](../../../apps/dethereal/src/utils/secret-paths.ts) (in any letter case; the OpenCode target builds its read rules from the same list), a `.yaml`, `.yml` or `.json` file holding a `kind: Secret` line, or a file that a kustomization (`secretGenerator` `envs`, `files`, `env`) or compose file (`env_file`, the top-level `secrets: <name>: file:`) names as a secret source; the denial names the file that references it. Those kustomization and compose files are looked for only in the target's own folder and its ancestors up to the project root, so the cost follows the folder depth, not the repository. A registered model's own files (`attributes/*.json`, `controls/*.json`, and everything under its `.dethereal/` and `.dethernety/`) are never secret; files outside the project are not judged as secret files, though the server's own folder and the harnesses' sign-ins are guarded wherever they are reached from (below). Other secrets in the home directory, such as `~/.aws/credentials`, stay out of the guard's scope by design. The guard denies (`permissionDecision: deny`, always exit 0):
+`hook secret-guard` ([`secret-guard.ts`](../../../apps/dethereal/src/cli/secret-guard.ts)) holds the workflow's secret-file rule when an agent does not follow it. A secret file is a file in the project named by the shared list in [`secret-paths.ts`](../../../apps/dethereal/src/utils/secret-paths.ts) (in any letter case; the OpenCode target builds its read rules from the same list), a `.yaml`, `.yml` or `.json` file holding a `kind: Secret` line, or a file that a kustomization (`secretGenerator` `envs`, `files`, `env`) or compose file (`env_file`, the top-level `secrets: <name>: file:`) names as a secret source; the denial names the file that references it. Those kustomization and compose files are looked for only in the target's own folder and its ancestors up to the project root, so the cost follows the folder depth, not the repository. A registered model's own files (`attributes/*.json`, `controls/*.json`, and everything under its `.dethereal/` and `.dethernety/`) are never secret; files outside the project are not judged as secret files, though the server's own folder and the harnesses' sign-ins are guarded wherever they are reached from (below). Other secrets in the home directory, such as `~/.aws/credentials`, stay out of the guard's scope by design. The guard keeps an agent from reading the sign-in and secret files by accident; it is not a sandbox. It does not see a name the shell builds, what a file an agent writes in one call runs in a later call, or the user's own shell setup, the aliases and functions the user defined, which the harness loads before it runs a command (see **Residual risks**, below). The guard denies (`permissionDecision: deny`, always exit 0):
 - **Read** of a secret file.
 - **Grep** of a secret file in any output mode, and a `content` or `count` search over a folder holding one; a names-only search (`files_with_matches`) is allowed, except over a folder that holds the server's own folder or a harness's sign-in. On Claude Code 2.1.286 the main conversation has no Grep or Glob tool; the plugin's agents have them through their tool definitions, so these checks apply to the agents' calls.
 - **Bash** naming a secret file (braces expanded, a glob in any path segment expanded within the project, `cd` and `pushd` followed), a recursive content search (`grep -r`, `rg`, `ugrep`/`ug`, `git grep`, …) over a folder holding one, a `find` that runs a content reader on what it finds (`-exec`, `-execdir`, `-ok`, `-okdir`, or an `xargs` in the same command line) from such a folder, or a command that prints configuration values (`docker compose config`, `terraform show`/`output`, `printenv`, …). In a command line where `xargs` runs a content reader, every folder the line names is read in full, and `xargs`'s own operands are judged with `{}` taken as `*`: `ls deploy/orders | xargs -I{} cat deploy/orders/{}` is denied. `echo` and `printf` read no file, so their words are judged only when they feed such an `xargs` (`echo .env | xargs cat` is denied). A listing (`find <dir> -type f`) and names-only readers (`ls`, `stat`, `wc -c`, `grep -l`) stay allowed. A search's names-only flags are each tool's own: `--count-matches` and `--files-without-matches` count, and `-L` lists the files without a match for `grep`, `git grep`, `ugrep`, `ag` and `ack`, but makes `rg` follow links, so `rg -L` is a content search (`rg -L -uu API_KEY .` over a project holding `.env` is denied). A short option group ends at a letter that takes a value, so `-eclient` is a pattern, not `-c` (`grep -rn -eclient .` is a content search); for `rg`, `-r` (replace) and `-E` (encoding) take one too (`rg -rl '^' .` is a content search). The workflow's three name-only searches are recognised as written, and as agents commonly write them (bare safe paths, continued lines, an `echo` before); a near miss is denied with what differs (quote each path, one Secret name per command, the exact flags or format).
 
+**A link's target.** The system reads a symbolic link's relative target from the folder the link is made in, not from where the command runs: run from the project root, `ln -s ../cli/.env a/q && cat a/q` makes `a/q` the project's `cli/.env`. So every `ln` in a command (hard or symbolic; after assignments and wrappers such as `env`, `command` and `sudo`, after `then`, run by `xargs` or `find -exec`, or as `gln`, `busybox ln` or `toybox ln`; GNU's abbreviated long options, such as `--sym` and `--target=`, read as the full ones) has each relative target judged from where the link may land: the destination and its parent folder (the `-t` folder, when one is given), each as written and as the system resolves it now. A target that climbs (`../`) is also judged by what it names once it has climbed, from the project root and from every folder between the link's folder and the root, so a link made through another link, or moved after it is made, is judged too. The reading is conservative: a target is denied when any of these readings names a secret file, so `ln -s ../cli/.env a/q` is denied wherever `a/q` lands. A target that is absolute or starts with `~` is judged as any written path.
+
+**A word with a line end in it.** A quoted multi-line argument, such as a `git commit -m` message or a `python3 -c` script, is one word holding line ends, and a line end, like any control character, is something the guard cannot classify in a file name. A word with a control character and a space in it, as such a message or script has, names no file when nothing exists at that path; it is not refused as a name the guard cannot classify. Its pieces, split at blanks, `=`, `:` and `@`, are still judged as any word is, so a multi-line message naming `.env`, `deploy/secrets.yaml` or `~/.dethernety` is still denied, and a message whose lines name no secret file passes, paths included (`fix src/a.ts`). The name is also judged as the same name with a plain character in place of each run of control characters, and passes only where that plain name would: `ln -s . "x ⏎.." && cat "x ⏎../cli/.env"` (`⏎` standing for a line end) is judged like `x _../cli/.env`, so it is denied. A file that exists under such a name is still denied as unclassifiable. Two shapes stay refused as unclassifiable even when nothing exists at that path: a run of control characters next to a `/`, with only blanks, `=`, `:` or `@` between, and a run that ends the word (blanks after it aside). A command may make such a name and read below it, where its pieces alone would lose the way: `ln -s cli "x ⏎" && cat "x ⏎/.env"` is denied; so is a message ending in a line end. A word with a control character and no space stays refused as unclassifiable too, whether or not something exists at that path: it is the kind of name a command may make before it reads, and the guard does not follow what is read through it. So `ln -s cli $'d\x01' && cat $'d\x01'/.env*`, `ln -s cli "d⏎" && cat "d⏎/.env"`, a `grep -r` or `tar` of such a name, and `git commit -m $'fix\x01'` are denied. What the guard does not follow, with a plain name as much as with one holding control characters: a folder made in the same command and then read only by a glob, a search or an archive, or a folder holding a secret known only by its content.
+
 **The server's own folder.** Whatever the project, the guard denies every call that reaches `~/.dethernety`, the server's own folder in the home directory, which holds the sign-in, as the Codex and OpenCode guards do. This check runs before the project's checks, so it holds outside any project too:
-- **Bash** reaching it: the home written as `~`, `~user`, `$HOME`, `${HOME}` or in full, after `cd` and `pushd`, through links, inside a `sh -c` script, or spelt with a brace sequence (`~/.dethernet{x..z}`, read as the glob it matches); a link made to it or to a folder holding it; or any command but one that lists names on a folder holding it (a content search, copy or archive included; see **A folder holding what no command may read**, below). An assignment before the command hides none of these (`X=1 ln -s ~ link` is denied). Listing it is denied too.
+- **Bash** reaching it: the home written as `~`, `~user`, `$HOME`, `${HOME}` or in full, after `cd` and `pushd`, through links, inside a `sh -c` script, or spelt with a brace sequence (`~/.dethernet{x..z}`, read as the glob it matches); a link made to it or to a folder holding it, a relative target read from where the link may land and, once it has climbed, from the home folder and every folder between, as in **A link's target** above; or any command but one that lists names on a folder holding it (a content search, copy or archive included; see **A folder holding what no command may read**, below). An assignment before the command hides none of these (`X=1 ln -s ~ link` is denied). Listing it is denied too.
 - **Read** of a file inside it, by its path or through a link.
 - **Grep** inside it, by its path or through a link, and a Grep over a folder that holds it, such as the home directory, in every output mode. A names-only search is denied there too, because its patterns can spell out a file's content. A Grep with no path is judged by its working directory.
 
@@ -1068,7 +1177,9 @@ The project's own `.dethernety/` registry (`.dethernety/models.json` and the res
 - after a change of folder that could not be followed, `.`, `..`, or a name a protected file's path holds (a lone `*` included, which matches one of its folders), a change to the repository root or the current folder by a substitution or `$PWD` included, since a command can set `PWD` or git's variables first: `cd "$(git rev-parse --show-toplevel)" && git diff .`, `cd "$PWD" && git diff .`;
 - the same after a later change to a folder named in full, which does not restore the folder, since a `cd` in a pipeline or in the background would not move the shell (`cd "$X"; cd /tmp && npm test -- .`);
 - a command that does more than list names reading through `$OLDPWD`, judged as from an unknown folder whatever the previous folder was (`cd src && cat "$OLDPWD/auth.json"`);
-- a search that lists names (`grep -rl`) over a folder holding the server's folder or a sign-in, since it still reads every file.
+- a search that lists names (`grep -rl`) over a folder holding the server's folder or a sign-in, since it still reads every file;
+- after a part the guard cannot read word by word, such as one holding a variable (`"$J"`), the rest of the command, judged as if it could run in any folder and by its text, an interpreter's here-document included: `J=<path>; python3 -I - "$J" <<'EOF' … EOF` can be refused for what its script holds. Write the path out instead of using a variable, or write the script to a file and run it (`python3 -I script.py <path>`). On Codex, a here-document fed to an interpreter is refused by its own rule anyway (see [Codex Hooks](#codex-hooks)).
+- a here-document whose body names a secret file, or names the server's folder next to a backquote or a `$`, even when only `cat` or `tee` writes it (`cat >> docs/notes.md <<'EOF'` with `` `~/.dethernety` `` in the text): the guard reads every here-document body as commands. Write such a file with the Write or Edit tool instead.
 
 **The macOS keychain.** On every harness, wherever the command runs, the guard denies a Bash command that runs macOS's `security` in a way that can print a secret from a keychain, or runs what it is sent: every subcommand but `find-certificate`, `find-identity`, `list-keychains`, `default-keychain`, `show-keychain-info`, `verify-cert` and `help`; `find-generic-password` and `find-internet-password` only with `-w` or `-g` (without, they print an item's attributes); interactive mode (`-i`, and `-p`, which implies it), which reads what to run from its input; and a subcommand the shell builds (`$X`, `"$1"`, `$(…)`), which may be any. The rule is read from the command's words, where `security` is the command a simple command runs: after wrappers with their options (`env`, `sudo -u root`, `xcrun`, `caffeinate -i`, `arch -arm64`, `script -q /dev/null`, `watch`), keywords (`then`, `do`), `eval`, `coproc` and assignments; after `find`'s `-exec` or `-ok`; or at the start of a function body, a group, a `case` label's `)`, a `sh -c` script, a substitution or a backtick; the check by name also starts a command after `;`, `&`, `|` and a newline. There it is matched under any path (`/usr/bin/security`), in any letter case (`SECURITY`), as a glob (`securit?`, `s[!x]curity`; a word that is no valid pattern, such as `[` or `[[`, is not taken for it, so `[ $? -eq 0 ]` passes), inside a brace group the shell writes out (`{security,dump-keychain}`), or in a variable assigned it (`S=security; $S dump-keychain`). `security` takes any unique start of a subcommand's name (`dump-k`, `find-g`), so the rule reads a start as every subcommand it may stand for: quiet only when each of them is, and decided by `-w` or `-g` when it may stand for `find-generic-password` or `find-internet-password` (`security list-k` passes; `security dump` and `security find-g -ws x` are denied). Its own options are only `-h`, `-i`, `-l`, `-q`, `-v` and `-p`, and `--` ends them (`security -- dump-keychain` is denied); it counts as a call of `security` only when what follows them starts one of `security`'s own subcommands or is a word the shell builds, or, when an `xargs` or `parallel` comes earlier in the same simple command, anything, since their input may supply the subcommand (`echo dump-keychain | xargs security`). So `echo security`, `git add security auth`, `ls security error`, `grep -rn security -il src` and `git commit -m "fix security issue"` pass. The full guards and the check by name ([below](#codex-hooks)) run this one rule. The full guards read each part's words as the shell does, so a quoted text is one word and `git commit -m "fix (security export)"` passes; a part they cannot read word by word is read from its text, as the check by name reads every command, which therefore refuses that commit.
 
@@ -1082,9 +1193,9 @@ The project's own `.dethernety/` registry (`.dethernety/models.json` and the res
 - a part the guard cannot read word by word that names git, `config` or `-c`, and such a key anywhere, even as a message or a file name outside a here-document;
 - on Codex, a command naming `.git/config` or `.git/hooks` as a word, git's own included (`git log -p -- .git/config`; see [Codex Hooks](#codex-hooks)).
 
-Glob lists names only and is not matched. Read and Grep fail closed: an event that cannot be read (its tool or file unknown), an unplaceable path, an unscannable file, an internal error or the 6 s deadline (under the 10 s hook timeout) deny the call. A Grep with no path searches the working directory; a Grep from an event that could not be read whole, with no output mode recovered, is taken as a content search. Bash is denied when it names a secret file, reads a folder holding one in full, or cannot be checked (a glob or folder past the bound or deadline, a file it cannot scan); a fault before any check (no project root) denies it only if its text names a secret file, and an internal error only if its text names a secret file or guarded configuration, or runs `security` as the keychain rule refuses (the same check as [the Codex fallback](#codex-hooks), with Codex's home and Claude Code's configuration directory read from the environment), so a guard fault never blocks every shell command. The 6 s deadline bounds the whole decision, from its start: the checks on the server's folder, the sign-ins and Codex's shell roots count against it as much as the project's checks, and a call not judged by then is denied on every harness, the reason saying the check ran out of time. After a `cd` the guard cannot follow (`cd -`, `popd`), the rest of the command is judged by its text. A wrong `--harness` denies every call, Bash included: the denial goes to stdout with exit 0, its reason naming the `--harness` the guard was wired with, where another hook would exit 1 and let the call run. A denial starts with `dethereal-secret-guard:` and never quotes file content.
+Glob lists names only and is not matched. Read and Grep fail closed: an event that cannot be read (its tool or file unknown), an unplaceable path, an unscannable file, an internal error or the 6 s deadline (under the 10 s hook timeout) deny the call. A Grep with no path searches the working directory; a Grep from an event that could not be read whole, with no output mode recovered, is taken as a content search. Bash is denied when it names a secret file, reads a folder holding one in full, or cannot be checked (a glob or folder past the bound or deadline, a file it cannot scan); an internal error in the Bash check denies it too. Only a project that cannot be placed (no project root) falls back to the text: the command is then denied only if its text names a secret file. A fault outside the decision, such as a guard that cannot load or read its event, denies a Bash command only if its text names a secret file or guarded configuration, or runs `security` as the keychain rule refuses (the same check as [the Codex fallback](#codex-hooks), with Codex's home and Claude Code's configuration directory read from the environment). The 6 s deadline bounds the whole decision, from its start: the checks on the server's folder, the sign-ins and Codex's shell roots count against it as much as the project's checks, and a call not judged by then is denied on every harness, the reason saying the check ran out of time. After a `cd` the guard cannot follow (`cd -`, `popd`), the rest of the command is judged by its text, and so is a part the guard cannot split into words. A path judged by its text that climbs is also judged by what it names once it has climbed (`../cli/.env` as `cli/.env`). A wrong `--harness` denies every call, Bash included: the denial goes to stdout with exit 0, its reason naming the `--harness` the guard was wired with, where another hook would exit 1 and let the call run. A denial starts with `dethereal-secret-guard:` and never quotes file content.
 
-**Residual risks:** a shell is not a sandbox — an interpreter, a variable, `$(…)`, a file of names, an `xargs` fed by a command that names no folder (`ls | xargs cat`, `git ls-files | xargs cat`), or an encoding reaches a file by a name the hook never sees. Shell-level code hidden inside a glob or pattern (a zsh glob qualifier, ksh-style pattern negation) belongs to that same interpreter class the guard does not sandbox. A `source` or `.` of a file the agent itself wrote, and an interpreter's own system calls, are the file-of-names and interpreter case already named above. The check by name (see [Codex Hooks](#codex-hooks)) misses more: a name built while the command runs, a hard link, and a link an earlier call made. A secret source named only by a kustomization or compose file outside the target's folder chain (a sibling overlay's `../x/y.env`) stays with the workflow's rule. Of the keychain's clients only `security` is refused; another (Python's `keyring`, `osascript`) is not. OpenCode's history in its data folder (`opencode.db`, `storage`) is not a sign-in and is not guarded. `jq` reads `~/.jq`, when it is a file, into every program, so a `jq` counted as a read runs what it holds; and a `jq` filter can print the environment (`env`, `$ENV`), which is not refused as `printenv` is. The full guard does not follow a folder held in a variable assigned earlier in the line (`D=~/.codex; cat $D/auth.json`). The guard's own 6 s deadline fails closed for everything but a single blocking system call; on Claude Code before 2.1.295 (2.1.289 verified), a guard killed at its 10 s hook timeout lets the call run (fails open), as does one that cannot start, crashes, or runs on a Node older than 14.8; on 2.1.295 or later the guard's `onFailure: "block"` blocks the call, and the Codex runner and the OpenCode plugin refuse it. Codex has no file deny; there the guard judges shell commands only, through the hook runner (see [Codex Hooks](#codex-hooks)). On Codex the guard is best effort: it judges a command by the file names it mentions, so an interpreter, or a session fed input later, can get past it; Codex's own sandbox is the boundary. The shell checks (see [Codex Hooks](#codex-hooks)) share two limits: git configuration a repository already holds (`diff.external`, a `textconv` driver, `core.pager`, `core.fsmonitor`) runs code when git reads, under `git status`, `git diff`, `git show` or `git log` (the git configuration guard's limits are under [Config Guard](#config-guard)); and Codex shell tools other than `Bash` are not seen by these hooks.
+**Residual risks:** a shell is not a sandbox — an interpreter, a variable, `$(…)`, a file of names, an `xargs` fed by a command that names no folder (`ls | xargs cat`, `git ls-files | xargs cat`), or an encoding reaches a file by a name the hook never sees. The guard judges each command in a line on its own: it does not follow a later command's read through a file that an earlier command in the same line copied, moved or linked, and it judges a command built from variables or substitutions by the names it can see. A change of folder made inside a condition or a loop is not always followed, so a later command in the line may be judged, for the project's secret files, from the folder the line started in. It is a second layer behind the harness's permission prompts and sandbox, not a sandbox itself. A here-document body is read as commands when it is written, but a file an agent writes in one call and runs in a later call, such as a git hook or a shell rc file, is not judged when it runs (for git's files, see [Config Guard](#config-guard) and [Codex Hooks](#codex-hooks)). Nor does the guard judge the user's own shell setup: the aliases and functions the user defined, which the harness loads before it runs a command, so a command word the guard reads as `cat` may run something else. Shell-level code hidden inside a glob or pattern (a zsh glob qualifier, ksh-style pattern negation) belongs to that same interpreter class the guard does not sandbox. A `source` or `.` of a file the agent itself wrote, and an interpreter's own system calls, are the file-of-names and interpreter case already named above. The check by name (see [Codex Hooks](#codex-hooks)) misses more: a name built while the command runs, a hard link, and a link an earlier call made. A secret source named only by a kustomization or compose file outside the target's folder chain (a sibling overlay's `../x/y.env`) stays with the workflow's rule. Of the keychain's clients only `security` is refused; another (Python's `keyring`, `osascript`) is not. OpenCode's history in its data folder (`opencode.db`, `storage`) is not a sign-in and is not guarded. `jq` reads `~/.jq`, when it is a file, into every program, so a `jq` counted as a read runs what it holds; and a `jq` filter can print the environment (`env`, `$ENV`), which is not refused as `printenv` is. The full guard does not follow a folder held in a variable assigned earlier in the line (`D=~/.codex; cat $D/auth.json`). The guard's own 6 s deadline fails closed for everything but a single blocking system call; on Claude Code before 2.1.295 (2.1.289 verified), a guard killed at its 10 s hook timeout lets the call run (fails open), as does one that cannot start, crashes, or runs on a Node older than 14.8; on 2.1.295 or later the guard's `onFailure: "block"` blocks the call, and the Codex runner and the OpenCode plugin refuse it. Codex has no file deny; there the guard judges shell commands only, through the hook runner (see [Codex Hooks](#codex-hooks)). On Codex the guard is best effort: it judges a command by the file names it mentions, so an interpreter, or a session fed input later, can get past it; Codex's own sandbox is the boundary. The shell checks (see [Codex Hooks](#codex-hooks)) share two limits: git configuration a repository already holds (`diff.external`, a `textconv` driver, `core.pager`, `core.fsmonitor`) runs code when git reads, under `git status`, `git diff`, `git show` or `git log` (the git configuration guard's limits are under [Config Guard](#config-guard)); and Codex shell tools other than `Bash` are not seen by these hooks.
 
 ### Codex Hooks
 
@@ -1120,7 +1231,7 @@ The runner starts the runtime's `dethereal hook <event>` with the event on stdin
 
 **Shell checks.** For a `Bash` call, the runner first runs two checks from `bin/shell-check.mjs`, a copy of [`shell-check.mjs`](../../../apps/dethereal/src/utils/shell-check.mjs). They use only Node built-ins and need no runtime. They run inside the existing secret-guard entry, so no hook was added and hook trust is unchanged.
 - **Input sent later** — for every caller, the main conversation included. A command that runs input sent to it later is refused: a shell reading its script from input (`sh -s`, `bash /dev/stdin`, a shell or interpreter started with no script), `source /dev/stdin`, `read` combined with `eval` or a variable as the command, `xargs … sh -c`. Codex sends later input to a running command (`write_stdin`) without any hook seeing it. Best effort: a line the check cannot read is left to the secret guard.
-- **Read-only agents** — for a Dethereal agent that may not change files (both infrastructure scouts and the model-reviewer: no `write: true` in `leaf-allowlist.json`). Every command in the line, those a `sh -c`, an `eval`, a `$( )` or a backtick runs included, must be one that only reads, from an allowlist: `cat`, `head`, `tail`, `wc`, `sed -n` printing scripts, `grep`, `rg`, `ls`, `find` without `-delete` or `-exec`, `jq`, `git log`/`show`/`diff`/`status`/`ls-files`/…, `kubectl get`/`describe` and a few more. Anything else is refused, and so is anything the check cannot read (an expansion in a command name, a loop or branch, a heredoc, a redirect other than to `/dev/null`); the reason names the first command or construct refused. For a Dethereal caller the check fails closed: an unreadable event, agent list or check refuses the command. Codex's sandbox setting for an agent may not cover its shell (with Codex 0.161 it did not); these agents keep `sandbox_mode = "read-only"` as defence in depth.
+- **Read-only agents** — for a Dethereal agent that may not change files (both infrastructure scouts, the model-reviewer, the triage-analyst and the kg-cross-examiner: no `write: true` in `leaf-allowlist.json`). Every command in the line, those a `sh -c`, an `eval`, a `$( )` or a backtick runs included, must be one that only reads, from an allowlist: `cat`, `head`, `tail`, `wc`, `sed -n` printing scripts, `grep`, `rg`, `ls`, `find` without `-delete` or `-exec`, `jq`, `git log`/`show`/`diff`/`status`/`ls-files`/…, `kubectl get`/`describe` and a few more. Anything else is refused, and so is anything the check cannot read (an expansion in a command name, a loop or branch, a heredoc, a redirect other than to `/dev/null`); the reason names the first command or construct refused. For a Dethereal caller the check fails closed: an unreadable event, agent list or check refuses the command. Codex's sandbox setting for an agent may not cover its shell (with Codex 0.161 it did not); these agents keep `sandbox_mode = "read-only"` as defence in depth.
 
 **The shell guard.** In the runtime, `secret-guard --harness codex` judges a `Bash` call (its command, run in the event's `cwd`, or in `workdir` when the call carries one) before the [Secret Guard](#secret-guard)'s checks, and fails closed: an event it cannot read, or one carrying no command, is refused. It refuses a patch run through the shell (`*** Begin Patch`; Codex would apply it past the config guard, so the reason points to `apply_patch`), a shell or interpreter left waiting for input, and a command reaching one of these roots, read as the Secret Guard reads a command reaching the server's folder:
 - the server's own folder, `~/.dethernety`;
@@ -1154,9 +1265,9 @@ OpenCode has no hook file: the OpenCode bundle ships a plugin, [`plugins/dethere
   OpenCode's own text-only tools (`task`, `todowrite`, `question`, `plan_exit`, `invalid`), in their exact argument shape, are not judged by the unknown-tool check of the server's folder: a delegation's subagent sends every call through this hook again. A tool of one of those names in another shape is judged as a tool the plugin does not know, and so are `skill`, `lsp`, `webfetch`, `websearch`, the MCP resource tools, every MCP server's tools and any custom tool. But OpenCode reads each file a delegation's prompt names with `@` itself, when the subagent starts, past this hook and its permission rules; so each mention is judged as a `read` of the same path would be, whatever else the call holds. A mention is resolved as OpenCode resolves it (`~/` from the home, anything else from the project's root) and judged as written and at its real path. In a project that is no git checkout, OpenCode resolves mentions from `/`, so a relative mention there is normally refused as outside the project. It is refused in a harness's home, OpenCode's data folder or the server's folder (or such a folder within the project), outside the project (where a read would ask first, and a mention is read without asking), or when spelled with `%`, `\`, `#` or `?`; then the secret guard judges it, and a guard that cannot be started refuses it. A delegation that mentions more than 32 files is refused unchecked. The prose around the mentions is never judged, so a prompt may name a module or the product beside a path. A mention is judged when the call is made and read by OpenCode later, so a file changed between the two is not seen.
 - **`tool.execute.after`** — after a file write, `post-write`'s hint is appended to the tool's output.
 - **`experimental.session.compacting`** — `session-start --source compact` adds the workspace state to the compaction context, with an instruction to the summariser to keep it verbatim.
-- **`config`** — when OpenCode builds its configuration, the plugin sets the `ask` rules for the 14 tools that need the operator, and the denies on `~/.dethernety`, again, last, over any later layer; it also denies the Dethereal tools to OpenCode's built-in `explore` agent.
+- **`config`** — when OpenCode builds its configuration, the plugin sets the `ask` rules for the 15 tools that need the operator, and the denies on `~/.dethernety`, again, last, over any later layer; it also denies the Dethereal tools to OpenCode's built-in `explore` agent.
 
-There is no session orientation at startup and no approve hook on OpenCode: the 16 auto tools run without asking because only the other 14 have `ask` rules.
+There is no session orientation at startup and no approve hook on OpenCode: the 19 auto tools run without asking because only the other 15 have `ask` rules.
 
 ### Hooks NOT Included
 

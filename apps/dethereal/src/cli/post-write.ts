@@ -142,8 +142,10 @@ export async function postWrite(event: unknown, harness?: PostWriteHarness): Pro
     const files = (await Promise.all(paths.map((p) => realOrResolved(path.resolve(base, p)).catch(() => null)))).filter(
       (f): f is string => f !== null
     )
+    // A model's .dethereal/ holds the workflow's own state and run files, not the model: writing there changes nothing
+    // a validation reads as the model, and the step that writes there validates through its own tools.
     const changed = models
-      .map((m) => ({ name: m.name, count: files.filter((f) => within(f, m.dir)).length }))
+      .map((m) => ({ name: m.name, count: files.filter((f) => within(f, m.dir) && !within(f, path.join(m.dir, '.dethereal'))).length }))
       .filter((m) => m.count > 0)
     if (changed.length === 0) return null
 

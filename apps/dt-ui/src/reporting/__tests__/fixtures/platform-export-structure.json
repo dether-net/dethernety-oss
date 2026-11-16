@@ -1,0 +1,717 @@
+{
+  "modelId": "key-model",
+  "structure.json": {
+    "defaultBoundary": {
+      "id": "p-036",
+      "name": "OrderDesk",
+      "description": "The OrderDesk deployment and the parties it talks to.",
+      "boundaries": [
+        {
+          "id": "p-037",
+          "name": "Internet",
+          "description": "Customers and on-call engineers on the open internet.",
+          "positionX": 40,
+          "positionY": 40,
+          "dimensionsWidth": 400,
+          "dimensionsHeight": 300,
+          "dimensionsMinWidth": 200,
+          "dimensionsMinHeight": 150,
+          "parentBoundary": {
+            "id": "p-036"
+          },
+          "zone": "UNTRUSTED",
+          "components": [
+            {
+              "id": "p-031",
+              "name": "Customer",
+              "description": "A shop customer using the web shop.",
+              "type": "EXTERNAL_ENTITY",
+              "positionX": 40,
+              "positionY": 40,
+              "parentBoundary": {
+                "id": "p-037"
+              },
+              "classData": {
+                "id": "e5a1c8e8-7037-4559-99c2-edf8b8eace6d",
+                "name": "End User",
+                "module": {
+                  "id": "p-002",
+                  "name": "dethernety-general"
+                }
+              }
+            },
+            {
+              "id": "p-033",
+              "name": "On-call engineer",
+              "description": "An operations engineer connecting from their own machine.",
+              "type": "EXTERNAL_ENTITY",
+              "positionX": 260,
+              "positionY": 40,
+              "parentBoundary": {
+                "id": "p-037"
+              },
+              "classData": {
+                "id": "4eb36223-154f-4fa2-9965-bdb6d67dca35",
+                "name": "Administrator",
+                "module": {
+                  "id": "p-002",
+                  "name": "dethernety-general"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "p-038",
+          "name": "Operations subnet",
+          "description": "The operations subnet holding the SSH bastion.",
+          "positionX": 40,
+          "positionY": 760,
+          "dimensionsWidth": 400,
+          "dimensionsHeight": 300,
+          "dimensionsMinWidth": 200,
+          "dimensionsMinHeight": 150,
+          "parentBoundary": {
+            "id": "p-036"
+          },
+          "classData": {
+            "id": "97026f27-3d32-4352-9132-b308b9b93ec1",
+            "name": "Network Segment",
+            "module": {
+              "id": "p-002",
+              "name": "dethernety-general"
+            }
+          },
+          "zone": "PUBLIC",
+          "components": [
+            {
+              "id": "p-001",
+              "name": "Ops bastion",
+              "description": "SSH bastion for manual database and admin access.",
+              "type": "PROCESS",
+              "positionX": 260,
+              "positionY": 760,
+              "parentBoundary": {
+                "id": "p-038"
+              },
+              "classData": {
+                "id": "5ea503cc-b336-4f9d-8ae3-69ae06e76666",
+                "name": "VPN Gateway",
+                "module": {
+                  "id": "p-002",
+                  "name": "dethernety-general"
+                }
+              },
+              "dataItemIds": [
+                "p-025",
+                "p-030"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "p-039",
+          "name": "Edge",
+          "description": "The edge namespace: the public entry point.",
+          "positionX": 40,
+          "positionY": 400,
+          "dimensionsWidth": 400,
+          "dimensionsHeight": 300,
+          "dimensionsMinWidth": 200,
+          "dimensionsMinHeight": 150,
+          "parentBoundary": {
+            "id": "p-036"
+          },
+          "classData": {
+            "id": "97026f27-3d32-4352-9132-b308b9b93ec1",
+            "name": "Network Segment",
+            "module": {
+              "id": "p-002",
+              "name": "dethernety-general"
+            }
+          },
+          "zone": "PUBLIC",
+          "components": [
+            {
+              "id": "p-004",
+              "name": "Edge gateway",
+              "description": "API gateway terminating TLS and routing to the orders API.",
+              "type": "PROCESS",
+              "positionX": 260,
+              "positionY": 400,
+              "parentBoundary": {
+                "id": "p-039"
+              },
+              "classData": {
+                "id": "6d723569-dc75-47dd-8f77-aa679dba1d54",
+                "name": "API Gateway",
+                "module": {
+                  "id": "p-002",
+                  "name": "dethernety-general"
+                }
+              },
+              "dataItemIds": [
+                "p-026",
+                "p-023",
+                "p-027"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "p-040",
+          "name": "Orders application",
+          "description": "The orders namespace: orders API and webhook receiver.",
+          "positionX": 400,
+          "positionY": 400,
+          "dimensionsWidth": 400,
+          "dimensionsHeight": 300,
+          "dimensionsMinWidth": 200,
+          "dimensionsMinHeight": 150,
+          "parentBoundary": {
+            "id": "p-036"
+          },
+          "classData": {
+            "id": "97026f27-3d32-4352-9132-b308b9b93ec1",
+            "name": "Network Segment",
+            "module": {
+              "id": "p-002",
+              "name": "dethernety-general"
+            }
+          },
+          "zone": "INTERNAL",
+          "conduits": [
+            {
+              "peerId": "p-041",
+              "peerName": "Vetted partners",
+              "direction": "INBOUND",
+              "justification": "The payment vendor's webhook into the orders application, limited to the vendor's address ranges."
+            }
+          ],
+          "components": [
+            {
+              "id": "p-003",
+              "name": "Orders API",
+              "description": "Orders, checkout and card-on-file storage; admin listener on port 9090.",
+              "type": "PROCESS",
+              "positionX": 40,
+              "positionY": 580,
+              "parentBoundary": {
+                "id": "p-040"
+              },
+              "classData": {
+                "id": "0a9df6cc-1216-49d2-ae5d-f6f850246f6f",
+                "name": "Application Service",
+                "module": {
+                  "id": "p-002",
+                  "name": "dethernety-general"
+                }
+              },
+              "dataItemIds": [
+                "p-025",
+                "p-023",
+                "p-027",
+                "p-026"
+              ]
+            },
+            {
+              "id": "p-005",
+              "name": "Webhook receiver",
+              "description": "Receives payment status events from the payment vendor.",
+              "type": "PROCESS",
+              "positionX": 260,
+              "positionY": 580,
+              "parentBoundary": {
+                "id": "p-040"
+              },
+              "classData": {
+                "id": "0a9df6cc-1216-49d2-ae5d-f6f850246f6f",
+                "name": "Application Service",
+                "module": {
+                  "id": "p-002",
+                  "name": "dethernety-general"
+                }
+              },
+              "dataItemIds": [
+                "p-022"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "p-042",
+          "name": "Database subnet",
+          "description": "Private subnet of the managed PostgreSQL instance.",
+          "positionX": 800,
+          "positionY": 400,
+          "dimensionsWidth": 400,
+          "dimensionsHeight": 300,
+          "dimensionsMinWidth": 200,
+          "dimensionsMinHeight": 150,
+          "parentBoundary": {
+            "id": "p-036"
+          },
+          "classData": {
+            "id": "97026f27-3d32-4352-9132-b308b9b93ec1",
+            "name": "Network Segment",
+            "module": {
+              "id": "p-002",
+              "name": "dethernety-general"
+            }
+          },
+          "zone": "INTERNAL",
+          "components": [
+            {
+              "id": "p-006",
+              "name": "Orders database",
+              "description": "Managed PostgreSQL: customers, orders, stored cards, payment events.",
+              "type": "STORE",
+              "positionX": 40,
+              "positionY": 760,
+              "parentBoundary": {
+                "id": "p-042"
+              },
+              "classData": {
+                "id": "1a92b7a3-eaf7-4f25-8702-77c3044cf735",
+                "name": "Relational Database",
+                "module": {
+                  "id": "p-002",
+                  "name": "dethernety-general"
+                }
+              },
+              "dataItemIds": [
+                "p-023",
+                "p-027",
+                "p-022"
+              ],
+              "crownJewel": true
+            }
+          ]
+        },
+        {
+          "id": "p-041",
+          "name": "Vetted partners",
+          "description": "Contracted third parties: payment vendor, identity provider and log platform.",
+          "positionX": 600,
+          "positionY": 40,
+          "dimensionsWidth": 400,
+          "dimensionsHeight": 300,
+          "dimensionsMinWidth": 200,
+          "dimensionsMinHeight": 150,
+          "parentBoundary": {
+            "id": "p-036"
+          },
+          "zone": "VENDOR",
+          "conduits": [
+            {
+              "peerId": "p-040",
+              "peerName": "Orders application",
+              "direction": "OUTBOUND",
+              "justification": "The payment vendor's webhook into the orders application, limited to the vendor's address ranges."
+            }
+          ],
+          "components": [
+            {
+              "id": "p-035",
+              "name": "Payment vendor",
+              "description": "Card processor: charge API and payment status webhooks.",
+              "type": "EXTERNAL_ENTITY",
+              "positionX": 40,
+              "positionY": 220,
+              "parentBoundary": {
+                "id": "p-041"
+              },
+              "classData": {
+                "id": "21280de4-4549-4ca8-88de-f6d812042995",
+                "name": "Payment Service Provider",
+                "module": {
+                  "id": "p-002",
+                  "name": "dethernety-general"
+                }
+              }
+            },
+            {
+              "id": "p-032",
+              "name": "Identity provider",
+              "description": "Hosted identity provider where customers sign in; publishes the token signing keys.",
+              "type": "EXTERNAL_ENTITY",
+              "positionX": 260,
+              "positionY": 220,
+              "parentBoundary": {
+                "id": "p-041"
+              },
+              "classData": {
+                "id": "b61aed3e-b30b-4304-943a-0191a59ce0c6",
+                "name": "Third-Party Service",
+                "module": {
+                  "id": "p-002",
+                  "name": "dethernety-general"
+                }
+              }
+            },
+            {
+              "id": "p-034",
+              "name": "Log platform",
+              "description": "Hosted log platform receiving logs over HTTPS.",
+              "type": "EXTERNAL_ENTITY",
+              "positionX": 40,
+              "positionY": 400,
+              "parentBoundary": {
+                "id": "p-041"
+              },
+              "classData": {
+                "id": "b61aed3e-b30b-4304-943a-0191a59ce0c6",
+                "name": "Third-Party Service",
+                "module": {
+                  "id": "p-002",
+                  "name": "dethernety-general"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "dataflows.json": {
+    "dataFlows": [
+      {
+        "id": "p-014",
+        "name": "Customer sign-in",
+        "description": "The customer signs in at the identity provider.",
+        "source": {
+          "id": "p-031"
+        },
+        "target": {
+          "id": "p-032"
+        },
+        "classData": {
+          "id": "a70d4c24-c532-4830-9585-3e951063a5ea",
+          "name": "HTTP/S Request",
+          "module": {
+            "id": "p-002",
+            "name": "dethernety-general"
+          }
+        },
+        "dataItemIds": [
+          "p-028"
+        ]
+      },
+      {
+        "id": "p-021",
+        "name": "Shop API request",
+        "description": "Orders and checkout requests with the access token.",
+        "source": {
+          "id": "p-031"
+        },
+        "target": {
+          "id": "p-004"
+        },
+        "classData": {
+          "id": "a70d4c24-c532-4830-9585-3e951063a5ea",
+          "name": "HTTP/S Request",
+          "module": {
+            "id": "p-002",
+            "name": "dethernety-general"
+          }
+        },
+        "dataItemIds": [
+          "p-023",
+          "p-027",
+          "p-026"
+        ]
+      },
+      {
+        "id": "p-019",
+        "name": "SSH to the bastion",
+        "description": "Engineers sign in to the shared ops account with a key.",
+        "source": {
+          "id": "p-033"
+        },
+        "target": {
+          "id": "p-001"
+        },
+        "classData": {
+          "id": "5f88d821-1513-4c08-b9ed-7ea0aed3ac86",
+          "name": "Secure Remote Access",
+          "module": {
+            "id": "p-002",
+            "name": "dethernety-general"
+          }
+        },
+        "dataItemIds": [
+          "p-030"
+        ]
+      },
+      {
+        "id": "p-013",
+        "name": "Admin API call",
+        "description": "Replay and reindex calls to the admin listener, no authentication.",
+        "source": {
+          "id": "p-001"
+        },
+        "target": {
+          "id": "p-003"
+        },
+        "classData": {
+          "id": "a70d4c24-c532-4830-9585-3e951063a5ea",
+          "name": "HTTP/S Request",
+          "module": {
+            "id": "p-002",
+            "name": "dethernety-general"
+          }
+        },
+        "dataItemIds": [
+          "p-025"
+        ]
+      },
+      {
+        "id": "p-007",
+        "name": "Admin database session",
+        "description": "psql as orders_admin through an SSH tunnel.",
+        "source": {
+          "id": "p-001"
+        },
+        "target": {
+          "id": "p-006"
+        },
+        "classData": {
+          "id": "9b29a354-9ad5-408b-85c3-2da624d935b1",
+          "name": "Database Query",
+          "module": {
+            "id": "p-002",
+            "name": "dethernety-general"
+          }
+        },
+        "dataItemIds": [
+          "p-023",
+          "p-027"
+        ]
+      },
+      {
+        "id": "p-017",
+        "name": "Bastion auth log",
+        "description": "auth.log forwarded to the log platform.",
+        "source": {
+          "id": "p-001"
+        },
+        "target": {
+          "id": "p-034"
+        },
+        "classData": {
+          "id": "8e7eb2dd-eab6-4167-9ece-5fd0bd070819",
+          "name": "Log & Telemetry Collection",
+          "module": {
+            "id": "p-002",
+            "name": "dethernety-general"
+          }
+        },
+        "dataItemIds": [
+          "p-024"
+        ]
+      },
+      {
+        "id": "p-009",
+        "name": "Routed API request",
+        "description": "The gateway forwards to the orders API over plain HTTP.",
+        "source": {
+          "id": "p-004"
+        },
+        "target": {
+          "id": "p-003"
+        },
+        "classData": {
+          "id": "a70d4c24-c532-4830-9585-3e951063a5ea",
+          "name": "HTTP/S Request",
+          "module": {
+            "id": "p-002",
+            "name": "dethernety-general"
+          }
+        },
+        "dataItemIds": [
+          "p-023",
+          "p-027",
+          "p-026"
+        ]
+      },
+      {
+        "id": "p-015",
+        "name": "Gateway request logs",
+        "description": "http-log plugin output.",
+        "source": {
+          "id": "p-004"
+        },
+        "target": {
+          "id": "p-034"
+        },
+        "classData": {
+          "id": "8e7eb2dd-eab6-4167-9ece-5fd0bd070819",
+          "name": "Log & Telemetry Collection",
+          "module": {
+            "id": "p-002",
+            "name": "dethernety-general"
+          }
+        },
+        "dataItemIds": [
+          "p-024"
+        ]
+      },
+      {
+        "id": "p-012",
+        "name": "Charge request",
+        "description": "The orders API creates charges with the card data.",
+        "source": {
+          "id": "p-003"
+        },
+        "target": {
+          "id": "p-035"
+        },
+        "classData": {
+          "id": "01170208-db8f-4c1b-8e29-636bf6d220b8",
+          "name": "API Call",
+          "module": {
+            "id": "p-002",
+            "name": "dethernety-general"
+          }
+        },
+        "dataItemIds": [
+          "p-027",
+          "p-023"
+        ]
+      },
+      {
+        "id": "p-016",
+        "name": "Signing key fetch",
+        "description": "The orders API fetches the identity provider's signing keys.",
+        "source": {
+          "id": "p-003"
+        },
+        "target": {
+          "id": "p-032"
+        },
+        "classData": {
+          "id": "01170208-db8f-4c1b-8e29-636bf6d220b8",
+          "name": "API Call",
+          "module": {
+            "id": "p-002",
+            "name": "dethernety-general"
+          }
+        },
+        "dataItemIds": [
+          "p-029"
+        ]
+      },
+      {
+        "id": "p-011",
+        "name": "Orders queries",
+        "description": "Orders and stored-card reads and writes, sslmode=disable.",
+        "source": {
+          "id": "p-003"
+        },
+        "target": {
+          "id": "p-006"
+        },
+        "classData": {
+          "id": "9b29a354-9ad5-408b-85c3-2da624d935b1",
+          "name": "Database Query",
+          "module": {
+            "id": "p-002",
+            "name": "dethernety-general"
+          }
+        },
+        "dataItemIds": [
+          "p-023",
+          "p-027"
+        ]
+      },
+      {
+        "id": "p-008",
+        "name": "Orders API logs",
+        "description": "Application logs, including customer email addresses.",
+        "source": {
+          "id": "p-003"
+        },
+        "target": {
+          "id": "p-034"
+        },
+        "classData": {
+          "id": "8e7eb2dd-eab6-4167-9ece-5fd0bd070819",
+          "name": "Log & Telemetry Collection",
+          "module": {
+            "id": "p-002",
+            "name": "dethernety-general"
+          }
+        },
+        "dataItemIds": [
+          "p-024"
+        ]
+      },
+      {
+        "id": "p-018",
+        "name": "Payment status webhook",
+        "description": "HMAC-signed payment status events from the vendor.",
+        "source": {
+          "id": "p-035"
+        },
+        "target": {
+          "id": "p-005"
+        },
+        "classData": {
+          "id": "a70d4c24-c532-4830-9585-3e951063a5ea",
+          "name": "HTTP/S Request",
+          "module": {
+            "id": "p-002",
+            "name": "dethernety-general"
+          }
+        },
+        "dataItemIds": [
+          "p-022"
+        ]
+      },
+      {
+        "id": "p-020",
+        "name": "Payment event writes",
+        "description": "Payment events and order status updates, verify-full TLS.",
+        "source": {
+          "id": "p-005"
+        },
+        "target": {
+          "id": "p-006"
+        },
+        "classData": {
+          "id": "9b29a354-9ad5-408b-85c3-2da624d935b1",
+          "name": "Database Query",
+          "module": {
+            "id": "p-002",
+            "name": "dethernety-general"
+          }
+        },
+        "dataItemIds": [
+          "p-022"
+        ]
+      },
+      {
+        "id": "p-010",
+        "name": "Webhook receiver logs",
+        "description": "Application logs, including customer email addresses.",
+        "source": {
+          "id": "p-005"
+        },
+        "target": {
+          "id": "p-034"
+        },
+        "classData": {
+          "id": "8e7eb2dd-eab6-4167-9ece-5fd0bd070819",
+          "name": "Log & Telemetry Collection",
+          "module": {
+            "id": "p-002",
+            "name": "dethernety-general"
+          }
+        },
+        "dataItemIds": [
+          "p-024"
+        ]
+      }
+    ]
+  }
+}

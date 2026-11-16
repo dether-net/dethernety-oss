@@ -177,8 +177,8 @@ export const TOOL_MANIFEST: readonly ManifestTool[] = Object.freeze<ManifestTool
     name: 'search_mitre_attack',
     approval: 'auto',
     status: 'conformant',
-    actions: ['search', 'tactics', 'techniques_by_tactic', 'technique', 'mitigations', 'mitigation'],
-    inputs: names('action', 'query', 'tactic_id', 'attack_id'),
+    actions: ['search', 'tactics', 'techniques_by_tactic', 'technique', 'mitigations', 'mitigation', 'lookup', 'match'],
+    inputs: names('action', 'query', 'tactic_id', 'attack_id', 'framework', 'top_n'),
   },
   {
     name: 'get_mitre_defend',
@@ -231,8 +231,18 @@ export const TOOL_MANIFEST: readonly ManifestTool[] = Object.freeze<ManifestTool
     actions: ['list', 'get', 'rank'],
     inputs: names('action', 'folder_id', 'control_id', 'class_ids', 'name', 'class_type', 'element_ids', 'module_id', 'module_name', 'element_types', 'top_n', 'limit'),
   },
-  { name: 'query_exposures', approval: 'auto', status: 'conformant', actions: ['list', 'get'], inputs: names('action', 'element_id', 'exposure_id', 'limit') },
+  { name: 'query_exposures', approval: 'auto', status: 'conformant', actions: ['list', 'get', 'list_model', 'evidence'], inputs: names('action', 'element_id', 'exposure_id', 'limit', 'directory_path', 'view', 'select', 'offset', 'listing') },
   { name: 'query_countermeasures', approval: 'auto', status: 'conformant', actions: ['list', 'get'], inputs: names('action', 'control_id', 'countermeasure_id', 'limit') },
+
+  // Triage of the platform's exposures
+  { name: 'triage_review', approval: 'auto', status: 'conformant', actions: ['open', 'reply', 'get', 'tasks'], inputs: names('action', 'directory_path', 'mode', 'groups', 'review_id', 'reply', 'run', 'text', 'guides') },
+  {
+    name: 'manage_dispositions', approval: 'prompt', status: 'conformant', requiresUser: true,
+    actions: ['prepare', 'commit'],
+    inputs: names('action', 'directory_path', 'review_id', 'plan_id', 'lines', 'reply'),
+  },
+  { name: 'get_kg_chain', approval: 'auto', status: 'conformant', actions: ['probe', 'chain', 'evaluate'], inputs: names('action', 'class_id', 'rule_name', 'attributes') },
+  { name: 'get_class_guide', approval: 'auto', status: 'conformant', inputs: names('class_id', 'element_kind', 'attribute_keys') },
 ])
 
 export function manifestTool(name: string): ManifestTool | undefined {

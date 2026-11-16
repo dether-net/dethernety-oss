@@ -320,6 +320,12 @@ export class EnvironmentVariables {
   @IsString()
   EMBEDDING_MODEL_DIR?: string;
 
+  // The installation's brand file (brand.json). Its content is checked at start-up by the branding service,
+  // which logs a bad file and carries on unbranded, so only the setting's type is checked here.
+  @IsOptional()
+  @IsString()
+  BRANDING_FILE?: string;
+
   @IsOptional()
   @IsNumber()
   @Min(1)

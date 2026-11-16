@@ -58,11 +58,13 @@ For comprehensive documentation on the Dethereal threat modeling plugin, see the
 |-------|-------------|
 | [Getting Started](dethereal/GETTING_STARTED.md) | Installation, authentication, first model |
 | [Guided Workflow](dethereal/GUIDED_WORKFLOW.md) | The 11-step threat modeling process |
-| [Command Reference](dethereal/COMMAND_REFERENCE.md) | All 14 slash commands |
+| [Command Reference](dethereal/COMMAND_REFERENCE.md) | All 15 slash commands |
 | [Model Concepts](dethereal/MODEL_CONCEPTS.md) | Components, boundaries, flows, quality scoring |
 | [Discovery and Enrichment](dethereal/DISCOVERY_AND_ENRICHMENT.md) | Infrastructure scanning, security attributes, MITRE |
 | [Sync and Version Control](dethereal/SYNC_AND_VERSION_CONTROL.md) | Push/pull, git integration, conflict handling |
 | [Review and Analysis](dethereal/REVIEW_AND_ANALYSIS.md) | Quality review, attack surface analysis |
+| [Triaging Platform Findings](dethereal/TRIAGE.md) | Grouped disposition proposals for the platform's findings, your review, one gated apply |
+| [Triage With and Without the Knowledge Graph](dethereal/TRIAGE_AND_THE_KNOWLEDGE_GRAPH.md) | What triage gives with and without the knowledge graph |
 | [Agents and Architecture](dethereal/AGENTS_AND_ARCHITECTURE.md) | AI agents, MCP tools, lifecycle hooks |
 | [Glossary](dethereal/GLOSSARY.md) | Plugin-specific terminology |
 

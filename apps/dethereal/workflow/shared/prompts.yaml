@@ -748,6 +748,48 @@ prompts:
     options: [promote, cancel]
     requires: ["(promote / cancel)"]
 
+  # Triage
+  - id: triage-platform-only
+    skill: triage
+    mandatory: true
+    when: a default-mode run finds the model directory without the local sources full evidence needs
+    after: the list_model partition and the missing local sources, named; before the probe and the run header
+    decides: whether triage goes on with platform data only, every proposal capped at medium confidence
+    options: [continue, stop]
+    requires: ["platform data only", "capped at medium", "(continue / stop)"]
+  - id: triage-review
+    skill: triage
+    mandatory: true
+    when: the proposals have been shown, and again after every reply until the review closes
+    after: the proposals and their group numbers the first time; after that, the result of the last reply, or its refusal
+    decides: the operator's next review command, passed verbatim to the review parser
+    free_text: true
+    requires: ["Your command?"]
+  - id: triage-stale-review
+    skill: triage
+    mandatory: true
+    when: a --stale run has shown its stale groups, and again after every reply until the review closes
+    after: the stale groups and their group numbers the first time; after that, the result of the last reply, or its refusal
+    decides: the operator's next stale-review command, passed verbatim to the review parser
+    free_text: true
+    requires: ["Your command?"]
+  - id: triage-apply
+    skill: triage
+    mandatory: true
+    when: prepare returned at least one ready operation
+    after: the count, every operation (the rejected ones apart, with their code) and the plan's lines, verbatim
+    decides: whether the ready operations are written to the platform; the reply goes to commit as typed, so it is the word yes or the word cancel, never a number
+    free_text: true
+    requires: ["Apply", "dispositions?", "Type yes or cancel."]
+  - id: triage-task-list
+    skill: triage
+    mandatory: true
+    when: a run with the knowledge graph present applied at least one affirm on a group whose knowledge-graph tier was read before any latch
+    after: the run's summary
+    decides: whether the remediation task list for this run's affirmed findings is written
+    options: [yes, no]
+    requires: ["remediation task list", "(yes / no)"]
+
 # Questions a phase asks together, in one dialog (the phase files name each group where it is asked). A question
 # that ratifies trust or crown jewels — boundary-trust, approved-channels, crown-jewel-confirm,
 # restricted-promotion — is never grouped: its answer is the record of that decision, and stays the operator's

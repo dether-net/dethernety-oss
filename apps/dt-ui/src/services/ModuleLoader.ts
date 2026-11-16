@@ -7,6 +7,7 @@ import { useHostContext } from '@/composables/useHostContext'
 import { componentRegistry, ComponentRegistry } from '@/services/ComponentRegistry'
 import { getConfig } from '@/config/environment'
 import { timingMeasure } from '@/utils/userTiming'
+import { getReportingKit, type ReportingKit } from '@/reporting'
 // Re-export the host's already-bundled JSONForms engine to module bundles via
 // __HOST_DEPENDENCIES__.__JSONFORMS__ (see exposeHostDependencies). Namespace imports
 // resolve to the single host-bundled copy, so modules share one JSONForms bound to the
@@ -35,6 +36,9 @@ export interface HostDependencies {
     vue: typeof JsonFormsVue
   }
   __APP_CONTEXT__?: any,
+  // The report kit: builds a self-contained export with the installation's brand. A module feature-detects it
+  // (`reporting?.version >= 1`) and keeps its own export when it is missing.
+  reporting?: ReportingKit
 }
 
 /**
@@ -267,6 +271,7 @@ export class ModuleLoader {
       // not exposed — modules supply renderers in their own design language.
       __JSONFORMS__: { core: JsonFormsCore, vue: JsonFormsVue },
       __APP_CONTEXT__: appContext,
+      reporting: getReportingKit(),
     }
 
     if (import.meta.env.DEV) {

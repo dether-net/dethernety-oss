@@ -6,7 +6,9 @@
 // browser Print → PDF.
 //
 // buildJsonExport / buildHtmlExport are pure (string in, string out) → unit
-// tested. downloadBlob is the only DOM touch.
+// tested. downloadBlob is the standalone export's only DOM touch. When the platform offers its report
+// kit, exportHtml builds the report through it instead (buildKitReport), with the
+// installation's brand, the analysis's client and the model diagram.
 
 import { WHO_RUNS_COPY, entryTexts, hasOperationToShow } from './whoRunsIt.js'
 import { aggregateLedger, dispositionKindLabel, lifecycleStatus } from './aggregateLedger.js'
@@ -14,6 +16,7 @@ import { buildCoverageView } from './coverageMatrix.js'
 import { modeAReachability } from './reachability.js'
 import { cleanProse } from './exposureDetail.js'
 import { computeCrossings, sensitivityLabel } from './boundaryCrossings.js'
+import { MODULE_NAME, MODULE_VERSION } from './moduleInfo.js'
 
 // The Coverage & Gaps view for export, or null when coverage-tools wasn't deployed (the
 // matrix simply doesn't appear in the export). Built from the LIVE coverage facts
@@ -273,8 +276,16 @@ export function buildJsonExport(doc, coverage = null) {
   )
 }
 
-function findingRowHtml(f, muted) {
-  const color = BAND_HEX[f.band] ?? BAND_HEX.unknown
+// A band chip: filled in the standalone export; outlined in the report kit's, so the band still reads when the page is
+// printed without background graphics.
+function bandChip(band, text, outlined) {
+  const color = BAND_HEX[band] ?? BAND_HEX.unknown
+  return outlined
+    ? `<span class="band band-o" style="color:${color};border-color:${color}">${esc(text)}</span>`
+    : `<span class="band" style="background:${color}">${esc(text)}</span>`
+}
+
+function findingRowHtml(f, muted, outlined = false) {
   const prov = f.provenance === 'USER' ? 'USER' : 'SYSTEM'
   const disp = muted
     ? `<td>${esc(dispositionKindLabel(f.dispositionKind))}${
@@ -303,7 +314,7 @@ function findingRowHtml(f, muted) {
   const desc = cleanProse(f.description)
   const descLine = desc ? `<div class="fdesc">${esc(desc)}</div>` : ''
   return `<tr class="${muted ? 'disposed' : ''}">
-    <td><span class="band" style="background:${color}">${esc(f.band)}</span></td>
+    <td>${bandChip(f.band, f.band, outlined)}</td>
     <td class="score">${f.score == null ? '—' : esc(f.score)}</td>
     <td>${esc(f.name)}${confirmedTag}${liveNote}${descLine}</td>
     <td class="vector">${esc(f.attackVector ?? '')}</td>
@@ -312,14 +323,14 @@ function findingRowHtml(f, muted) {
   </tr>`
 }
 
-function groupHtml(g) {
+function groupHtml(g, outlined = false) {
   const controls = g.supportingControls.length
     ? `<p class="controls">Controls present (${g.supportingControls.length}): ${g.supportingControls
         .map((c) => esc(c.name))
         .join(', ')}</p>`
     : ''
-  const liveRows = g.live.map((f) => findingRowHtml(f, false)).join('')
-  const dispRows = g.dispositioned.map((f) => findingRowHtml(f, true)).join('')
+  const liveRows = g.live.map((f) => findingRowHtml(f, false, outlined)).join('')
+  const dispRows = g.dispositioned.map((f) => findingRowHtml(f, true, outlined)).join('')
   return `<section class="element">
     <h3>${esc(g.name)} <span class="etype">${esc(g.type)}</span></h3>
     ${controls}
@@ -337,10 +348,23 @@ function groupHtml(g) {
   </section>`
 }
 
+// The section titles, shared by both HTML forms.
+const TITLES = {
+  coverage: 'MITRE Coverage & Gaps',
+  reachability: 'Crown-Jewel Reachability',
+  boundaryCrossings: 'Boundary Crossings',
+  ledger: 'Residual-Risk Ledger',
+}
+
 // Coverage section HTML — tier-segregated counts + a per-technique table carrying
 // tier + function, plus the off-grid caveat. Never a % or a single "covered".
 function coverageHtml(view) {
   if (!view) return ''
+  return `<h2>${esc(TITLES.coverage)}</h2>
+  ${coverageBody(view)}`
+}
+
+export function coverageBody(view) {
   const s = view.summary
   const rows = view.rows
     .map(
@@ -357,9 +381,8 @@ function coverageHtml(view) {
   if (view.offGrid.softCount) offgrid.push(`${view.offGrid.softCount} soft/unmapped (no ATT&CK mapping)`)
   if (view.offGrid.dataMappedCount) offgrid.push(`${view.offGrid.dataMappedCount} Data exposures (off-grid — not charted)`)
   if (view.offGrid.dispositionedExcluded) offgrid.push(`${view.offGrid.dispositionedExcluded} dispositioned (excluded from live grid)`)
-  for (const cls of view.structuralGaps) offgrid.push(`structural gap: no control supports any ${esc(cls)}`)
-  return `<h2>MITRE Coverage &amp; Gaps</h2>
-  <div class="summary">
+  for (const cls of view.structuralGaps) offgrid.push(`structural gap: no control supports any ${cls}`)
+  return `<div class="summary">
     <p>Tier-segregated (never a % or a single “covered”): <strong>${s.directPrevent}</strong> DIRECT-prevent ·
       <strong>${s.directDetect}</strong> DIRECT-detect · <strong>${s.mitigation}</strong> Mitigation ·
       <strong>${s.d3fend}</strong> D3FEND (broad/inferred) · <strong>${s.detectOnly}</strong> detect-only ·
@@ -376,10 +399,15 @@ function coverageHtml(view) {
 // Reachability section HTML — the mode-A crown-jewel rollup. Routes are "flow
 // routes", unreachable reads "no modeled flow route" (never "safe"); hex-only.
 function reachabilityHtml(doc) {
+  const body = reachabilityBody(doc)
+  return body ? `<h2>${esc(TITLES.reachability)}</h2>${body}` : ''
+}
+
+function reachabilityBody(doc) {
   const r = reachabilityExport(doc)
   if (!r) return ''
   if (r.hasCrownJewels === false) {
-    return `<h2>Crown-Jewel Reachability</h2><p class="none">${esc(r.note)}</p>`
+    return `<p class="none">${esc(r.note)}</p>`
   }
   const rows = r.flowRoutes
     .map(
@@ -393,7 +421,7 @@ function reachabilityHtml(doc) {
       </tr>`,
     )
     .join('')
-  return `<h2>Crown-Jewel Reachability</h2>
+  return `
   <div class="summary">
     <p><strong>${r.reachableCount}</strong> of <strong>${r.jewelCount}</strong> crown jewels reachable ${esc(r.origin)}${r.unreachableCount ? ` · ${r.unreachableCount} with no modeled flow route` : ''}</p>
     <p class="none">${esc(r.caveat)}</p>
@@ -417,7 +445,7 @@ function flagHtml(f) {
 // One worklist crossing block: the declared policy line (zone-pair + verdict +
 // conduit token) over the structural EXIT/ENTER membrane path. A left accent bar
 // only on non-clean rows (allowed stays neutral — absence is the encoding).
-function crossingHtml(x) {
+export function crossingHtml(x) {
   const v = x.verdict
   const word = v && VERDICT_HEX[v.verdict] ? v.verdict.toUpperCase() : ''
   const accent = v && VERDICT_HEX[v.verdict] ? VERDICT_HEX[v.verdict] : ''
@@ -438,7 +466,7 @@ function crossingHtml(x) {
     : ''
   const detail = v && v.detail ? `<div class="xdetail">${esc(v.detail)}</div>` : ''
   const onflow = []
-  if (x.onFlowLive > 0) onflow.push(`flow: ${x.onFlowLive} live${x.onFlowWorstBand ? ` (${esc(x.onFlowWorstBand)})` : ''}`)
+  if (x.onFlowLive > 0) onflow.push(`flow: ${x.onFlowLive} live${x.onFlowWorstBand ? ` (${x.onFlowWorstBand})` : ''}`)
   if (x.onFlowControl) onflow.push('flow control present')
   const onflowHtml = onflow.length ? ` <span class="onflow">${onflow.map(esc).join(' · ')}</span>` : ''
   const membranes = x.membranes
@@ -466,11 +494,16 @@ function crossingHtml(x) {
 // structural membranes, the conduit-error / dead-conduit surfaces, and the honesty
 // caveat. Hex-only, self-contained; omitted when there are no boundaries/flows.
 function boundaryCrossingsHtml(doc) {
+  const body = boundaryCrossingsBody(doc)
+  return body ? `<h2>${esc(TITLES.boundaryCrossings)}</h2>${body}` : ''
+}
+
+function boundaryCrossingsBody(doc) {
   const x = boundaryCrossingsExport(doc)
   if (!x) return ''
   const flags = (x.flags ?? []).map(flagHtml).join('')
   if (x.crossingFlows === 0) {
-    return `<h2>Boundary Crossings</h2>${flags}<p class="none">${esc(x.note)}</p>
+    return `${flags}<p class="none">${esc(x.note)}</p>
       <p class="none">${esc(x.caveat)}</p>`
   }
   const p = x.policy
@@ -503,7 +536,7 @@ function boundaryCrossingsHtml(doc) {
          )
          .join('')}`
     : ''
-  return `<h2>Boundary Crossings</h2>
+  return `
   ${flags}
   <div class="summary">
     <p><strong>${x.totals.crossingFlows}</strong> flows pierce membranes · ${counts.join(' · ')}</p>
@@ -518,10 +551,14 @@ function boundaryCrossingsHtml(doc) {
 // Who runs each element, as the snapshot froze it. A list of what declares something: a model that declares nothing
 // says so, and an older report or a failed resolution says that instead of showing a default.
 function whoRunsHtml(doc) {
+  return `<h2>${esc(WHO_RUNS_COPY.title)}</h2>${whoRunsBody(doc)}`
+}
+
+function whoRunsBody(doc) {
   const title = esc(WHO_RUNS_COPY.title)
   const operation = doc?.operation
-  if (!operation || typeof operation !== 'object') return `<h2>${title}</h2><p class="none">${esc(WHO_RUNS_COPY.recreate)}</p>`
-  if (operation.state !== 'resolved') return `<h2>${title}</h2><p class="none">${esc(WHO_RUNS_COPY.unavailable)}</p>`
+  if (!operation || typeof operation !== 'object') return `<p class="none">${esc(WHO_RUNS_COPY.recreate)}</p>`
+  if (operation.state !== 'resolved') return `<p class="none">${esc(WHO_RUNS_COPY.unavailable)}</p>`
   const graph = doc?.modelGraph ?? {}
   const nameOf = new Map([...(graph.boundaries ?? []), ...(graph.components ?? [])].map((e) => [e.id, e.name]))
   const rows = Object.keys(operation.elements ?? {})
@@ -530,36 +567,21 @@ function whoRunsHtml(doc) {
     .sort(([a], [b]) => String(a).localeCompare(String(b)))
     .map(([name, texts]) => `<tr><td>${esc(name)}</td><td>${texts.map(esc).join('<br>')}</td></tr>`)
     .join('')
-  return `<h2>${title}</h2>${
-    rows
-      ? `<table><thead><tr><th>Element</th><th>${title}</th></tr></thead><tbody>${rows}</tbody></table>`
-      : `<p class="none">${esc(WHO_RUNS_COPY.noneDeclared)}</p>`
-  }`
+  return rows
+    ? `<table><thead><tr><th>Element</th><th>${title}</th></tr></thead><tbody>${rows}</tbody></table>`
+    : `<p class="none">${esc(WHO_RUNS_COPY.noneDeclared)}</p>`
 }
 
-// Self-contained printable HTML. Pure: (doc, coverage) → string.
-export function buildHtmlExport(doc, coverage = null) {
-  const { totals, groups } = aggregateLedger(doc?.ledger ?? [])
-  const footer = provenanceFooter(doc, totals)
-  const covSection = coverageHtml(coverageForExport(doc, coverage))
-  const reachSection = reachabilityHtml(doc)
-  const boundarySection = boundaryCrossingsHtml(doc)
-  const whoRunsSection = whoRunsHtml(doc)
-  const bandSummary = ['critical', 'high', 'medium', 'low', 'unknown']
-    .filter((b) => totals.byBand[b])
-    .map(
-      (b) =>
-        `<span class="band" style="background:${BAND_HEX[b]}">${b}: ${totals.byBand[b]}</span>`,
-    )
-    .join(' ')
+const REPORT_TITLE = 'Threat Report — Residual-Risk Ledger'
 
-  return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<title>Threat Report — Residual-Risk Ledger</title>
-<style>
-  body { font-family: system-ui, 'Segoe UI', sans-serif; max-width: 980px; margin: 2rem auto; color: #1a1a1a; padding: 0 1rem; }
+// The standalone export's page-level rules: its own body, title and footer. The report kit's frame has its own.
+const PAGE_CSS = `  body { font-family: system-ui, 'Segoe UI', sans-serif; max-width: 980px; margin: 2rem auto; color: #1a1a1a; padding: 0 1rem; }
   h1 { border-bottom: 3px solid #34495e; padding-bottom: .3rem; }
-  h3 { margin: 1.4rem 0 .3rem; }
+  footer { margin-top: 2rem; border-top: 1px solid #ddd; padding-top: .6rem; font-size: .72rem; color: #777; }
+  code { background: #f0f0f0; padding: 1px 4px; border-radius: 3px; }`
+
+// The section rules both HTML forms share. The report kit's form scopes them under `.threat-report-report`.
+const SHARED_CSS = `  h3 { margin: 1.4rem 0 .3rem; }
   .etype { font-size: .7rem; font-weight: 400; color: #777; border: 1px solid #ccc; border-radius: 3px; padding: 1px 5px; vertical-align: middle; }
   table { border-collapse: collapse; width: 100%; margin: .3rem 0 1rem; font-size: .85rem; }
   th, td { border: 1px solid #ddd; padding: 4px 8px; text-align: left; vertical-align: top; }
@@ -575,8 +597,6 @@ export function buildHtmlExport(doc, coverage = null) {
   .controls { font-size: .8rem; color: #2c7; margin: .2rem 0; }
   .none { color: #888; font-size: .85rem; }
   .summary { background: #f8f8f8; border: 1px solid #e0e0e0; border-radius: 4px; padding: .6rem 1rem; }
-  footer { margin-top: 2rem; border-top: 1px solid #ddd; padding-top: .6rem; font-size: .72rem; color: #777; }
-  code { background: #f0f0f0; padding: 1px 4px; border-radius: 3px; }
   /* Boundary Crossings — declared-zone policy + structural membranes (hex-only). */
   .flag-warn { color: #8a5a00; background: rgba(199,119,0,.1); font-size: .8rem; padding: .3rem .6rem; border-radius: 4px; margin: .3rem 0; }
   .flag-error { color: #a02020; background: rgba(192,57,43,.1); font-size: .8rem; padding: .3rem .6rem; border-radius: 4px; margin: .3rem 0; }
@@ -606,27 +626,134 @@ export function buildHtmlExport(doc, coverage = null) {
   .cerr-detail { display: block; color: #666; font-size: .72rem; }
   .dead-tag { color: #8a5a00; border: 1px solid #8a5a00; border-radius: 10px; padding: 0 6px; font-size: .66rem; }
   .deadc { font-size: .78rem; color: #555; margin: .3rem 0; }
-  .unrev { color: #8a5a00; }
-</style></head>
-<body>
-  <h1>Threat Report — Residual-Risk Ledger</h1>
-  <div class="summary">
+  .unrev { color: #8a5a00; }`
+
+// The headline counts: findings, open, dispositioned and stale, the band chips, and the provenance split.
+function summaryHtml(totals, outlined) {
+  const bandSummary = ['critical', 'high', 'medium', 'low', 'unknown']
+    .filter((b) => totals.byBand[b])
+    .map((b) => bandChip(b, `${b}: ${totals.byBand[b]}`, outlined))
+    .join(' ')
+  return `<div class="summary">
     <p><strong>${totals.findings}</strong> findings · <strong>${totals.live}</strong> open · <strong>${totals.dispositioned}</strong> dispositioned${totals.stale ? ` · <span class="stale">${totals.stale} stale</span>` : ''}</p>
     <p>${bandSummary || '<span class="none">No findings.</span>'}</p>
     <p class="prov">Provenance — USER: ${totals.byProvenance.USER} · SYSTEM: ${totals.byProvenance.SYSTEM}</p>
-  </div>
+  </div>`
+}
+
+// Self-contained printable HTML. Pure: (doc, coverage) → string.
+export function buildHtmlExport(doc, coverage = null) {
+  const { totals, groups } = aggregateLedger(doc?.ledger ?? [])
+  const footer = provenanceFooter(doc, totals)
+  const covSection = coverageHtml(coverageForExport(doc, coverage))
+  const reachSection = reachabilityHtml(doc)
+  const boundarySection = boundaryCrossingsHtml(doc)
+  const whoRunsSection = whoRunsHtml(doc)
+
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>${esc(REPORT_TITLE)}</title>
+<style>
+${PAGE_CSS}
+${SHARED_CSS}
+</style></head>
+<body>
+  <h1>${esc(REPORT_TITLE)}</h1>
+  ${summaryHtml(totals, false)}
   ${covSection}
   ${reachSection}
   ${boundarySection}
   ${whoRunsSection}
-  <h2>Residual-Risk Ledger</h2>
-  ${groups.map(groupHtml).join('\n') || '<p class="none">No findings in this model.</p>'}
+  <h2>${esc(TITLES.ledger)}</h2>
+  ${groups.map((g) => groupHtml(g)).join('\n') || '<p class="none">No findings in this model.</p>'}
   <footer>
     <div>${esc(footer.artifact)}</div>
     <div>Model: <code>${esc(footer.modelId)}</code> · Generated: ${esc(footer.generatedAt)} · Fingerprint: <code>${esc(footer.fingerprint)}</code></div>
     <div>${esc(footer.note)}</div>
   </footer>
 </body></html>`
+}
+
+// The report kit's name for this report: its file name stem, and its wrapper class `threat-report-report`.
+const KIT_KIND = 'threat-report'
+
+// The report kit's form of the shared rules: every selector under the report's wrapper, so they cannot restyle the
+// frame's cover or footer. Plus the outlined band chip.
+export function kitCss() {
+  const scoped = SHARED_CSS.replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('}')
+    .map((rule) => {
+      const open = rule.indexOf('{')
+      if (open < 0) return ''
+      const selectors = rule
+        .slice(0, open)
+        .split(',')
+        .map((sel) => `.${KIT_KIND}-report ${sel.trim()}`)
+        .join(', ')
+      return `${selectors} {${rule.slice(open + 1)}}`
+    })
+    .filter(Boolean)
+    .join('\n')
+  return `${scoped}\n.${KIT_KIND}-report .band-o { background: transparent; border: 1px solid; }`
+}
+
+// The model's diagram from the graph the report stored; a snapshot from before the graph was stored says so instead
+// of drawing the live model.
+function diagramSection(kit, doc) {
+  const graph = doc?.modelGraph
+  if (!graph) {
+    return { id: 'model', title: 'Model', html: '<p class="none">Recreate the report to include the model diagram.</p>' }
+  }
+  const crownJewelIds = (graph.components ?? []).filter((c) => c?.crownJewel).map((c) => c.id)
+  const drawn = kit.renderModelDiagram(graph, { caption: `Layout as of ${doc?.generatedAt ?? ''}`, crownJewelIds })
+  return drawn ? { id: 'model', title: 'Model', html: drawn.figure } : null
+}
+
+/**
+ * The report through the host's report kit: the same sections as the standalone export, in the kit's frame (the
+ * brand, the client on the cover, the facts in a footer block, a print stylesheet), plus the model diagram. Pure but
+ * for the kit: (kit, doc, coverage, extras) → string.
+ */
+export function buildKitReport(kit, doc, coverage = null, { brand = null, clientName, exportedAt, exportedBy, stale } = {}) {
+  const { totals, groups } = aggregateLedger(doc?.ledger ?? [])
+  const footer = provenanceFooter(doc, totals)
+  const coverageView = coverageForExport(doc, coverage)
+  const reachability = reachabilityBody(doc)
+  const boundaryCrossings = boundaryCrossingsBody(doc)
+  const sections = [
+    { id: 'summary', title: 'Summary', html: summaryHtml(totals, true) },
+    diagramSection(kit, doc),
+    coverageView && { id: 'coverage', title: TITLES.coverage, html: coverageBody(coverageView) },
+    reachability && { id: 'reachability', title: TITLES.reachability, html: reachability },
+    boundaryCrossings && { id: 'boundary-crossings', title: TITLES.boundaryCrossings, html: boundaryCrossings },
+    { id: 'who-runs', title: WHO_RUNS_COPY.title, html: whoRunsBody(doc) },
+    {
+      id: 'ledger',
+      title: TITLES.ledger,
+      html: groups.map((g) => groupHtml(g, true)).join('\n') || '<p class="none">No findings in this model.</p>',
+      pageBreakBefore: true,
+    },
+  ].filter(Boolean)
+  return kit.buildReport({
+    kind: KIT_KIND,
+    title: REPORT_TITLE,
+    locale: 'en',
+    brand,
+    meta: {
+      modelName: doc?.modelName || undefined,
+      modelId: doc?.modelId ?? '',
+      clientName: clientName || undefined,
+      module: { name: MODULE_NAME, version: MODULE_VERSION },
+      generatedAt: doc?.generatedAt ?? '',
+      fingerprint: doc?.fingerprint || undefined,
+      stale: Boolean(stale),
+      exportedAt,
+      exportedBy: exportedBy || undefined,
+    },
+    cover: { notes: [footer.note] },
+    sections,
+    css: kitCss(),
+  })
 }
 
 // Build + download helpers (the verbs the UI calls). `coverage` is the live
@@ -636,7 +763,28 @@ export function exportJson(doc, coverage = null) {
   downloadBlob(buildJsonExport(doc, coverage), `threat-report-${stamp}.json`, 'application/json')
 }
 
-export function exportHtml(doc, coverage = null) {
+/**
+ * The HTML export: through the host's report kit when the platform has one (version 1 or later), with the brand, the
+ * analysis's client and the model diagram; otherwise the standalone export, unchanged.
+ */
+export async function exportHtml(doc, coverage = null, { analysisId = null, stale = false } = {}) {
   const stamp = (doc?.generatedAt ?? '').replace(/[:.]/g, '-') || 'snapshot'
-  downloadBlob(buildHtmlExport(doc, coverage), `threat-report-${stamp}.html`, 'text/html')
+  const kit = globalThis.window?.__HOST_DEPENDENCIES__?.reporting
+  if (!kit || !(kit.version >= 1)) {
+    downloadBlob(buildHtmlExport(doc, coverage), `threat-report-${stamp}.html`, 'text/html')
+    return
+  }
+  const exportedAt = new Date().toISOString()
+  const [brand, details] = await Promise.all([
+    kit.brand().catch(() => null),
+    analysisId ? kit.reportDetails.get(analysisId).catch(() => null) : null,
+  ])
+  const report = buildKitReport(kit, doc, coverage, {
+    brand,
+    clientName: details?.client,
+    exportedAt,
+    exportedBy: kit.currentUser()?.displayName,
+    stale,
+  })
+  kit.download(report, { kind: KIT_KIND, stamp })
 }

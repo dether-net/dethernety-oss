@@ -20,6 +20,7 @@ import {
   activateRuntime, assertNode, bareSpecifiers, dynamicLoads, gcRuntimes, installRuntime, maskLiterals, NODE_FLOOR, nodeAtLeast, quarantineRuntime, usesRuntime,
   NODE_BUILTINS, readCurrentRuntime, stableNodePath,
 } from '../runtime.js'
+import { checkRuntime, NODE_FLOOR as CHECK_NODE_FLOOR } from '../runtime-check.mjs'
 import { builtinModules } from 'node:module'
 import { inspectOwned } from '../transaction.js'
 
@@ -528,13 +529,15 @@ describe('the transaction and its undo', () => {
 })
 
 describe('the Node floor', () => {
-  it('is 20.11.1, and compares whole versions', () => {
-    expect(NODE_FLOOR).toBe('20.11.1')
-    for (const v of ['20.11.1', '20.11.2', '20.12.0', '21.0.0', '22.14.0', '24.0.0-pre']) expect(nodeAtLeast(v), v).toBe(true)
-    for (const v of ['20.11.0', '20.10.9', '19.99.99', '18.20.4', '', 'x', '20.11']) expect(nodeAtLeast(v), v).toBe(false)
-    expect(() => assertNode({ name: 'node' }, '20.11.0')).toThrow(InstallerError)
-    expect(() => assertNode({ name: 'bun' }, '22.0.0')).toThrow(InstallerError)
-    expect(() => assertNode({ name: 'node' }, '20.11.1')).not.toThrow()
+  it('is 22.12.0, and compares whole versions', () => {
+    expect(NODE_FLOOR).toBe('22.12.0')
+    // The hook runner's runtime check keeps its own copy of the floor.
+    expect(CHECK_NODE_FLOOR).toBe(NODE_FLOOR)
+    for (const v of ['22.12.0', '22.12.1', '22.13.0', '23.0.0', '24.0.0-pre', '26.0.0']) expect(nodeAtLeast(v), v).toBe(true)
+    for (const v of ['22.11.9', '22.11.0', '21.99.99', '20.11.1', '18.20.4', '', 'x', '22.12']) expect(nodeAtLeast(v), v).toBe(false)
+    expect(() => assertNode({ name: 'node' }, '22.11.0')).toThrow(InstallerError)
+    expect(() => assertNode({ name: 'bun' }, '24.0.0')).toThrow(InstallerError)
+    expect(() => assertNode({ name: 'node' }, '22.12.0')).not.toThrow()
   })
 })
 
@@ -635,6 +638,28 @@ describe('the runtime', () => {
     await fs.chmod(rt.runtimePath, 0o700)
     await quarantineRuntime(paths, env, '0.5.0')
     expect((await installRuntime(paths, env, source, '0.5.0')).reused).toBe(false)
+  })
+
+  it('runs the runtime on a fallback Node only when that Node meets the floor; below it, the check fails closed', async () => {
+    const { paths } = await ensureStateRoot(env)
+    const rt = await installRuntime(paths, env, source, '0.5.0')
+    await activateRuntime(paths, env, rt, node)
+    // The recorded binary is gone, so only a fallback could still run the runtime.
+    await fs.rm(node)
+    const fallback = path.join(tmp, 'bin', 'node-fallback')
+    await fs.writeFile(fallback, '#!/bin/sh\n')
+    await fs.chmod(fallback, 0o755)
+    const check = (fallbackNodeVersion: string) => checkRuntime({ realHome: home, euid: env.euid, fallbackExecPath: fallback, fallbackNodeVersion })
+    for (const v of ['22.11.0', '20.11.1', '18.20.4', '', 'x']) {
+      expect(check(v), v).toEqual({ ok: false, kind: 'unverifiable', code: 'runtime_invalid', what: 'execPath does not exist' })
+    }
+    expect(check(NODE_FLOOR)).toMatchObject({ ok: true, nodeFallback: true, node: await fs.realpath(fallback) })
+    expect(checkRuntime({ realHome: home, euid: env.euid, fallbackExecPath: fallback }))
+      .toEqual({ ok: false, kind: 'unverifiable', code: 'runtime_invalid', what: 'execPath does not exist' })
+    // A recorded binary that is there but tampered never falls back, however good the fallback.
+    await fs.writeFile(node, '#!/bin/sh\n')
+    await fs.chmod(node, 0o775)
+    expect(check(NODE_FLOOR)).toEqual({ ok: false, kind: 'tampered', code: 'group_or_world_writable', what: 'execPath is group or world writable' })
   })
 
   it('writes current.json that the hook shim can validate, and rejects every tampering', async () => {

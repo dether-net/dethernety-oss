@@ -21,10 +21,11 @@ We use the [Nygard template](https://cognitect.com/blog/2011/11/15/documenting-a
 | [011](011-post-commit-module-install-hook.md) | Post-commit module install hook (`afterInstall`) | Accepted |
 | [012](012-mitre-atlas-third-framework.md) | MITRE ATLAS as a third framework | Accepted |
 | [013](013-in-process-embedding.md) | In-process embedding replaces the Ollama embedding server | Accepted |
+| [014](014-open-source-triage-and-evaluator.md) | Triage in the open-source workflow, with a shared condition-group evaluator | Accepted |
 
 ## Adding new ADRs
 
 1. Copy an existing ADR as a template
-2. Number sequentially (next: 014)
+2. Number sequentially (next: 015)
 3. Set status to "Proposed" until reviewed
 4. Add the entry to the index table above

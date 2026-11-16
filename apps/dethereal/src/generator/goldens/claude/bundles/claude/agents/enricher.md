@@ -4,6 +4,8 @@ description: Fixture enricher that writes attribute files.
 model: inherit
 effort: high
 maxTurns: 10
+disallowedTools:
+  - mcp__plugin_dethereal_dethereal__triage_review
 tools:
   - Read
   - Glob

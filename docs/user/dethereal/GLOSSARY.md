@@ -2,7 +2,7 @@
 title: 'Dethereal Glossary'
 description: 'Definitions for Dethereal-specific terminology'
 category: 'documentation'
-position: 11
+position: 13
 navigation: true
 tags: ['dethereal', 'glossary', 'terminology', 'reference']
 ---
@@ -15,13 +15,13 @@ Plugin-specific terminology. For platform-wide terms, see the [Dethernety Glossa
 
 ## Plugin Concepts
 
-**Agent** — A specialized AI persona with specific tools, behaviors, and constraints. Dethereal has 6 agents: threat-modeler, infrastructure-scout, infrastructure-scout-scoped, security-enricher, model-reviewer, and enrichment-applier. See [Agents, Tools, and Hooks](AGENTS_AND_ARCHITECTURE.md#the-6-ai-agents).
+**Agent** — A specialized AI persona with specific tools, behaviors, and constraints. Dethereal has 8 agents: threat-modeler, infrastructure-scout, infrastructure-scout-scoped, security-enricher, model-reviewer, enrichment-applier, triage-analyst, and kg-cross-examiner. See [Agents, Tools, and Hooks](AGENTS_AND_ARCHITECTURE.md#the-8-ai-agents).
 
-**Command** (also called **Skill** internally) — A command that performs a specific modeling workflow step. Each harness names it its own way: `/dethereal:<name>` on Claude Code, `$dethereal:<name>` on Codex, `/dethereal-<name>` on OpenCode; this documentation uses the Claude Code form. Commands invoke agents and use MCP tools. Dethereal has 14 commands. See [Command Reference](COMMAND_REFERENCE.md).
+**Command** (also called **Skill** internally) — A command that performs a specific modeling workflow step. Each harness names it its own way: `/dethereal:<name>` on Claude Code, `$dethereal:<name>` on Codex, `/dethereal-<name>` on OpenCode; this documentation uses the Claude Code form. Commands invoke agents and use MCP tools. Dethereal has 15 commands. See [Command Reference](COMMAND_REFERENCE.md).
 
 **Hook** — A lifecycle event handler that runs automatically at specific moments: when a session starts (including right after a context compaction), before a tool call, and after a file write. The Claude Code plugin ships five, on three events. See [Lifecycle Hooks](AGENTS_AND_ARCHITECTURE.md#lifecycle-hooks).
 
-**MCP Tool** — A function exposed by the MCP (Model Context Protocol) server for platform communication. 30 tools handle authentication, model CRUD, the local workspace and workflow state, MITRE queries, security elements, classification, control-gap analysis, and attribute stub generation.
+**MCP Tool** — A function exposed by the MCP (Model Context Protocol) server for platform communication. 34 tools (33 with the default settings) handle authentication, model CRUD, the local workspace and workflow state, MITRE queries, security elements, classification, control-gap analysis, attribute stub generation, and triage. See [MCP Tools](AGENTS_AND_ARCHITECTURE.md#mcp-tools).
 
 **MCP Server** — The TypeScript server (`@dether.net/dethereal`) that implements the Model Context Protocol, exposing platform capabilities as tools that AI agents can use.
 
@@ -163,6 +163,18 @@ Zoning records the *declared design intent* of your segmentation — which trust
 
 ---
 
+## Triage
+
+For **disposition**, **disposition kind**, **stale disposition** and **supersede**, see the platform glossary's [Finding disposition](../../GLOSSARY.md#finding-disposition) terms.
+
+**Triage** — Reviewing the platform's computed exposures for one model with `/dethereal:triage`. The plugin groups the exposures, gathers their evidence and proposes a disposition for each group; you decide each one, and nothing is written to the platform until you answer the apply question with `yes`. With `--stale`, it reviews stale dispositions instead. See [Triaging Platform Findings](TRIAGE.md).
+
+**Needs-Human** — A triage group without a proposal you can accept as it stands: the evidence was not enough, the proposal's confidence was low, the cross-examiner objected, or the proposed kind is one only you set (Compensating Control, Risk Accepted). You decide it yourself, with a kind and your own rationale (`edit <n> kind: <KIND> rationale: <text>`); `accept-all` skips it.
+
+**Triage Record** — `.dethereal/triage-log.json` in the model directory: every reply a triage review received, with what it did, and every answer to the apply question. A reply takes effect only once it is recorded. It is this machine's own record, kept out of git, and holds the latest 20 reviews.
+
+---
+
 ## Controls and the Control Library
 
 **Control** — A reusable security control (e.g., "Database Encryption Package", "SOC Monitoring") that one or more model elements can reference. Controls live in the platform's library and are mirrored locally as `controls/<id>.json`.
@@ -217,7 +229,7 @@ Zoning records the *declared design intent* of your segmentation — which trust
 
 **`.dethernety/`** — Plugin-level metadata at the project root. Contains `models.json` (model registry), `discovery-cache.json` (cached discovery results), and `decomposition-plan.json` (multi-model plan).
 
-**`.dethereal/`** — Per-model workflow metadata inside each model directory. Contains `state.json` (workflow state), `scope.json` (scope definition), `quality.json` (quality cache), `discovery.json` (discovery provenance), `sync.json` (sync metadata), `relay/` (the enrichment relay files, one per enrichment run), `settlement-baseline.json` and `settlements.json` (with the settlement on only: the values you registered on this machine, and their log), `control-audit.log` (control-decision ledger), `class-cache/` (cached class templates and guides), and `template-fields/` (per-element template field manifests, used on reclassification).
+**`.dethereal/`** — Per-model workflow metadata inside each model directory. Contains `state.json` (workflow state), `scope.json` (scope definition), `quality.json` (quality cache), `discovery.json` (discovery provenance), `sync.json` (sync metadata), `relay/` (the enrichment relay files, one per enrichment run), `settlement-baseline.json` and `settlements.json` (with the settlement on only: the values you registered on this machine, and their log), `control-audit.log` (control-decision ledger), `triage-log.json` (the triage record) and `triage-run/` (each triage run's dossiers, batch files and task list), `class-cache/` (cached class templates and guides), and `template-fields/` (per-element template field manifests, used on reclassification).
 
 ---
 

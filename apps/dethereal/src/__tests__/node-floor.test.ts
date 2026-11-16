@@ -9,17 +9,17 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { floorStop, olderThan } from '../node-floor.js'
 
-const FLOOR = [20, 11, 1]
-const OLD = '20.11.0'
-const NEEDS = 'Dethereal needs Node.js 20.11.1 or newer (running 20.11.0)'
+const FLOOR = [22, 12, 0]
+const OLD = '22.11.0'
+const NEEDS = 'Dethereal needs Node.js 22.12.0 or newer (running 22.11.0)'
 
 describe('the Node floor of the entry point', () => {
   it('reads versions against the floor, an unreadable one as older', () => {
-    expect(olderThan('20.11.0', FLOOR)).toBe(true)
-    expect(olderThan('18.20.4', FLOOR)).toBe(true)
-    expect(olderThan('20.11.1', FLOOR)).toBe(false)
-    expect(olderThan('20.12.0', FLOOR)).toBe(false)
-    expect(olderThan('22.14.0', FLOOR)).toBe(false)
+    expect(olderThan('22.11.0', FLOOR)).toBe(true)
+    expect(olderThan('20.11.1', FLOOR)).toBe(true)
+    expect(olderThan('22.12.0', FLOOR)).toBe(false)
+    expect(olderThan('22.13.0', FLOOR)).toBe(false)
+    expect(olderThan('24.11.0', FLOOR)).toBe(false)
     expect(olderThan('garbage', FLOOR)).toBe(true)
   })
 
@@ -27,7 +27,7 @@ describe('the Node floor of the entry point', () => {
     for (const guard of ['secret-guard', 'config-guard']) {
       expect(floorStop(OLD, FLOOR, ['hook', guard, '--harness', 'claude'])).toEqual({
         code: 2,
-        message: `Dethereal needs Node.js 20.11.1 or newer (found 20.11.0), so its ${guard} can't check this call and blocks it. Update Node, or turn the Dethereal plugin off with /plugin.`,
+        message: `Dethereal needs Node.js 22.12.0 or newer (found 22.11.0), so its ${guard} can't check this call and blocks it. Update Node, or turn the Dethereal plugin off with /plugin.`,
       })
     }
   })
@@ -50,7 +50,7 @@ describe('the Node floor of the entry point', () => {
   })
 
   it('runs every command on a current Node', () => {
-    for (const version of ['20.11.1', '22.14.0']) {
+    for (const version of ['22.12.0', '24.11.0']) {
       for (const args of [['hook', 'secret-guard'], ['hook', 'config-guard'], ['hook', 'approve'], ['install'], []]) {
         expect(floorStop(version, FLOOR, args), `${version} ${args.join(' ')}`).toBeNull()
       }
