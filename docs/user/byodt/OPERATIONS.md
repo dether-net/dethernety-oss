@@ -100,7 +100,7 @@ Which command applies a change depends on what you changed. The full table is in
 ```sh
 ./byodt up                    # after editing .env, or the proxy login in .env.secrets
 ./byodt restart               # after connecting or disconnecting the cloud
-./byodt restart platform      # after mounting or unmounting a content module, or updating the knowledge graph
+./byodt restart platform      # after mounting or unmounting a content module, updating the knowledge graph, or changing branding/
 ./byodt restart proxy         # after adding, replacing, or removing a certificate
 ./byodt restart db            # after changing DB_DATA, SNAPSHOT_INTERVAL_SEC, or a NEO4J_DATA/_HEAP_SIZE/_PAGECACHE_SIZE
 ./byodt restart platform console   # after replacing proxy-ca/proxy-ca.pem, the outbound proxy's CA
@@ -325,6 +325,32 @@ rm tls/*.pem
 ### A secure context is required for cloud sign-in
 
 Browsers only expose the cryptography the cloud sign-in flow needs on a secure context — HTTPS, or a `localhost` address. If you reach the deployment by any other address and try to sign in, the console tells you so and names this step. See [Cloud](./CLOUD.md).
+
+---
+
+## Report branding
+
+Reports can carry your organisation's name, a link, a footer line and a logo, from `brand.json` and the logo it names in `branding/`. What goes in the folder, and how to keep it, is in [Configuration → Branding your reports](./CONFIGURATION.md#branding-your-reports).
+
+### Apply a brand change
+
+```sh
+./byodt restart platform
+```
+
+The platform reads the brand once, when it starts. `./byodt up` does not apply a change to a file in `branding/`: the folder is already mounted, the platform's configuration has not changed, and so `up` leaves the platform running as it is. Naming the platform recreates it, and it reads the brand again. On a stopped deployment, `./byodt up` is enough: it starts the platform, which reads the brand then.
+
+To check that it took, read the platform's start-up log (`./byodt logs platform`). `Brand loaded from /branding/brand.json` means the brand applies, and `with a logo` after it means the logo does too. `Brand file /branding/brand.json does not exist; reports are unbranded` is the normal line of a deployment with no brand. Any other `Brand` line says what went wrong; see [Troubleshooting → Reports are not branded](./TROUBLESHOOTING.md#reports-are-not-branded).
+
+To go back to unbranded reports, empty the folder and run `./byodt restart platform` again.
+
+### Upgrades, removal and backups
+
+`branding/` belongs to the deployment, not to a release:
+
+- **Upgrades** never ship it or replace it. A release bundle that holds a `branding/` is refused, by `./byodt upgrade` and by the installer alike.
+- **`./byodt destroy`** leaves it alone, and lists it under `Left alone:` in what it prints.
+- **Backups** do not include it. `./byodt backup` takes the graph only, and an upgrade's backup holds no `branding/` either. Copy the folder with the rest of your configuration; see [Configuration → What to back up](./CONFIGURATION.md#what-to-back-up).
 
 ---
 
@@ -671,7 +697,7 @@ VERSION=X.Y.Z    # the release you are moving to
 tar xzf "byodt-${VERSION}.tar.gz" --strip-components=1 -C /path/to/your/bundle
 ```
 
-Your `.env`, `.env.secrets`, `mode/`, `tls/`, `proxy-ca/`, `data/`, `backups/`, `.byodt-release` and `third-party-acknowledgement.log` are untouched.
+Your `.env`, `.env.secrets`, `mode/`, `tls/`, `proxy-ca/`, `branding/`, `data/`, `backups/`, `.byodt-release` and `third-party-acknowledgement.log` are untouched.
 
 #### 4. Bring `.env` into line with the new `.env.example`
 
@@ -774,7 +800,7 @@ sudo rm -rf data/models
 ./byodt destroy
 ```
 
-Removes the containers and the network. **Nothing on disk is deleted** — not your data, not your configuration, not your certificate. `./byodt up` brings it all back as it was. Like `down`, it refuses while another folder runs the deployment, and takes `--take-over`; see [A deployment in another folder](#a-deployment-in-another-folder).
+Removes the containers and the network. **Nothing on disk is deleted** — not your data, not your configuration, not your certificate, not your report brand. `./byodt up` brings it all back as it was. Like `down`, it refuses while another folder runs the deployment, and takes `--take-over`; see [A deployment in another folder](#a-deployment-in-another-folder).
 
 The command then prints the exact commands to wipe the graph *if you want to*, correct for your storage setting — either removing the data directory, or removing the named volume with your engine. On Neo4j under rootless Podman it adds the `podman unshare rm -rf` form, because the database files belong to the container's user. Read what it prints; it is generated for your deployment, not a generic example.
 

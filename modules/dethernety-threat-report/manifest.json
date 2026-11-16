@@ -1,6 +1,6 @@
 {
   "name": "dethernety-threat-report",
-  "version": "2.2.1",
+  "version": "2.3.0",
   "displayName": "Dethernety Threat Report",
   "description": "Query-based threat reporting with interactive dashboards.",
   "tags": ["reporting", "dashboard"],

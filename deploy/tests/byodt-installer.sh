@@ -309,7 +309,7 @@ done
 
 # --- tarballs with a matching hash that must still be refused ----------------------------------------------------------
 refused=1
-for kind in dotdot outside link; do
+for kind in dotdot outside link branding; do
   rm -rf "$work/evil"; mkdir -p "$work/evil/byodt-$V"; cp "$SRC/byodt" "$work/evil/byodt-$V/"
   case "$kind" in
     # GNU tar strips a name's `..` when it writes it, and BSD tar does not; python's tarfile keeps it on both.
@@ -320,6 +320,9 @@ with tarfile.open(sys.argv[1], "w:gz") as t:
                "$work/evil.tgz" "$work/evil/byodt-$V/byodt" "byodt-$V/byodt" "$work/evil/x" "byodt-$V/sub/../sub/x" ;;
     outside) : > "$work/evil/stray"; why="an entry outside byodt-$V/"; ( cd "$work/evil" && COPYFILE_DISABLE=1 tar -czf "$work/evil.tgz" "byodt-$V" stray ) ;;
     link)    ln -s /etc/passwd "$work/evil/byodt-$V/passwd"; why="a link or a special file"; ( cd "$work/evil" && COPYFILE_DISABLE=1 tar -czf "$work/evil.tgz" "byodt-$V" ) ;;
+    # The installation's brand is the deployment's own: a release never ships one.
+    branding) mkdir "$work/evil/byodt-$V/branding"; : > "$work/evil/byodt-$V/branding/brand.json"
+              why="holds branding, which belongs to a deployment"; ( cd "$work/evil" && COPYFILE_DISABLE=1 tar -czf "$work/evil.tgz" "byodt-$V" ) ;;
   esac
   render get-evil.sh "$work/evil.tgz"
   place; rc=0
@@ -327,7 +330,7 @@ with tarfile.open(sys.argv[1], "w:gz") as t:
   if [ "$rc" != 0 ] && grep -qF "$why" "$work/out" && grep -q "was not used" "$work/out" && nothing_left; then :
   else bad "refuses a bundle with $kind entries, saying why"; refused=0; sed 's/^/     | /' "$work/out" | tail -4; fi
 done
-[ "$refused" = 0 ] || ok "a bundle whose hash matches but holds .., an entry outside byodt-$V/, or a link is refused, leaving nothing"
+[ "$refused" = 0 ] || ok "a bundle whose hash matches but holds .., an entry outside byodt-$V/, a link, or a branding/ is refused, leaving nothing"
 
 # --- at a terminal ----------------------------------------------------------------------------------------------------
 place; rc=0

@@ -127,7 +127,7 @@ The release tarball extracts to a single directory containing these files:
 | `THIRD-PARTY-ACKNOWLEDGEMENT` | The third-party notice `byodt` shows before your machine downloads third-party software. |
 | `README.md`, `LICENSE`, `NOTICE` | Quickstart, licence, and third-party notices. |
 
-`./byodt setup` and the first start create the rest — `.env`, `.env.secrets`, `mode/`, `modules/`, `schema/`, `data/`, `tls/`, and `proxy-ca/`, plus `byodt`'s own records, `.byodt-release` and `third-party-acknowledgement.log`. Those are yours: they hold your configuration, your database password, and your data. Nothing in them is overwritten by a later start, and an upgrade changes `.env` only as it tells you, keeping a copy in its backup.
+`./byodt setup` and the first start create the rest — `.env`, `.env.secrets`, `mode/`, `modules/`, `schema/`, `data/`, `tls/`, `proxy-ca/`, and `branding/`, plus `byodt`'s own records, `.byodt-release` and `third-party-acknowledgement.log`. Those are yours: they hold your configuration, your database password, and your data. Nothing in them is overwritten by a later start, and an upgrade changes `.env` only as it tells you, keeping a copy in its backup.
 
 ## Two ways to run it
 

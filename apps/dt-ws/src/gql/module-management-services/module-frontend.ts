@@ -1,5 +1,4 @@
 import * as fs from 'fs/promises';
-import { constants as fsConstants } from 'fs';
 import * as path from 'path';
 import { createHash } from 'crypto';
 import { promisify } from 'util';
@@ -12,6 +11,8 @@ import {
   parseFrontendManifest,
 } from '@dethernety/dt-module';
 import type { ModuleEntry } from '../interfaces/module-registry.interface';
+import { readRegularFile } from '../../common/utils/read-regular-file';
+import { noneMatch } from '../../common/utils/http-cache';
 
 /**
  * A module frontend as dt-ws serves it: read from disk once, when the module is loaded or
@@ -43,70 +44,6 @@ const gzip = promisify(zlib.gzip);
 const brotli = promisify(zlib.brotliCompress);
 const rel = (file: string) => `frontend/${file}`;
 
-type FileRead =
-  | { kind: 'absent' }
-  | { kind: 'refused'; reason: string }
-  | { kind: 'read'; bytes: Buffer };
-
-/**
- * Reads a regular file of at most `max` bytes without following a symlink. The type and the size
- * are checked on the open handle, and the read stops past `max`, so a file swapped or grown after
- * the check cannot get past either. O_NONBLOCK keeps a FIFO from blocking the open; `isFile()` then
- * refuses it.
- */
-async function readRegularFile(
-  filePath: string,
-  max: number,
-): Promise<FileRead> {
-  let handle: fs.FileHandle;
-  try {
-    handle = await fs.open(
-      filePath,
-      fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK,
-    );
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT') return { kind: 'absent' };
-    // A symlink: ELOOP on Linux and macOS, EMLINK on FreeBSD.
-    if (code === 'ELOOP' || code === 'EMLINK')
-      return {
-        kind: 'refused',
-        reason: `${rel(path.basename(filePath))} is not a regular file`,
-      };
-    throw error;
-  }
-  try {
-    const name = rel(path.basename(filePath));
-    const tooBig: FileRead = {
-      kind: 'refused',
-      reason: `${name} is over ${max} bytes`,
-    };
-    const stats = await handle.stat();
-    if (!stats.isFile())
-      return { kind: 'refused', reason: `${name} is not a regular file` };
-    if (stats.size > max) return tooBig;
-    const chunks: Buffer[] = [];
-    let length = 0;
-    for (;;) {
-      const chunk = Buffer.allocUnsafe(
-        Math.min(
-          Math.max(stats.size + 1 - length, 64 * 1024),
-          1024 * 1024,
-          max + 1 - length,
-        ),
-      );
-      const { bytesRead } = await handle.read(chunk, 0, chunk.length, length);
-      if (bytesRead === 0) break;
-      chunks.push(chunk.subarray(0, bytesRead));
-      length += bytesRead;
-      if (length > max) return tooBig;
-    }
-    return { kind: 'read', bytes: Buffer.concat(chunks, length) };
-  } finally {
-    await handle.close();
-  }
-}
-
 /**
  * Reads a module's frontend from `<moduleDir>/frontend/`: the bundle and its manifest, both
  * required. A bundle without a valid manifest is refused.
@@ -128,10 +65,12 @@ export async function loadModuleFrontend(
   const manifest = await readRegularFile(
     path.join(frontendDir, FRONTEND_MANIFEST_FILE),
     MAX_MANIFEST_BYTES,
+    rel(FRONTEND_MANIFEST_FILE),
   );
   const bundle = await readRegularFile(
     path.join(frontendDir, BUNDLE_FILE),
     MAX_BUNDLE_BYTES,
+    rel(BUNDLE_FILE),
   );
   if (bundle.kind === 'absent' && manifest.kind === 'absent')
     return { kind: 'none' };
@@ -272,15 +211,6 @@ const ETAG_SUFFIX: Record<BundleEncoding, string> = {
   gzip: '-gz',
   identity: '',
 };
-
-/** Whether `If-None-Match` matches `etag`, by the weak comparison conditional GETs use. */
-function noneMatch(ifNoneMatch: string | undefined, etag: string): boolean {
-  if (!ifNoneMatch) return false;
-  return ifNoneMatch.split(',').some((tag) => {
-    const t = tag.trim();
-    return t === '*' || t.replace(/^W\//, '') === etag;
-  });
-}
 
 /**
  * The response for a found bundle: its status, headers and body. `Vary` is left to the caller to

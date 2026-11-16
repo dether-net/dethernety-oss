@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **An installation can brand its reports.** `BRANDING_FILE` names a `brand.json` (a name, and
+  optionally an https URL, a footer line and a logo file beside it); dt-ws reads it once at start-up
+  and puts it in `/config` as `branding`. The logo, PNG, JPEG or WebP up to 256 KiB and 2048×2048
+  pixels, is served publicly at `/branding/logo/<sha256>`. A missing or bad file is logged, and the
+  platform runs unbranded.
+- **An analysis can carry report details,** starting with the client a report is prepared for,
+  read and set through the new `reportDetails`, `suggestReportDetails` and `setReportDetails`
+  GraphQL fields. Like every root field, they refuse a request without an authenticated user (see
+  Security); their resolver also checks the user itself and asks the authorization service.
+- **Module reports can use a report kit** for a branded, printable export with the model diagram,
+  and an analysis's report details are set in a new **Report details** dialog on the analysis
+  results page.
+- **The threat report's HTML export uses the report kit.** Where the host provides the kit (above),
+  `dethernety-threat-report` 2.3.0 builds the export with it: the installation's brand, the client
+  from the analysis's report details, a diagram of the model as the report stored it (crown jewels
+  marked), and the module's name and version on the cover. The severity bands are outlined, so
+  they still read when printed without background graphics. Without the kit, the export is the
+  self-contained page as before. The client is read at export; it is never stored in the snapshot
+  or returned by `getDocument`. A report also freezes the model's name (`snapshot.modelName`, in
+  the JSON export too), outside the fingerprint, so renaming the model does not make it stale. A
+  report from before 2.3.0 shows the model id instead. A failed export says *The report could not
+  be exported. Try again.* See the threat report's *Reading the Report*, *Exporting*.
+
 ### Changed
 
 - **`@dether.net/dethereal` dependency updates** (`@apollo/client` 4.3.8, `graphql` 16.15.0, one
@@ -29,7 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   analysis now reports when it was created (`Analysis.createdAt`, server-stamped and read-only),
   and `Analysis.status.createdAt` falls back to it when the analysis module reports none. A date
   that is still missing reads "—", and the Created At and Updated At columns sort by their dates.
-- **The threat report shows when its report was generated.** In `dethernety-threat-report` 2.2.1
+- **The threat report shows when its report was generated.** In `dethernety-threat-report` 2.3.0
   an analysis's Updated At is the last report's generation time, not "—". It also deletes its
   own analyses, snapshots included, when their model is deleted.
 - **A model delete hands modules the analyses bound to its exposures.** The analyses a deleted

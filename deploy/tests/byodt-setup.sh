@@ -101,7 +101,7 @@ tty() {
   ( cd "$d" && python3 -I "$DRIVER" tty 30 "$@" ) > "$work/out" 2>&1 || rc=$?
 }
 env_has() { grep -qxF -- "$2" "$1/.env"; }
-nothing_written() { [ ! -e "$1/.env" ] && [ ! -e "$1/.env.secrets" ] && [ ! -e "$1/third-party-acknowledgement.log" ] && [ ! -e "$1/proxy-ca" ] && [ ! -e "$1/data" ] && [ ! -e "$1/.byodt-release" ]; }
+nothing_written() { [ ! -e "$1/.env" ] && [ ! -e "$1/.env.secrets" ] && [ ! -e "$1/third-party-acknowledgement.log" ] && [ ! -e "$1/proxy-ca" ] && [ ! -e "$1/branding" ] && [ ! -e "$1/data" ] && [ ! -e "$1/.byodt-release" ]; }
 records() { if [ -f "$1/third-party-acknowledgement.log" ]; then wc -l < "$1/third-party-acknowledgement.log" | tr -d ' '; else echo 0; fi; }
 last_record() { tail -n 1 "$1/third-party-acknowledgement.log"; }
 started() { grep -q ' up -d' "$CALLS"; }

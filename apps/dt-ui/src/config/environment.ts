@@ -5,6 +5,8 @@
  * It uses standard environment variable names without framework-specific prefixes.
  */
 
+import { parseBrandingConfig, type BrandingConfig } from './branding';
+
 export type SubscriptionTransport = 'sse' | 'ws';
 
 /**
@@ -130,6 +132,10 @@ export interface FrontendConfig {
   // Optional external link rendered as a "Settings" item in the sidebar.
   // Generic by design — the deployment decides the target (empty → hidden).
   settingsUrl: string;
+
+  // The installation's brand for its reports, from /config; null or absent when unbranded. A development build reads
+  // its config from the VITE_ variables and leaves this null: the report kit reads /config's branding itself there.
+  branding?: BrandingConfig | null;
 }
 
 /**
@@ -282,6 +288,8 @@ async function readRuntimeConfig(): Promise<FrontendConfig> {
         return url.startsWith('/') ? url : '';
       }
     })(),
+
+    branding: parseBrandingConfig(config.branding),
   };
 }
 
@@ -351,6 +359,8 @@ function getDevelopmentConfig(): FrontendConfig {
 
     userProfileUrl: getEnvValue('USER_PROFILE_URL', ''),
     settingsUrl: getEnvValue('SETTINGS_URL', ''),
+
+    branding: null,
   };
 }
 

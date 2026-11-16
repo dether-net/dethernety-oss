@@ -1505,7 +1505,7 @@ No other field is allowed, at the top level or in `hostApi`.
 
 ### The host API range
 
-dt-ui gives `install()` a set of host dependencies (the host's Vue runtime, its JSONForms engine, `useHostContext`, the component registry, the app context) and versions that shape as `HOST_API_VERSION`, currently **1**. The host raises it when the shape changes incompatibly. A module whose `hostApi` range does not include the host's version is refused before its bundle is fetched, and the view that needed it reports that the app and the module do not match. A frontend built against today's host declares `{ "min": 1, "max": 1 }`.
+dt-ui gives `install()` a set of host dependencies (the host's Vue runtime, its JSONForms engine, `useHostContext`, the component registry, the app context, the report kit) and versions that shape as `HOST_API_VERSION`, currently **1**. The host raises it when the shape changes incompatibly. A module whose `hostApi` range does not include the host's version is refused before its bundle is fetched, and the view that needed it reports that the app and the module do not match. A frontend built against today's host declares `{ "min": 1, "max": 1 }`.
 
 ### What `install()` may register
 
@@ -1516,6 +1516,14 @@ dt-ui gives `install()` a set of host dependencies (the host's Vue runtime, its 
 - `install()` must register every declared key. A declared key left unregistered fails the view that needs it.
 
 The scoping prevents accidental collisions. It is not isolation: a module frontend runs with full page privilege. See [Dynamic Module System → Scoped registry](../frontend/LLD/MODULE_SYSTEM.md#scoped-registry).
+
+### Report kit
+
+A module that exports a report can use the host's report kit, at `window.__HOST_DEPENDENCIES__.reporting` or `useHostContext().reporting` (the same object). It brands the export, frames the module's sections for printing, draws the model diagram, reads the analysis's report details, and saves the file. The kit is optional: check `kit && kit.version >= 1`, and keep your own export when it is missing. Adding it did not change `HOST_API_VERSION`.
+
+Report details, such as the client a report is prepared for, reach a report only through the kit at export. **Never put them, or anything else that identifies a client, in the object `getDocument()` returns**: agents read that payload.
+
+The members, the rules for a module's report, and an example are in [Dynamic Module System → Report Kit](../frontend/LLD/MODULE_SYSTEM.md#report-kit).
 
 ### Validation API
 

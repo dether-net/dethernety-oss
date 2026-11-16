@@ -36,7 +36,11 @@ Every node type in the platform schema carries the `@authentication` directive, 
 
 dt-ws adds its own gate in front of every `Query` and `Mutation` field of the composed schema: the platform's own, the ones modules contribute, and the generated ones. A request without a verified user is refused with `UNAUTHENTICATED` before the field's resolver runs, unless authentication is off (below). The resolvers' own checks, such as the admin-only operations, still run inside it, and every module resolver also keeps the same check of its own. Subscriptions are outside this gate; on the default SSE transport they go through the `JwtAuthGuard` described next.
 
+The report-details fields (`reportDetails`, `suggestReportDetails`, `setReportDetails`), which read and set an analysis's client name, carry `@authentication` and sit behind this gate; their resolver also checks for a verified user itself and then asks the authorization service.
+
 Separately, the NestJS `JwtAuthGuard` protects HTTP-level endpoints -- the SSE subscription controller and the module bundle route (see [Module frontends](#module-frontends)). This means authentication is enforced at three layers: the schema's `@authentication`, dt-ws's root-field gate, and the guard on those HTTP routes.
+
+A few HTTP routes need no sign-in by design: `GET /config`, which the browser reads before it can sign in, the health and readiness probes, and the installation's logo (see [Installation branding](#installation-branding)).
 
 In production, the environment validation refuses to start without OIDC configuration. Outside production with no OIDC configured, the GraphQL context factory and the guard give each request a development user with the admin role (on the GraphQL transports, if the deployment allowlist admits it), so the checks above pass and the request runs as that user. Authentication is off only when, in addition, `ENABLE_NOAUTH=true`: dt-ws's gates are then skipped, and the schema is loaded from its generated copy without `@authentication`. If that copy is missing, dt-ws loads the regular schema with a warning, and the library's check still runs (see [Auth-Disabled Mode](CONFIGURATION_GUIDE.md#auth-disabled-mode-single-user--development)).
 
@@ -200,6 +204,24 @@ Requests never read the disk, so a URL carrying an old hash is never answered wi
 ### Path confinement
 
 File operations (model export, model import, MCP file tools) validate that paths resolve within allowed directories. Path traversal attempts (`../`) are rejected.
+
+### Installation branding
+
+`BRANDING_FILE` names a `brand.json`, which may name a logo file in the same folder (format: [Configuration guide](CONFIGURATION_GUIDE.md#report-branding)). Whoever runs the installation supplies both; no API writes them.
+
+**Public by design.** `GET /config` carries the brand as `branding`, and the logo is served at `GET /branding/logo/<sha256>`. Like the rest of `/config`, neither needs a sign-in: the brand is meant to be seen, and the logo is meant for report exports, which embed it as a `data:` image. Anyone who can reach the server can read both, so nothing confidential belongs in them.
+
+**What dt-ws accepts.** dt-ws reads both files once, at startup:
+
+- Each must be a regular file. A file that is itself a symbolic link is refused (it is opened without following one), and its type and size are checked on the open handle; the read stops past the size cap, so a file swapped or grown after the check gets past neither.
+- `brand.json` is at most 8 KiB; the logo at most 256 KiB.
+- `logo` must be a plain file name (no `/`, no `\`, no leading `.`), so it cannot reach outside the brand file's folder.
+- The logo's type comes from its first bytes, never from its file name: PNG, JPEG or WebP only. SVG and every other format are refused, so the logo carries no script. The pixel size its header declares must be at most 2048×2048, because a small file can declare a huge image.
+- Text values refuse control and text-direction characters; `url` must be `https` and carry no user name or password.
+
+**Served from memory, by hash.** The logo route answers only the current logo's sha256; any other or malformed hash is `404`. The bytes come from memory, never from a path the request names, with the detected `Content-Type`, `Cache-Control: public, max-age=31536000, immutable` and the hash as ETag (`304` on a match). A changed logo has a new hash, and so a new URL.
+
+**A bad file never stops the start.** A missing, unreadable or refused brand file is logged once and the platform runs unbranded; a refused logo drops only the logo. A change applies on restart.
 
 ### Element ID validation
 

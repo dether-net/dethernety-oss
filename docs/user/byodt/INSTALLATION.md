@@ -892,7 +892,7 @@ You do not need to follow this to install, but it explains what you see in the l
 | Step | What it creates |
 |---|---|
 | **Configuration** | `.env`, copied from `.env.example`. The detected container engine is appended as `CONTAINER_ENGINE` and the database engine as `DB_ENGINE`, unless `.env` already sets them. On Neo4j, the image is also recorded as `NEO4J_IMAGE`. |
-| **Runtime directories** | `modules/`, `schema/`, `data/`, `data/models/`, `data/content-cache/`, `mode/`, `tls/` and `proxy-ca/` (unless you created it already), plus the database's own: `data/memgraph-log/` and `data/memgraph/` on Memgraph, `data/neo4j-logs/` and `data/neo4j/` on Neo4j. The data directory is created only for a host bind mount. |
+| **Runtime directories** | `modules/`, `schema/`, `data/`, `data/models/`, `data/content-cache/`, `mode/`, `tls/`, `proxy-ca/` and `branding/` (these two unless you created them already), plus the database's own: `data/memgraph-log/` and `data/memgraph/` on Memgraph, `data/neo4j-logs/` and `data/neo4j/` on Neo4j. The data directory is created only for a host bind mount. |
 | **Database password** | A freshly generated password in `.env.secrets`, mode `0600`. It is created once and never regenerated. See [Configuration → The generated secret file](./CONFIGURATION.md#the-generated-secret-file). |
 | **Mode layer** | `mode/mode.env`, seeded with the standalone defaults. |
 

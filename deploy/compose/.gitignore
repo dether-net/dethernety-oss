@@ -15,6 +15,8 @@ tls/
 mode/
 # The proxy's CA certificate, when the proxy inspects TLS.
 proxy-ca/
+# The installation's brand for its reports.
+branding/
 # A Neo4j backup's or restore's private working directory, removed when it ends.
 .byodt-dump.*
 # The record of the third-party notice's confirmations.

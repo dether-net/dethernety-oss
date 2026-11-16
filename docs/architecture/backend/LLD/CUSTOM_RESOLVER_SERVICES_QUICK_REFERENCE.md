@@ -10,6 +10,7 @@
 | AnalysisResolverService | AI analysis operations | Long-running sessions, subscriptions | Yes* | Yes |
 | SetInstantiationAttributesService | Component attributes | Batch processing, concurrency control | No | Yes |
 | ClassIdentityResolverService | Class-identity admin surface | Admin gate + audit log; rebind conflicts, orphan reconciliation, identity migration | No | Yes |
+| ReportDetailsResolverService | Analysis report details | Read, set and suggest the client a report is prepared for; one locked write transaction | No | Yes |
 
 *\* Caching only for Neo4j database operations, not module responses*
 
@@ -36,6 +37,10 @@ query {
 # Analysis Operations
 mutation { runAnalysis(input: {analysisId: "analysis-456", scope: "security"}) }
 subscription { analysisUpdates(analysisId: "analysis-456") }
+
+# Report Details
+query { reportDetails(analysisId: "analysis-456") { client updated } }
+mutation { setReportDetails(analysisId: "analysis-456", details: {client: "Example Corp"}) { client updated } }
 
 # Component Attributes
 mutation { setAttributes(input: {componentId: "comp-789", attributes: {}}) }
@@ -149,6 +154,19 @@ runIdentityMigration({dryRun}): Promise<IdentityMigrationReport>
 ```
 
 Authz: every operation gated by `requireAdmin(ctx)` at resolver entry — see [`is-admin.ts`](../../../../apps/dt-ws/src/common/guards/is-admin.ts). Every mutation emits a `Logger.warn` audit entry before doing the work.
+
+### ReportDetailsResolverService
+
+```typescript
+// Queries
+reportDetails(analysisId): Promise<ReportDetails | null>          // newest binding's value; null when unknown or unbound
+suggestReportDetails(analysisId): Promise<ReportDetails | null>   // newest client among the element's other analyses
+
+// Mutation
+setReportDetails(analysisId, details): Promise<ReportDetails>     // merge by key, stamp `updated`, write to every binding
+```
+
+Stored as one JSON string, `metadata`, on every `ANALYZED_BY` edge into the analysis; not reachable through generated queries. A key given is written, null clears it, a key left out stays. `client` is trimmed, at most 120 characters, with no control or text-direction character; the stored JSON is at most 4 KiB. Refusals carry their own `extensions.code`: `REPORT_DETAILS_CLIENT_TOO_LONG`, `REPORT_DETAILS_CLIENT_CHARACTERS`, `REPORT_DETAILS_TOO_LARGE`, `ANALYSIS_NOT_FOUND`, `ANALYSIS_NOT_BOUND`. Authz: the resolver checks for a verified user itself, then calls `AuthorizationService`. A module reads report details only through these fields, never from `getDocument`. See [ReportDetailsResolverService](./CUSTOM_RESOLVER_SERVICES_DOCUMENTATION.md#10-reportdetailsresolverservice).
 
 ---
 
@@ -433,6 +451,10 @@ AnalysisResolverService: [
 SetInstantiationAttributesService: [
   NEO4J_DRIVER, ConfigService,
   AuthorizationService, MonitoringService
+]
+
+ReportDetailsResolverService: [
+  NEO4J_DRIVER, ConfigService, AuthorizationService
 ]
 ```
 

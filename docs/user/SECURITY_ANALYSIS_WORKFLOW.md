@@ -111,6 +111,43 @@ Some modules also produce a system overview with architecture summaries and data
 - Are there patterns across multiple findings?
 - Which findings align with our compliance requirements?
 
+## Report Details
+
+Report details are facts about an analysis that its exported reports print. Today there is one: the **client** a report is prepared for.
+
+### Setting the client
+
+1. **Open the results.** Click **View results** in the analysis row.
+2. **Click Report details.** It is the card icon in the results toolbar, next to **Open model** and **Analyses**. The **Report details** dialog opens. The button stays disabled until the results have loaded.
+3. **Type the client's name** in the **Client** field, up to 120 characters. Leave it empty for none.
+4. **Click Save.** The dialog closes.
+
+To remove the client, empty the field and click **Save**.
+
+**A suggestion from another analysis.** When the field is empty and another analysis of the same element has a client, the dialog shows *From another analysis of the same element:* with that name as a button. Click it to fill the field, then click **Save**. The suggestion is never applied on its own.
+
+**What the value belongs to.** The client belongs to this analysis only. Other analyses of the same element keep their own.
+
+**Where it appears.** Reports that support report details print the client when you export them, on the cover as **Prepared for**. The value is read at export, so set it before you export.
+
+| Message | What to do |
+|---------|-----------|
+| *The client name is longer than 120 characters.* | Shorten the name. |
+| *The client name contains a character a report cannot print…* | Remove control, text-direction or invisible characters, often left by a copy and paste. |
+| *This analysis is not bound to a model element, so it cannot have report details.* | Report details need an analysis of a model element. |
+| *You are not allowed to change the report details of this analysis.* | Your account cannot change this analysis. Ask an administrator. |
+
+### Printing a report as PDF
+
+A report export downloads as an `.html` file. To turn it into a PDF:
+
+1. **Open the downloaded file** in your browser.
+2. **Open Print** (Ctrl+P, or Cmd+P on a Mac) and choose **Save as PDF** as the destination.
+3. **Turn off the browser's own headers and footers.** In Chrome, clear **Headers and footers** under **More settings**; otherwise Chrome prints the file's path on every page.
+4. **Save.**
+
+Page numbers print in browsers that support CSS page margin boxes (Chromium-based browsers).
+
 ## Converting Findings to Issues
 
 A module's results view can hand a finding to the platform's issue workflow. What it opens is the same in every module, because the platform owns it.

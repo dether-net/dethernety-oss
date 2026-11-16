@@ -10,6 +10,7 @@ import { componentRegistry } from '@/services/ComponentRegistry'
 import { getPageDisplayName } from '@/utils/dataFlowUtils'
 import { DtUtils, DtModel, DtClass, DtMitreAttack, type DispositionMutationResult } from '@dethernety/dt-core'
 import apolloClient from '@/plugins/apolloClient'
+import { getReportingKit } from '@/reporting'
 
 // A finding reference as passed by callers (incl. module bundles over the host
 // bridge). Only `.id` is required; `.name`/`.description` enrich the issue text and
@@ -59,6 +60,8 @@ export function useHostContext() {
   return {
     router,
     route,
+    // The same report kit as window.__HOST_DEPENDENCIES__.reporting.
+    reporting: getReportingKit(),
     stores: {
       analysisStore,
       issueStore

@@ -87,6 +87,7 @@ apps/dt-ui/src/
 │
 ├── composables/                 # Reusable composition functions
 ├── services/                    # Service classes
+├── reporting/                   # Report kit for module exports
 ├── config/                      # Configuration management
 ├── layouts/                     # Page layouts
 ├── types/                       # TypeScript definitions
@@ -341,6 +342,7 @@ interface HostDependencies {
     vue: typeof JsonFormsVue;
   };
   __APP_CONTEXT__?: any;        // the host app context
+  reporting?: ReportingKit;     // the report kit (optional; see 9. Report Kit)
 }
 
 // The version of this shape; a module's manifest names the range it supports.
@@ -457,6 +459,25 @@ A drawer / inline picker for attaching MITRE techniques, defenses, or mitigation
 
 **ATLAS links are display-only.** The exposures panel shows the ATLAS techniques that exploit an exposure, and the control dialog's countermeasures table shows the ATLAS mitigations a countermeasure implements, as chips next to the ATT&CK and D3FEND ones. Each ATLAS chip links to its atlas.mitre.org page ([`utils/mitreUrl.ts`](../../../apps/dt-ui/src/utils/mitreUrl.ts) builds ATT&CK and ATLAS page URLs from the id). The store knows the `ATLAS_TECHNIQUE` and `ATLAS_MITIGATION` kinds, but the exposure and countermeasure dialogs do not edit ATLAS links, and saving a dialog leaves them as they are.
 
+### 9. Report Kit
+
+`src/reporting/` is the report kit that module views use to export a report. The host exposes one kit per page, as `window.__HOST_DEPENDENCIES__.reporting` and as `useHostContext().reporting`. It frames a module's sections into one self-contained, printable HTML document with the installation's brand, draws the model diagram from a report's stored graph, reads an analysis's report details, and saves the file.
+
+| File | Role |
+|------|------|
+| `index.ts` | The `ReportingKit` interface and the page's one kit (`getReportingKit`) |
+| `frame.ts`, `frame.css.ts` | `buildReport`: cover, sections, footer, print stylesheet, `FrameStrings` |
+| `diagram.ts` | `renderModelDiagram`: the stored model graph as SVG |
+| `brand.ts` | `brand()`: the brand from `/config`, with the logo inlined as a data URI |
+| `reportDetails.ts` | `reportDetails.get()`, and the queries the Report details dialog uses |
+| `user.ts`, `userName.ts` | `currentUser()`: the signed-in user's display name, never an opaque id |
+| `escape.ts` | `escapeHtml`, and the CSS string escaping the page margins use |
+| `download.ts` | `download()`: the only code that knows the output format |
+
+The frame, the diagram and escaping are pure functions: strings and data in, a string out. Only three members read anything: `brand()` fetches `/config` and the logo once per page load, `reportDetails.get()` runs one GraphQL query, and `currentUser()` reads the auth store. `download()` is the one function that touches the DOM.
+
+The analysis results page (`pages/analysisresults.vue`) hosts the **Report details** dialog (`components/Dialogs/Analysis/ReportDetailsDialog.vue`), so no module builds its own editor. The module contract, its rules and an example are in [Dynamic Module System → Report Kit](./LLD/MODULE_SYSTEM.md#report-kit).
+
 ---
 
 ## Build Configuration
@@ -493,8 +514,11 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 3005,
     proxy: {
-      '/graphql': 'http://localhost:3003',
-      '/health': 'http://localhost:3003'
+      '/graphql': { target: 'http://localhost:3003/graphql', ws: true },
+      '/module-bundles': { target: 'http://localhost:3003', changeOrigin: true },
+      // Anchored: a plain key matches by prefix and would take a route such as /configuration
+      '^/config$': { target: 'http://localhost:3003', changeOrigin: true },
+      '^/branding/': { target: 'http://localhost:3003', changeOrigin: true }
     }
   }
 });
@@ -541,8 +565,13 @@ interface FrontendConfig {
   // Features
   debugAuth: boolean;
   enableDevTools: boolean;
+
+  // The installation's brand for reports; null or absent when unbranded
+  branding?: BrandingConfig | null;
 }
 ```
+
+**Branding.** `/config` carries the installation's brand as `branding`. `src/config/branding.ts` (`parseBrandingConfig`) checks it again on the client: a brand needs a name, the URL must be https with no user name or password, and a logo is kept only at its `/branding/logo/<sha256>` path with both dimensions. Anything else is dropped. A development build reads its config from the `VITE_` variables and leaves `branding` null; there the report kit reads `/config` itself, through the dev server's proxy.
 
 ### Configuration Loading
 
@@ -661,7 +690,7 @@ pnpm build:docker
 ### Development Server
 
 - **Port**: 3005
-- **Proxy**: `/graphql` and `/module-bundles` → `localhost:3003`
+- **Proxy**: `/graphql`, `/module-bundles`, `/config` and `/branding/` → `localhost:3003`
 - **HMR**: Full hot module replacement
 - **Source Maps**: Enabled for debugging
 

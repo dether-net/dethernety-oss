@@ -222,6 +222,9 @@ interface ModelGraph {
 interface SnapshotDoc {
   generated: boolean;
   modelId?: string;
+  /** The model's name when the report was generated, for the export's cover. Not part of the fingerprint. Absent on a
+   *  snapshot from before 2.3.0, and when the model has no name: the export shows the model id instead. */
+  modelName?: string;
   generatedAt?: string;
   fingerprint?: string;
   componentCount?: number;
@@ -265,7 +268,7 @@ class DethernetyThreatReportModule implements DTModule {
     return {
       name: MODULE_NAME,
       description: 'Query-based threat reporting with interactive dashboards.',
-      version: '2.2.1',
+      version: '2.3.0',
       author: 'Dethernety',
       analysisClasses: [
         {
@@ -902,6 +905,24 @@ class DethernetyThreatReportModule implements DTModule {
   }
 
   /**
+   * The model's name, for the export's cover; null when it has none or cannot be read. A missing name never stops a
+   * report: the export falls back to the model id.
+   */
+  private async readModelName(modelId: string): Promise<string | null> {
+    const session = this.session();
+    try {
+      const res = await session.run('MATCH (m:Model {id: $modelId}) RETURN m.name AS name', { modelId });
+      const name = res.records[0]?.get('name');
+      return typeof name === 'string' && name.trim() !== '' ? name : null;
+    } catch (err) {
+      this.logger.warn(`threat-report: could not read the name of model '${modelId}'; the export shows its id`, err as Error);
+      return null;
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
    * "Generate snapshot." Positional args from the platform resolver are
    * (analysisId, analysisClassId, scope=elementId, pubSub, additionalParams).
    * For a model-scoped report, scope IS the model id. Computes the snapshot and
@@ -946,10 +967,13 @@ class DethernetyThreatReportModule implements DTModule {
       ? OPERATION_UNAVAILABLE
       : await this.computeOperation(modelId, modelGraph, zoning?.effectiveZones ?? {});
 
+    const modelName = await this.readModelName(modelId);
+
     const generatedAt = new Date().toISOString();
     const doc: SnapshotDoc = {
       generated: true,
       modelId,
+      ...(modelName ? { modelName } : {}),
       generatedAt,
       fingerprint,
       componentCount,

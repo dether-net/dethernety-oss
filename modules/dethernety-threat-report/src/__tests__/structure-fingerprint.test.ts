@@ -128,6 +128,35 @@ describe('who runs each element, when a report is generated', () => {
     expect(doc().operation).toEqual({ state: 'unavailable', elements: {} });
   });
 
+  /** A generating module whose name query answers `name`, or fails when `name` is an Error. */
+  function named(name: unknown) {
+    const g = generating();
+    const plain = g.run.getMockImplementation()!;
+    g.run.mockImplementation(async (query: string, params: { doc?: string }) => {
+      if (query.includes('RETURN m.name AS name')) {
+        if (name instanceof Error) throw name;
+        return { records: [record({ name })] };
+      }
+      return plain(query, params);
+    });
+    return g;
+  }
+
+  it('freezes the model\'s name into the report', async () => {
+    const { module, doc } = named('Shop');
+    await module.runAnalysis('a', 'x', 'm', {});
+    expect(doc().modelName).toBe('Shop');
+  });
+
+  it('leaves the name out when the model has none, or it cannot be read, and still writes the report', async () => {
+    for (const name of [null, '  ', new Error('boom')]) {
+      const { module, doc } = named(name);
+      await module.runAnalysis('a', 'x', 'm', {});
+      expect(doc().generated).toBe(true);
+      expect('modelName' in doc()).toBe(false);
+    }
+  });
+
   it('says unavailable when the rows cannot be read', async () => {
     const run = vi.fn(async () => { throw new Error('boom'); });
     const module = new DethernetyThreatReportModule({ session: () => ({ run, close: async () => undefined }) } as never, logger as never) as any;

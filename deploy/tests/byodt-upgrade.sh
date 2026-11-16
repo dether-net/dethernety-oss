@@ -214,6 +214,7 @@ deployment() {
   tar -xzf "$REL/v9.9.8/byodt-9.9.8.tar.gz" -C "$work/d$n"
   D="$work/d$n/byodt-9.9.8"
   chmod 0755 "$D"
+  [ -z "${PRE_SETUP:-}" ] || ( cd "$D" && eval "$PRE_SETUP" )
   ( cd "$D" && ./byodt setup --yes </dev/null >/dev/null 2>&1 )
   printf 'NEO4J_PASSWORD=%s\n' "$PASSWORD" > "$D/.env.secrets"; chmod 0600 "$D/.env.secrets"
   mkdir -p "$D/mode" && printf 'ENABLE_NOAUTH=true\n' > "$D/mode/mode.env"
@@ -236,7 +237,10 @@ pulled() { grep -q ' pull' "$CALLS"; }
 backup_of() { ls -d "$1"/backups/upgrade-9.9.8-to-9.9.9-* 2>/dev/null | sed -n 1p; }
 
 # --- the happy path ---------------------------------------------------------------------------------------------------------
-deployment
+# The brand is in place before setup, so the first run's record of shipped files would list it if it were not the
+# deployment's own.
+PRE_SETUP='mkdir branding && printf "{\"name\":\"Example\"}\n" > branding/brand.json' deployment
+cp "$D/branding/brand.json" "$work/brand.json"
 before_inode="$(inode_of "$D/compose.yaml")"
 run "$D" upgrade --yes
 check "upgrade --yes moves 9.9.8 to the latest, 9.9.9, and finishes healthy" \
@@ -255,6 +259,8 @@ check "settings that hold the deployment's state are never changed or commented 
 # A listing is read whole before it is searched: under pipefail, a grep -q that stops at its first match can leave tar
 # writing into a closed pipe, which fails the pipeline.
 B="$(backup_of "$D")"; listing="$(tar -tzf "$B/bundle-files-9.9.8.tar.gz" 2>/dev/null || true)"
+check "branding/ is the deployment's own: the upgrade leaves it as it was, and does not count it a shipped file" \
+  'cmp -s "$D/branding/brand.json" "$work/brand.json" && ! grep -q "branding" <<< "$listing" && ! grep -q "branding" "$D/.byodt-release"'
 check "the backup: the graph through the old byodt, .env, the shipped files as they were, in a private directory" \
   '[ -n "$B" ] && [ "$(mode_of "$B")" = 700 ] && ls "$B"/byodt-snapshot-9.9.8-* >/dev/null 2>&1 \
    && [ -f "$B/env.before-9.9.9" ] && grep -qx "byodt-9.9.8/byodt" <<< "$listing" \

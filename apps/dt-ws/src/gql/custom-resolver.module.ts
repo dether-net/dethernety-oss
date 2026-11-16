@@ -14,6 +14,7 @@ import { ElementBindingService } from './resolver-services/element-binding.servi
 import { FindingReevaluationService } from './resolver-services/finding-reevaluation.service';
 import { DispositionResolverService } from './resolver-services/disposition-resolver.service';
 import { AnalysisResolverService } from './resolver-services/analysis-resolver.service';
+import { ReportDetailsResolverService } from './resolver-services/report-details-resolver.service';
 import { ModelResolverService } from './resolver-services/model-resolver.service';
 import { IssueResolverService } from './resolver-services/issue-resolver.service';
 import { MatchClassesResolverService } from './resolver-services/match-classes-resolver.service';
@@ -37,6 +38,7 @@ const resolverServiceClasses = [
   ElementBindingService,
   DispositionResolverService,
   AnalysisResolverService,
+  ReportDetailsResolverService,
   ModelResolverService,
   IssueResolverService,
   MatchClassesResolverService,

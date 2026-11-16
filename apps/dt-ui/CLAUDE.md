@@ -12,7 +12,7 @@ pnpm test         # Vitest (tests in src/utils/__tests__/*.test.ts)
 pnpm lint         # ESLint
 ```
 
-The Vite dev server proxies `/graphql` and `/module-bundles` to the backend at `localhost:3003`.
+The Vite dev server proxies `/graphql`, `/module-bundles`, `/config` and `/branding/` to the backend at `localhost:3003` (the report kit reads the brand from `/config` and the logo from `/branding/` in a dev build too).
 
 ## Key Directories
 

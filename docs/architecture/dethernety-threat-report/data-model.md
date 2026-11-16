@@ -63,6 +63,7 @@ The top-level persisted document. It is serialized to a JSON string and stored o
 |---|---|---|
 | `generated` | `boolean` | `true` for a real snapshot; `false` is the empty-state signal (see below). |
 | `modelId` | `string?` | The model the snapshot was computed over (the analysis scope). |
+| `modelName` | `string?` | The model's name when the snapshot was generated, read from the `Model` node and frozen with the snapshot; the export prints it on the cover. Not part of the [fingerprint](#the-fingerprint-and-staleness-contract), so renaming the model does not make a report stale. Absent on a snapshot from before 2.3.0, when the name is blank, and when the read fails (the snapshot is still written); the export then shows the model id. |
 | `generatedAt` | `string?` | ISO timestamp of when the snapshot was generated. |
 | `fingerprint` | `string?` | The structural digest captured at generate time. See [the fingerprint contract](#the-fingerprint-and-staleness-contract). |
 | `componentCount` | `number?` | Count of components discovered at generate time. |
