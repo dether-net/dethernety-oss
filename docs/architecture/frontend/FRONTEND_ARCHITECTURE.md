@@ -478,6 +478,12 @@ The frame, the diagram and escaping are pure functions: strings and data in, a s
 
 The analysis results page (`pages/analysisresults.vue`) hosts the **Report details** dialog (`components/Dialogs/Analysis/ReportDetailsDialog.vue`), so no module builds its own editor. The module contract, its rules and an example are in [Dynamic Module System → Report Kit](./LLD/MODULE_SYSTEM.md#report-kit).
 
+The dialog edits the client, the author and the project, each with a counter, and up to ten custom fields: rows of a label and a value with a remove button, added with **Add field**.
+
+- **It mirrors the server's rules** (see [ReportDetailsResolverService](../backend/LLD/CUSTOM_RESOLVER_SERVICES_DOCUMENTATION.md#10-reportdetailsresolverservice)): lengths counted in code points, a label with a visible letter or digit, labels unique as a reader sees them, and the 4 KiB size of the stored details, so a form with every field within its limit can still be too large in total. It does not check for control or text-direction characters; the server refuses them, and the dialog shows the message for the code. A row's problem shows once the user moves out of one of its fields. The limits, the label rules and the message for each server error code are in `utils/reportDetailsInput.ts`; the server stays the one that enforces them.
+- **Save sends only the keys the user changed,** so it leaves what another editor set in other keys. A changed custom-field list is sent whole.
+- **The suggestion** (`suggestReportDetails`) is offered only when the form is entirely empty, as a one-line summary. **Use these details** fills every field from it; nothing is saved until **Save**.
+
 ---
 
 ## Build Configuration

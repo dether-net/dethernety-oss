@@ -8,7 +8,7 @@
 // buildJsonExport / buildHtmlExport are pure (string in, string out) → unit
 // tested. downloadBlob is the standalone export's only DOM touch. When the platform offers its report
 // kit, exportHtml builds the report through it instead (buildKitReport), with the
-// installation's brand, the analysis's client and the model diagram.
+// installation's brand, the analysis's report details and the model diagram.
 
 import { WHO_RUNS_COPY, entryTexts, hasOperationToShow } from './whoRunsIt.js'
 import { aggregateLedger, dispositionKindLabel, lifecycleStatus } from './aggregateLedger.js'
@@ -701,8 +701,11 @@ export function kitCss() {
     `.${KIT_KIND}-report .summary { break-inside: avoid; page-break-inside: avoid; }`,
     // Separate borders, each line drawn once inside its own box: collapsed borders straddle the table's edge, which
     // print clips, and WebKit draws some shared lines twice as heavy.
-    `.${KIT_KIND}-report table { border-collapse: separate; border-spacing: 0; border-left: 1px solid #ddd; }`,
+    `.${KIT_KIND}-report table { border-collapse: separate; border-spacing: 0; }`,
     `.${KIT_KIND}-report th, .${KIT_KIND}-report td { border: 0; border-right: 1px solid #ddd; border-bottom: 1px solid #ddd; }`,
+    // The left line on each row's first cell, not on the table: where a page break cuts a table, Chrome stretches the
+    // table's box to the foot of the page, and a line on it would run on below the last row.
+    `.${KIT_KIND}-report th:first-child, .${KIT_KIND}-report td:first-child { border-left: 1px solid #ddd; }`,
     // The top line on the header cells, so a header repeated on the next page carries it too; on the first row where
     // a table has no header.
     `.${KIT_KIND}-report thead th, .${KIT_KIND}-report table > tbody:first-child > tr:first-child > * { border-top: 1px solid #ddd; }`,
@@ -747,10 +750,15 @@ function diagramSection(kit, doc) {
 
 /**
  * The report through the host's report kit: the same sections as the standalone export, in the kit's frame (the
- * brand, the client on the cover, the facts in a footer block, a print stylesheet), plus the model diagram. Pure but
- * for the kit: (kit, doc, coverage, extras) → string.
+ * brand, the report details on the cover, the facts in a footer block, a print stylesheet), plus the model diagram.
+ * Pure but for the kit: (kit, doc, coverage, extras) → string.
  */
-export function buildKitReport(kit, doc, coverage = null, { brand = null, clientName, exportedAt, exportedBy, stale } = {}) {
+export function buildKitReport(
+  kit,
+  doc,
+  coverage = null,
+  { brand = null, clientName, exportedAt, exportedBy, reportDetails, stale } = {},
+) {
   const { totals, groups } = aggregateLedger(doc?.ledger ?? [])
   const footer = provenanceFooter(doc, totals)
   const coverageView = coverageForExport(doc, coverage)
@@ -785,6 +793,8 @@ export function buildKitReport(kit, doc, coverage = null, { brand = null, client
       stale: Boolean(stale),
       exportedAt,
       exportedBy: exportedBy || undefined,
+      // The analysis's report details as the kit read them: the frame prints what it knows of them.
+      reportDetails: reportDetails || undefined,
     },
     cover: { notes: [footer.note] },
     sections,
@@ -801,7 +811,7 @@ export function exportJson(doc, coverage = null) {
 
 /**
  * The HTML export: through the host's report kit when the platform has one (version 1 or later), with the brand, the
- * analysis's client and the model diagram; otherwise the standalone export, unchanged.
+ * analysis's report details and the model diagram; otherwise the standalone export, unchanged.
  */
 export async function exportHtml(doc, coverage = null, { analysisId = null, stale = false } = {}) {
   const stamp = (doc?.generatedAt ?? '').replace(/[:.]/g, '-') || 'snapshot'
@@ -820,6 +830,7 @@ export async function exportHtml(doc, coverage = null, { analysisId = null, stal
     clientName: details?.client,
     exportedAt,
     exportedBy: kit.currentUser()?.displayName,
+    reportDetails: details,
     stale,
   })
   kit.download(report, { kind: KIT_KIND, stamp })

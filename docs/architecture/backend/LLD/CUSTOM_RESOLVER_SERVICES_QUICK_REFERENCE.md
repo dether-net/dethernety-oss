@@ -10,7 +10,7 @@
 | AnalysisResolverService | AI analysis operations | Long-running sessions, subscriptions | Yes* | Yes |
 | SetInstantiationAttributesService | Component attributes | Batch processing, concurrency control | No | Yes |
 | ClassIdentityResolverService | Class-identity admin surface | Admin gate + audit log; rebind conflicts, orphan reconciliation, identity migration | No | Yes |
-| ReportDetailsResolverService | Analysis report details | Read, set and suggest the client a report is prepared for; one locked write transaction | No | Yes |
+| ReportDetailsResolverService | Analysis report details | Read, set and suggest the client, author, project and custom fields a report prints; one locked write transaction | No | Yes |
 
 *\* Caching only for Neo4j database operations, not module responses*
 
@@ -39,8 +39,8 @@ mutation { runAnalysis(input: {analysisId: "analysis-456", scope: "security"}) }
 subscription { analysisUpdates(analysisId: "analysis-456") }
 
 # Report Details
-query { reportDetails(analysisId: "analysis-456") { client updated } }
-mutation { setReportDetails(analysisId: "analysis-456", details: {client: "Example Corp"}) { client updated } }
+query { reportDetails(analysisId: "analysis-456") { client author project customFields { label value } updated } }
+mutation { setReportDetails(analysisId: "analysis-456", details: {client: "Example Corp", customFields: [{label: "Reference", value: "TM-7"}]}) { client customFields { label value } updated } }
 
 # Component Attributes
 mutation { setAttributes(input: {componentId: "comp-789", attributes: {}}) }
@@ -160,13 +160,13 @@ Authz: every operation gated by `requireAdmin(ctx)` at resolver entry — see [`
 ```typescript
 // Queries
 reportDetails(analysisId): Promise<ReportDetails | null>          // newest binding's value; null when unknown or unbound
-suggestReportDetails(analysisId): Promise<ReportDetails | null>   // newest client among the element's other analyses
+suggestReportDetails(analysisId): Promise<ReportDetails | null>   // newest details among the element's other analyses
 
 // Mutation
 setReportDetails(analysisId, details): Promise<ReportDetails>     // merge by key, stamp `updated`, write to every binding
 ```
 
-Stored as one JSON string, `metadata`, on every `ANALYZED_BY` edge into the analysis; not reachable through generated queries. A key given is written, null clears it, a key left out stays. `client` is trimmed, at most 120 characters, with no control or text-direction character; the stored JSON is at most 4 KiB. Refusals carry their own `extensions.code`: `REPORT_DETAILS_CLIENT_TOO_LONG`, `REPORT_DETAILS_CLIENT_CHARACTERS`, `REPORT_DETAILS_TOO_LARGE`, `ANALYSIS_NOT_FOUND`, `ANALYSIS_NOT_BOUND`. Authz: the resolver checks for a verified user itself, then calls `AuthorizationService`. A module reads report details only through these fields, never from `getDocument`. See [ReportDetailsResolverService](./CUSTOM_RESOLVER_SERVICES_DOCUMENTATION.md#10-reportdetailsresolverservice).
+Stored as one JSON string, `metadata`, on every `ANALYZED_BY` edge into the analysis; not reachable through generated queries. A key given is written, null clears it, a key left out stays; `customFields` is one key, replaced whole, and null or `[]` removes it. `client`, `author` and `project` are trimmed, at most 120 characters, with no control or text-direction character. At most 10 custom fields; a label is at most 40 characters with a visible letter or digit, a value at most 120, and labels are unique as a reader sees them, ignoring case. The stored JSON is at most 4 KiB. A read drops a stored value a set would refuse. Refusals carry their own `extensions.code`: `REPORT_DETAILS_CLIENT_TOO_LONG`, `REPORT_DETAILS_CLIENT_CHARACTERS`, `REPORT_DETAILS_AUTHOR_TOO_LONG`, `REPORT_DETAILS_AUTHOR_CHARACTERS`, `REPORT_DETAILS_PROJECT_TOO_LONG`, `REPORT_DETAILS_PROJECT_CHARACTERS`, `REPORT_DETAILS_FIELD_TOO_LONG`, `REPORT_DETAILS_FIELD_CHARACTERS`, `REPORT_DETAILS_FIELD_INCOMPLETE`, `REPORT_DETAILS_FIELD_DUPLICATE`, `REPORT_DETAILS_TOO_MANY_FIELDS`, `REPORT_DETAILS_TOO_LARGE`, `ANALYSIS_NOT_FOUND`, `ANALYSIS_NOT_BOUND`. Authz: the resolver checks for a verified user itself, then calls `AuthorizationService` for the requested analysis only; the suggestion also reads the element's other analyses. A module reads report details only through these fields, never from `getDocument`. See [ReportDetailsResolverService](./CUSTOM_RESOLVER_SERVICES_DOCUMENTATION.md#10-reportdetailsresolverservice).
 
 ---
 

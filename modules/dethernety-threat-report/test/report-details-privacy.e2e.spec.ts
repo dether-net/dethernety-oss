@@ -1,14 +1,20 @@
-// The report's client name never reaches getDocument. It is stored on the analysis's ANALYZED_BY binding (as the
-// platform's report details), and agents read the getDocument payload, so a report generated after it was set must
-// carry it nowhere in the snapshot the module stores and returns. The model's name, which the export does need, is
-// carried, and is outside the fingerprint: renaming the model leaves the report fresh.
+// The report details (client, author, project and custom fields) never reach getDocument. They are stored on the
+// analysis's ANALYZED_BY binding, and agents read the getDocument payload, so a report generated after they were set
+// must carry none of them in the snapshot the module stores and returns. The model's name, which the export does
+// need, is carried, and is outside the fingerprint: renaming the model leaves the report fresh.
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { startMemgraph, clearGraph, MemgraphHandle } from './memgraph-container';
 import DethernetyThreatReportModule from '../src/DethernetyThreatReportModule';
 
 const quiet = { log() {}, warn() {}, error() {}, debug() {}, verbose() {} } as any;
 
-const CLIENT = 'Client-Marker-7f3a';
+const MARKERS = {
+  client: 'Client-Marker-7f3a',
+  author: 'Author-Marker-2b9c',
+  project: 'Project-Marker-5d1e',
+  label: 'Label-Marker-8a4f',
+  value: 'Value-Marker-6c0d',
+};
 
 const SEED = `
 CREATE (m:Model {id: 'm1', name: 'Shop'})-[:CONTAINS]->(b:SecurityBoundary {id: 'b1', name: 'Default'}),
@@ -42,20 +48,26 @@ describe('report details stay out of getDocument (Memgraph)', () => {
     await run(SEED);
     // As the platform stores report details: one JSON string on every binding of the analysis.
     await run(`MATCH (:Analysis {id: 'an-1'})<-[r:ANALYZED_BY]-() SET r.metadata = $metadata`, {
-      metadata: JSON.stringify({ client: CLIENT, updated: '2026-11-20T10:15:00.000Z' }),
+      metadata: JSON.stringify({
+        client: MARKERS.client,
+        author: MARKERS.author,
+        project: MARKERS.project,
+        customFields: [{ label: MARKERS.label, value: MARKERS.value }],
+        updated: '2026-11-20T10:15:00.000Z',
+      }),
     });
   });
 
-  it('carries the client nowhere in the snapshot or the getDocument payload, and the model name in both', async () => {
+  it('carries no report detail in the snapshot or the getDocument payload, and the model name in both', async () => {
     await report.runAnalysis('an-1', 'tr-class', 'm1', {} as never);
 
     const stored = (await run(`MATCH (a:Analysis {id: 'an-1'}) RETURN a.threatReportDoc AS doc`)).records[0].get('doc');
-    expect(stored).not.toContain(CLIENT);
+    for (const marker of Object.values(MARKERS)) expect(stored).not.toContain(marker);
     expect(JSON.parse(stored).modelName).toBe('Shop');
 
     for (const filter of [{ document: 'index' }, {}]) {
       const payload = JSON.stringify(await report.getDocument('m1', 'an-1', 'tr-class', filter));
-      expect(payload).not.toContain(CLIENT);
+      for (const marker of Object.values(MARKERS)) expect(payload).not.toContain(marker);
       expect(payload).toContain('"modelName":"Shop"');
     }
   });

@@ -63,9 +63,30 @@ describe('report details on the authenticated schema', () => {
 
   it('refuses an input key the server does not know, in validation', async () => {
     const result = await run(
-      'mutation { setReportDetails(analysisId: "an-1", details: { client: "x", project: "y" }) { client } }',
+      'mutation { setReportDetails(analysisId: "an-1", details: { client: "x", notes: "y" }) { client } }',
     );
-    expect(result.errors?.map(String).join()).toMatch(/"project" is not defined by type "ReportDetailsInput"/);
+    expect(result.errors?.map(String).join()).toMatch(/"notes" is not defined by type "ReportDetailsInput"/);
+  });
+
+  it('takes every known key in the input and the output, and still refuses the request without a token', async () => {
+    const result = await run(
+      'mutation { setReportDetails(analysisId: "an-1", details: { client: "c", author: "a", project: "p", ' +
+        'customFields: [{ label: "Ref", value: "ES-114" }] }) ' +
+        '{ client author project customFields { label value } updated } }',
+    );
+    const errors = result.errors?.map(String).join() ?? '';
+    expect(errors).toMatch(/Unauthenticated|Authentication required/);
+    expect(errors).not.toMatch(/is not defined|Cannot query field/);
+    expect(driver.session).not.toHaveBeenCalled();
+  });
+
+  it('refuses a custom field without its label or value, in validation', async () => {
+    const result = await run(
+      'mutation { setReportDetails(analysisId: "an-1", details: { customFields: [{ label: "Ref" }] }) { client } }',
+    );
+    expect(result.errors?.map(String).join()).toMatch(
+      /"ReportDetailFieldInput.value" of required type "String!" was not provided/,
+    );
   });
 
   it('has no updated in the input: only the server stamps it', async () => {

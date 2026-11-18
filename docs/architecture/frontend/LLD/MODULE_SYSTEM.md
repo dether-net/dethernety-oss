@@ -531,7 +531,7 @@ if (kit && kit.version >= 1) {
 | `escapeHtml(text)` | Escapes text for HTML content or a quoted attribute. `null` and `undefined` give an empty string |
 | `currentUser()` | `{ displayName }` for the signed-in user, or `null` |
 | `brand()` | The installation's brand, `Promise<Brand \| null>`. Read once per page load; `null` when unbranded or when anything fails |
-| `reportDetails.get(analysisId)` | The analysis's report details, `Promise<{ client?, updated? } \| null>` |
+| `reportDetails.get(analysisId)` | The analysis's report details, `Promise<{ client?, author?, project?, customFields?, updated? } \| null>` |
 | `renderModelDiagram(graph, opts?)` | The model diagram as SVG: `{ svg, figure, width, height }`, or `null` |
 | `buildReport(input)` | A complete, self-contained HTML document: cover, the module's sections, and an "about this report" footer |
 | `download(report, name)` | Saves the report as `<kind>[-<variant>]-<stamp>.html` |
@@ -568,12 +568,13 @@ if (kit && kit.version >= 1) {
     meta: {
       modelName: snapshot.modelName,
       modelId: snapshot.modelId,
-      clientName: details?.client,
+      clientName: details?.client,                     // the client on a kit that does not read reportDetails
       module: { name: 'example-module', version: '1.0.0' },
       generatedAt: snapshot.generatedAt,
       fingerprint: snapshot.fingerprint,
       exportedAt,
       exportedBy: kit.currentUser()?.displayName,
+      reportDetails: details,                          // as reportDetails.get returned it
     },
     sections: [
       { id: 'summary', title: 'Summary', html: `<p>${kit.escapeHtml(snapshot.summary)}</p>` },
@@ -597,6 +598,9 @@ if (kit && kit.version >= 1) {
   | `model` | Model |
   | `modelId` | Model ID |
   | `client` | Client |
+  | `author` | Author |
+  | `project` | Project |
+  | `reportDetails` | Report details |
   | `generated` | Generated |
   | `module` | Module |
   | `fingerprint` | Fingerprint |
@@ -609,7 +613,13 @@ if (kit && kit.version >= 1) {
   | `of` | of |
 
 - **`exportedAt` is taken by the module at the click,** not when the report was generated.
-- **`exportedBy` comes from `kit.currentUser()`.** It is the identity provider's name for the user; when the provider gives no name, the username or email is used. It is `null` when only an opaque id is known (a UUID or a long token with digits), so a subject id is never printed as a person's name. Leave `exportedBy` out when it is `null`.
+- **`exportedBy` comes from `kit.currentUser()`.** It is the identity provider's name for the user; when the provider gives no name, the username or email is used. It is `null` when only an opaque id is known (a UUID or a long token with digits), so a subject id is never printed as a person's name. Leave `exportedBy` out when it is `null`. When the report details name an author, the frame prints the author and leaves **Exported by** out, so the exporting account, which can be an email address, does not appear.
+- **Pass the report details as `meta.reportDetails`,** exactly as `reportDetails.get` returned them (`meta.reportDetails = details`). The frame prints from them:
+  - **On the cover,** the facts in this order: Model, Prepared for (the client), Project, Author, Generated, Module. The custom fields follow in a block of their own titled "Report details" (`strings.reportDetails`), at most 10, in the order given, escaped like every other value.
+  - **In the closing block** ("About this report"), Project after Client, and Author after Exported.
+  - **The client** is `meta.clientName` when it is given, and the details' `client` otherwise, on the cover and in the closing block.
+
+  The kit's `version` stays 1, and a host whose kit predates `meta.reportDetails` ignores it; pass `clientName` too, and the client still prints there.
 - **The brand is applied at export.** It is not part of the report's content, so it does not go into the report's fingerprint. A branded report says so in its footer (`brandAppliedAtExport`). Pass the result of `await kit.brand()` as `brand`, which keeps `buildReport` synchronous.
 - **No `<details>` in a report.** Disclosure prints unpredictably, so the frame turns every `<details>` and `<summary>` into a plain block that is always open.
 - **`pageMark` prints on every page,** the cover included, through one fixed-position element. Use it for a mark such as a draft notice.
@@ -679,10 +689,10 @@ The result is `{ svg, figure, width, height }`: a standalone `<svg>` of the whol
 
 **Source:** `reporting/reportDetails.ts`
 
-`kit.reportDetails.get(analysisId)` reads an analysis's report details: `{ client?, updated? }`, with a key present only when it holds a value, or `null` when the analysis has none. It reads them live on every call, so read them at the click.
+`kit.reportDetails.get(analysisId)` reads an analysis's report details: `{ client?, author?, project?, customFields?, updated? }`, with a key present only when it holds a value, or `null` when the analysis has none. `customFields` is a list of `{ label, value }`, at most 10, in the order the user gave them. It reads them live on every call, so read them at the click, and pass the result to `buildReport` as `meta.reportDetails` (see [Rules for a module's report](#rules-for-a-modules-report)).
 
 - **Read-only for modules.** The user sets them in the host's **Report details** dialog on the analysis results page. A module does not build its own editor.
-- **Never put report details, or anything that identifies a client, in a `getDocument` payload.** Agents read that payload. Report details reach a report only through the kit, at export.
+- **Never put report details (the client, the author, the project or a custom field), or anything that identifies a client, in a `getDocument` payload.** Agents read that payload. Report details reach a report only through the kit, at export.
 
 ---
 

@@ -7,6 +7,7 @@ import {
   clampText,
   formatTimestamp,
   type FrameStrings,
+  type ReportFacts,
   type ReportInput,
 } from '../frame'
 import { frameCss } from '../frame.css'
@@ -107,6 +108,9 @@ describe('buildReport', () => {
       model: 'Modell',
       modelId: 'Modellazonosító',
       client: 'Ügyfél',
+      author: 'Szerző',
+      project: 'Projekt',
+      reportDetails: 'További adatok',
       generated: 'Készült',
       module: 'Modul',
       fingerprint: 'Ujjlenyomat',
@@ -124,12 +128,22 @@ describe('buildReport', () => {
         strings: hu,
         brand: { name: 'Példa Kft.', footer: 'Bizalmas' },
         pageMark: 'TERVEZET',
-        meta: { ...base().meta, clientName: 'Ügyfél Zrt.', fingerprint: 'f', stale: true, exportedBy: 'Kovács' },
+        meta: {
+          ...base().meta,
+          clientName: 'Ügyfél Zrt.',
+          fingerprint: 'f',
+          stale: true,
+          exportedBy: 'Kovács',
+          reportDetails: { author: 'Nagy Anna', project: 'Felhő', customFields: [{ label: 'Hivatkozás', value: 'ES-114' }] },
+        },
       }),
     )
     // Whole words: a Hungarian word may contain an English one ("Modell").
     const word = (text: string) => new RegExp(`(^|[^\\p{L}])${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\p{L}])`, 'u')
     for (const english of Object.values(DEFAULT_FRAME_STRINGS)) expect(html).not.toMatch(word(english))
+    // An author replaces the exporter; without one, the translated "Exported by" is the one printed.
+    const exporter = buildReport(base({ locale: 'hu', strings: hu, meta: { ...base().meta, exportedBy: 'Kovács' } }))
+    expect(exporter).toContain('<dt>Exportálta</dt><dd>Kovács</dd>')
   })
 
   it('carries the print rules: margins and no paper size, a cover without running boxes, page numbers', () => {
@@ -222,6 +236,108 @@ describe('buildReport', () => {
     expect(body).not.toMatch(/<(meta|link|base)\b/i)
     expect(body).toContain('<x-meta http-equiv="refresh"')
     expect(body).toContain('<x-link rel="dns-prefetch"')
+  })
+})
+
+describe('report details', () => {
+  const withDetails = (reportDetails: ReportFacts['reportDetails'], over: Partial<ReportFacts> = {}) =>
+    buildReport(base({ meta: { ...base().meta, exportedBy: 'jane@example.com', ...over, reportDetails } }))
+  const cover = (html: string) => html.match(/<header class="rk-cover">[\s\S]*?<\/header>/)![0]
+  const closing = (html: string) => html.match(/<footer class="rk-footer">[\s\S]*?<\/footer>/)![0]
+  const terms = (block: string) => [...block.matchAll(/<dt>([^<]*)<\/dt>/g)].map((m) => m[1])
+
+  it('prints the project and the author on the cover, after the client and before the time', () => {
+    const html = withDetails({ client: 'Example Ltd', author: 'A. Analyst', project: '2026 cloud review' })
+    expect(terms(cover(html))).toEqual(['Model', 'Prepared for', 'Project', 'Author', 'Generated', 'Module'])
+    expect(cover(html)).toContain('<dt>Project</dt><dd>2026 cloud review</dd><dt>Author</dt><dd>A. Analyst</dd>')
+  })
+
+  it('prints the author in the closing block in place of the exporting account', () => {
+    const html = withDetails({ author: 'A. Analyst', project: 'P' })
+    expect(terms(closing(html))).toEqual(['Model', 'Model ID', 'Project', 'Module', 'Generated', 'Exported', 'Author'])
+    expect(html).not.toContain('jane@example.com')
+    expect(html).not.toContain('Exported by')
+  })
+
+  it('keeps Exported by when no author is set', () => {
+    const html = withDetails({ project: 'P' })
+    expect(closing(html)).toContain('<dt>Exported by</dt><dd>jane@example.com</dd>')
+    expect(html).not.toContain('<dt>Author</dt>')
+  })
+
+  it('takes the client from the details when the module gives no clientName, in both places', () => {
+    const html = withDetails({ client: 'From details' })
+    expect(cover(html)).toContain('<dt>Prepared for</dt><dd>From details</dd>')
+    expect(closing(html)).toContain('<dt>Client</dt><dd>From details</dd>')
+    const given = withDetails({ client: 'From details' }, { clientName: 'From module' })
+    expect(given).toContain('<dd>From module</dd>')
+    expect(given).not.toContain('From details')
+  })
+
+  it('prints the custom fields on the cover in a titled block, in the order given, after the facts', () => {
+    const html = withDetails({
+      customFields: [
+        { label: 'Engagement ref', value: 'ES-2026-114' },
+        { label: 'Classification', value: 'Confidential' },
+      ],
+    })
+    const block =
+      '<section class="rk-details"><p class="rk-details-title">Report details</p><table><tbody>' +
+      '<tr><th scope="row">Engagement ref</th><td>ES-2026-114</td></tr>' +
+      '<tr><th scope="row">Classification</th><td>Confidential</td></tr></tbody></table></section>'
+    expect(cover(html)).toContain(`</dl>${block}`)
+    expect(closing(html)).not.toContain('ES-2026-114')
+  })
+
+  it('escapes every label and value, so none can open an element or leave an attribute', () => {
+    const html = withDetails({
+      author: '<b>A</b>',
+      project: 'P & "Q"',
+      customFields: [{ label: '" onmouseover="x', value: "<img src=x onerror=alert(1)> & 'q'" }],
+    })
+    expect(html).toContain('<dd>&lt;b&gt;A&lt;/b&gt;</dd>')
+    expect(html).toContain('<dd>P &amp; &quot;Q&quot;</dd>')
+    expect(html).toContain('<th scope="row">&quot; onmouseover=&quot;x</th>')
+    expect(html).toContain('<td>&lt;img src=x onerror=alert(1)&gt; &amp; &#39;q&#39;</td>')
+    expect(html).not.toContain('<img src=x')
+    expect(html).not.toContain('" onmouseover')
+  })
+
+  it('escapes the words a module passes for the new labels', () => {
+    const html = buildReport(
+      base({
+        strings: { author: '<Author>', project: 'P"roject', reportDetails: '<i>Details</i>' },
+        meta: { ...base().meta, reportDetails: { author: 'a', project: 'p', customFields: [{ label: 'l', value: 'v' }] } },
+      }),
+    )
+    expect(html).toContain('<dt>&lt;Author&gt;</dt>')
+    expect(html).toContain('<dt>P&quot;roject</dt>')
+    expect(html).toContain('<p class="rk-details-title">&lt;i&gt;Details&lt;/i&gt;</p>')
+  })
+
+  it('prints no block without custom fields, and drops a field that is not a text label and value', () => {
+    expect(withDetails({ author: 'A' })).not.toContain('class="rk-details"')
+    expect(withDetails({ customFields: [] })).not.toContain('class="rk-details"')
+    const odd = withDetails({
+      customFields: [null, { label: 'Only label' }, { label: 7, value: 'v' }, { label: 'Kept', value: 'v' }] as any,
+    })
+    expect(odd.match(/<tr>/g)).toHaveLength(1)
+    expect(odd).toContain('<th scope="row">Kept</th>')
+  })
+
+  it('prints at most the ten custom fields the server keeps', () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({ label: `F${i}`, value: 'v' }))
+    const html = withDetails({ customFields: many })
+    expect(html.match(/<tr>/g)).toHaveLength(10)
+    expect(html).not.toContain('>F10<')
+  })
+
+  it('ignores report details that are not an object, as from an older module', () => {
+    for (const reportDetails of [null, 'x', 7] as any[]) {
+      const html = withDetails(reportDetails)
+      expect(html).not.toContain('class="rk-details"')
+      expect(html).toContain('<dt>Exported by</dt>')
+    }
   })
 })
 

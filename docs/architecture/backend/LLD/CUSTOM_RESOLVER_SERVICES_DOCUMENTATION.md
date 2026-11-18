@@ -1255,17 +1255,17 @@ Auth flows through `AuthorizationService`; metrics through `MonitoringService`. 
 
 ### Purpose
 
-Holds an analysis's **report details**: what a report needs to know about an analysis that the analysis does not hold itself. Today there is one key, `client`, the client a report is prepared for. The service reads the details, sets them, and suggests a client name from the other analyses of the same element.
+Holds an analysis's **report details**: what a report needs to know about an analysis that the analysis does not hold itself. There are four keys: `client`, the client a report is prepared for; `author`, who wrote the report; `project`, the project or engagement it belongs to; and `customFields`, up to 10 fields the user adds, each a label and a value. The service reads the details, sets them, and suggests details from the other analyses of the same element.
 
 ### Surfaces
 
 | Kind | Field | Description |
 |------|-------|-------------|
 | Query | `reportDetails(analysisId: ID!): ReportDetails` | The analysis's report details. Null when the analysis is bound to no element, or does not exist |
-| Query | `suggestReportDetails(analysisId: ID!): ReportDetails` | The newest client name among the other analyses of the element(s) this analysis is bound to. Null when none has one |
+| Query | `suggestReportDetails(analysisId: ID!): ReportDetails` | The newest report details among the other analyses of the element(s) this analysis is bound to. Null when none has any |
 | Mutation | `setReportDetails(analysisId: ID!, details: ReportDetailsInput!): ReportDetails` | Merges `details` into the stored details on every binding. Returns the details as stored |
 
-`ReportDetails` carries `client` and `updated`, the time the details were last set (ISO 8601, UTC). See [ReportDetails in the API reference](../GRAPHQL_API_REFERENCE.md#reportdetails).
+`ReportDetails` carries `client`, `author`, `project`, `customFields` (`[ReportDetailField!]`, each `{ label, value }`, in the order the user gave them; null when there are none) and `updated`, the time the details were last set (ISO 8601, UTC). `ReportDetailsInput` takes the same four keys, with `customFields` as `[ReportDetailFieldInput!]`. See [ReportDetails](../GRAPHQL_API_REFERENCE.md#reportdetails) and [ReportDetailsInput](../GRAPHQL_API_REFERENCE.md#reportdetailsinput) in the API reference.
 
 ### Storage
 
@@ -1278,9 +1278,11 @@ The `metadata` edge property is not declared in the GraphQL schema. No generated
 `setReportDetails` merges the input into the stored details by key:
 
 - A key given is written.
-- A key given as null is cleared. A blank `client` is cleared too.
+- A key given as null is cleared. A blank `client`, `author` or `project` is cleared too.
 - A key left out stays as it is.
+- `customFields` is one key: given, the list replaces the stored one whole, and null or an empty list removes it.
 - A stored key this server does not know is kept.
+- The known keys already stored are written back as a read returns them (see [Read and suggest](#read-and-suggest)), so a stored value a read drops does not stay behind.
 
 The input is checked before the transaction opens, so a bad value takes no lock. The set then runs in **one** write transaction:
 
@@ -1291,23 +1293,38 @@ The input is checked before the transaction opens, so a bad value takes no lock.
 
 **Limits:**
 
-- `client` is trimmed. It may be at most 120 characters, counted as code points, so a character outside the Basic Multilingual Plane counts once.
-- `client` may not contain a control or text-direction character: C0 and C1 controls, the line and paragraph separators, the bidirectional formatting characters, and the invisible characters that can hide text from a reader (zero-width spaces, the byte-order mark, tag characters, the supplementary variation selectors and lone surrogates). ZWNJ and ZWJ, which some scripts need, are allowed.
+Every length is counted in code points, so a character outside the Basic Multilingual Plane counts once.
+
+- `client`, `author` and `project` are trimmed. Each may be at most 120 characters.
+- No value, custom labels and values included, may contain a control or text-direction character: C0 and C1 controls, the line and paragraph separators, the bidirectional formatting characters, and the invisible characters that can hide text from a reader (zero-width spaces, the byte-order mark, tag characters, the supplementary variation selectors and lone surrogates). ZWNJ and ZWJ, which some scripts need, are allowed.
+- `customFields` holds at most 10 fields. Each label and value is trimmed, and neither may be empty. A label is at most 40 characters, a value at most 120.
+- A label must show at least one letter or digit once it is composed (NFC) and the default-ignorable characters, which render as nothing, are removed.
+- Labels are unique as a reader sees them: composed, with the default-ignorable characters removed, any run of spaces counted as one, and ignoring case.
 - The stored JSON may be at most 4 KiB in UTF-8. When kept unknown keys make it too large, the refusal message names them.
 
 ### Read and suggest
 
 - **`reportDetails`** reads every binding and returns the newest value by `updated`. The bindings differ only when one was added since the last set. Only known keys are returned. A binding that holds something other than a JSON object reads as empty, and the service logs one warning.
-- **`suggestReportDetails`** reads the bindings of the other analyses of the element(s) this analysis is bound to. It returns the newest one that has a client name. It never reads the elements or the model themselves.
+- **A read does not trust what is stored,** since a value can be written to the database by hand. It drops a stored `client`, `author` or `project` that a set would refuse. Of the stored custom fields it keeps the first 10 that a set would accept, each as a label and a value only, and drops a later field whose label repeats an earlier one.
+- **`suggestReportDetails`** reads the bindings of the other analyses of the element(s) this analysis is bound to, each filtered as a read filters it. It returns the newest whose details hold anything besides `updated`: the client, the author, the project or a custom field. It never reads the elements or the model themselves.
 
 ### Error taxonomy
 
-Only `setReportDetails` refuses with these codes. Each refusal is a `GraphQLError` with its own `extensions.code`. In production only the code survives error masking (see [Error Formatting](./GRAPHQL_MODULE.md#error-formatting)), so a client branches on the code, not the message.
+Only `setReportDetails` refuses with these codes. Each refusal is a `GraphQLError` with its own `extensions.code`. In production only the code survives error masking (see [Error Formatting](./GRAPHQL_MODULE.md#error-formatting)), so a client branches on the code, not the message. The message is logged before it is masked, so it is fixed text and never quotes the input; only the size refusal names anything: the stored keys this server does not know.
 
 | Code | Meaning |
 |------|---------|
 | `REPORT_DETAILS_CLIENT_TOO_LONG` | The trimmed client name is longer than 120 characters |
 | `REPORT_DETAILS_CLIENT_CHARACTERS` | The client name contains a control or text-direction character |
+| `REPORT_DETAILS_AUTHOR_TOO_LONG` | The trimmed author is longer than 120 characters |
+| `REPORT_DETAILS_AUTHOR_CHARACTERS` | The author contains a control or text-direction character |
+| `REPORT_DETAILS_PROJECT_TOO_LONG` | The trimmed project is longer than 120 characters |
+| `REPORT_DETAILS_PROJECT_CHARACTERS` | The project contains a control or text-direction character |
+| `REPORT_DETAILS_FIELD_TOO_LONG` | A custom field's trimmed label is longer than 40 characters, or its value longer than 120 |
+| `REPORT_DETAILS_FIELD_CHARACTERS` | A custom field's label or value contains a control or text-direction character |
+| `REPORT_DETAILS_FIELD_INCOMPLETE` | A custom field's trimmed label or value is empty, or its label shows no letter or digit |
+| `REPORT_DETAILS_FIELD_DUPLICATE` | Two custom fields have the same label as a reader sees it |
+| `REPORT_DETAILS_TOO_MANY_FIELDS` | More than 10 custom fields |
 | `REPORT_DETAILS_TOO_LARGE` | The merged details would be over 4 KiB |
 | `ANALYSIS_NOT_FOUND` | No analysis has this id |
 | `ANALYSIS_NOT_BOUND` | The analysis is bound to no element, so it has no report details |
@@ -1317,6 +1334,8 @@ Only `setReportDetails` refuses with these codes. Each refusal is a `GraphQLErro
 The resolver checks for a verified user (`context.user`) and refuses with `UNAUTHENTICATED` when there is none. This is the same rule module resolvers follow (see [Resolver Wrapping and Security](./MODULE_CUSTOM_RESOLVERS.md#resolver-wrapping-and-security)); both use `authenticationRequired()` from [`src/gql/services/schema.service.ts`](../../../../apps/dt-ws/src/gql/services/schema.service.ts), whose gate in front of every root field also covers these three. The check is off only where the schema itself runs without authentication: outside production, with OIDC not configured and `ENABLE_NOAUTH` set.
 
 After the user check, `AuthorizationService.checkAuthorization` runs with resource type `Analysis` and the analysis id. A denial is a `ForbiddenException`.
+
+Authorization is checked for the requested analysis only. `suggestReportDetails` also reads the report details of the other analyses of the same element(s), and returns their client, author, project and custom fields. Today `AuthorizationService` allows every request that reaches it, so this returns nothing the user could not read through `reportDetails` on those analyses. A per-analysis authorization added later must also cover the analyses the suggestion reads.
 
 ### Life cycle
 
@@ -1606,10 +1625,23 @@ subscription AnalysisUpdates {
   }
 }
 
-# Set the client a report is prepared for
+# Set the client, the author and a custom field; the project stays as it is
 mutation SetReportDetails {
-  setReportDetails(analysisId: "analysis-456", details: { client: "Example Corp" }) {
+  setReportDetails(
+    analysisId: "analysis-456"
+    details: {
+      client: "Example Corp"
+      author: "Jane Doe"
+      customFields: [{ label: "Reference", value: "TM-7" }]
+    }
+  ) {
     client
+    author
+    project
+    customFields {
+      label
+      value
+    }
     updated
   }
 }
