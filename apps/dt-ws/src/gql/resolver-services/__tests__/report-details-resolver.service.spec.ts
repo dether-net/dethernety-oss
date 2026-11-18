@@ -17,6 +17,7 @@ import {
 
 const OLD = '2026-01-01T00:00:00.000Z';
 const NEW = '2026-06-01T00:00:00.000Z';
+const NONE = { client: null, author: null, project: null, customFields: null, updated: null };
 
 const rows = (values: unknown[]) => ({ records: values.map((value) => ({ get: () => value })) });
 
@@ -74,7 +75,7 @@ afterEach(() => jest.restoreAllMocks());
 describe('setReportDetails', () => {
   it('locks the analysis, reads every binding, then writes the merged value to all of them, in one transaction', async () => {
     const { svc, asked, session } = makeService({
-      stored: [JSON.stringify({ client: 'Old', project: 'kept', updated: OLD })],
+      stored: [JSON.stringify({ client: 'Old', notes: 'kept', updated: OLD })],
     });
 
     const result = await svc.setReportDetails('an-1', { client: ' New Ltd ' }, auth);
@@ -82,9 +83,9 @@ describe('setReportDetails', () => {
     expect(asked.map((a) => a.query)).toEqual([LOCK_ANALYSIS, READ_REPORT_DETAILS, WRITE_REPORT_DETAILS]);
     expect(session.executeWrite).toHaveBeenCalledTimes(1);
     const written = JSON.parse(asked[2].params.metadata as string);
-    expect(written).toEqual({ client: 'New Ltd', project: 'kept', updated: expect.any(String) });
+    expect(written).toEqual({ client: 'New Ltd', notes: 'kept', updated: expect.any(String) });
     expect(written.updated > OLD).toBe(true);
-    expect(result).toEqual({ client: 'New Ltd', updated: written.updated });
+    expect(result).toEqual({ ...NONE, client: 'New Ltd', updated: written.updated });
     expect(session.close).toHaveBeenCalled();
   });
 
@@ -119,6 +120,30 @@ describe('setReportDetails', () => {
     expect(session.executeWrite).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['REPORT_DETAILS_AUTHOR_TOO_LONG', { author: 'a'.repeat(121) }],
+    ['REPORT_DETAILS_PROJECT_CHARACTERS', { project: 'a\nb' }],
+    ['REPORT_DETAILS_FIELD_INCOMPLETE', { customFields: [{ label: 'Ref', value: ' ' }] }],
+    ['REPORT_DETAILS_FIELD_DUPLICATE', { customFields: [{ label: 'Ref', value: '1' }, { label: 'REF', value: '2' }] }],
+    [
+      'REPORT_DETAILS_TOO_MANY_FIELDS',
+      { customFields: Array.from({ length: 11 }, (_, i) => ({ label: `F${i}`, value: 'v' })) },
+    ],
+  ])('refuses %s as a GraphQLError with its code, before opening a transaction', async (expected, details) => {
+    const { svc, session } = makeService();
+    expect(await codeOf(svc.setReportDetails('an-1', details, auth))).toBe(expected);
+    expect(session.executeWrite).not.toHaveBeenCalled();
+  });
+
+  it('writes and returns the new keys', async () => {
+    const { svc, asked } = makeService({ stored: [null] });
+    const customFields = [{ label: 'Ref', value: 'ES-114' }];
+    const result = await svc.setReportDetails('an-1', { author: 'A. Analyst', project: 'P', customFields }, auth);
+    const written = JSON.parse(asked[2].params.metadata as string);
+    expect(written).toEqual({ author: 'A. Analyst', project: 'P', customFields, updated: expect.any(String) });
+    expect(result).toEqual({ ...NONE, author: 'A. Analyst', project: 'P', customFields, updated: written.updated });
+  });
+
   it('refuses an unknown analysis, and one bound to no element, writing nothing', async () => {
     const missing = makeService({ analysisExists: false });
     expect(await codeOf(missing.svc.setReportDetails('an-1', { client: 'x' }, auth))).toBe('ANALYSIS_NOT_FOUND');
@@ -145,10 +170,10 @@ describe('reportDetails', () => {
     const { svc, session } = makeService({
       stored: [
         JSON.stringify({ client: 'Older', updated: OLD }),
-        JSON.stringify({ client: 'Newer', project: 'p', updated: NEW }),
+        JSON.stringify({ client: 'Newer', notes: 'p', updated: NEW }),
       ],
     });
-    expect(await svc.reportDetails('an-1', auth)).toEqual({ client: 'Newer', updated: NEW });
+    expect(await svc.reportDetails('an-1', auth)).toEqual({ ...NONE, client: 'Newer', updated: NEW });
     expect(session.executeRead).toHaveBeenCalledTimes(1);
     expect(session.executeWrite).not.toHaveBeenCalled();
   });
@@ -159,7 +184,7 @@ describe('suggestReportDetails', () => {
     const { svc, asked } = makeService({
       stored: [JSON.stringify({ client: 'Older', updated: OLD }), JSON.stringify({ client: 'Newer', updated: NEW })],
     });
-    expect(await svc.suggestReportDetails('an-1', auth)).toEqual({ client: 'Newer', updated: NEW });
+    expect(await svc.suggestReportDetails('an-1', auth)).toEqual({ ...NONE, client: 'Newer', updated: NEW });
     expect(asked[0]).toEqual({ query: READ_SIBLING_REPORT_DETAILS, params: { analysisId: 'an-1' } });
   });
 

@@ -12,7 +12,7 @@ import {
   ReportDetails,
   ReportDetailsError,
   ReportDetailsInput,
-  checkClient,
+  checkInput,
   mergeDetails,
   newest,
   parseStored,
@@ -91,7 +91,10 @@ export class ReportDetailsResolverService implements ResolverService {
     return toDetails(newest(this.parse(rows, analysisId)));
   }
 
-  /** The newest client name among the other analyses of the same element(s); null when there is none. */
+  /**
+   * The newest report details among the other analyses of the same element(s); null when there are none. Authorization
+   * is checked for the requested analysis only: a per-analysis authorization must also cover the analyses read here.
+   */
   async suggestReportDetails(analysisId: string, authContext: AuthorizationContext): Promise<ReportDetails | null> {
     await this.authorize(authContext, 'query', 'suggestReportDetails', analysisId);
     const rows = await this.read(READ_SIBLING_REPORT_DETAILS, analysisId);
@@ -111,7 +114,7 @@ export class ReportDetailsResolverService implements ResolverService {
     const session = this.neo4jDriver.session({ database: this.configService.get('database.name') });
     try {
       // Checked before the transaction, so a bad value takes no lock.
-      checkClient(details.client);
+      checkInput(details);
       return await session.executeWrite(async (tx: any) => {
         const locked = await tx.run(LOCK_ANALYSIS, { analysisId });
         if (locked.records.length === 0) {

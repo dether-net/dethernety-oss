@@ -690,7 +690,19 @@ bindings to elements, and read and written only through reportDetails, setReport
 | Field | Type | Description |
 |-------|------|-------------|
 | `client` | `String` | The client the report is prepared for |
+| `author` | `String` | Who wrote the report |
+| `project` | `String` | The project or engagement the report belongs to |
+| `customFields` | `[ReportDetailField!]` | Fields the user added, in the order given; null when there are none |
 | `updated` | `String` | When the details were last set (ISO 8601, UTC) |
+
+### ReportDetailField
+
+A field the user added to an analysis's report details, printed in its own block on a report's cover
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `label` | `String!` | At most 40 characters, with at least one visible letter or digit |
+| `value` | `String!` | At most 120 characters |
 
 ### OrphanSweepLabelCount
 
@@ -1601,6 +1613,19 @@ The report details a set writes. A key given is written, null clears it, and a k
 | Field | Type | Description |
 |-------|------|-------------|
 | `client` | `String` | The client the report is prepared for: at most 120 characters, with no control or text-direction character |
+| `author` | `String` | Who wrote the report: at most 120 characters, with no control or text-direction character |
+| `project` | `String` | The project or engagement: at most 120 characters, with no control or text-direction character |
+| `customFields` | `[ReportDetailFieldInput!]` | Fields printed in their own block on a report's cover: at most 10, with labels unique as a reader sees them,
+ignoring case. Replaces the whole list; null or an empty list removes it. |
+
+### ReportDetailFieldInput
+
+A field the user adds to an analysis's report details
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `label` | `String!` | At most 40 characters, with at least one visible letter or digit and no control or text-direction character |
+| `value` | `String!` | At most 120 characters, with no control or text-direction character |
 
 ### MatchElementInput
 
@@ -1768,7 +1793,7 @@ Get a document from the analysis document store
 
 ### reportDetails
 
-An analysis's report details, such as the client a report is prepared for. Null for an unknown analysis or one bound to no element.
+An analysis's report details, such as the client a report is prepared for and its author. Null for an unknown analysis or one bound to no element.
 
 **Returns:** `ReportDetails`
 
@@ -1780,7 +1805,7 @@ An analysis's report details, such as the client a report is prepared for. Null 
 
 ### suggestReportDetails
 
-The newest client name among the other analyses of the element(s) this analysis is bound to, with the time that analysis's details were set, offered as a suggestion; null when there is none
+The newest report details among the other analyses of the element(s) this analysis is bound to, with the time they were set, offered as a suggestion; null when there are none
 
 **Returns:** `ReportDetails`
 

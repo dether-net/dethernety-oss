@@ -70,6 +70,7 @@ declare module 'vue' {
     PaletteWindow: typeof import('./components/DataFlow/PaletteWindow.vue')['default']
     PendingBadge: typeof import('./components/Disposition/PendingBadge.vue')['default']
     ProcessNode: typeof import('./components/DataFlow/Nodes/ProcessNode.vue')['default']
+    ReportDetailsDialog: typeof import('./components/Dialogs/Analysis/ReportDetailsDialog.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SettingsControlsTab: typeof import('./components/DataFlow/SettingsTabs/SettingsControlsTab.vue')['default']

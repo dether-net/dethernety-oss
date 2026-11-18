@@ -2,6 +2,7 @@ import { httpsUrl } from '@/config/branding'
 import type { Brand } from './brand'
 import { escapeHtml } from './escape'
 import { frameCss } from './frame.css'
+import type { ReportDetails } from './reportDetails'
 
 /** Every word the frame prints. A report in another language passes them all. */
 export interface FrameStrings {
@@ -9,6 +10,9 @@ export interface FrameStrings {
   model: string
   modelId: string
   client: string
+  author: string
+  project: string
+  reportDetails: string
   generated: string
   module: string
   fingerprint: string
@@ -26,6 +30,9 @@ export const DEFAULT_FRAME_STRINGS: FrameStrings = {
   model: 'Model',
   modelId: 'Model ID',
   client: 'Client',
+  author: 'Author',
+  project: 'Project',
+  reportDetails: 'Report details',
   generated: 'Generated',
   module: 'Module',
   fingerprint: 'Fingerprint',
@@ -49,7 +56,13 @@ export interface ReportFacts {
   stale?: boolean
   /** Taken by the module at the click. */
   exportedAt: string
+  /** Printed only when the report details name no author. */
   exportedBy?: string
+  /**
+   * The analysis's report details as `reportDetails.get` returns them, passed as they are: the frame prints the
+   * project, the author and the custom fields, and the client when `clientName` is not given.
+   */
+  reportDetails?: ReportDetails
 }
 
 export interface ReportSection {
@@ -134,6 +147,33 @@ function sectionMarkup(html: string): string {
 const fact = (term: string, value: string | undefined) =>
   value ? `<dt>${escapeHtml(term)}</dt><dd>${escapeHtml(value)}</dd>` : ''
 
+const text = (value: unknown): string | undefined =>
+  typeof value === 'string' && value.trim() !== '' ? value : undefined
+
+/** The most custom fields the server keeps; the frame prints no more. */
+const CUSTOM_FIELDS_MAX = 10
+
+/**
+ * The custom fields the frame prints: those whose label and value are both text, in the order given, each read once
+ * into a plain copy.
+ */
+function customFields(details: ReportDetails | undefined): { label: string; value: string }[] {
+  const fields: unknown = details?.customFields
+  if (!Array.isArray(fields)) return []
+  const out: { label: string; value: string }[] = []
+  for (const field of fields) {
+    if (out.length === CUSTOM_FIELDS_MAX) break
+    if (field === null || typeof field !== 'object') continue
+    const label = text(field.label)
+    const value = text(field.value)
+    if (label && value) out.push({ label, value })
+  }
+  return out
+}
+
+const detailRow = (field: { label: string; value: string }) =>
+  `<tr><th scope="row">${escapeHtml(field.label)}</th><td>${escapeHtml(field.value)}</td></tr>`
+
 /** How a diagram's figure opens, as renderModelDiagram writes it. */
 const FIGURE_OPEN = '<figure class="rk-figure">'
 
@@ -198,6 +238,11 @@ export function buildReport(input: ReportInput): string {
   const generatedAt = formatTimestamp(meta.generatedAt, locale)
   const exportedAt = formatTimestamp(meta.exportedAt, locale)
   const mark = typeof input.pageMark === 'string' && input.pageMark.trim() !== '' ? input.pageMark : ''
+  const details = meta.reportDetails !== null && typeof meta.reportDetails === 'object' ? meta.reportDetails : undefined
+  const client = meta.clientName || text(details?.client)
+  const author = text(details?.author)
+  const project = text(details?.project)
+  const fields = customFields(details)
 
   const css = frameCss(
     {
@@ -230,10 +275,18 @@ export function buildReport(input: ReportInput): string {
     (input.cover?.subtitle ? `<p class="rk-subtitle">${escapeHtml(input.cover.subtitle)}</p>` : '') +
     `<dl class="rk-facts">` +
     fact(s.model, modelLabel) +
-    fact(s.preparedFor, meta.clientName) +
+    fact(s.preparedFor, client) +
+    fact(s.project, project) +
+    fact(s.author, author) +
     fact(s.generated, generatedAt) +
     fact(s.module, `${meta.module.name} ${meta.module.version}`.trim()) +
     `</dl>` +
+    // What the user added, titled and styled apart from the facts above, so a label cannot pass for one of them.
+    (fields.length
+      ? `<section class="rk-details"><p class="rk-details-title">${escapeHtml(s.reportDetails)}</p><table><tbody>` +
+        fields.map(detailRow).join('') +
+        `</tbody></table></section>`
+      : '') +
     (meta.stale ? `<p class="rk-stale">${escapeHtml(s.stale)}</p>` : '') +
     (notes.length ? `<ul class="rk-notes">${notes.map((note) => `<li>${escapeHtml(note)}</li>`).join('')}</ul>` : '') +
     `</header>`
@@ -259,12 +312,15 @@ export function buildReport(input: ReportInput): string {
     `<dl class="rk-facts">` +
     fact(s.model, meta.modelName) +
     fact(s.modelId, meta.modelId) +
-    fact(s.client, meta.clientName) +
+    fact(s.client, client) +
+    fact(s.project, project) +
     fact(s.module, `${meta.module.name} ${meta.module.version}`.trim()) +
     fact(s.generated, generatedAt) +
     fact(s.fingerprint, meta.fingerprint) +
     fact(s.exported, exportedAt) +
-    fact(s.exportedBy, meta.exportedBy) +
+    fact(s.author, author) +
+    // An author named by the user replaces the exporting account, which can be an email address.
+    (author ? '' : fact(s.exportedBy, meta.exportedBy)) +
     `</dl>` +
     (meta.stale ? `<p class="rk-stale">${escapeHtml(s.stale)}</p>` : '') +
     (brand ? `<p class="rk-brand-note">${escapeHtml(s.brandAppliedAtExport)}</p>` : '') +

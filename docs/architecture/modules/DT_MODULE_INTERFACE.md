@@ -1523,7 +1523,9 @@ A module that exports a report can use the host's report kit, at `window.__HOST_
 
 `renderModelDiagram` returns the drawing as `svg` and, ready for a section, as `figure`. A drawing taller than a printed page is cut into several figures, so `figure` may hold several `<figure>` elements; `svg` is always the whole drawing.
 
-Report details, such as the client a report is prepared for, reach a report only through the kit at export. **Never put them, or anything else that identifies a client, in the object `getDocument()` returns**: agents read that payload.
+Report details (the client a report is prepared for, its author, its project and the user's custom fields) reach a report only through the kit at export. **Never put them, or anything else that identifies a client, in the object `getDocument()` returns**: agents read that payload.
+
+To print them, pass what `kit.reportDetails.get()` returned to `buildReport` as `meta.reportDetails`. A module that already prints the client passes the same `details` object on as `meta.reportDetails`; keep passing `clientName` as well, for a host whose kit predates it.
 
 The members, the rules for a module's report, and an example are in [Dynamic Module System → Report Kit](../frontend/LLD/MODULE_SYSTEM.md#report-kit).
 

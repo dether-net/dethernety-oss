@@ -51,6 +51,35 @@ describe('the report kit', () => {
     expect(await getReportingKit().reportDetails.get('an-1')).toBeNull()
   })
 
+  it('reads the author, the project and the custom fields, dropping a field without a text label and value', async () => {
+    const row = {
+      client: null,
+      author: 'A. Analyst',
+      project: '2026 cloud review',
+      customFields: [
+        { label: 'Engagement ref', value: 'ES-2026-114' },
+        { label: '', value: 'no label' },
+        { label: 'No value', value: null },
+        null,
+        { label: 'Classification', value: 'Confidential' },
+      ],
+      updated: '2026-11-20T10:15:00.000Z',
+    }
+    query.mockResolvedValue({ data: { reportDetails: row } })
+    expect(await getReportingKit().reportDetails.get('an-1')).toEqual({
+      author: 'A. Analyst',
+      project: '2026 cloud review',
+      customFields: [
+        { label: 'Engagement ref', value: 'ES-2026-114' },
+        { label: 'Classification', value: 'Confidential' },
+      ],
+      updated: '2026-11-20T10:15:00.000Z',
+    })
+    query.mockResolvedValue({ data: { reportDetails: { ...row, customFields: [] } } })
+    expect(await getReportingKit().reportDetails.get('an-1')).not.toHaveProperty('customFields')
+    expect(getReportingKit().version).toBe(1)
+  })
+
   it('is on window.__HOST_DEPENDENCIES__ and in useHostContext() as one object', () => {
     ModuleLoader.exposeHostDependencies({}, {})
     const exposed = window.__HOST_DEPENDENCIES__.reporting!

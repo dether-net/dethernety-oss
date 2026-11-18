@@ -4,7 +4,8 @@
 // real driver; the production schema (no-auth variant) runs createAnalysisIdempotent and the generated deletes.
 //
 // Coverage:
-//   - set, read, change and clear;
+//   - set, read, change and clear; every key, with the custom fields replaced whole; a value an earlier release
+//     stored (the client only);
 //   - concurrent sets all land, and a stored key this server does not know survives every one of them;
 //   - a set that starts while another writer holds the analysis waits for it and reads what it committed (no lost
 //     update);
@@ -66,7 +67,7 @@ function lockCases(
   it('lets concurrent sets all land, keeping a stored key this server does not know', async () => {
     await bindAnalysis();
     await cypher(driver(), `MATCH (:Analysis {id: 'an-1'})<-[r:ANALYZED_BY]-() SET r.metadata = $metadata`, {
-      metadata: JSON.stringify({ project: 'From a newer release' }),
+      metadata: JSON.stringify({ notes: 'From a newer release' }),
     });
     const clients = Array.from({ length: 8 }, (_, i) => `Client ${i}`);
     await Promise.all(clients.map((client) => service().setReportDetails('an-1', { client }, auth)));
@@ -76,7 +77,7 @@ function lockCases(
       `MATCH (:Analysis {id: 'an-1'})<-[r:ANALYZED_BY]-() RETURN r.metadata AS metadata`,
     );
     const stored = JSON.parse(metadata);
-    expect(stored.project).toBe('From a newer release');
+    expect(stored.notes).toBe('From a newer release');
     expect(clients).toContain(stored.client);
   });
 
@@ -99,7 +100,7 @@ function lockCases(
       pending.catch(() => {});
       await new Promise((resolve) => setTimeout(resolve, 200));
       await held.run(`MATCH (:Analysis {id: 'an-1'})<-[r:ANALYZED_BY]-() SET r.metadata = $metadata`, {
-        metadata: JSON.stringify({ project: 'Written while held', updated: '2026-01-01T00:00:00.000Z' }),
+        metadata: JSON.stringify({ notes: 'Written while held', updated: '2026-01-01T00:00:00.000Z' }),
       });
       settledWhileHeld = settled;
       await held.commit();
@@ -112,7 +113,7 @@ function lockCases(
       driver(),
       `MATCH (:Analysis {id: 'an-1'})<-[r:ANALYZED_BY]-() RETURN r.metadata AS metadata`,
     );
-    expect(JSON.parse(metadata)).toMatchObject({ project: 'Written while held', client: 'Example Ltd' });
+    expect(JSON.parse(metadata)).toMatchObject({ notes: 'Written while held', client: 'Example Ltd' });
   });
 }
 
@@ -171,7 +172,13 @@ describe('report details (e2e)', () => {
 
   it('sets, reads, changes and clears the client', async () => {
     await createAnalysis('an-1', 'c-1');
-    expect(await svc.reportDetails('an-1', auth)).toEqual({ client: null, updated: null });
+    expect(await svc.reportDetails('an-1', auth)).toEqual({
+      client: null,
+      author: null,
+      project: null,
+      customFields: null,
+      updated: null,
+    });
 
     const set = await svc.setReportDetails('an-1', { client: 'Example Ltd' }, auth);
     expect(set.client).toBe('Example Ltd');
@@ -181,6 +188,48 @@ describe('report details (e2e)', () => {
     const cleared = await svc.setReportDetails('an-1', { client: null }, auth);
     expect(cleared.client).toBeNull();
     expect(cleared.updated).not.toBeNull();
+  });
+
+  it('sets and reads every key, and replaces the custom fields whole', async () => {
+    await createAnalysis('an-1', 'c-1');
+    const customFields = [
+      { label: 'Engagement ref', value: 'ES-2026-114' },
+      { label: 'Classification', value: 'Confidential' },
+    ];
+    const set = await svc.setReportDetails(
+      'an-1',
+      { client: 'Example Ltd', author: 'A. Analyst', project: '2026 cloud review', customFields },
+      auth,
+    );
+    expect(set).toMatchObject({
+      client: 'Example Ltd',
+      author: 'A. Analyst',
+      project: '2026 cloud review',
+      customFields,
+    });
+    expect(await svc.reportDetails('an-1', auth)).toEqual(set);
+
+    const replaced = await svc.setReportDetails('an-1', { customFields: [{ label: 'Owner', value: 'IT' }] }, auth);
+    expect(replaced.customFields).toEqual([{ label: 'Owner', value: 'IT' }]);
+    expect(replaced.author).toBe('A. Analyst');
+    expect((await svc.setReportDetails('an-1', { customFields: [] }, auth)).customFields).toBeNull();
+  });
+
+  it('reads and sets a value an earlier release stored, which holds the client only', async () => {
+    await createAnalysis('an-1', 'c-1');
+    const earlier = { client: 'Example Ltd', updated: '2026-01-01T00:00:00.000Z' };
+    await cypher(mg.driver, `MATCH (:Analysis {id: 'an-1'})<-[r:ANALYZED_BY]-() SET r.metadata = $metadata`, {
+      metadata: JSON.stringify(earlier),
+    });
+    expect(await svc.reportDetails('an-1', auth)).toEqual({
+      client: 'Example Ltd',
+      author: null,
+      project: null,
+      customFields: null,
+      updated: earlier.updated,
+    });
+    const set = await svc.setReportDetails('an-1', { author: 'A. Analyst' }, auth);
+    expect(set).toMatchObject({ client: 'Example Ltd', author: 'A. Analyst' });
   });
 
   lockCases(
@@ -217,11 +266,16 @@ describe('report details (e2e)', () => {
     expect(await bindingsWithDetails('an-1')).toBe(2);
   });
 
-  it('suggests the client of another analysis of the same element', async () => {
+  it('suggests the details of another analysis of the same element', async () => {
     await createAnalysis('an-1', 'c-1');
     await createAnalysis('an-2', 'c-1');
-    await svc.setReportDetails('an-1', { client: 'Example Ltd' }, auth);
-    expect((await svc.suggestReportDetails('an-2', auth))?.client).toBe('Example Ltd');
+    const customFields = [{ label: 'Ref', value: 'ES-114' }];
+    await svc.setReportDetails('an-1', { client: 'Example Ltd', author: 'A. Analyst', customFields }, auth);
+    expect(await svc.suggestReportDetails('an-2', auth)).toMatchObject({
+      client: 'Example Ltd',
+      author: 'A. Analyst',
+      customFields,
+    });
     expect(await svc.suggestReportDetails('an-1', auth)).toBeNull();
   });
 

@@ -509,7 +509,25 @@ describe('buildKitReport', () => {
     expect(meta.modelName).toBeUndefined()
     expect(meta.clientName).toBeUndefined()
     expect(meta.exportedBy).toBeUndefined()
+    expect(meta.reportDetails).toBeUndefined()
     expect(meta.modelId).toBe('model-xyz')
+  })
+
+  it('passes the analysis\'s report details to the frame as the kit read them, for it to print', () => {
+    const { kit, calls } = fakeKit()
+    const reportDetails = {
+      client: 'Example Client',
+      author: 'A. Analyst',
+      project: '2026 cloud review',
+      customFields: [{ label: 'Engagement ref', value: 'ES-2026-114' }],
+    }
+    buildKitReport(kit, doc(), null, { exportedAt: 'x', clientName: 'Example Client', reportDetails })
+    expect(calls.build[0].meta.reportDetails).toBe(reportDetails)
+    // Nothing of them goes into what the module writes itself: sections, cover, title or CSS.
+    const own = JSON.stringify({ ...calls.build[0], meta: null })
+    for (const value of ['A. Analyst', '2026 cloud review', 'Engagement ref', 'ES-2026-114']) {
+      expect(own).not.toContain(value)
+    }
   })
 
   it('outlines the band chips, so they still read printed without background graphics', () => {
@@ -531,6 +549,11 @@ describe('buildKitReport', () => {
     // The top line belongs to the header cells, so a header repeated on the next page has it.
     expect(css).toContain('.threat-report-report thead th, .threat-report-report table > tbody:first-child > tr:first-child > * { border-top: 1px solid #ddd; }')
     expect(css).not.toMatch(/\.threat-report-report table \{[^}]*border-top/)
+    // No line on the table's own box, which Chrome stretches to the page foot where a break cuts the table: the left
+    // line is on each row's first cell.
+    expect(css).toContain('.threat-report-report table { border-collapse: separate; border-spacing: 0; }')
+    expect(css).not.toMatch(/\.threat-report-report table(\.[\w-]+)?\s*\{[^}]*(border(?!-collapse|-spacing)|outline|box-shadow)/)
+    expect(css).toContain('.threat-report-report th:first-child, .threat-report-report td:first-child { border-left: 1px solid #ddd; }')
     // The separate-border rule comes after the shared one it overrides.
     expect(css.indexOf('border-collapse: separate')).toBeGreaterThan(css.indexOf('border-collapse: collapse'))
   })
@@ -575,6 +598,7 @@ describe('exportHtml', () => {
     expect(kit.reportDetails.get).toHaveBeenCalledWith('an-1')
     expect(calls.build[0].meta.clientName).toBe('Example Client')
     expect(calls.build[0].meta.exportedBy).toBe('Jane Doe')
+    expect(calls.build[0].meta.reportDetails).toEqual({ client: 'Example Client' })
     expect(calls.build[0].meta.exportedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
     expect(calls.download[0].name).toEqual({ kind: 'threat-report', stamp: '2026-06-04T00-00-00-000Z' })
     expect(downloads).toEqual([])
@@ -588,6 +612,17 @@ describe('exportHtml', () => {
     await exportHtml(doc(), null, { analysisId: 'an-1' })
     expect(calls.build[0].brand).toBeNull()
     expect(calls.build[0].meta.clientName).toBeUndefined()
+    expect(calls.build[0].meta.reportDetails).toBeUndefined()
+    expect(calls.download).toHaveLength(1)
+  })
+
+  it('exports without report details when the analysis has none', async () => {
+    const { kit, calls } = fakeKit()
+    kit.reportDetails.get.mockResolvedValue(null)
+    vi.stubGlobal('window', { __HOST_DEPENDENCIES__: { reporting: kit } })
+    await exportHtml(doc(), null, { analysisId: 'an-1' })
+    expect(calls.build[0].meta.clientName).toBeUndefined()
+    expect(calls.build[0].meta.reportDetails).toBeUndefined()
     expect(calls.download).toHaveLength(1)
   })
 

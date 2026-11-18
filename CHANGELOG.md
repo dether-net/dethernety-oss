@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Report details carry an author, a project and custom fields.** Beside the client, an
+  analysis's report details hold who wrote the report (`author`), the project it belongs to
+  (`project`) and up to 10 fields the user adds, each a label and a value (`customFields`, a
+  `[ReportDetailField!]` on `ReportDetails` and a `[ReportDetailFieldInput!]` on
+  `ReportDetailsInput`). They are stored, locked, merged by key and capped at 4 KiB as the client
+  is; the custom-field list is one key, replaced whole, and null or an empty list removes it.
+  Author and project follow the client's rules (trimmed, at most 120 characters, no control or
+  text-direction character). A label is at most 40 characters and shows a letter or digit, a value
+  at most 120, and labels are unique as a reader sees them, ignoring case. The new refusals have
+  their own codes (`REPORT_DETAILS_AUTHOR_TOO_LONG`, `REPORT_DETAILS_AUTHOR_CHARACTERS`,
+  `REPORT_DETAILS_PROJECT_TOO_LONG`, `REPORT_DETAILS_PROJECT_CHARACTERS`,
+  `REPORT_DETAILS_FIELD_TOO_LONG`, `REPORT_DETAILS_FIELD_CHARACTERS`,
+  `REPORT_DETAILS_FIELD_INCOMPLETE`, `REPORT_DETAILS_FIELD_DUPLICATE` and
+  `REPORT_DETAILS_TOO_MANY_FIELDS`), and no message quotes the input. A read drops a stored value
+  that a set would refuse. `suggestReportDetails` suggests the newest details of another analysis
+  of the same element that hold anything, not only a client. The **Report details** dialog edits
+  them all, checks the lengths, the label rules and the total size before saving, saves only what
+  changed, and offers the
+  suggestion only on an empty form. The report kit, still version 1, returns the new keys from
+  `reportDetails.get` and prints what a module passes as `meta.reportDetails`: the project and the
+  author on the cover and in *About this report*, where an author replaces *Exported by*, and the
+  custom fields in a *Report details* block on the cover. `FrameStrings` gains `author`, `project`
+  and `reportDetails`; a host whose kit predates `meta.reportDetails` ignores it.
+  `dethernety-threat-report` 2.4.0 passes
+  the details to the kit; none of them reaches its sections, its stored snapshot or `getDocument`.
+  See the user guide's *Security Analysis Workflow*, *Report Details*.
+
+### Fixed
+
+- **Three small fixes.** A model-diagram component whose type is `constructor` or
+  `__proto__` draws at the default size rather than with no size: the diagram looks a type's size
+  up among its own keys only. In `dethernety-threat-report` 2.4.0's export through the report kit,
+  a table's left line is drawn on each row's first cell, not on the table, so where a page break
+  cuts a table it no longer runs on to the foot of the page in Chrome. `components.d.ts` lists the
+  **Report details** dialog.
+
 
 ## [0.17.0] - 2026-11-16
 

@@ -1605,8 +1605,22 @@ bindings to elements, and read and written only through reportDetails, setReport
 type ReportDetails {
   "The client the report is prepared for"
   client: String
+  "Who wrote the report"
+  author: String
+  "The project or engagement the report belongs to"
+  project: String
+  "Fields the user added, in the order given; null when there are none"
+  customFields: [ReportDetailField!]
   "When the details were last set (ISO 8601, UTC)"
   updated: String
+}
+
+"A field the user added to an analysis's report details, printed in its own block on a report's cover"
+type ReportDetailField {
+  "At most 40 characters, with at least one visible letter or digit"
+  label: String!
+  "At most 120 characters"
+  value: String!
 }
 
 """
@@ -1615,6 +1629,23 @@ The report details a set writes. A key given is written, null clears it, and a k
 input ReportDetailsInput {
   "The client the report is prepared for: at most 120 characters, with no control or text-direction character"
   client: String
+  "Who wrote the report: at most 120 characters, with no control or text-direction character"
+  author: String
+  "The project or engagement: at most 120 characters, with no control or text-direction character"
+  project: String
+  """
+  Fields printed in their own block on a report's cover: at most 10, with labels unique as a reader sees them,
+  ignoring case. Replaces the whole list; null or an empty list removes it.
+  """
+  customFields: [ReportDetailFieldInput!]
+}
+
+"A field the user adds to an analysis's report details"
+input ReportDetailFieldInput {
+  "At most 40 characters, with at least one visible letter or digit and no control or text-direction character"
+  label: String!
+  "At most 120 characters, with no control or text-direction character"
+  value: String!
 }
 
 type Mutation {
@@ -2395,11 +2426,11 @@ type Query {
   ): JSON!
     @authentication
 
-  "An analysis's report details, such as the client a report is prepared for. Null for an unknown analysis or one bound to no element."
+  "An analysis's report details, such as the client a report is prepared for and its author. Null for an unknown analysis or one bound to no element."
   reportDetails(analysisId: ID!): ReportDetails
     @authentication
 
-  "The newest client name among the other analyses of the element(s) this analysis is bound to, with the time that analysis's details were set, offered as a suggestion; null when there is none"
+  "The newest report details among the other analyses of the element(s) this analysis is bound to, with the time they were set, offered as a suggestion; null when there are none"
   suggestReportDetails(analysisId: ID!): ReportDetails
     @authentication
 

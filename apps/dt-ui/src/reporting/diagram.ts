@@ -170,7 +170,9 @@ export function renderModelDiagram(graph: ModelGraph | null | undefined, opts: D
     const w = v(c, 'width')
     const h = v(c, 'height')
     if (w && h && w > 0 && h > 0) return { w, h }
-    return NODE_SIZES[String(c.type ?? '').toLowerCase()] ?? DEFAULT_NODE
+    // Own keys only: a type such as "constructor" must not find a member of the object's prototype.
+    const type = String(c.type ?? '').toLowerCase()
+    return Object.hasOwn(NODE_SIZES, type) ? NODE_SIZES[type] : DEFAULT_NODE
   }
 
   // A boundary's box relative to its own top-left: its stored size, or the extent of its children with padding (so a

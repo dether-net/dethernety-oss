@@ -610,7 +610,7 @@ objects `{ id, name, order }` in matrix order, the same shape the coverage facts
 carry (see [`Tactic`](../dethernety-coverage-tools/coverage-facts.md#tactic)).
 Since 2.3.0 the snapshot carries the model's name (`modelName`, see
 [`SnapshotDoc`](./data-model.md#snapshotdoc)), so the JSON export does too. It
-carries no client name.
+carries none of the analysis's report details.
 
 ### HTML: two paths
 
@@ -632,7 +632,7 @@ flowchart TD
 
 | Path | When | What the file has |
 |---|---|---|
-| Report kit | The host provides the kit at version 1 or later | The installation's brand, the client on the cover, the model diagram, and the module's name and version |
+| Report kit | The host provides the kit at version 1 or later | The installation's brand, the analysis's report details, the model diagram, and the module's name and version |
 | Standalone | No kit, or a kit below version 1 (an older host) | The standalone document, unchanged |
 
 Both paths save `threat-report-<generatedAt>.html`.
@@ -642,7 +642,7 @@ Both paths save `threat-report-<generatedAt>.html`.
 At the click, `exportHtml` takes the export time and reads two things in
 parallel: the installation's brand (`kit.brand()`) and the analysis's report
 details (`kit.reportDetails.get(analysisId)`). A read that fails gives no brand or
-no client, and the export goes ahead. `buildKitReport` then hands
+no report details, and the export goes ahead. `buildKitReport` then hands
 `kit.buildReport` the report:
 
 - **Sections, in order:** Summary, Model, MITRE Coverage & Gaps, Crown-Jewel
@@ -657,6 +657,14 @@ no client, and the export goes ahead. `buildKitReport` then hands
   lifecycle's stale state). A fact the module does not have is left out: a
   snapshot from before 2.3.0, or of a model without a name, has no model name,
   and the model id identifies the model instead. The provenance note goes on the cover.
+- **Report details:** since 2.4.0, `buildKitReport` also passes the report
+  details as the kit read them (`meta.reportDetails`). The kit's frame prints the
+  project and the author on the cover and in the closing block, where an author
+  replaces **Exported by**, and the custom fields in a Report details block on the
+  cover (see
+  [Dynamic Module System → Rules for a module's report](../frontend/LLD/MODULE_SYSTEM.md#rules-for-a-modules-report)).
+  A host whose kit predates `meta.reportDetails` ignores it; the client still goes
+  in as `clientName`, so such a kit still prints it.
 - **Outlined severity bands:** the band chips are outlined (`band-o`) rather than
   filled, so a band still reads when the page is printed without background
   graphics. The standalone form keeps filled chips.
@@ -683,18 +691,20 @@ with the caption under the last (see
 without a model graph shows "Recreate the report to include the model diagram."
 in its place. When the kit draws nothing, the section is left out.
 
-### The client name
+### The report details
 
-The client name comes only from the analysis's report details, read through the
-kit at export. The module never writes it into the snapshot, and `getDocument`
-never returns it: agents read that payload (see
+The report details (the client, the author, the project and the custom fields)
+come only from the analysis, read through the kit at export, and reach only the
+kit's frame. None of them goes into the module's own sections. The module never
+writes them into the snapshot, and `getDocument` never returns them: agents read
+that payload (see
 [Module Interface → Report kit](../modules/DT_MODULE_INTERFACE.md#report-kit)).
-The JSON export carries no client either. An end-to-end test that runs against a
+The JSON export carries none of them either. An end-to-end test that runs against a
 database in CI
 ([`report-details-privacy.e2e.spec.ts`](../../../modules/dethernety-threat-report/test/report-details-privacy.e2e.spec.ts))
-sets a client on an analysis, generates the report, and checks that the client is
-in neither the stored snapshot nor the `getDocument` payload, while the model name
-is in both. It also checks that renaming the model leaves the fingerprint, and so
+sets a client, an author, a project and a custom field on an analysis, generates
+the report, and checks that none of them is in the stored snapshot or the
+`getDocument` payload, while the model name is in both. It also checks that renaming the model leaves the fingerprint, and so
 the report's freshness, unchanged.
 
 ### The standalone form

@@ -60,6 +60,20 @@ describe('renderModelDiagram', () => {
     expect(svg).toContain('<rect class="nf" x="320" y="210" width="100" height="50"/>')
   })
 
+  it.each(['constructor', '__proto__'])(
+    'draws a component of type "%s" at the default size, as any type it does not know',
+    (type) => {
+      const withType = (t: string): ModelGraph => ({
+        ...oneBoundary,
+        components: (oneBoundary.components ?? []).map((c) => (c.id === 'c1' ? { ...c, type: t } : c)),
+      })
+      const svg = renderModelDiagram(withType(type))?.svg
+      expect(svg).toBeDefined()
+      expect(svg).not.toContain('NaN')
+      expect(golden(svg!)).toBe(golden(renderModelDiagram(withType('not-a-type'))!.svg))
+    },
+  )
+
   it('starts and ends a flow on the shapes\' outlines, with an arrowhead', () => {
     const svg = renderModelDiagram(oneBoundary)!.svg
     const [, x1, y1, x2, y2] = svg.match(/<line class="f" x1="([-\d.]+)" y1="([-\d.]+)" x2="([-\d.]+)" y2="([-\d.]+)"/)!.map(Number)

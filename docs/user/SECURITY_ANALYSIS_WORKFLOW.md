@@ -113,29 +113,58 @@ Some modules also produce a system overview with architecture summaries and data
 
 ## Report Details
 
-Report details are facts about an analysis that its exported reports print. Today there is one: the **client** a report is prepared for.
+Report details are facts about an analysis that its exported reports print: the **client** a report is prepared for, its **author**, the **project** it belongs to, and up to ten **custom fields** of your own, each a label and a value.
 
-### Setting the client
+### Setting the report details
 
 1. **Open the results.** Click **View results** in the analysis row.
 2. **Click Report details.** It is the card icon in the results toolbar, next to **Open model** and **Analyses**. The **Report details** dialog opens. The button stays disabled until the results have loaded.
-3. **Type the client's name** in the **Client** field, up to 120 characters. Leave it empty for none.
+3. **Fill in Client, Author and Project** as you need them, up to 120 characters each. The counter under a field shows how many you have used. Leave a field empty for none.
 4. **Click Save.** The dialog closes.
 
-To remove the client, empty the field and click **Save**.
+To remove a value, empty its field and click **Save**. **Save** stays disabled until you change something, and it saves only what you changed, so someone else's change to the client, author or project is kept. The custom fields are saved as one list: if you change any of them, your list replaces the stored one.
 
-**A suggestion from another analysis.** When the field is empty and another analysis of the same element has a client, the dialog shows *From another analysis of the same element:* with that name as a button. Click it to fill the field, then click **Save**. The suggestion is never applied on its own.
+### Adding custom fields
 
-**What the value belongs to.** The client belongs to this analysis only. Other analyses of the same element keep their own.
+1. **Click Add field** under **Custom fields** in the **Report details** dialog. A row with a **Label** and a **Value** appears.
+2. **Type the label**, up to 40 characters, and **the value**, up to 120.
+3. **Repeat for each field you need.** You can add up to ten; **Add field** is disabled after the tenth.
+4. **Click Save.**
 
-**Where it appears.** Reports that support report details print the client when you export them, on the cover as **Prepared for**. The value is read at export, so set it before you export.
+To remove a field, click the **×** at the end of its row, then click **Save**. A row with neither a label nor a value is ignored.
+
+Each field needs a label and a value, and its label needs at least one letter or digit. Two fields cannot have the same label: labels that differ only in upper and lower case, or in the number of spaces between words, count as the same. A problem with a row shows under it once you move out of one of its fields.
+
+**A suggestion from another analysis.** When every field in the dialog is empty and another analysis of the same element has report details, the dialog shows *From another analysis of the same element:* with a summary of them, for example *Example Ltd · author · 3 custom fields*: the client's name, then what else they hold. Click **Use these details** to fill in every field from them, check them, then click **Save**. Nothing is saved until you click **Save**, and the suggestion is never applied on its own.
+
+**What the values belong to.** Report details belong to this analysis only. Other analyses of the same element keep their own.
+
+**Where they appear.** Reports that support report details print them when you export them; some reports print only the client. The values are read at export, so set them before you export.
+
+| Detail | On the cover | In **About this report**, at the end |
+|--------|--------------|--------------------------------------|
+| Client | **Prepared for** | **Client** |
+| Project | **Project** | **Project** |
+| Author | **Author** | **Author**, in place of **Exported by** |
+| Custom fields | A **Report details** block below the other facts, in the order you gave them | Not printed |
+
+When you set an author, the report does not print **Exported by**, so the account that exported it, which can be an email address, does not appear in the report.
 
 | Message | What to do |
 |---------|-----------|
-| *The client name is longer than 120 characters.* | Shorten the name. |
-| *The client name contains a character a report cannot print…* | Remove control, text-direction or invisible characters, often left by a copy and paste. |
+| *At most 120 characters.* or *At most 40 characters.* | Shorten the field. Its counter shows how many characters it has. |
+| *Add a label, or remove the field.* or *Add a value, or remove the field.* | Fill in the missing half of the row, or click its **×**. |
+| *A label needs a letter or digit.* | Give the label at least one letter or digit. |
+| *Another field has this label.* | Rename one of the two fields. Case and spacing do not make two labels different. |
+| *The report details are too long in total; shorten some fields.* | Every field is within its limit, but together they are more than an analysis can hold. Shorten or remove some fields. |
+| *The report details are too large to save.* | Together the details are more than an analysis can hold. Shorten or remove some fields. |
+| *The client name contains a character a report cannot print…* (or *The author…*, *The project…*, *A custom field…*) | Remove control, text-direction or invisible characters, often left by a copy and paste. |
 | *This analysis is not bound to a model element, so it cannot have report details.* | Report details need an analysis of a model element. |
+| *This analysis no longer exists.* | The analysis was deleted while the dialog was open. Close the dialog. |
 | *You are not allowed to change the report details of this analysis.* | Your account cannot change this analysis. Ask an administrator. |
+| *Your session has ended. Sign in again, then save.* | Sign in again, then click **Save** again. |
+| *The report details couldn't be loaded.* | Close the dialog and open it again. If it keeps happening, reload the page. |
+| *The report details couldn't be saved. Try again.* | Click **Save** again. |
 
 ### Printing a report as PDF
 

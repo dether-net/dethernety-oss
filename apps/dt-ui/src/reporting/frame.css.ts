@@ -41,6 +41,15 @@ export function frameCss(margin: MarginText, hasMark: boolean): string {
     '.rk-facts dt{font-weight:600;color:#444444}',
     '.rk-facts dd{margin:0;overflow-wrap:anywhere}',
     '.rk-notes{margin:16px 0 0;padding-left:20px;color:#444444}',
+    // The report details the user added: a block of its own under a thin rule, with a small-capitals title and plain
+    // rows, so it reads as apart from the facts above it.
+    '.rk-details{margin:16px 0 0;padding-top:10px;border-top:1px solid #cccccc}',
+    '.rk-details-title{margin:0 0 6px;font-size:12px;font-weight:600;font-variant:small-caps;letter-spacing:.04em;' +
+      'color:#555555}',
+    '.rk-details table{border-collapse:collapse;width:100%}',
+    '.rk-details th,.rk-details td{text-align:left;vertical-align:top;padding:3px 12px 3px 0;' +
+      'border-bottom:1px solid #eeeeee;overflow-wrap:anywhere}',
+    '.rk-details th{width:30%;font-weight:600;color:#444444}',
     '.rk-stale{border:1.5px solid #8a5a00;color:#5c3c00;padding:6px 10px;border-radius:4px;margin:12px 0 0}',
     // Sections.
     '.rk-section{margin:0 0 32px}',
