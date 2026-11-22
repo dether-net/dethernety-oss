@@ -72,6 +72,8 @@ The installer asks a few questions. Answer them like this:
 
    > **Important:** The default for **Start the stack now?** is No. If you pressed Enter, setup ends with `==> Ready. Start with: ./byodt/byodt up`. Run `./byodt/byodt up` to start it.
 
+   > **Warning:** If you answer `y` to reach the platform from other machines, it is served over plain HTTP. Before you expose it, set up HTTPS with `./byodt/byodt tls`. See [TLS at the front door](byodt/OPERATIONS.md#tls-at-the-front-door).
+
 5. When the stack has started, the installer prints:
 
    ```
