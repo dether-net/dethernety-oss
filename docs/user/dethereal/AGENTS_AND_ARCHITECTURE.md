@@ -1,19 +1,19 @@
 ---
 title: 'Agents, Tools, and Hooks'
-description: 'How the 8 AI agents, 34 MCP tools, and 5 lifecycle hooks work together'
+description: 'How the 9 AI agents, 36 MCP tools, and 5 lifecycle hooks work together'
 category: 'documentation'
-position: 12
+position: 13
 navigation: true
 tags: ['dethereal', 'agents', 'mcp', 'tools', 'hooks', 'architecture']
 ---
 
 # Agents, Tools, and Hooks
 
-Under the hood, Dethereal uses 8 specialized AI agents, 34 MCP tools for platform communication, and, in the Claude Code plugin, 5 lifecycle hooks on three events (SessionStart, PreToolUse, PostToolUse) for workflow automation and guard rails. You don't need to know these details to use the plugin — this page is for users who want to understand what's happening behind the scenes.
+Under the hood, Dethereal uses 9 specialized AI agents, 36 MCP tools for platform communication, and, in the Claude Code plugin, 5 lifecycle hooks on three events (SessionStart, PreToolUse, PostToolUse) for workflow automation and guard rails. You don't need to know these details to use the plugin — this page is for users who want to understand what's happening behind the scenes.
 
 ---
 
-## The 8 AI Agents
+## The 9 AI Agents
 
 Each agent has a specific role, tool access, and constraints. Slash commands start the specialist agents automatically — you don't select them manually. The threat-modeler is the one you can start yourself, to edit a model's files. It ships for every harness:
 
@@ -33,7 +33,7 @@ Edits a threat model's files directly: it edits the model, asks you questions an
 |----------|-------|
 | **Effort** | High |
 | **Max turns** | 60 |
-| **Tools** | Read, Write, Edit, Glob, Grep, Bash, AskUserQuestion, the Dethereal MCP tools that need no approval except `triage_review`, and (Claude Code only) the specialist agents |
+| **Tools** | Read, Write, Edit, Glob, Grep, Bash, AskUserQuestion, the Dethereal MCP tools that need no approval except `triage_review` and `hidden_edges`, and (Claude Code only) the specialist agents |
 | **Starts agents** | Claude Code, started directly: infrastructure-scout, security-enricher, model-reviewer. Codex and OpenCode: none |
 
 **Key behaviors:**
@@ -101,10 +101,10 @@ Populates security attributes, handles classification, and identifies security c
 |----------|-------|
 | **Effort** | High |
 | **Max turns** | 40 |
-| **Tools** | Read, Write, Edit, Glob, Grep, and 6 of the 34 MCP tools (see below) — none that changes the model or the platform, or needs your approval |
+| **Tools** | Read, Write, Edit, Glob, Grep, and 6 of the 36 MCP tools (see below) — none that changes the model or the platform, or needs your approval |
 | **Constraint** | Does not annotate MITRE techniques on attribute files — tactic coverage is derived platform-side from analysis exposures |
 
-On Claude Code the agent gets every Dethereal MCP tool except the 28 its definition excludes: the tools that need your approval (they change the model or the platform, sign in or out, or record your decisions) and the read tools outside its work. That leaves 6. On Codex and OpenCode it is given the same 6 by name: `get_classes`, `match_classes`, `validate_model_json`, `query_controls`, `search_mitre_attack` and `get_mitre_defend`. On Codex it reads and searches files with shell commands and edits them with `apply_patch`; on OpenCode it finds files by name but does not search their content, and edits only the model files and the plugin's state files.
+On Claude Code the agent gets every Dethereal MCP tool except the 30 its definition excludes: the tools that need your approval (they change the model or the platform, sign in or out, or record your decisions), the two review tools only your own conversation holds (`triage_review`, `hidden_edges`), and the read tools outside its work. That leaves 6. On Codex and OpenCode it is given the same 6 by name: `get_classes`, `match_classes`, `validate_model_json`, `query_controls`, `search_mitre_attack` and `get_mitre_defend`. On Codex it reads and searches files with shell commands and edits them with `apply_patch`; on OpenCode it finds files by name but does not search their content, and edits only the model files and the plugin's state files.
 
 **Used by commands:** enrich (`--focus controls`, the control pass), threat-model (Steps 6 and 8, and the control pass). `/dethereal:classify` and `/dethereal:enrich` without `--focus controls` run in the main conversation.
 
@@ -205,7 +205,29 @@ On Codex it reads its batch file through the shell. Its instructions limit it to
 - Returns `object` or `concur` for each proposal, never a verdict of its own. An objection cites specific knowledge-graph content: a condition branch the proposal does not address, a technique's recorded provenance a removal ignores, or a source whose synthesis contradicts the proposal's premise
 - An objection makes the group needs-human, and the review shows both views; a concurrence changes nothing and never raises the proposal's confidence
 
-Neither triage agent is given `triage_review` or `manage_dispositions`: your review and the apply run in your own conversation. On Codex, the agent files of all eight agents turn web search off.
+Neither triage agent is given `triage_review` or `manage_dispositions`: your review and the apply run in your own conversation.
+
+### hidden-edge-analyst (Hidden-Edge Arguments)
+
+A read-only analyst that argues for and against each hidden-edge candidate in the batch it is handed: an attack path between two components that no declared flow shows, which the platform's hidden-edges module inferred. It returns a stance per candidate (`for`, `against` or `unclear`) with a one-line reason, never a decision, and it never adds a candidate of its own. See [Reviewing Hidden Edges](HIDDEN_EDGES.md).
+
+| Property | Value |
+|----------|-------|
+| **Effort** | High |
+| **Max turns** | 30 |
+| **Tools** | Read, Glob, Grep, `search_mitre_attack` MCP tool |
+| **Constraint** | Read-only — no write tool. It reads the model's files and the project's sources that bear on a candidate's two ends, never a secret file |
+
+It has no dossier of cited paths, so it finds the project's files by name before it reads them. On Codex it reads and searches files through the shell and runs no command that changes anything; the plugin's shell hook refuses any command that does more than read. On OpenCode it may read files, find them by name (`glob`) and call `search_mitre_attack`; every other permission is denied, and its read permission refuses the secret file names.
+
+**Used by commands:** hidden-edges
+
+**Key behaviors:**
+- Started for each batch of at most 8 candidates, at most 2 at a time
+- Looks first for what would prove the path wrong, such as a network policy, a firewall rule or credential scoping; `for` and `against` each need positive evidence, and anything less is `unclear`
+- Cites its evidence as locators only (`source:<file>:<line>`, `attributes:<file>#<key>`, `platform:<id>`, `kg:<id>`), never a quoted value
+
+It is not given `hidden_edges` or `manage_hidden_edges`: your review and the apply run in your own conversation. On Codex, the agent files of all nine agents turn web search off.
 
 ---
 
@@ -227,6 +249,8 @@ The skills orchestrate the multi-step work, not an agent. The skill that runs a 
 /dethereal:triage          (triage of the platform's exposures)
 ├── triage-analyst               disposition proposals
 └── kg-cross-examiner            cross-examination (knowledge graph present only)
+/dethereal:hidden-edges    (review of the inferred attack paths)
+└── hidden-edge-analyst          arguments for and against each candidate
 ```
 
 The threat-modeler edits models, asks questions and validates its edits. When a request needs a new model, removing elements, discovery, drift reconciliation, classification, enrichment, the control pass, the review, sync or the guided workflow, it names the skill that runs it — `/dethereal:threat-model`, `/dethereal:create`, `/dethereal:remove`, `/dethereal:discover`, `/dethereal:classify`, `/dethereal:enrich`, `/dethereal:sync` or `/dethereal:review` — and stops. On Claude Code, when you start it directly, it hands the specialists' part — a scan, classification proposals, enrichment and a review — to them itself (see [threat-modeler](#threat-modeler-model-editor)); on Codex and OpenCode it starts no other agent.
@@ -250,7 +274,7 @@ Passing the directory path instead of the model content avoids sending large ser
 
 ## MCP Tools
 
-The MCP (Model Context Protocol) server exposes 34 tools for platform communication — 33 with the default settings, since `model_state_settle` is served only with the [settlement](SYNC_AND_VERSION_CONTROL.md#the-settlement-switch) switched on. These tools are used by agents internally — you interact with them through slash commands, not directly.
+The MCP (Model Context Protocol) server exposes 36 tools for platform communication — 35 with the default settings, since `model_state_settle` is served only with the [settlement](SYNC_AND_VERSION_CONTROL.md#the-settlement-switch) switched on. These tools are used by agents internally — you interact with them through slash commands, not directly.
 
 ### Authentication (3 tools)
 
@@ -350,6 +374,13 @@ All MITRE data comes from the platform's graph database — the plugin never gen
 | `get_kg_chain` | Read-only evidence from the platform's knowledge graph: `probe` (whether it can be used), `chain` (a class's rules, the threats they address, the threats' sources and the rules' MITRE references) and `evaluate` (a rule's condition groups against an element's attributes). When the graph is not available, it says so — see [Triage With and Without the Knowledge Graph](TRIAGE_AND_THE_KNOWLEDGE_GRAPH.md) |
 | `get_class_guide` | Read-only: a class's authored configuration guidance for the given attribute keys — how to obtain each value, with typical values where authored |
 
+### Hidden Edges (2 tools)
+
+| Tool | Purpose |
+|------|---------|
+| `hidden_edges` | Your review of the hidden edges the platform's hidden-edges module proposes for a model pushed with no local changes. `open` checks the module's candidates and shows them; `evidence` attaches the analyst's locators; `reply` takes each of your replies exactly as you gave it and reads it as one command, or refuses it and changes nothing; `get` pages the table. Every reply is recorded before it takes effect. Writes no model file and nothing on the platform, and no Dethereal agent is given it |
+| `manage_hidden_edges` | Writes what a closed review decided, in two steps: `prepare` (or `record`, when you remove an accepted edge's flow) writes nothing and returns the lines that say what each write does; `commit` writes only on your `yes`, and only if nothing the plan rests on changed. Asks for your approval |
+
 ---
 
 ## Lifecycle Hooks
@@ -404,7 +435,7 @@ It also refuses a skill, command or agent granting those tools, and any write to
 
 **When:** Before the assistant calls a Dethereal MCP tool that only reads, or whose every change the server validates — for example `validate_model_json`, `model_state`, `get_classes`, or `query_controls`.
 
-**What it does:** Approves the call, so Claude Code asks you for these tools no more than Codex or OpenCode do. It approves those exact tools and nothing else, and it never refuses a call; your own deny and ask rules still apply over it. The tools that change the platform or record your decisions, such as `import_model`, `update_attributes`, `model_state_prune`, `model_state_waive`, and `manage_dispositions`, still ask for your approval.
+**What it does:** Approves the call, so Claude Code asks you for these tools no more than Codex or OpenCode do. It approves those exact tools and nothing else, and it never refuses a call; your own deny and ask rules still apply over it. The tools that change the platform or record your decisions, such as `import_model`, `update_attributes`, `model_state_prune`, `model_state_waive`, `manage_dispositions` and `manage_hidden_edges`, still ask for your approval.
 
 ### PreToolUse — Secret-File Guard
 

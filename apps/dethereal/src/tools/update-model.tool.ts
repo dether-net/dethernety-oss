@@ -36,11 +36,12 @@ import {
 import type { AttributeReadIssue } from '../utils/directory-utils.js'
 import { pathExists } from '../utils/file-utils.js'
 import { directoryPushRefusal, modulesForPush, safeErrorMessage } from '../utils/gates.js'
-import { readManifestBytes, recordModulesForPush, shownModules, type ModuleRef } from '../utils/manifest-modules.js'
+import { alignClassCacheModules, readManifestBytes, recordModulesForPush, shownModules, type ModuleRef } from '../utils/manifest-modules.js'
 import { keepUnresolvedClasses } from '../utils/unresolved-classes.js'
 import { keepUnresolvedControls } from '../utils/unresolved-controls.js'
 import { getConfig, debugLog } from '../config.js'
 import { StateFileError } from '../utils/state-store.js'
+import { ModelTreeError } from '../utils/path-confinement.js'
 import { computeContentHash, collectBaselineElementIds } from '../utils/sync-utils.js'
 import { readPushPayload } from '../utils/push-payload.js'
 import { registerPushPin, type Registration } from '../utils/settlement-writers.js'
@@ -364,6 +365,14 @@ export class UpdateModelTool extends ClientDependentTool<UpdateInput, UpdateOutp
               `(${sidecarError instanceof Error ? sidecarError.message : String(sidecarError)}). ` +
               `Re-run generate_attribute_stubs for the elements added by this push.`,
             )
+          }
+          // The files now name this platform's module for each class; a class-cache entry naming another
+          // platform's would read as a conflict in Gate 2. Its own try, for the same reason as the sidecars.
+          try {
+            result.warnings.push(...(await alignClassCacheModules(input.directory_path, exportedModel)))
+          } catch (cacheError) {
+            const code = cacheError instanceof StateFileError || cacheError instanceof ModelTreeError ? cacheError.code : 'unwritable'
+            result.warnings.push(`The class cache could not be pointed at the modules the model now names (${code}): run generate_attribute_stubs to refresh it.`)
           }
 
           sourceFilesUpdated = true

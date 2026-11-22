@@ -597,3 +597,59 @@ describe("the guards on Codex: sed and file in Codex's plugin folder", () => {
     expect(codex("sed -n '1w deploy/orders/secrets.yaml' /tmp/x").deny).toBe(true)
   })
 })
+
+describe('the guards on a link that climbs to a folder, and on the word ln a command only prints', () => {
+  // A project two folders below the home folder, as on a working machine.
+  const proj = () => path.join(home, 'dev', 'proj')
+  beforeEach(() => mkdirSync(proj(), { recursive: true }))
+  function env(): SecretGuardEnv {
+    return { env: { DETHEREAL_PROJECT_ROOT: proj(), HOME: home }, cwd: proj(), platform: 'linux', now: Date.now }
+  }
+  const codex = (command: string) => decideCodexAccess(rawEventFrom(codexEvent('Bash', { command }, proj())), env())
+  const opencode = (command: string) => decideOpenCodeAccess(rawEventFrom(JSON.stringify({ tool: 'bash', args: { command }, directory: proj() })), env())
+  const claude = (command: string) => decideSecretAccess(rawEventFrom(JSON.stringify({ tool_name: 'Bash', tool_input: { command }, cwd: proj() })), env())
+
+  it('allows a link whose target climbs to a folder that holds no secret and stops there', () => {
+    for (const command of ['ln -s ../ up', 'ls ln ../']) {
+      expect(claude(command), `claude ${command}`).toMatchObject({ deny: false })
+      expect(opencode(command), `opencode ${command}`).toMatchObject({ deny: false })
+    }
+    expect(codex('ls ln ../')).toMatchObject({ deny: false })
+    // On Codex the parent folder holds the project's own plugin folder: a link to it opens that folder under another name.
+    expect(codex('ln -s ../ up')).toMatchObject({ deny: true, reason: expect.stringMatching(/Codex's plugin folder/) })
+    // Two folders up is the home folder, which holds the sign-in.
+    expect(claude('ln -s ../../ up').deny).toBe(true)
+    expect(codex('ln -s ../../ up').deny).toBe(true)
+  })
+
+  it('allows ln among the words a command only prints, and still judges them when they are fed to a command or a file', () => {
+    for (const command of ['echo ln ..', 'echo ln .', 'printf "%s\\n" ln ..']) {
+      expect(claude(command), `claude ${command}`).toMatchObject({ deny: false })
+      expect(codex(command), `codex ${command}`).toMatchObject({ deny: false })
+      expect(opencode(command), `opencode ${command}`).toMatchObject({ deny: false })
+    }
+    expect(codex('echo ln -s . up | xargs').deny).toBe(true)
+    expect(codex('echo ln -s ../../.dethernety l > f').deny).toBe(true)
+    expect(codex('ln -s . up').deny).toBe(true)
+  })
+
+  it('still reads a climb that stops at a folder from the anchors when the line goes on after the link', () => {
+    for (const command of [
+      'ln -s ../ ~/Downloads/a/up && mv ~/Downloads/a/up ~/Downloads/up && cat ~/Downloads/up/.dethernety/tokens.json',
+      'ln -s ../ ~/Downloads/a/up && mv ~/Downloads/a/up ~/Downloads/up',
+    ]) {
+      // Moved one folder up, the link's `../` names the home folder.
+      expect(claude(command), `claude ${command}`).toMatchObject({ deny: true, reason: expect.stringMatching(/server's own folder/) })
+      expect(opencode(command), `opencode ${command}`).toMatchObject({ deny: true, reason: expect.stringMatching(/server's own folder/) })
+      expect(codex(command).deny, `codex ${command}`).toBe(true)
+    }
+  })
+
+  it('still refuses a climbing link that lands on a secret', () => {
+    file('cli/.env', 'K=v\n', proj())
+    for (const command of ['ln -s ../cli/.env a/q', 'ln -s ../../cli/.env a/b/q']) {
+      expect(claude(command).deny, command).toBe(true)
+      expect(codex(command).deny, command).toBe(true)
+    }
+  })
+})

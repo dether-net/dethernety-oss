@@ -236,3 +236,71 @@ describe('aggregateCoverage — meta (per-tier counts)', () => {
     expect(json).not.toMatch(/coveragePct|percent|"covered":\s*\d/i);
   });
 });
+
+describe('aggregateCoverage — inferred-path exposures on hidden-edge flows are set apart', () => {
+  // An accepted hidden-edge flow (its class in the hidden-edge category) carries one exposure per path technique,
+  // in its own category.
+  const hidden = { elementClassCategory: 'Hidden Edge' };
+  const baseRows = [
+    { elementId: 'c1', elementKind: 'Component', exposureId: 'e1', exposureCategory: 'Injection', techniqueId: 'T1', techniqueName: 'One', tactics: [IA] },
+    { ...hidden, elementId: 'f9', elementKind: 'DataFlow', exposureId: 'ip1', exposureCategory: 'Inferred Path', techniqueId: 'T2', techniqueName: 'Two', tactics: [PE] },
+    { ...hidden, elementId: 'f9', elementKind: 'DataFlow', exposureId: 'ip2', exposureCategory: 'Inferred Path', techniqueId: 'T3', techniqueName: 'Three', tactics: [ST] },
+    { ...hidden, elementId: 'f9', elementKind: 'DataFlow', exposureId: 'ip2', exposureCategory: 'Inferred Path', techniqueId: 'T3', techniqueName: 'Three', tactics: [DI] },
+    { ...hidden, elementId: 'f9', elementKind: 'DataFlow', exposureId: 'ip3', exposureCategory: 'Inferred Path', techniqueId: null, tactics: [] },
+  ];
+  const r = aggregateCoverage(
+    base({
+      baseRows,
+      directRows: [
+        { exposureId: 'e1', techniqueId: 'T1', cmId: 'cm1', controlId: 'k1', relType: 'COUNTERMEASURE_MITIGATES' },
+        { exposureId: 'ip1', techniqueId: 'T2', cmId: 'cm2', controlId: 'k2', relType: 'COUNTERMEASURE_MITIGATES' },
+      ],
+      mitigationRows: [{ exposureId: 'ip2', techniqueId: 'T3', cmId: 'cm3', controlId: 'k3' }],
+      d3fendRows: [{ exposureId: 'ip1', techniqueId: 'T2', cmId: 'cm4', controlId: 'k4', tactics: ['Detect'] }],
+    }),
+  );
+
+  it('leaves them out of exposures and the technique dictionary', () => {
+    expect(r.exposures.map((e) => e.exposureId)).toEqual(['e1']);
+    expect(Object.keys(r.techniques)).toEqual(['T1']);
+  });
+
+  it('leaves them out of every meta count, their covering rows included', () => {
+    expect(r.meta.exposureCount).toBe(1);
+    expect(r.meta.softExposureCount).toBe(0);
+    expect(r.meta.coveredPairsByTier).toEqual({ DIRECT: 1, INDIRECT_MITIGATION: 0, INDIRECT_D3FEND: 0 });
+    expect(r.meta.countermeasuresByTier).toEqual({ DIRECT: 1, INDIRECT_MITIGATION: 0, INDIRECT_D3FEND: 0 });
+  });
+
+  it('counts the distinct exposures it set apart, once each', () => {
+    expect(r.meta.inferredPathSetApart).toBe(3);
+  });
+
+  it('counts none when no exposure is in the category', () => {
+    const plain = aggregateCoverage(base({ baseRows: [baseRows[0]] }));
+    expect(plain.meta.inferredPathSetApart).toBe(0);
+    expect(plain.meta.exposureCount).toBe(1);
+  });
+
+  it('counts an inferred-path exposure on any other element as usual, by both categories alone', () => {
+    const elsewhere = [
+      // On a component: not a flow.
+      { elementId: 'c2', elementKind: 'Component', elementClassCategory: 'Hidden Edge', exposureId: 'ipc', exposureCategory: 'Inferred Path', techniqueId: 'T2', techniqueName: 'Two', tactics: [PE] },
+      // On an ordinary flow.
+      { elementId: 'f1', elementKind: 'DataFlow', elementClassCategory: 'Data Flow', exposureId: 'ipf', exposureCategory: 'Inferred Path', techniqueId: 'T3', techniqueName: 'Three', tactics: [ST] },
+      // On a flow with no class.
+      { elementId: 'f2', elementKind: 'DataFlow', elementClassCategory: null, exposureId: 'ipn', exposureCategory: 'Inferred Path', techniqueId: null, tactics: [] },
+    ];
+    const r2 = aggregateCoverage(
+      base({
+        baseRows: elsewhere,
+        directRows: [{ exposureId: 'ipf', techniqueId: 'T3', cmId: 'cm9', controlId: 'k9', relType: 'COUNTERMEASURE_MITIGATES' }],
+      }),
+    );
+    expect(r2.exposures.map((e) => e.exposureId).sort()).toEqual(['ipc', 'ipf', 'ipn']);
+    expect(r2.meta.exposureCount).toBe(3);
+    expect(r2.meta.softExposureCount).toBe(1);
+    expect(r2.meta.coveredPairsByTier.DIRECT).toBe(1);
+    expect(r2.meta.inferredPathSetApart).toBe(0);
+  });
+});

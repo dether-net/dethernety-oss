@@ -420,10 +420,13 @@ export function computeLints(input: GateInput): LintFinding[] {
   const classOf = new Map<string, string | undefined>()
   for (const e of [...boundaries, ...components, ...input.dataFlows, ...input.dataItems]) if (e?.id) classOf.set(e.id, e.classData?.id ?? undefined)
   const declared = (id: string): ReadonlySet<string> => new Set(templates.get(classOf.get(id) ?? '')?.fields ?? [])
+  // A hidden edge this machine accepted records the path's techniques by design; its attributes are not checked here.
+  const hidden = input.hiddenEdgeFlows
 
   // Attribute files: MITRE fields, controls, asset signals, placeholder monitoring and credential scopes.
   for (const [group, bag] of Object.entries(input.attributes ?? {})) {
     for (const [id, entry] of Object.entries((bag ?? {}) as Record<string, ElementAttributes>)) {
+      if (group === 'dataFlows' && hidden?.has(id)) continue
       const values = (entry?.attributes ?? {}) as Record<string, unknown>
       const fields = declared(id)
       const file = `attributes/${group}/${id}.json`
@@ -495,6 +498,7 @@ export function computeLints(input: GateInput): LintFinding[] {
   const noAuthButFailureMode: string[] = []
   const authWithoutCredentials: string[] = []
   for (const f of input.dataFlows) {
+    if (hidden?.has(f.id)) continue
     const a = flowAttrs(f.id)
     const ct = lower(a.credential_type)
     const ctSet = ct !== null && !isStandIn(a.credential_type) && (ct === 'none' || !isPlaceholderToken(ct))

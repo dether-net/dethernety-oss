@@ -47,7 +47,7 @@ Enrich a Dethernety threat model with security attributes, credential topology, 
 4. **`required_credentials: []`** is proposed only when a cited source shows the flow is unauthenticated, or the operator says so, and written only after they confirm; when nobody knows, leave the key out. Confirmed no monitoring → `monitoring_tools: []`.
 5. **No contradictory pairs:** two fields for one property (a template boolean and a floor string, e.g. `encrypted_at_rest` / `encryption_at_rest`) agree, or both stay `null`.
 6. **Never classify data sensitivity on your own**, and never write `classData`, data items, `sensitivity`, `regulatory_flags`, `dataItemIds`, `controls[]`, `crownJewel` or the scope before the operator has answered — and never rewrite one already written, not even to a canonical form: propose the other form in a question.
-7. **Through the edit tool only:** model files are written with your edit tool (the core rules name it), never through a shell, a script or a heredoc — however many files a batch touches.
+7. **Through the edit tool only:** model files are written with your edit tool (the core rules name it), never through a shell, a script or a heredoc — however many files a batch touches. Write no script anywhere, and nothing to a scratchpad or temporary folder the harness offers: files go only where these instructions say.
 
 **Secret files.** Read their full list next to this skill before any configuration, and again after any compaction; if it cannot be read, read no configuration and stop:
 

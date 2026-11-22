@@ -11,7 +11,7 @@ tags: ['dethereal', 'plugin', 'claude-code', 'threat-modeling', 'overview']
 
 Dethereal is a threat modeling plugin for Claude Code, Codex and OpenCode that guides you through building structured threat models using conversational AI. You describe your system in natural language, and the plugin discovers infrastructure, maps trust boundaries and data flows, places each boundary on a trust gradient with approved channels (see [Boundary Trust Zones](../BOUNDARY_TRUST_ZONES.md)), enriches security attributes, and publishes the model to the Dethernety platform for analysis.
 
-The plugin provides 15 slash commands, 8 specialized AI agents, 34 MCP tools, and an 11-step guided workflow that takes you from a system description to an analysis-ready threat model: a quick first pass by default, fully enriched once you deepen it. A per-Control library mirrors the platform's reusable security controls into local files (`controls/<id>.json`) with shared-ownership safety prompts on push — see [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md#shared-ownership-prompts). Once the platform has analysed a model, `/dethereal:triage` puts each finding to you with an AI-assisted proposal and writes your decisions as dispositions only after you approve them — see [Triaging Platform Findings](TRIAGE.md).
+The plugin provides 16 slash commands, 9 specialized AI agents, 36 MCP tools, and an 11-step guided workflow that takes you from a system description to an analysis-ready threat model: a quick first pass by default, fully enriched once you deepen it. A per-Control library mirrors the platform's reusable security controls into local files (`controls/<id>.json`) with shared-ownership safety prompts on push — see [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md#shared-ownership-prompts). Once the platform has analysed a model, `/dethereal:triage` puts each finding to you with an AI-assisted proposal and writes your decisions as dispositions only after you approve them — see [Triaging Platform Findings](TRIAGE.md). `/dethereal:hidden-edges` then puts to you the attack paths the platform infers between your components, which no declared flow shows, and adds the ones you accept to the model — see [Reviewing Hidden Edges](HIDDEN_EDGES.md).
 
 **Harnesses:** each status says how far the harness is tested. **Claude Code — Stable:** the main target; the full workflow is tested on every release. **Codex — Experimental:** runs the workflow end to end in our tests; expect rough edges. **OpenCode — Preview:** runs end to end, but in our tests the model can skip a checkpoint question or write a value different from the one you confirmed (see [Known Issues on OpenCode](#known-issues-on-opencode)). Claude Code installs the plugin from the Dethernety marketplace; Codex and OpenCode install it with `dethereal install` — see [Installation](GETTING_STARTED.md#installation). These guides show commands in the Claude Code form (`/dethereal:<command>`); see [Command Reference](COMMAND_REFERENCE.md#slash-command-syntax) for the Codex and OpenCode forms.
 
@@ -34,13 +34,14 @@ OpenCode is in Preview. These issues were seen in our tests; each has a workarou
 | [Quick Start](QUICK_START.md) | From install to your first threat model, in about 15 minutes |
 | [Getting Started](GETTING_STARTED.md) | Installation, authentication, and creating your first model |
 | [Guided Workflow](GUIDED_WORKFLOW.md) | The 11-step threat modeling process from scope to sync |
-| [Command Reference](COMMAND_REFERENCE.md) | All 15 slash commands with syntax, arguments, and examples |
+| [Command Reference](COMMAND_REFERENCE.md) | All 16 slash commands with syntax, arguments, and examples |
 | [Model Concepts](MODEL_CONCEPTS.md) | Components, boundaries, data flows, classes, quality scoring |
 | [Discovery and Enrichment](DISCOVERY_AND_ENRICHMENT.md) | Infrastructure scanning, security attributes, MITRE, credentials |
 | [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md) | Push/pull, conflict handling, git integration |
 | [Review and Analysis](REVIEW_AND_ANALYSIS.md) | Quality review, attack surface analysis |
 | [Triaging Platform Findings](TRIAGE.md) | Decide the platform's exposures from AI-assisted proposals, then apply them as dispositions |
 | [Triage With and Without the Knowledge Graph](TRIAGE_AND_THE_KNOWLEDGE_GRAPH.md) | What the knowledge graph adds to triage, and the notices when it cannot be used |
+| [Reviewing Hidden Edges](HIDDEN_EDGES.md) | Decide the attack paths the platform infers between your components, then add the accepted ones as flows |
 | [Agents, Tools, and Hooks](AGENTS_AND_ARCHITECTURE.md) | AI agents, MCP tools, hooks, state machine |
 | [Glossary](GLOSSARY.md) | Plugin-specific terminology |
 

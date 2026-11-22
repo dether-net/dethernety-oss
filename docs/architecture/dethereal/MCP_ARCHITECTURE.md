@@ -112,15 +112,16 @@ Which tools run without asking is decided once, in the tool manifest (see [Tool 
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                    │                                         │
 │  ┌────────────────────────────────────────────────────────────────────────┐  │
-│  │                            Tool Registry (34 tools)                    │  │
+│  │                            Tool Registry (36 tools)                    │  │
 │  │  ┌─────────────────────────┐  ┌─────────────────────────────────────┐  │  │
-│  │  │ Client-Free Tools (13)  │  │ Client-Dependent Tools (21)         │  │  │
+│  │  │ Client-Free Tools (14)  │  │ Client-Dependent Tools (22)         │  │  │
 │  │  │ • Authentication (3)    │  │ • Model CRUD (5)                    │  │  │
 │  │  │ • Reference (2)         │  │ • Element Management (4)            │  │  │
 │  │  │ • Validation (1)        │  │ • MITRE Frameworks (2)              │  │  │
 │  │  │ • Local Workspace (2)   │  │ • Security Elements (6)             │  │  │
 │  │  │ • Workflow State (4)    │  │ • Analysis (1)                      │  │  │
 │  │  │ • Triage (1)            │  │ • Triage (3)                        │  │  │
+│  │  │ • Hidden edges (1)      │  │ • Hidden edges (1)                  │  │  │
 │  │  └─────────────────────────┘  └─────────────────────────────────────┘  │  │
 │  │  Per-tool list: Tool Categories below                                  │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
@@ -211,7 +212,7 @@ Only local work happens before the transport connects (the project root is resol
 
 ### Base Tool Classes (`src/tools/base-tool.ts`)
 
-Abstract base classes define the tool interface. All 34 tools extend one of two concrete base classes:
+Abstract base classes define the tool interface. All 36 tools extend one of two concrete base classes:
 
 ```typescript
 export interface ToolContext {
@@ -265,17 +266,21 @@ export abstract class ClientDependentTool extends BaseTool { requiresClient = tr
 | **Local Workspace** | `workspace_status`, `detect_drift` | `ClientFreeTool` | 2 |
 | **Workflow State** | `model_state`, `model_state_waive`, `model_state_settle`, `model_state_prune` | `ClientFreeTool` | 4 |
 | **Triage (review)** | `triage_review` | `ClientFreeTool` | 1 |
+| **Hidden edges (review)** | `hidden_edges` | `ClientFreeTool` | 1 |
 | **Model CRUD** | `create_threat_model`, `import_model`, `export_model`, `update_model`, `list_models` | `ClientDependentTool` | 5 |
 | **Element Management** | `get_classes`, `match_classes`, `update_attributes`, `generate_attribute_stubs` | `ClientDependentTool` | 4 |
 | **MITRE Frameworks** | `search_mitre_attack`, `get_mitre_defend` | `ClientDependentTool` | 2 |
 | **Security Elements** | `manage_controls`, `manage_countermeasures`, `get_control_gaps`, `query_controls`, `query_exposures`, `query_countermeasures` | `ClientDependentTool` | 6 |
 | **Analysis** | `manage_analyses` | `ClientDependentTool` | 1 |
 | **Triage (writes and evidence)** | `manage_dispositions`, `get_kg_chain`, `get_class_guide` | `ClientDependentTool` | 3 |
-| **Total** | | | **34** |
+| **Hidden edges (writes)** | `manage_hidden_edges` | `ClientDependentTool` | 1 |
+| **Total** | | | **36** |
 
-`model_state_settle` is listed only with the settlement on, so a server with the default lists 33 tools; see [Settlement Switch](#settlement-switch).
+`model_state_settle` is listed only with the settlement on, so a server with the default lists 35 tools; see [Settlement Switch](#settlement-switch).
 
 The four triage tools serve the `triage` skill, together with two actions each of `search_mitre_attack` (`lookup`, `match`) and `query_exposures` (`list_model`, `evidence`); see [Triage Tools](#triage-tools). `triage_review` is a `ClientFreeTool` so that its `tasks` action needs a session only for the class guides it reads; its `open` refuses without a platform client, and `reply` and `get` work on the review the server holds.
+
+The two hidden-edge tools serve the `hidden-edges` skill, and `manage_hidden_edges` `record` also serves the `remove` skill; see [Hidden-Edge Tools](#hidden-edge-tools). `hidden_edges` is a `ClientFreeTool` for the same reason as `triage_review`: its `open` refuses without a platform client, and `reply`, `get` and `evidence` work on the review the server holds.
 
 `model_state_prune` is a write action and always asks for the operator's approval: it deletes the attribute files of elements the model no longer has. The server deletes only the files it finds orphaned itself (a structured attribute file named for an element id that is in no element group), all or nothing and at most 50 a call; a call that leaves more returns the next call's files as `next_files`. The call must name exactly those files, and each must still hold the bytes the server read. A flat file, a file named for another id, or one whose name differs from a live element id only in letter case is listed as not deleted. With the settlement on, it does not drop the removed elements' registered values; `model_state_settle` drops those once the operator acknowledges them. With it off, the prune runs the same checks, reads and writes no settlement file and needs no key, and its description does not name the settle tool.
 
@@ -324,6 +329,16 @@ apps/dethereal/src/
 │   ├── notices.ts                  # The fixed texts triage shows about the knowledge graph
 │   ├── model.ts                    # The platform model a model directory names
 │   └── text.ts, turns.ts           # Display cleaning; one call at a time per key
+├── hidden-edges/                   # The hidden-edge domain behind the hidden-edge tools
+│   ├── open.ts                     # A run's reads: sync check, decisions, exposures, the module's candidates
+│   ├── platform.ts                 # The module's candidate query, bounded in time and size
+│   ├── answer.ts, contract.ts      # The module's answer checked as untrusted input; the fixed vocabulary
+│   ├── review.ts, views.ts         # A review: its candidates, decisions and reply grammar (no I/O); its table pages
+│   ├── analyst.ts                  # The analyst's evidence locators
+│   ├── apply.ts                    # Apply and record plans, and the local writes
+│   ├── records.ts                  # The decisions file (signed accepts) and the hidden-edge record
+│   ├── predicate.ts                # Which flows are hidden edges on this machine
+│   └── asks.ts, local.ts           # The review and apply questions; the local model as the checks read it
 ├── utils/
 │   ├── directory-utils.ts          # Read/write split-file model directories, apply ID mappings
 │   ├── file-utils.ts               # Path operations, JSON I/O, backups
@@ -519,7 +534,7 @@ The two are not interchangeable. `bearer` is the OAuth **access token** — only
 
 ### Tool Manifest and Listing
 
-`src/tools/manifest.ts` is the frozen contract of every tool: its name, its approval class (`auto` runs without a prompt in harnesses that ask per tool, `prompt` always asks), its actions and top-level inputs, and `requiresUser` for tools that must never run unattended. A test holds the registered tools to it. The per-harness bundles read their approvals from it: the Claude Code approve hook, Codex's `approval_mode` entries and OpenCode's `permission` rules. Today 19 tools are `auto` and 15 are `prompt`; on Claude Code the approve hook also approves one action of a `prompt` tool, `model_state_settle` `prepare`, which records nothing in the model.
+`src/tools/manifest.ts` is the frozen contract of every tool: its name, its approval class (`auto` runs without a prompt in harnesses that ask per tool, `prompt` always asks), its actions and top-level inputs, and `requiresUser` for tools that must never run unattended. A test holds the registered tools to it. The per-harness bundles read their approvals from it: the Claude Code approve hook, Codex's `approval_mode` entries and OpenCode's `permission` rules. Today 20 tools are `auto` and 16 are `prompt`; on Claude Code the approve hook also approves one action of a `prompt` tool, `model_state_settle` `prepare`, which records nothing in the model.
 
 The triage tools' classes:
 
@@ -531,6 +546,13 @@ The triage tools' classes:
 | `get_class_guide` | `auto` | -- | Read-only class guidance |
 
 `search_mitre_attack` and `query_exposures` stay `auto` with their new read actions.
+
+The hidden-edge tools' classes:
+
+| Tool | Approval | `requiresUser` | Why |
+|------|----------|:-:|-----|
+| `hidden_edges` | `auto` | -- | It reads the model, the platform's candidates and the model's exposures, and records the operator's replies in the model's own hidden-edge record. It never changes a model file or the platform. Only the main session holds it (see [PLUGIN_ARCHITECTURE.md → Main-session-only tools](PLUGIN_ARCHITECTURE.md#main-session-only-tools)) |
+| `manage_hidden_edges` | `prompt` | yes | It writes flows into the model files, the decisions file and, for a one-by-one accept, affirmations on the platform; `prepare`, `record` and `commit` all ask |
 
 `tools/list` (`src/tool-listing.ts`) lists each tool with its name, description and flattened input schema. A tool whose manifest entry has `requiresUser` also carries `_meta["anthropic/requiresUserInteraction"]: true`: Claude Code then asks even under allow rules, and refuses the call where no one can answer. Other harnesses ignore the key and apply their own approval rules.
 
@@ -1318,6 +1340,7 @@ Query available classes from installed modules, or list the installed modules.
 - `template_keys` gives one class's template field names only, in the template's order. Use it to tell two close classes apart: `fields: ['id', 'name', 'template_keys']` with `class_id`. It is returned only when `fields` names it.
 - Refusals: `enrich` together with `attributes` or `guide` (it is the compact view of them: ask for it without them); `template_keys` without `class_id` (it never lists); `template_keys` together with `attributes`, `guide` or `enrich`; `enrich_offset` without `class_id` and `enrich`; `enrich_offset` when the `class_id` matches more than one class (narrow it with `module_id`); and an `enrich_offset` past the end of the class's fields.
 - `view: 'modules'` lists the installed modules with their class counts per type, and takes only `module_id` or `module_name`.
+- **Hidden-edge classes are listed only when asked for.** The classes of the platform's hidden-edges module (`dethernety-hidden-edges`) record inferred paths the operator accepted, never an element of the system, so the classes view leaves that module out of a listing unless the call names a module (`module_id` or `module_name`) or a `class_id`. Asking by category (`Hidden Edge`) does not list them.
 
 #### `match_classes`
 
@@ -1348,6 +1371,7 @@ The reply is trimmed for the agent's context:
 - A field that is null is left out, and `similarityScore` is rounded to 2 decimal places.
 - When every candidate comes from one module, `module: { id, name }` names it once at the top and no candidate carries `moduleId` or `moduleName`.
 - The reply carries no GraphQL `__typename`.
+- A hidden-edge class is never offered. The tool asks the platform for `topN` plus 4 (one class per hidden-edge kind) and drops every candidate whose `moduleName` is `dethernety-hidden-edges` before cutting to `topN`, so the result still holds `topN`.
 
 > **Naming note:** this tool's parameters are camelCase (`classLabel`, `topN`), unlike the snake_case convention used by the rest of the tool surface.
 
@@ -1455,8 +1479,8 @@ Read-only access to platform-computed exposures (D25). It replaced `manage_expos
 | `groups` | The triage set, grouped on the server, in parts | `{ model_id, view, element_id?, groups, rows_total, parts_total, parts_left_over, returned, offset, truncated, next_offset?, listing }` |
 | `rows` | The rows `select` picks | `{ model_id, view, select, element_id?, rows, total, returned, offset, truncated, next_offset?, listing }` |
 
-- **`partition`.** `exposures` is the model's exposure count. `totals` counts `pending`, `confirmed`, `disposed`, `stale`, `user` and `system`. `triage` counts the pending exposures not created by USER (the triage set); `user_pending` the pending ones created by USER. `elements` is the model's element count; `without_exposures` holds the count of elements with no exposure, and names them (`elements`) only when there are at most 10. With `element_id`, `element` holds that element's id, name, kind and the same counts; the other numbers still count the whole model. Only this view adds the triage files to the model's `.dethereal/.gitignore` (see [The triage record](#the-triage-record)); a `.gitignore` it cannot update is a warning.
-- **`groups`.** The triage set, grouped by the exact tuple (name, type, category, definition hash): two definitions that share a name never merge, and a null and an empty string are different values. The groups come in that tuple's order, with ids `g<k>`. A group's members, ordered by element id and exposure id, are filled into parts of at most 80 members and at most 20,000 characters; a group that needs more than one part has parts `g<k>#<m>`. Each part carries the group's shared fields once (`name`, `type`, `category`, `def_hash`, `attack_ids`, `atlas_ids`), `size` (the whole group's member count, across its parts) and its `members`, each `{ exposure_id, element_id, element_name, element_kind, element_class_id, score, attack_vector, unresolved_references_count }`. The view returns at most 999 parts across all its pages: `parts_total` counts them all, and `parts_left_over` those held back. `rows_total` counts the rows of the triage set.
+- **`partition`.** `exposures` is the model's exposure count. `totals` counts `pending`, `confirmed`, `disposed`, `stale`, `user` and `system`. `triage` counts the pending exposures not created by USER (the triage set); `user_pending` the pending ones created by USER. `elements` is the model's element count; `without_exposures` holds the count of elements with no exposure, and names them (`elements`) only when there are at most 10. With `element_id`, `element` holds that element's id, name, kind and the same counts; the other numbers still count the whole model. Only this view adds the per-machine files, the triage files among them, to the model's `.dethereal/.gitignore` (see [The triage record](#the-triage-record)); a `.gitignore` it cannot update is a warning.
+- **`groups`.** The triage set, grouped by the exact tuple (name, type, category, definition hash): two definitions that share a name never merge, and a null and an empty string are different values. The groups come in that tuple's order, with ids `g<k>`. A group's members, ordered by element id and exposure id, are filled into parts of at most 80 members and at most 20,000 characters; a group that needs more than one part has parts `g<k>#<m>`. Each part carries the group's shared fields once (`name`, `type`, `category`, `def_hash`, `attack_ids`, `atlas_ids`), `size` (the whole group's member count, across its parts) and its `members`, each `{ exposure_id, element_id, element_name, element_kind, element_class_id, score, attack_vector, unresolved_references_count }`. The view returns at most 999 parts across all its pages: `parts_total` counts them all, and `parts_left_over` those held back. `rows_total` counts the rows of the triage set. A part whose members all sit on hidden edges this machine accepted, for techniques those edges were accepted with, carries `inferred: true`: they are the edges' own findings (see [Hidden-Edge Tools](#hidden-edge-tools)).
 - **`rows`.** `select` picks the rows: `stale` (a stale disposition, any lifecycle), `user` (created by USER, any lifecycle) or `all` (the default). Rows are ordered by name, type, category, definition hash, then exposure id. Each row carries the exposure, its element and the element's class, its lifecycle (`pending`, `confirmed` or `disposed`), its disposition fields, its ATT&CK and ATLAS ids and its definition hash. `total` counts the rows selected.
 
 **Pages.** The groups and rows views come in pages: as many whole items (parts, or rows) as keep the result, as it is sent, under 24,000 characters, and at least one item a page. `returned` is the page's item count. A caller follows `next_offset`, passing `listing` back, until `truncated` is false. `listing` is a 16-hex-character hash of the rows the view pages over: each row's id, the fields its order and grouping rest on, its lifecycle, staleness and creator, and every field a group member carries (element id, name, kind and class id, score, attack vector, unresolved-reference count). So any change that would move where a group's parts split changes the listing. Past offset 0 it is required (`listing_required`). When the model's current listing differs from the one passed, the call is refused with `listing_changed`: the model changed between pages, so the caller starts again at offset 0.
@@ -1857,7 +1881,7 @@ stateDiagram-v2
 | Refused answers per review | 20 | A further refused answer is `record_full`, with the apply question as `ask`; `yes` and `cancel` can still be given |
 | Answers per review | 40 | Any further answer is `record_full`: open a new review |
 
-**Kept out of git.** The record and `.dethereal/triage-run/`, where the skill writes its run files (dossiers and batch files) and `tasks` writes the task list, are this machine's. Before the server first writes the record or a task list in a process, and on `query_exposures` `list_model` in the partition view (the view a triage run reads first; the groups and rows views write nothing), it adds `triage-log.json` and `triage-run/` to the model's `.dethereal/.gitignore`, keeping any line already there; a `.gitignore` it cannot update is a warning. Under `triage-run/` the server writes only the task list (see [`triage_review`](#triage_review) `tasks`).
+**Kept out of git.** The record and `.dethereal/triage-run/`, where the skill writes its run files (dossiers and batch files) and `tasks` writes the task list, are this machine's. Before the server first writes the record or a task list in a process, and on `query_exposures` `list_model` in the partition view (the view a triage run reads first; the groups and rows views write nothing), it adds the server's per-machine files, `triage-log.json`, `triage-run/` and `hidden-edges-log.json` among them, to the model's `.dethereal/.gitignore`, keeping any line already there; a `.gitignore` it cannot update is a warning. Under `triage-run/` the server writes only the task list (see [`triage_review`](#triage_review) `tasks`).
 
 #### The knowledge-graph latch
 
@@ -1877,6 +1901,154 @@ The knowledge graph is optional evidence: a failure to read it must not stop the
 | `chain` or `evaluate`: a failed read | Lost for this process | `KG_LOSS_NOTICE`, the first time | Set | yes |
 | `chain` or `evaluate`: `kg_chain_unread` | Unknown for this class | -- | Unchanged | yes |
 | `chain` or `evaluate`: a refused session | -- (tool error naming `login`) | -- | Unchanged | -- |
+
+### Hidden-Edge Tools
+
+A **hidden edge** is an attack path between two of a model's components that no declared flow shows. The platform's hidden-edges module (`dethernety-hidden-edges`) proposes candidates for a synced model from its exposures, their ATT&CK techniques and its structure; the `hidden-edges` skill has the hidden-edge-analyst argue for and against each one, and puts them to the operator. An accepted edge is written into the local files as a data flow of the class the candidate names, one of the hidden-edges module's data flow classes on the platform, and reaches the platform with the next push. The operator's view of a run is [Reviewing Hidden Edges](../../user/dethereal/HIDDEN_EDGES.md); how the platform computes candidates is the [hidden-edges module architecture](../dethernety-hidden-edges/README.md).
+
+- `hidden_edges` opens a review of the module's candidates, takes the analyst's locators, and reads each of the operator's replies as one command. It writes no model file and nothing on the platform.
+- `manage_hidden_edges` writes what a closed review decided, and takes back the accepted edge of a flow being removed, each only after the operator's answer to the apply question.
+
+The design follows the triage tools: a review held in memory, a record written before each reply counts, and a two-phase gate with the plan's lines shown before the apply question (see [The two-phase gate](#the-two-phase-gate)). The module's answer is untrusted input to Dethereal, checked in full before anything is shown.
+
+```mermaid
+sequenceDiagram
+    participant O as Operator
+    participant S as Main session (hidden-edges skill)
+    participant H as hidden_edges
+    participant M as manage_hidden_edges
+    participant P as Platform
+    S->>H: open (directory)
+    H->>P: read the exposures, call the hidden-edges module
+    H-->>S: review_id, header, rows, grammar, ask
+    S->>H: evidence (the analyst's locators)
+    loop each reply
+        S->>O: the result, then ask
+        O->>S: one reply
+        S->>H: reply, verbatim
+        H-->>S: effect and choices, or a refusal, with ask while open
+    end
+    Note over H: accept-all or done closes the review
+    S->>M: prepare (review_id)
+    M->>P: read the exposures again
+    M-->>S: plan_id, lines, ask
+    S->>O: the lines, then ask (the apply question)
+    O->>S: yes or cancel
+    S->>M: commit (plan_id, lines, reply)
+    M->>M: write flows and decisions to the local files
+    M->>P: affirm the pending findings of one-by-one accepts
+    M-->>S: written, failed, flows, outcomes
+```
+
+#### `hidden_edges`
+
+| Property | Value |
+|----------|-------|
+| **Base class** | `ClientFreeTool` |
+| **Input** | `{ action: 'open' \| 'evidence' \| 'reply' \| 'get', directory_path, review_id?, reply?, offset?, evidence? }` — `evidence`, `reply` and `get` take `review_id`; `reply` takes `reply`; `get` takes `offset`; `evidence` takes `evidence: [{ n, locators }]` |
+| **Output** | `open`: `{ review_id, header, total, rows, next_offset?, grammar, ask, warnings? }`, or `{ header, total: 0, rows: [] }` with no candidates; `evidence`: `{ review_id, attached }`; `reply`: `{ review_id, effect, choices, closed, row?, ask?, warnings? }`; `get`: `{ review_id, closed, total, rows, next_offset? }` |
+| **dt-core class** | None: the server's own documents (the module's candidate query, the model's exposures) |
+| **Approval** | `auto`; held by the main session only |
+
+**`open`** runs its reads in this order, holding nothing from an earlier run:
+
+1. The directory names a platform model of the configured platform (`not_synced`, `other_platform`).
+2. The model is in sync with no local changes, since the module reads the platform's copy: `push_first` when the files have local changes, `sync_first` when the model was never synced or its state cannot be told.
+3. The local model (the gates' own read), the synced component ids in `sync.json`, this machine's decisions (`decisions_unreadable` when the file cannot be read), and the model's exposures.
+4. One call of the module's `hiddenEdgeCandidates` query, with the candidate ids a standing decision keeps out (at most 2,000) and pending exposures included. The call is bounded to 40 seconds and a 1 MiB answer. A platform whose schema has no such field refuses the document at validation: the module is `module_not_loaded`. Any other failure, a timeout included, is `module_failed`. Neither is a refusal of `open`: the header carries the module's status, and there are no candidates. A refused session is: the tool error `session_refused`, naming `login`.
+5. When the module answered, the hidden-edges module's data flow classes in category `Hidden Edge`, read from the platform by module name (`dethernety-hidden-edges`); Dethereal holds no copy of their ids. When they cannot be read, the module's status is `module_failed` ("the hidden-edge classes could not be read from the platform") and no review opens. Then the answer's checks (below), then the review, which is recorded in the hidden-edge record and held in memory.
+
+**The header** is `{ model, module, regime?, kg_marker?, kg_notice?, table_hash?, counts, decisions, notes? }`. `module` is `{ status, detail?, version? }`, `status` being `answered` or why there is no answer. When the module ran without the knowledge graph (`regime.kg: 'kg_absent'`), `kg_notice` and `kg_marker` are triage's fixed texts (see [The knowledge-graph latch](#the-knowledge-graph-latch)). `counts` holds four numbers: `candidates`, `dropped_by_caps` (the module's own caps), `excluded_by_decision` and `dropped_by_validation`. `decisions` counts the standing `accepted` and `rejected` decisions, the accepts that do not verify here (`not_verified_here`) and the `malformed` entries. A note says when no exposure of the model is confirmed (affirmed or risk-accepted): the candidates then rest on pending or compensated findings only.
+
+**The answer is untrusted.** It is refused whole, with the code as the module's status and no candidates, when it is not JSON or not an object (`answer_invalid`), is not contract 1 (`contract_mismatch`), is an in-band refusal of the module (`module_<code>`), has missing or unknown keys, a malformed version, table hash, regime or counts, more than 200 candidates, a candidate id that is not a string, or names one class for two kinds or two classes for one kind (`answer_invalid`). A candidate a standing decision covers is excluded and counted, whatever the module did with the excluded ids. Any other candidate is dropped and counted under `dropped_by_validation` unless:
+
+- its keys are exact and every value is in its shape and caps (at most 10 techniques, 50 exposures, 50 facts, 10 fields);
+- its kind is one of the four hidden-edge kinds, its `class` is exactly `{ id, name }` and its `id` is one of the hidden-edges module's data flow classes read in step 5, and its id is `he:` and the first 16 hex characters of the sha256 of its kind, source and target joined by NUL;
+- its ends are distinct components of this model that both the platform (the synced ids) and the local files have, not both external entities;
+- every cited exposure is in this run's read, is not disposed (pending, affirmed, risk-accepted or compensated), and is not on a flow of one of the hidden-edges module's classes;
+- every fact is a locator: `attributes:<element>#<key>`, `control:<id>`, `exposure:<id>` (an exposure of this run's read), `kg:<id>` or `kg-class:<id>`;
+- its fields hold none of the names Dethereal writes itself, and each value is lower-case letters, digits, `_` and `-`;
+- it is not a repeat of a candidate already taken.
+
+A candidate whose cited exposures are all pending is `pending_only`; `edgeLifecycle` in `src/hidden-edges/answer.ts` applies the module's rule, so a risk-accepted exposure counts as confirmed and a compensated one as pending.
+
+**The rows** are compact: `{ n, id, kind, edge, tier, kg?, techniques, exposures, base, fields?, facts?, evidence?, pending_only?, in_accept_all, choice }`, names shown cleaned and cut, `kg: 'lowered'` when the knowledge graph lowered the tier, and `base` the three base values (`required_capability`, `required_privilege`, `granted_privilege`). A result carries rows of at most 20,000 characters, at least one; `next_offset` is the next page, read with `get`.
+
+**`evidence`** attaches the analyst's locators to candidates by their numbers: at most 250 items, each with 1 to 10 locators of at most 400 characters. A locator is a place, never a value: `source:<file>:<line>` or `attributes:<file>#<key>`, with a relative path of plain characters and no `.` or `..` segment, `platform:<id>` or `kg:<id>`. The call is all or nothing (`locator_invalid`, `candidate_unknown`, `review_closed`), keeps at most 10 distinct locators per candidate, and returns how many were new. The analyst's stance is not held by the server.
+
+**`reply`** takes one reply exactly as the operator gave it and reads it as one command:
+
+| Command | Effect |
+|---------|--------|
+| `accept <n>[,<n>…]` · `skip <n>…` · `reject <n>…` | Sets each candidate's choice |
+| `show <n>` · `show rejected` | One candidate's row in full; the rejected decisions in the decisions file |
+| `edit <n> capability: <v>` | `opportunistic`, `targeted` or `advanced` |
+| `edit <n> required: <v>` · `edit <n> granted: <v>` | `none`, `user`, `admin` or `system` |
+| `edit <n> <field>: <v>` | A field the module set for this candidate: lower-case letters, digits, `_` and `-`, at most 64 (the class checks the value on push) |
+| `edit <n> rationale: <text>` | The operator's rationale, at most 1,000 characters of plain text |
+| `accept-all` | Accepts every open candidate that is neither `pending_only` nor edited, and closes the review |
+| `done` | Closes the review |
+
+The verb is read in any letter case, and candidate numbers are separated by spaces or commas. A later decision on a candidate replaces an earlier one. An edit marks the candidate edited: it is never in `accept-all`, and an accept of it writes `proposed_by: operator`. A candidate `accept-all` takes is marked as a bulk accept, which affirms nothing. A refused reply changes nothing: `reply_unparsed`, `argument_invalid`, `candidate_unknown` or `review_closed`.
+
+Every reply is recorded before it takes effect, and a reply whose record fails is put back. Once a review has recorded 70 replies, only a reply that closes it is taken. A record that has grown too large to take a reply (`record_too_large`) lets an open review go at once, so a new one can be opened; a closed one is kept for `prepare`.
+
+**The next question comes from the tool**, as in triage: `[prompt: hidden-edges-review] Your command? One command per reply: accept, skip, reject, edit, show, accept-all or done, as the hint above shows.` A successful `open` returns it as `ask`, so does a `reply` that leaves the review open, and so does a refused reply other than `review_closed` while the review is open. The texts are in `src/hidden-edges/asks.ts`, registered with the skill's questions.
+
+**Reviews live in memory**, as triage's do: at most 20 per process, the least recently used dropped first, one unused for 2 hours expired, every one forgotten on a restart (`review_not_found`). A review is bound to its model directory (`other_model`).
+
+#### `manage_hidden_edges`
+
+| Property | Value |
+|----------|-------|
+| **Base class** | `ClientDependentTool` |
+| **Input** | `{ action: 'prepare' \| 'record' \| 'commit', directory_path, review_id?, flow_id?, plan_id?, lines?, reply? }` — `prepare` takes `review_id`; `record` takes `flow_id`; `commit` takes `plan_id`, `lines` and `reply` |
+| **Output** | `prepare` and `record`: `{ plan_id, expires_at, count, lines, ask }`; `commit`: `{ plan_id, written, failed, flows?, outcomes?, warnings? }`, or `{ plan_id, cancelled: true, written: 0 }` |
+| **dt-core class** | `DtExposure` (`disposeExposure`), through the triage disposition writer, for the affirmations |
+| **Approval** | `prompt`, with `requiresUser`; called from the main session only |
+
+**`prepare`** needs a closed review of the same directory (`review_not_found`, `other_model`, `review_open`) that accepted or rejected at least one candidate (`nothing_to_apply`). The directory must still name the review's platform model (`other_model`), the model files and the decisions file must be as the review read them, and so must every exposure the candidates cite (`review_stale`, with the changed exposures in `changed`). A plan whose lines would pass 24,000 characters is refused `echo_too_large`. It writes nothing. Per decided candidate, the plan holds:
+
+- **An accept:** a data flow of the candidate's class, its `classData` `{ id, name, module: { id, name } }` (the platform's class and its module), source to target, named `<Kind>: <source> → <target>`, its description listing the techniques, the cited exposures, the module's facts and the analyst's locators. Its id is `he-` and the candidate id's 16 hex characters, until a push gives it the platform's. Its attribute file holds the module's fields, the three base values as edited, `hidden_edge_kind`, `technique_ids`, `source_exposure_ids`, `proposed_by` (`rule`, or `operator` for an edited candidate), `tier` and, when given, `rationale`. A flow of the same class between the same two ends already in the files (pushed, or written without its decision) is bound to instead: its attribute file is written as shown, and no second flow is made. Then an accepted decision.
+- **A one-by-one accept** also affirms each cited exposure that is still pending with no disposition: `AFFIRMED`, with the reason `Affirmed by the accepted hidden edge <ids>` and the marker ` — hidden edge accepted by the operator`. The affirmations are planned with the triage disposition planner, so one the platform would refuse is listed as `Not affirmed (<code>)`. An accept through `accept-all` affirms nothing.
+- **A reject:** a rejected decision only. A disposition of a finding it rests on is triage's.
+
+The lines are, in order: the platform model, a summary (`<a> hidden edge(s) to add to the local files, <r> to reject[, <k> exposure(s) to affirm on the platform]`), one `+ [<n>] …` entry per accept with the class its flow is written with (`…; class <name>`), its base values, fields, evidence count and rationale, one `- [<n>] reject …` line per reject, one line per affirmation, and a reminder that new flows reach the platform with the next push. `count` is the decisions plus the ready affirmations, and `ask` is `[prompt: hidden-edges-apply] Apply <count> hidden-edge change(s)? Type yes or cancel.`
+
+**`record`** takes back the accepted edge of a flow the `remove` skill is about to remove. It needs a standing accepted decision of this machine for `flow_id` (`not_hidden_edge` otherwise: the flow is removed as an ordinary one, with nothing recorded) and plans one rejected decision with the same id, kind and ends. Its lines name the edge, say it is recorded as rejected and not proposed again, and list the cited exposures that are `AFFIRMED`, to clear in triage if the edge was their only ground. `count` is 1.
+
+**`commit`** runs the triage gate's order (see [The two-phase gate](#the-two-phase-gate)): the plan is taken (`plan_not_found`, `plan_expired` after 30 minutes, `plan_other_model`, `busy`, or `plan_stale` / `plan_used` for a spent plan); lines that are not the plan's are `lines_differ`, and an answer other than `yes` or `cancel` is `reply_not_answer`, both recorded with the plan left committable; `cancel` is recorded and uses the plan up; `yes` is recorded first; and the commits to one platform model run one at a time in this process. Then:
+
+1. **The plan is held to what it read.** The directory must still name the plan's platform model, the cited exposures must be unchanged, and the model files (for an apply) or the decisions file (for a record) must still hash as at `prepare`; otherwise `plan_stale`, nothing written.
+2. **An accept needs this machine's key.** The key that signs the decisions is created here when there is none yet; a key that cannot be used is `key_unavailable`, nothing written: an accepted decision is never written unsigned.
+3. **The local writes**, under the model's state lock: the flows' attribute files, then `dataflows.json` (the new flows appended), then the decisions file, each replaced only while its bytes are still what was read (`files_changed` and `flow_exists` refuse before the first write, and end the plan as stale). A flow without its decision counts as an ordinary flow, and a decision is never written for a flow that is not there; an attribute file a failed commit left behind, with no flow of its id, is taken over by the next. The cached quality result is then dropped.
+4. **The affirmations**, on the platform, continuing past a failure, with outcomes as `manage_dispositions` reports them.
+5. **The outcome is recorded** on the recorded `yes`. A `record` plan appends its rejected decision under the same lock, while the decisions file hashes as read.
+
+`commit`'s result counts the local decisions and applied affirmations as `written`, the failed affirmations as `failed`, and the new flows as `flows`.
+
+#### The hidden-edge decisions
+
+`.dethereal/hidden-edges-decisions.json` is **committed with the model**, so teammates share it: `{ version: 1, decisions: [{ id, kind, source, target, verb, flow_id, technique_ids, exposure_ids, at, mac }] }`. It is read as untrusted input: an entry is used only with exactly these keys, each in its shape, and an id that is its kind's and ends'; the file holds at most 1,500 entries and 960 KiB. An entry that is not well-formed is counted as `malformed` and kept as it is.
+
+- **An accept is signed.** `mac` is an HMAC-SHA256 under a subkey of this machine's key (the one Gate 3 waivers are signed with, kept in the home directory), over the model's hash (bound to the model directory's real path) and the whole entry, its time included, so an older accept cannot come back as new. It counts only where that key verifies it: a teammate's accept, a copied one or a hand edit counts as absent here, and the header counts it as `not_verified_here`.
+- **A reject is not signed** (`flow_id` and `mac` are null). It only keeps a candidate out of a review, so it counts on every machine.
+- **The latest decision stands.** For each candidate id, the standing decision is the latest, by `at`, of the verified accepts and the rejects (the later in the file on a tie). An unverified accept never stands. A reject's time is not signed: a hand edit can only take an edge back, which makes its flow count as an ordinary one again.
+- **A push re-keys the accepts.** When a push gives a hidden-edge flow its platform id, each accept this machine's key verifies under the old id is re-signed with the new one. Any other entry is left as it is, with a warning; like the other sidecars' re-keying, this is best effort (see [SYNC_AND_SOURCE_OF_TRUTH.md → Push Flow](SYNC_AND_SOURCE_OF_TRUTH.md#push-flow)).
+
+#### Hidden edges in the checks
+
+A flow is a hidden edge on this machine when its class is one of the hidden-edges module's classes, told by its class's module (`classData.module.name` is `dethernety-hidden-edges`: a pulled model carries the module on each element's `classData`, and an accepted edge is written with it), **and** a standing, verified accept of this machine names that flow and its two ends (`src/hidden-edges/predicate.ts`). Any other flow, a hidden-edge class set by hand or a teammate's accept included, is an ordinary flow and is never left out of a check.
+
+A hidden edge records an inferred path the operator accepted, not a flow of the system. Its flow stays in the model files, but the checks that read flows leave it out (`ordinaryFlows` in `src/utils/gates.ts`): Gates 1–3 and the component tiers, the lints, the quality score, coverage and zoning in `validate_model_json`, the settlement's drift and the review hash. Each counts what it left out as `hidden_edge_flows` (in the gates report, the quality result's `element_counts` and `model_state` `get`). Adding or removing one is therefore no structural change, and never makes REVIEWED stale. The structure checks still read it, so its attribute file is never an orphan. The derived manifest module list skips the class of a flow that is a hidden edge on this machine (a verified accept for that flow and its ends): the class is the platform's own module's, which a push need not list. A flow that names the hidden-edges module with no accept here is an ordinary flow, and its class's module is listed (see [Manifest Modules](#manifest-modules)).
+
+The class tools keep hidden-edge classes away from ordinary elements, by their module: `match_classes` never offers one, and `get_classes` lists one only when a module or a class id is asked for (see [`get_classes`](#get_classes) and [`match_classes`](#match_classes)).
+
+#### The hidden-edge record
+
+`.dethereal/hidden-edges-log.json` is this machine's record of its hidden-edge reviews and plans, with the triage record's shape and caps (see [The triage record](#the-triage-record)): a review entry has mode `hidden-edges`, and a plan's answers are kept under the review, or, for a `record` plan, under an entry of its own (mode `hidden-edges-record`). It keeps the last 20 entries and stays under 896 KiB; an entry takes at most 70 replies and 40 answers. The server lists it in `.dethereal/.gitignore` with its other per-machine files before it first writes it in a process.
+
+**What the gate does not do** is what the triage gate does not do: the server cannot tell the operator's `yes` from the model's, so the harness's approval prompt for `commit` is the gate; a harness's built-in sub-agents can reach `hidden_edges`, but write nothing without the `commit` prompt; and two server processes committing to one model do not hold each other back.
 
 ---
 
@@ -2076,7 +2248,7 @@ See SYNC_AND_SOURCE_OF_TRUTH.md for the full sync architecture (dual-authority m
 | `DtModule` | `get_classes` | Query modules and class definitions |
 | `DtModel` | `list_models` | List and query models on the platform |
 | `DtClass` | `match_classes`, `generate_attribute_stubs`, `get_classes` | Class catalog matching and class template fetching |
-| `DtExposure` | `query_exposures` (`list`, `get`), `manage_dispositions` | Read platform-computed exposures; write, clear and renew dispositions, and read a source's technique links for a supersede |
+| `DtExposure` | `query_exposures` (`list`, `get`), `manage_dispositions`, `manage_hidden_edges` (affirmations) | Read platform-computed exposures; write, clear and renew dispositions, and read a source's technique links for a supersede |
 | `DtControl` | `manage_controls`, `query_controls`, `get_control_gaps`, `validate_model_json` (online `coverage`) | Writing, assigning, listing, reading and ranking security controls; model-wide control gap analysis |
 | `DtControlLibrary` | `manage_controls` (control-library actions) | Control-library sync with the per-control files under `controls/` |
 | `DtCountermeasure` | `manage_countermeasures`, `query_countermeasures` | Write and read the countermeasures that link controls to exposures |
@@ -2092,7 +2264,8 @@ dt-core has no class for some reads, so the server sends its own GraphQL documen
 | Document | Source | Used by |
 |----------|--------|---------|
 | Platform capability probe (`Data.controls`) | `src/client/platform-capabilities.ts` | The check before a gated call (see [Tool Execution Flow](#tool-execution-flow), step 6) |
-| A model's exposures in one read; one exposure's evidence | `src/triage/exposures.ts` | `query_exposures` `list_model` and `evidence`, `triage_review` `open`, `manage_dispositions` |
+| A model's exposures in one read; one exposure's evidence | `src/triage/exposures.ts` | `query_exposures` `list_model` and `evidence`, `triage_review` `open`, `manage_dispositions`, `hidden_edges` `open`, `manage_hidden_edges` |
+| The hidden-edges module's candidates (`hiddenEdgeCandidates`) | `src/hidden-edges/platform.ts` | `hidden_edges` `open` |
 | The technique ids a supersede adds | `src/triage/dispositions.ts` | `triage_review` `open`, `manage_dispositions` `prepare` |
 | Knowledge-graph capability (`kgCapability`) and one class's rules (`kgRules`) | `src/triage/kg.ts` | `get_kg_chain` |
 | A class's guide, one document per class type | `src/tools/get-class-guide.tool.ts` | `get_class_guide`, `triage_review` `tasks` |
@@ -2207,11 +2380,11 @@ The protected set is built from what the read reported (`protectedAttributeFiles
 
 ### Exposure Management Security
 
-The MCP server never creates, edits or deletes a platform-computed exposure: they are derived by the platform's policies, and plugin-written exposures would put unverified claims in the analysis evidence chain. What it writes about one is the platform's own decision record, through `manage_dispositions`: a disposition, and for a supersede the user-authored copy the platform's supersede flow creates. Those writes go through the [two-phase gate](#the-two-phase-gate) only, after the operator's `yes`.
+The MCP server never creates, edits or deletes a platform-computed exposure: they are derived by the platform's policies, and plugin-written exposures would put unverified claims in the analysis evidence chain. What it writes about one is the platform's own decision record, through `manage_dispositions`: a disposition, and for a supersede the user-authored copy the platform's supersede flow creates. `manage_hidden_edges` writes one disposition kind, `AFFIRMED`, for the pending findings a hidden edge accepted one by one rests on. Those writes go through the [two-phase gate](#the-two-phase-gate) only, after the operator's `yes`. An accepted hidden edge is a flow in the model files, which the platform evaluates after a push like any flow; the plugin writes no exposure for it.
 
 ### Approval Display
 
-A tool that asks for approval is only as safe as what the operator is shown, and on some harnesses the approval dialog does not show a call's values (the Codex and OpenCode dialogs do not show the values `model_state_settle` registers). The plugin therefore never relies on the dialog: on every harness, the display is the chat's confirmation table — for `model_state_settle` also the result's echo, and for `model_state_prune` the table of files the operator confirmed — see [`model_state_settle`: The chat table is the display](#model_state_settle). For `manage_dispositions` the display is the plan's lines, which the conversation shows before the apply question and which `commit` must pass back exactly as `prepare` returned them (see [The two-phase gate](#the-two-phase-gate)).
+A tool that asks for approval is only as safe as what the operator is shown, and on some harnesses the approval dialog does not show a call's values (the Codex and OpenCode dialogs do not show the values `model_state_settle` registers). The plugin therefore never relies on the dialog: on every harness, the display is the chat's confirmation table — for `model_state_settle` also the result's echo, and for `model_state_prune` the table of files the operator confirmed — see [`model_state_settle`: The chat table is the display](#model_state_settle). For `manage_dispositions` and `manage_hidden_edges` the display is the plan's lines, which the conversation shows before the apply question and which `commit` must pass back exactly as `prepare` (or `record`) returned them (see [The two-phase gate](#the-two-phase-gate)).
 
 ---
 
@@ -2289,7 +2462,7 @@ approval_mode = "approve"
 }
 ```
 
-The OpenCode entry goes into the scope's `opencode.json` (or `opencode.jsonc`), with one `ask` rule for each of the 15 `prompt` tools (two shown), and a rule that denies the built-in `explore` agent every `dethereal_*` tool.
+The OpenCode entry goes into the scope's `opencode.json` (or `opencode.jsonc`), with one `ask` rule for each of the 16 `prompt` tools (two shown), and a rule that denies the built-in `explore` agent every `dethereal_*` tool.
 
 **Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
@@ -2328,7 +2501,7 @@ The OpenCode entry goes into the scope's `opencode.json` (or `opencode.jsonc`), 
 
 ## 11. History
 
-This architecture grew out of the earlier, smaller MCP server described in [ARCHITECTURE.md](ARCHITECTURE.md). The upgrade kept the base classes, the auth module, the Apollo client and the MCP protocol layer, and added the platform tools for listing models, browsing MITRE ATT&CK and D3FEND, controls, countermeasures, exposures and analyses, together with `sync.json` and the `quality` action of `validate_model_json`. The tool surface has kept growing since; [Tool Categories](#tool-categories) lists the tools registered today. The decisions that shaped it are recorded in [DECISIONS.md](DECISIONS.md), among them D24 (`get_mitre_defend`), D25 (exposures are read-only), D26 (`search_mitre_attack`) and D28 (`manage_countermeasures`). The triage tools came with the `triage` skill; [ADR-014](../decisions/014-open-source-triage-and-evaluator.md) records why they are part of this server, and why their condition-group evaluator lives in dt-module.
+This architecture grew out of the earlier, smaller MCP server described in [ARCHITECTURE.md](ARCHITECTURE.md). The upgrade kept the base classes, the auth module, the Apollo client and the MCP protocol layer, and added the platform tools for listing models, browsing MITRE ATT&CK and D3FEND, controls, countermeasures, exposures and analyses, together with `sync.json` and the `quality` action of `validate_model_json`. The tool surface has kept growing since; [Tool Categories](#tool-categories) lists the tools registered today. The decisions that shaped it are recorded in [DECISIONS.md](DECISIONS.md), among them D24 (`get_mitre_defend`), D25 (exposures are read-only), D26 (`search_mitre_attack`) and D28 (`manage_countermeasures`). The triage tools came with the `triage` skill; [ADR-014](../decisions/014-open-source-triage-and-evaluator.md) records why they are part of this server, and why their condition-group evaluator lives in dt-module. The hidden-edge tools came with the `hidden-edges` skill and reuse the triage tools' record, plan store and disposition writer.
 
 ---
 
@@ -2337,6 +2510,7 @@ This architecture grew out of the earlier, smaller MCP server described in [ARCH
 - [PLUGIN_ARCHITECTURE.md](PLUGIN_ARCHITECTURE.md) — Full plugin specification (skills, agents, hooks, settings)
 - [THREAT_MODELING_WORKFLOW.md](THREAT_MODELING_WORKFLOW.md) — End-to-end workflow that orchestrates these tools
 - [SYNC_AND_SOURCE_OF_TRUTH.md](SYNC_AND_SOURCE_OF_TRUTH.md) — Sync architecture (dual-authority model, conflict taxonomy, push flow)
+- [Hidden-edges module](../dethernety-hidden-edges/README.md) — How the platform computes hidden-edge candidates
 - [ARCHITECTURE.md](ARCHITECTURE.md) — Pre-upgrade MCP server snapshot, superseded by this document
 - [User Guide](../../user/dethereal/README.md) — End-user documentation
 - [dt-core](../dt-core/) — Data access layer architecture

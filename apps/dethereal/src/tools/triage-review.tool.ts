@@ -301,11 +301,16 @@ export class TriageReviewTool extends ClientFreeTool<Input, Record<string, unkno
       }))
     } catch (err) {
       // The reply count reached: a reply the review would take is refused, and its closing replies are still taken
-      // (a reply to a closed review is refused before it gets here, keeping its own code).
+      // (a reply to a closed review is refused, keeping its own code, and recorded when the record takes it).
       if (err instanceof RecordError && err.code === 'record_full') {
         if (!refused) return coded(err.code, err.message, { ask: reviewAsk(review.mode) })
         full = true
-      } else throw err
+      } else {
+        // A record too large takes no reply, a closing one included: an open review is let go, so a new one can be
+        // opened. A closed one is kept for prepare.
+        if (err instanceof RecordError && err.code === 'record_too_large' && !review.closed) reviewStore.drop(review.id)
+        throw err
+      }
     }
     // A refusal the operator answers with another reply carries the question; one of a closed review does not.
     const answerable = refused && refused.code !== 'review_closed' && !review.closed

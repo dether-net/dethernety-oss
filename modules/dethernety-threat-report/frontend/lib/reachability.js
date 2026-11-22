@@ -16,6 +16,16 @@
 // the entry set is STRUCTURAL (external entities / a chosen assumed-breach node),
 // never "untrusted". No score, no coverage %.
 //
+// Inferred edges: a hidden-edge flow (`hiddenEdge` on the snapshot flow) is an
+// inferred attack path an operator accepted — credential reuse, say — recorded as a
+// flow. It IS a route here, never filtered: every route, jewel and radius that uses
+// one says so (`inferred` on the hop, `viaInferredEdge` on the route / jewel / node),
+// with what the edge records (`inferredLabel`: "via inferred edge (<tier>, grants
+// <privilege>)"), so a reader can tell it from a modeled flow and see why it is there.
+// Its own Inferred Path findings never raise on-route posture (postureOf leaves them
+// out). Choke points are computed with and without inferred edges, so a declared
+// choke point an inferred edge goes around is named, not silently dropped.
+//
 // Reuse, not reinvention: the ancestor-boundary stack (EXIT/ENTER crossings) is
 // the SAME `makeStackResolver` the Boundary Crossings engine uses; on-route
 // posture is the SAME `postureOf` + `isLive` + `scoreBand`; the per-hop neighbour
@@ -30,8 +40,50 @@ import {
   sensitivityLabel,
   SENSITIVITY_RANK,
 } from './boundaryCrossings.js'
+import { hiddenEdgeFlowIds, isHiddenEdgeFlow, isSetApart, markSetApart } from './aggregateLedger.js'
 
 const BAND_RANK = { critical: 4, high: 3, medium: 2, low: 1, unknown: 0 }
+
+// Edge filter: modeled flows only (inferred edges left out).
+const declaredOnly = (e) => !e.inferred
+
+// ─── Inferred edges: what each one records, and its label ─────────────────────
+
+/** The facts of an inferred edge, for its label; null for a modeled flow. A snapshot
+ *  flow holding `hiddenEdge: true` (no facts kept) is an inferred edge that says nothing
+ *  more about itself. */
+export function inferredEdgeOf(flow) {
+  if (!isHiddenEdgeFlow(flow)) return null
+  const facts = typeof flow.hiddenEdge === 'object' && flow.hiddenEdge ? flow.hiddenEdge : {}
+  return {
+    flowId: flow.id,
+    flowName: flow.name ?? '',
+    kind: facts.kind ?? null,
+    tier: facts.tier ?? null,
+    grantedPrivilege: facts.grantedPrivilege ?? null,
+  }
+}
+
+function inferredEdgeDetail(e) {
+  return [e?.tier, e?.grantedPrivilege ? `grants ${e.grantedPrivilege}` : null].filter(Boolean).join(', ')
+}
+
+/** "inferred edge (<tier>, grants <privilege>)" — one edge's name, the detail left out
+ *  when the edge records none. */
+export function inferredEdgeName(edge) {
+  const d = inferredEdgeDetail(edge)
+  return d ? `inferred edge (${d})` : 'inferred edge'
+}
+
+/** "via inferred edge (<tier>, grants <privilege>)" for the inferred edges a route,
+ *  jewel or radius uses ('' for none); several edges list their distinct details. */
+export function inferredEdgeText(edges) {
+  const list = (Array.isArray(edges) ? edges : []).filter(Boolean)
+  if (list.length === 0) return ''
+  if (list.length === 1) return `via ${inferredEdgeName(list[0])}`
+  const details = [...new Set(list.map(inferredEdgeDetail).filter(Boolean))]
+  return details.length ? `via inferred edges (${details.join('; ')})` : 'via inferred edges'
+}
 
 // Mode-B enumeration bounds. Component hops (a hop = one Component→Component
 // step; the intermediate DataFlow node is collapsed into the labeled edge).
@@ -60,9 +112,9 @@ export const EXTERNAL_ENTITY_TYPE = 'external_entity'
 /**
  * Project the model's `Component-[:FLOWS]->DataFlow-[:FLOWS]->Component` graph
  * onto a directed component-to-component adjacency (each logical hop = one
- * labeled edge carrying the DataFlow's id/name/sensitivities). Dangling-endpoint
- * and non-component-endpoint flows are dropped (same guard as the Component
- * Profile).
+ * labeled edge carrying the DataFlow's id/name/sensitivities, and `inferred` when
+ * the flow is a hidden edge). Dangling-endpoint and non-component-endpoint flows
+ * are dropped (same guard as the Component Profile). Hidden-edge flows are kept.
  *
  * @param {{components:Array,flows:Array}} modelGraph
  * @returns {{ forward:Map, backward:Map, componentById:Map, flowById:Map, components:Array, flows:Array }}
@@ -74,15 +126,15 @@ export function buildProjection(modelGraph) {
   const componentById = new Map(components.map((c) => [c.id, c]))
   const flowById = new Map(flows.map((f) => [f.id, f]))
 
-  const forward = new Map() // sourceId → [{ flowId, flowName, sensitivities, to }]
-  const backward = new Map() // targetId → [{ flowId, flowName, sensitivities, from }]
+  const forward = new Map() // sourceId → [{ flowId, flowName, sensitivities, inferred, to }]
+  const backward = new Map() // targetId → [{ flowId, flowName, sensitivities, inferred, from }]
   for (const f of flows) {
     if (!f.sourceId || !f.targetId) continue
     // Endpoints must resolve to components in this snapshot (a since-removed or
     // non-component endpoint is not a traversable hop).
     if (!componentById.has(f.sourceId) || !componentById.has(f.targetId)) continue
     const sensitivities = Array.isArray(f.sensitivities) ? f.sensitivities : []
-    const base = { flowId: f.id, flowName: f.name ?? '', sensitivities }
+    const base = { flowId: f.id, flowName: f.name ?? '', sensitivities, inferred: isHiddenEdgeFlow(f) }
     if (!forward.has(f.sourceId)) forward.set(f.sourceId, [])
     forward.get(f.sourceId).push({ ...base, to: f.targetId })
     if (!backward.has(f.targetId)) backward.set(f.targetId, [])
@@ -92,15 +144,17 @@ export function buildProjection(modelGraph) {
 }
 
 /** BFS reachability closure from a start set over `adjMap`, following `next(e)`
- *  (e.to for forward, e.from for backward). Returns the set of reachable
- *  component ids (INCLUDING the starts). Near-linear in V+E (uses Array.shift,
- *  so technically O(V·E) worst-case — negligible at report scale). */
-function closure(adjMap, startIds, next) {
+ *  (e.to for forward, e.from for backward) over the edges `keep` accepts (all by
+ *  default). Returns the set of reachable component ids (INCLUDING the starts).
+ *  Near-linear in V+E (uses Array.shift, so technically O(V·E) worst-case —
+ *  negligible at report scale). */
+function closure(adjMap, startIds, next, keep = () => true) {
   const seen = new Set(startIds)
   const queue = [...startIds]
   while (queue.length) {
     const cur = queue.shift()
     for (const e of adjMap.get(cur) ?? []) {
+      if (!keep(e)) continue
       const nxt = next(e)
       if (!seen.has(nxt)) {
         seen.add(nxt)
@@ -116,10 +170,11 @@ function closure(adjMap, startIds, next) {
  * route from ANY origin in `originSet` to `targetId`. Cheap — drives mode-A's
  * per-jewel list (no full enumeration). Returns the reconstructed shortest
  * `{ nodes, edges }` (component ids / flow ids) for crossing/threat annotation.
+ * Only the edges `keep` accepts are followed (all by default).
  *
  * @returns {{ reachable:boolean, hops:(number|null), nodes:string[], edges:string[] }}
  */
-export function bfsShortest(forward, originSet, targetId) {
+export function bfsShortest(forward, originSet, targetId, keep = () => true) {
   if (originSet.has(targetId)) {
     return { reachable: true, hops: 0, nodes: [targetId], edges: [] }
   }
@@ -129,7 +184,7 @@ export function bfsShortest(forward, originSet, targetId) {
   while (queue.length) {
     const cur = queue.shift()
     for (const e of forward.get(cur) ?? []) {
-      if (seen.has(e.to)) continue
+      if (!keep(e) || seen.has(e.to)) continue
       seen.add(e.to)
       prev.set(e.to, { from: cur, flowId: e.flowId })
       if (e.to === targetId) {
@@ -257,7 +312,7 @@ export function annotateRoute(modelGraph, ledger, route) {
   const dataNodes = Array.isArray(mg.dataNodes) ? mg.dataNodes : []
   const componentById = new Map(components.map((c) => [c.id, c]))
   const flowById = new Map((Array.isArray(mg.flows) ? mg.flows : []).map((f) => [f.id, f]))
-  const ledgerById = new Map((Array.isArray(ledger) ? ledger : []).map((e) => [e.id, e]))
+  const ledgerById = new Map(markSetApart(ledger, mg).map((e) => [e.id, e]))
   const { stackOfComponent, boundaryById } = makeStackResolver(mg)
 
   const routeNodes = Array.isArray(route?.nodes) ? route.nodes : []
@@ -303,10 +358,22 @@ export function annotateRoute(modelGraph, ledger, route) {
       worstBand: fp.worstBand,
       hasControl: fp.hasControl,
       crossings,
+      inferred: isHiddenEdgeFlow(f),
+      inferredEdge: inferredEdgeOf(f),
+      inferredLabel: f && isHiddenEdgeFlow(f) ? inferredEdgeName(inferredEdgeOf(f)) : '',
     }
   })
 
-  return { nodes, hops, hopCount: routeEdges.length, crossingCount }
+  const inferredEdges = hops.map((h) => h.inferredEdge).filter(Boolean)
+  return {
+    nodes,
+    hops,
+    hopCount: routeEdges.length,
+    crossingCount,
+    viaInferredEdge: inferredEdges.length > 0,
+    inferredEdges,
+    inferredLabel: inferredEdgeText(inferredEdges),
+  }
 }
 
 // ─── Mode B: pick-two enumerated + annotated routes ──────────────────────────
@@ -329,7 +396,16 @@ export function modeBRoutes(modelGraph, ledger, originId, targetId, opts = {}) {
         a.hopCount - b.hopCount ||
         a.nodes.map((n) => n.name).join('>').localeCompare(b.nodes.map((n) => n.name).join('>')),
     )
-  return { routes: annotated, displayed, total, capped, ceilingHit, originId, targetId }
+  return {
+    routes: annotated,
+    displayed,
+    total,
+    capped,
+    ceilingHit,
+    originId,
+    targetId,
+    viaInferredEdge: annotated.some((r) => r.viaInferredEdge),
+  }
 }
 
 // ─── Choke points: the dominators every origin→target route must pass ─────────
@@ -339,13 +415,14 @@ export function modeBRoutes(modelGraph, ledger, originId, targetId, opts = {}) {
  *  dominator detection: `v` is a choke point iff t is NOT reachable without it.
  *  (`skipId` is always a candidate in R\{s,t}, so skipId !== targetId — dropping
  *  in-edges is equivalent to full node deletion for this verdict.) */
-function reachableSkipping(forward, originId, targetId, skipId) {
+function reachableSkipping(forward, originId, targetId, skipId, keep = () => true) {
   if (originId === skipId) return false
   const seen = new Set([originId])
   const queue = [originId]
   while (queue.length) {
     const cur = queue.shift()
     for (const e of forward.get(cur) ?? []) {
+      if (!keep(e)) continue
       if (e.to === skipId) continue // node excised — never traverse into it
       if (e.to === targetId) return true
       if (!seen.has(e.to)) {
@@ -357,6 +434,44 @@ function reachableSkipping(forward, originId, targetId, skipId) {
   return false
 }
 
+/** The s-rooted dominators of the target over the edges `keep` accepts, ordered
+ *  along the shortest route (the exact dominator-chain order), plus the closures they
+ *  were computed from. A direct origin→target edge precludes every choke point. */
+function dominators(proj, originId, targetId, keep = () => true) {
+  const fwd = closure(proj.forward, new Set([originId]), (e) => e.to, keep)
+  if (!fwd.has(targetId)) return { reachable: false, direct: false, chokeIds: [], fwd, bwd: new Set() }
+  // Relevant subgraph: nodes on at least one origin→target path (a node on NO
+  // such path can never be on EVERY such path).
+  const bwd = closure(proj.backward, new Set([targetId]), (e) => e.from, keep)
+  // A direct origin→target edge survives excising ANY intermediary, so a direct
+  // flow precludes every choke point. Short-circuit and skip the cut tests (this is
+  // also why a direct flow and a choke point can never coexist).
+  const direct = (proj.forward.get(originId) ?? []).some((e) => keep(e) && e.to === targetId)
+  if (direct) return { reachable: true, direct, chokeIds: [], fwd, bwd }
+  // Candidates exclude the endpoints. Membership: candidate v is a choke point iff
+  // excising it disconnects target.
+  const candidates = [...fwd].filter((id) => bwd.has(id) && id !== originId && id !== targetId)
+  const chokeSet = new Set(candidates.filter((v) => !reachableSkipping(proj.forward, originId, targetId, v, keep)))
+  // Chain order: every dominator lies on EVERY origin→target path, including the
+  // shortest — so order by index along that shortest path, the exact dominator-chain
+  // order. (A node's own min-hops from the origin is a separate per-node measure,
+  // reported by the caller but never used as the ordering key.)
+  const sp = bfsShortest(proj.forward, new Set([originId]), targetId, keep)
+  const orderIndex = new Map(sp.nodes.map((id, i) => [id, i]))
+  const chokeIds = [...chokeSet].sort((a, b) => (orderIndex.get(a) ?? Infinity) - (orderIndex.get(b) ?? Infinity))
+  return { reachable: true, direct: false, chokeIds, fwd, bwd }
+}
+
+/** The inferred edges on some origin→target route that avoids `skipId` — what lets
+ *  a route go around a declared choke point. */
+function inferredEdgesAround(proj, originId, targetId, skipId) {
+  const fwd = closure(proj.forward, new Set([originId]), (e) => e.to, (e) => e.to !== skipId)
+  const bwd = closure(proj.backward, new Set([targetId]), (e) => e.from, (e) => e.from !== skipId)
+  return proj.flows
+    .filter((f) => isHiddenEdgeFlow(f) && f.sourceId !== skipId && f.targetId !== skipId && fwd.has(f.sourceId) && bwd.has(f.targetId))
+    .map(inferredEdgeOf)
+}
+
 /**
  * The CHOKE POINTS between two chosen nodes — the s-rooted dominators of the
  * target: nodes every directed origin→target flow route must pass through.
@@ -365,6 +480,12 @@ function reachableSkipping(forward, originId, targetId, skipId) {
  * replacement — and computed by a VERTEX-CUT test, not by intersecting the
  * (depth/count/step-capped, hence incomplete) enumerated routes; so it is
  * complete even when route enumeration caps out.
+ *
+ * Inferred edges are routes too, so the choke points are computed over every edge;
+ * they are also computed over modeled flows alone, and a declared choke point an
+ * inferred edge goes around is returned in `bypassedChokePoints` (with the edges
+ * that bypass it) instead of silently vanishing. `hasDirectFlow` is a modeled direct
+ * flow only; a direct inferred edge is `directInferredEdge`.
  *
  * Honesty: a choke point sits on every modeled route ONLY — controlling it does
  * NOT address unmodeled flows, shared credentials, or non-flow lateral movement.
@@ -380,7 +501,7 @@ function reachableSkipping(forward, originId, targetId, skipId) {
 export function chokePoints(modelGraph, ledger, originId, targetId) {
   const proj = buildProjection(modelGraph)
   const dataNodes = Array.isArray(modelGraph?.dataNodes) ? modelGraph.dataNodes : []
-  const ledgerById = new Map((Array.isArray(ledger) ? ledger : []).map((e) => [e.id, e]))
+  const ledgerById = new Map(markSetApart(ledger, modelGraph).map((e) => [e.id, e]))
   const { stackOfComponent, boundaryById } = makeStackResolver(modelGraph || {})
 
   const origin = proj.componentById.get(originId)
@@ -395,6 +516,11 @@ export function chokePoints(modelGraph, ledger, originId, targetId) {
     sameNode: false,
     reachable: false,
     hasDirectFlow: false,
+    directInferredEdge: null,
+    viaInferredEdge: false,
+    inferredEdges: [],
+    inferredLabel: '',
+    bypassedChokePoints: [],
     chokePoints: [],
   }
 
@@ -403,35 +529,30 @@ export function chokePoints(modelGraph, ledger, originId, targetId) {
   // from every other branch so the view can suppress the strip.
   if (originId === targetId) return { ...base, sameNode: true, reachable: true }
 
-  const fwd = closure(proj.forward, new Set([originId]), (e) => e.to)
-  if (!fwd.has(targetId)) return base // target not forward-reachable — no routes
+  const full = dominators(proj, originId, targetId)
+  if (!full.reachable) return base // target not forward-reachable — no routes
+  const declared = dominators(proj, originId, targetId, declaredOnly)
 
-  // A direct origin→target edge survives excising ANY intermediary, so a direct
-  // flow precludes every choke point. Short-circuit: report it and skip the cut
-  // tests (this is also why a direct flow and a choke point can never coexist).
-  if ((proj.forward.get(originId) ?? []).some((e) => e.to === targetId)) {
-    return { ...base, reachable: true, hasDirectFlow: true }
-  }
+  // The inferred edges some origin→target route rides (the same on-route membership
+  // mode A uses: reachable from the origin, and reaching the target).
+  const inferredEdges = proj.flows
+    .filter((f) => isHiddenEdgeFlow(f) && full.fwd.has(f.sourceId) && full.bwd.has(f.targetId))
+    .map(inferredEdgeOf)
+  const directEdges = (proj.forward.get(originId) ?? []).filter((e) => e.to === targetId)
+  const hasDirectFlow = directEdges.some(declaredOnly)
+  const directInferred = hasDirectFlow ? null : directEdges.find((e) => e.inferred)
 
-  // Relevant subgraph: nodes on at least one origin→target path (a node on NO
-  // such path can never be on EVERY such path). Candidates exclude the endpoints.
-  const bwd = closure(proj.backward, new Set([targetId]), (e) => e.from)
-  const candidates = [...fwd].filter((id) => bwd.has(id) && id !== originId && id !== targetId)
+  const nodeName = (id) => proj.componentById.get(id)?.name ?? ledgerById.get(id)?.name ?? '(not in snapshot)'
+  const fullSet = new Set(full.chokeIds)
+  const bypassedChokePoints = declared.chokeIds
+    .filter((id) => !fullSet.has(id))
+    .map((id) => {
+      const bypassedBy = inferredEdgesAround(proj, originId, targetId, id)
+      const by = bypassedBy.map((e) => `${inferredEdgeName(e)} ${e.flowName || '(unnamed flow)'}`).join(', ')
+      return { id, name: nodeName(id), bypassedBy, text: `declared choke point ${nodeName(id)} is bypassed by ${by}` }
+    })
 
-  // Membership: candidate v is a choke point iff excising it disconnects target.
-  const chokeSet = new Set(candidates.filter((v) => !reachableSkipping(proj.forward, originId, targetId, v)))
-
-  // Chain order: every dominator lies on EVERY origin→target path, including the
-  // shortest — so order by index along that shortest path, the exact dominator-chain
-  // order. (A node's own min-hops from the origin is a separate per-node measure,
-  // reported below but never used as the ordering key.)
-  const sp = bfsShortest(proj.forward, new Set([originId]), targetId)
-  const orderIndex = new Map(sp.nodes.map((id, i) => [id, i]))
-  const chokeIds = [...chokeSet].sort(
-    (a, b) => (orderIndex.get(a) ?? Infinity) - (orderIndex.get(b) ?? Infinity),
-  )
-
-  const chokePointsView = chokeIds.map((id) => {
+  const chokePointsView = full.chokeIds.map((id) => {
     const c = proj.componentById.get(id)
     const p = postureOf(ledgerById.get(id))
     const hop = bfsShortest(proj.forward, new Set([originId]), id)
@@ -441,7 +562,7 @@ export function chokePoints(modelGraph, ledger, originId, targetId) {
     const crossings = crossingsForHop(stackOfComponent, boundaryById, originId, id)
     return {
       id,
-      name: c?.name ?? ledgerById.get(id)?.name ?? '(not in snapshot)',
+      name: nodeName(id),
       type: c?.type ?? null,
       minHops: hop.hops,
       worstBand: p.worstBand,
@@ -457,6 +578,12 @@ export function chokePoints(modelGraph, ledger, originId, targetId) {
   return {
     ...base,
     reachable: true,
+    hasDirectFlow,
+    directInferredEdge: directInferred ? inferredEdgeOf(proj.flowById.get(directInferred.flowId)) : null,
+    viaInferredEdge: inferredEdges.length > 0,
+    inferredEdges,
+    inferredLabel: inferredEdgeText(inferredEdges),
+    bypassedChokePoints,
     chokePoints: chokePointsView,
   }
 }
@@ -483,11 +610,13 @@ function worstBandOf(ids, ledgerById) {
 
 // Count RISK_ACCEPTED (and stale-among-them) dispositioned findings across a set
 // of elements — fuels mode-A's "1 RISK_ACCEPTED ⚠" and the Residual Risk louder-if-stale.
+// The findings set apart are left out, as postureOf leaves them out.
 function riskAcceptedOf(ids, ledgerById) {
   let riskAccepted = 0
   let staleRiskAccepted = 0
   for (const id of ids) {
     for (const f of ledgerById.get(id)?.findings ?? []) {
+      if (isSetApart(f)) continue
       if (f.dispositionKind === 'RISK_ACCEPTED') {
         riskAccepted++
         if (f.dispositionStale === true) staleRiskAccepted++
@@ -524,7 +653,7 @@ export function crownJewelIds(modelGraph) {
  */
 export function modeAReachability(modelGraph, ledger, originSpec = { kind: 'external' }) {
   const proj = buildProjection(modelGraph)
-  const ledgerById = new Map((Array.isArray(ledger) ? ledger : []).map((e) => [e.id, e]))
+  const ledgerById = new Map(markSetApart(ledger, modelGraph).map((e) => [e.id, e]))
   const { stackOfComponent, boundaryById } = makeStackResolver(modelGraph || {})
 
   // Origin set (structural — never a trust filter).
@@ -544,13 +673,20 @@ export function modeAReachability(modelGraph, ledger, originSpec = { kind: 'exte
 
   const jewels = proj.components.filter((c) => c.crownJewel === true)
   const fwdClosure = closure(proj.forward, originIds, (e) => e.to)
+  // The same closure over modeled flows alone: a jewel outside it is reachable only
+  // through an inferred edge.
+  const declaredClosure = closure(proj.forward, originIds, (e) => e.to, declaredOnly)
+  const inferredFlowIds = hiddenEdgeFlowIds(modelGraph)
 
   // elementId → Set(jewelName) for every element on SOME reachable origin→jewel
-  // route (the Residual Risk cross-ref join + the minimap route paint set).
+  // route (the Residual Risk cross-ref join + the minimap route paint set), and the
+  // subset of those jewels the element leads to only through an inferred edge (no
+  // modeled flow route through it reaches the jewel).
   const routeElementToJewels = new Map()
-  const addRouteElement = (id, jewelName) => {
-    if (!routeElementToJewels.has(id)) routeElementToJewels.set(id, new Set())
-    routeElementToJewels.get(id).add(jewelName)
+  const routeElementToJewelsViaInferredOnly = new Map()
+  const addRouteElement = (map, id, jewelName) => {
+    if (!map.has(id)) map.set(id, new Set())
+    map.get(id).add(jewelName)
   }
 
   const jewelsView = jewels
@@ -567,16 +703,29 @@ export function modeAReachability(modelGraph, ledger, originSpec = { kind: 'exte
       let crossingCount = 0
       let worst = { band: null, liveCount: 0 }
       let risk = { riskAccepted: 0, staleRiskAccepted: 0 }
+      let inferredEdges = []
       if (reachable && !isOrigin) {
         const bwd = closure(proj.backward, new Set([j.id]), (e) => e.from)
         onRouteComps = proj.components.filter((c) => fwdClosure.has(c.id) && bwd.has(c.id)).map((c) => c.id)
         onRouteFlows = proj.flows
           .filter((f) => f.sourceId && f.targetId && fwdClosure.has(f.sourceId) && bwd.has(f.targetId))
           .map((f) => f.id)
+        inferredEdges = onRouteFlows.filter((id) => inferredFlowIds.has(id)).map((id) => inferredEdgeOf(proj.flowById.get(id)))
         const elementIds = [...onRouteComps, ...onRouteFlows]
         worst = worstBandOf(elementIds, ledgerById)
         risk = riskAcceptedOf(elementIds, ledgerById)
-        for (const id of elementIds) addRouteElement(id, j.name)
+        // On a modeled route to this jewel: the same membership over modeled flows alone.
+        const declaredBwd = closure(proj.backward, new Set([j.id]), (e) => e.from, declaredOnly)
+        const onDeclaredRoute = (id) => {
+          const f = proj.flowById.get(id)
+          return f
+            ? !inferredFlowIds.has(id) && declaredClosure.has(f.sourceId) && declaredBwd.has(f.targetId)
+            : declaredClosure.has(id) && declaredBwd.has(id)
+        }
+        for (const id of elementIds) {
+          addRouteElement(routeElementToJewels, id, j.name)
+          if (!onDeclaredRoute(id)) addRouteElement(routeElementToJewelsViaInferredOnly, id, j.name)
+        }
         // Crossings reported from the representative SHORTEST route (a single,
         // legible number — labeled "shortest route" in the view).
         for (let i = 0; i < sp.edges.length; i++) {
@@ -595,6 +744,13 @@ export function modeAReachability(modelGraph, ledger, originSpec = { kind: 'exte
         riskAccepted: risk.riskAccepted,
         staleRiskAccepted: risk.staleRiskAccepted,
         shortestPath: { nodes: sp.nodes, edges: sp.edges },
+        // Some route to the jewel rides an inferred edge; `onlyViaInferredEdge` when
+        // no modeled flow route reaches it at all.
+        viaInferredEdge: inferredEdges.length > 0,
+        onlyViaInferredEdge: reachable && !isOrigin && !declaredClosure.has(j.id),
+        shortestViaInferredEdge: sp.edges.some((id) => inferredFlowIds.has(id)),
+        inferredEdges,
+        inferredLabel: inferredEdgeText(inferredEdges),
       }
     })
     .sort((a, b) => {
@@ -616,11 +772,14 @@ export function modeAReachability(modelGraph, ledger, originSpec = { kind: 'exte
     jewelCount: jewels.length,
     reachableCount,
     unreachableCount: jewels.length - reachableCount,
+    // Reachable jewels no modeled flow route reaches: reachable only via an inferred edge.
+    inferredOnlyCount: jewelsView.filter((j) => j.onlyViaInferredEdge).length,
     hasCrownJewels: jewels.length > 0,
     hasOrigin: originIds.size > 0,
     jewels: jewelsView,
     // In-memory join maps (NOT serialized through GraphQL — consumed by Residual Risk/minimap).
     routeElementToJewels,
+    routeElementToJewelsViaInferredOnly,
     entryPointIds: externalEntryIds(modelGraph),
     crownJewelIds: jewels.map((j) => j.id),
   }
@@ -660,7 +819,7 @@ export function blastRadius(modelGraph, ledger, originId, opts = {}) {
   const scope = opts.scope === 'direct' ? 'direct' : 'full'
   const proj = buildProjection(modelGraph)
   const dataNodes = Array.isArray(modelGraph?.dataNodes) ? modelGraph.dataNodes : []
-  const ledgerById = new Map((Array.isArray(ledger) ? ledger : []).map((e) => [e.id, e]))
+  const ledgerById = new Map(markSetApart(ledger, modelGraph).map((e) => [e.id, e]))
   const { stackOfComponent, boundaryById } = makeStackResolver(modelGraph || {})
 
   const componentTotal = proj.components.length
@@ -679,6 +838,10 @@ export function blastRadius(modelGraph, ledger, originId, opts = {}) {
     boundariesCrossed: [],
     radiusNodeIds: origin ? [originId] : [],
     radiusEdgeIds: [],
+    viaInferredEdge: false,
+    inferredEdges: [],
+    inferredLabel: '',
+    inferredOnlyCount: 0,
   }
   if (!origin) return { ...empty, hasOrigin: false }
 
@@ -690,6 +853,13 @@ export function blastRadius(modelGraph, ledger, originId, opts = {}) {
 
   const reachableIds = [...reachableSet].filter((id) => id !== originId)
   if (reachableIds.length === 0) return empty
+
+  // The same set over modeled flows alone: a node outside it is in the radius only
+  // through an inferred edge.
+  const declaredSet =
+    scope === 'direct'
+      ? new Set([originId, ...(proj.forward.get(originId) ?? []).filter(declaredOnly).map((e) => e.to)])
+      : closure(proj.forward, new Set([originId]), (e) => e.to, declaredOnly)
 
   const originIds = new Set([originId])
   const nodes = reachableIds
@@ -721,6 +891,11 @@ export function blastRadius(modelGraph, ledger, originId, opts = {}) {
       // crosses into to reach this asset", drillable like the Boundary Crossings
       // tab. crossingsForHop is direction-agnostic structural (origin↔node here).
       const crossings = crossingsForHop(stackOfComponent, boundaryById, originId, id)
+      // In the radius only through an inferred edge: the ones its shortest route rides.
+      const viaInferredEdge = !declaredSet.has(id)
+      const inferredOnRoute = viaInferredEdge
+        ? sp.edges.map((fid) => inferredEdgeOf(proj.flowById.get(fid))).filter(Boolean)
+        : []
       return {
         id,
         name: c?.name ?? ledgerById.get(id)?.name ?? '(not in snapshot)',
@@ -734,6 +909,8 @@ export function blastRadius(modelGraph, ledger, originId, opts = {}) {
         crossings, // [{ boundaryId, boundaryName, direction: 'EXIT'|'ENTER' }]
         crossingCount: crossings.length,
         dataHandled: dataHandledByNode(dataNodes, id),
+        viaInferredEdge, // in the radius only through an inferred edge
+        inferredLabel: inferredEdgeText(inferredOnRoute),
       }
     })
     .sort((a, b) => {
@@ -758,6 +935,7 @@ export function blastRadius(modelGraph, ledger, originId, opts = {}) {
           .map((f) => f.id)
 
   const worstInRadius = worstBandOf([...reachableIds, ...radiusEdgeIds], ledgerById)
+  const inferredEdges = radiusEdgeIds.map((fid) => inferredEdgeOf(proj.flowById.get(fid))).filter(Boolean)
 
   // The distinct trust boundaries separating the origin from the reached assets —
   // the union of every node's NET origin→node crossings (not the per-hop path).
@@ -789,6 +967,11 @@ export function blastRadius(modelGraph, ledger, originId, opts = {}) {
     boundariesCrossed, // distinct trust boundaries the blast crosses into
     radiusNodeIds: [originId, ...reachableIds],
     radiusEdgeIds,
+    // The radius rides an inferred edge; `inferredOnlyCount` nodes are in it only that way.
+    viaInferredEdge: inferredEdges.length > 0,
+    inferredEdges,
+    inferredLabel: inferredEdgeText(inferredEdges),
+    inferredOnlyCount: nodes.filter((n) => n.viaInferredEdge).length,
   }
 }
 

@@ -10,8 +10,8 @@
  */
 import path from 'node:path'
 import { flattenStructure, type ModelStructure } from '@dethernety/dt-core'
-import { validatePathConfinement, assertRealModelTree, writeFileNoFollow } from './path-confinement.js'
-import { readChecked } from './state-store.js'
+import { validatePathConfinement, assertRealModelTree, writeFileNoFollow, ModelTreeError } from './path-confinement.js'
+import { readChecked, readRepoJson, StateFileError } from './state-store.js'
 
 export interface ModuleRef {
   id: string
@@ -68,6 +68,8 @@ export interface DerivationInput {
   dataItems: ReadonlyArray<{ id?: unknown; classData?: unknown }>
   /** Each cached class's module, by class id (only well-formed ones). */
   classModules: ReadonlyMap<string, ModuleRef>
+  /** The flows that are hidden edges on this machine (a verified accept for each): their class is not listed. */
+  hiddenEdgeFlows?: ReadonlyMap<string, unknown>
 }
 
 /** The derived list, in a fixed order: manifest entries, then activeModules, then class modules by name and id. */
@@ -112,7 +114,9 @@ export function deriveManifestModules(input: DerivationInput): DerivedModules {
     if (m) u.fromElements.set(m.id, m)
   }
   const { boundaries, components } = flattenStructure(input.structure)
-  for (const e of [...boundaries, ...components, ...input.dataFlows, ...input.dataItems]) use(e as { id?: unknown; classData?: unknown })
+  // A hidden-edge flow's class is the platform's own hidden-edges module's, which a push need not list.
+  const flows = input.dataFlows.filter((f) => !(typeof f.id === 'string' && input.hiddenEdgeFlows?.has(f.id)))
+  for (const e of [...boundaries, ...components, ...flows, ...input.dataItems]) use(e as { id?: unknown; classData?: unknown })
 
   const fromClasses: ModuleRef[] = []
   for (const [classId, u] of [...uses].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
@@ -193,4 +197,60 @@ export async function recordModulesForPush(dirPath: string, readBytes: Buffer | 
       ? 'manifest.json changed while the push was being prepared, so nothing was pushed. Push again.'
       : 'manifest.json could not be read back to record the derived module list, so nothing was pushed.',
   }
+}
+
+const CLASS_CACHE_DIR = '.dethereal/class-cache'
+/** A class id that is safe as a file name: as an element id must be. */
+const SAFE_CLASS_ID = /^[\w-]+$/
+
+/**
+ * After a push wrote the platform's model back, point each class-cache entry at the module the written elements name
+ * for its class. Module ids are the platform's own: a model built against one platform and pushed to another comes
+ * back naming the second platform's module, and an entry still naming the first would read as a conflict in Gate 2.
+ *
+ * Only an existing entry whose module id differs, only for a class whose elements name one module, and only its
+ * `module`: every other entry is left byte for byte. The entry is read as Gate 2 reads it; one Gate 2 cannot use
+ * (malformed, too large) holds no module to conflict and is left alone. Any other read or write failure is a warning.
+ */
+export async function alignClassCacheModules(
+  dirPath: string,
+  model: { structure: ModelStructure; dataFlows: readonly unknown[]; dataItems: readonly unknown[] },
+): Promise<string[]> {
+  const named = new Map<string, Map<string, ModuleRef>>()
+  const { boundaries, components } = flattenStructure(model.structure)
+  for (const el of [...boundaries, ...components, ...model.dataFlows, ...model.dataItems]) {
+    const cd = (el as { classData?: { id?: unknown; module?: unknown } | null } | null)?.classData
+    if (!cd || typeof cd !== 'object' || typeof cd.id !== 'string' || !cd.id) continue
+    const m = moduleRef(cd.module)
+    if (!m) continue
+    let seen = named.get(cd.id)
+    if (!seen) named.set(cd.id, (seen = new Map()))
+    seen.set(m.id, m)
+  }
+  const warnings: string[] = []
+  const dir = await validatePathConfinement(dirPath)
+  await assertRealModelTree(dir)
+  for (const [classId, seen] of [...named].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+    if (seen.size !== 1 || !SAFE_CLASS_ID.test(classId)) continue
+    const m = [...seen.values()][0]!
+    const rel = `${CLASS_CACHE_DIR}/${classId}.json`
+    let entry: Record<string, unknown> | null
+    try {
+      entry = await readRepoJson(dir, rel)
+    } catch (err) {
+      if (err instanceof StateFileError && (err.code === 'invalid_json' || err.code === 'not_object' || err.code === 'too_large')) continue
+      warnings.push(`${rel} could not be pointed at the module the model now names (${err instanceof StateFileError ? err.code : 'io'}); run generate_attribute_stubs to refresh it.`)
+      continue
+    }
+    if (!entry || (entry.classId !== undefined && entry.classId !== classId)) continue
+    const cached = moduleRef(entry.module)
+    if (!cached || cached.id === m.id) continue
+    entry.module = { id: m.id, name: m.name }
+    try {
+      await writeFileNoFollow(path.join(dir, rel), JSON.stringify(entry, null, 2), dir)
+    } catch (err) {
+      warnings.push(`${rel} could not be pointed at the module the model now names (${err instanceof ModelTreeError ? err.code : 'unwritable'}); run generate_attribute_stubs to refresh it.`)
+    }
+  }
+  return warnings
 }

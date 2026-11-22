@@ -222,7 +222,7 @@
   import ComponentProfile from './ComponentProfile.vue'
   import { deriveLifecycle, useThreatReportState } from '../composables/useThreatReportState.js'
   import { fetchLiveFingerprint, fetchGradedCoverage } from '../composables/useThreatReportData.js'
-  import { dedupeLedgerElements } from '../lib/aggregateLedger.js'
+  import { dedupeLedgerElements, markSetApart } from '../lib/aggregateLedger.js'
   import { modeAReachability } from '../lib/reachability.js'
   import { buildExposureTechniqueIndex, buildCoverageView } from '../lib/coverageMatrix.js'
   import { exportJson, exportHtml } from '../lib/exportReport.js'
@@ -327,6 +327,9 @@
 
   const snapshot = computed(() => {
     const doc = props.content?.threat_report_dashboard ?? {}
+    // Always present the four graph keys so the pure libs never see undefined;
+    // dataNodes may be absent on an older snapshot — default it.
+    const modelGraph = { boundaries: [], components: [], flows: [], dataNodes: [], ...(doc.modelGraph ?? {}) }
     return {
       generated: Boolean(doc.generated),
       generatedAt: doc.generatedAt ?? '',
@@ -335,11 +338,11 @@
       boundaryCount: doc.boundaryCount ?? 0,
       modelId: doc.modelId ?? props.scopeId ?? '',
       // dedupe defends every downstream view + total against duplicate element
-      // nodes in the source model; applyEdits then overlays optimistic edits.
-      ledger: applyEdits(dedupeLedgerElements(doc.ledger ?? [])),
-      // Always present the four graph keys so the pure libs never see undefined;
-      // dataNodes may be absent on an older snapshot — default it.
-      modelGraph: { boundaries: [], components: [], flows: [], dataNodes: [], ...(doc.modelGraph ?? {}) },
+      // nodes in the source model; applyEdits then overlays optimistic edits; the
+      // findings set apart (Inferred Path on a hidden-edge flow) are marked once here
+      // for every view.
+      ledger: markSetApart(applyEdits(dedupeLedgerElements(doc.ledger ?? [])), modelGraph),
+      modelGraph,
       // Declared-zone data-flow-policy block (Boundary Crossings). `effectiveZones` = per-boundary
       // declared effective zone. Absent on pre-zoning snapshots — default it so the pure engine
       // never sees undefined.
@@ -369,7 +372,7 @@
   // findings-ledger mismatch signal) so the same derivation isn't recomputed in
   // each. Children still accept :coverage/:ledger and fall back to building it
   // themselves when this prop is absent, so they keep working standalone.
-  const coverageView = computed(() => buildCoverageView(coverageData.value, snapshot.value.ledger))
+  const coverageView = computed(() => buildCoverageView(coverageData.value, snapshot.value.ledger, snapshot.value.modelGraph))
 
   const lifecycle = computed(() =>
     deriveLifecycle({

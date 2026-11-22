@@ -5,6 +5,12 @@
     ],
     "write": true
   },
+  "dethereal-hidden-edge-analyst": {
+    "mcp": [
+      "mcp__dethereal__search_mitre_attack"
+    ],
+    "write": false
+  },
   "dethereal-infrastructure-scout": {
     "mcp": [
       "mcp__dethereal__get_classes"

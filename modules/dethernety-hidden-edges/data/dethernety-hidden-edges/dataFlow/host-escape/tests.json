@@ -1,0 +1,168 @@
+[
+  {
+    "name": "Minimal Input",
+    "description": "Empty input: no technique ids, no exposure",
+    "input": {},
+    "expectedExposures": []
+  },
+  {
+    "name": "One Technique",
+    "description": "One path technique gives one exposure",
+    "input": {
+      "technique_ids": [
+        "T1021"
+      ],
+      "tier": "high",
+      "hidden_edge_kind": "remote-service"
+    },
+    "expectedExposures": [
+      "Inferred remote service path: T1021"
+    ]
+  },
+  {
+    "name": "Ten Techniques",
+    "description": "Ten well-formed ids give ten exposures",
+    "input": {
+      "technique_ids": [
+        "T1021",
+        "T1021.001",
+        "T1021.002",
+        "T1021.004",
+        "T1078",
+        "T1078.003",
+        "T1550",
+        "T1550.001",
+        "T1611",
+        "T1210"
+      ],
+      "tier": "medium"
+    },
+    "expectedExposures": [
+      "Inferred hidden edge path: T1021",
+      "Inferred hidden edge path: T1021.001",
+      "Inferred hidden edge path: T1021.002",
+      "Inferred hidden edge path: T1021.004",
+      "Inferred hidden edge path: T1078",
+      "Inferred hidden edge path: T1078.003",
+      "Inferred hidden edge path: T1550",
+      "Inferred hidden edge path: T1550.001",
+      "Inferred hidden edge path: T1611",
+      "Inferred hidden edge path: T1210"
+    ]
+  },
+  {
+    "name": "Eleven Techniques",
+    "description": "Only the first ten ids are used",
+    "input": {
+      "technique_ids": [
+        "T1021",
+        "T1021.001",
+        "T1021.002",
+        "T1021.004",
+        "T1078",
+        "T1078.003",
+        "T1550",
+        "T1550.001",
+        "T1611",
+        "T1210",
+        "T1003"
+      ],
+      "tier": "low"
+    },
+    "expectedExposures": [
+      "Inferred hidden edge path: T1021",
+      "Inferred hidden edge path: T1021.001",
+      "Inferred hidden edge path: T1021.002",
+      "Inferred hidden edge path: T1021.004",
+      "Inferred hidden edge path: T1078",
+      "Inferred hidden edge path: T1078.003",
+      "Inferred hidden edge path: T1550",
+      "Inferred hidden edge path: T1550.001",
+      "Inferred hidden edge path: T1611",
+      "Inferred hidden edge path: T1210"
+    ]
+  },
+  {
+    "name": "Malformed Ids",
+    "description": "Ids that are not ATT&CK technique ids, and values that are not strings, give nothing",
+    "input": {
+      "technique_ids": [
+        "lateral movement",
+        "T10211",
+        "t1021",
+        "AML.T0051",
+        7,
+        null,
+        [
+          "T1021"
+        ],
+        "T1611"
+      ]
+    },
+    "expectedExposures": [
+      "Inferred hidden edge path: T1611"
+    ]
+  },
+  {
+    "name": "Malformed Ids Count Toward The Ten",
+    "description": "Only the first ten entries are read, so malformed ones among them push later valid ids out",
+    "input": {
+      "technique_ids": [
+        "bad",
+        "bad",
+        "bad",
+        "bad",
+        "bad",
+        "bad",
+        "bad",
+        "bad",
+        "bad",
+        "T1021",
+        "T1611"
+      ]
+    },
+    "expectedExposures": [
+      "Inferred hidden edge path: T1021"
+    ]
+  },
+  {
+    "name": "Wrong-Typed Input",
+    "description": "A technique_ids value that is not an array gives nothing",
+    "input": {
+      "technique_ids": "T1021",
+      "tier": [
+        "high"
+      ]
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Wrong-Typed Tier",
+    "description": "A tier that is not one of the three gives the low tier, and the ids still count",
+    "input": {
+      "technique_ids": [
+        "T1021"
+      ],
+      "tier": [
+        "high"
+      ]
+    },
+    "expectedExposures": [
+      "Inferred hidden edge path: T1021"
+    ]
+  },
+  {
+    "name": "Repeated Id",
+    "description": "A repeated id gives one exposure",
+    "input": {
+      "technique_ids": [
+        "T1611",
+        "T1611"
+      ],
+      "hidden_edge_kind": "host-escape"
+    },
+    "expectedExposures": [
+      "Inferred host escape path: T1611"
+    ]
+  }
+]

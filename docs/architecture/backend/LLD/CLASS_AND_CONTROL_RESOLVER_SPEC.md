@@ -394,6 +394,8 @@ type CoverageSummary {
   mitigated: Int!
   unmitigated: Int!
   unaddressable: Int!
+  configuredCoverage: Int!
+  noMitreChain: Int!
   coveragePct: Float!
 }
 ```
@@ -535,6 +537,8 @@ If the model has zero exposures (analysis not yet run), return:
     "mitigated": 0,
     "unmitigated": 0,
     "unaddressable": 0,
+    "configuredCoverage": 0,
+    "noMitreChain": 0,
     "coveragePct": 0
   }
 }

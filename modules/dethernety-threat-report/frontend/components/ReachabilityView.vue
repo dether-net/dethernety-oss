@@ -35,9 +35,10 @@
     <p class="trd-reach-caveat">
       <strong>Flow routes and the threats on them</strong> — not attack paths.
       Topological: hop count is proximity, not attacker effort; this does
-      <strong>not</strong> model credential reuse or token theft. An unreachable
-      jewel means <strong>no modeled flow route</strong> (a modeling gap — see the
-      scope banner), never "segmented" or "safe".
+      <strong>not</strong> model credential reuse or token theft, except as an
+      <strong>inferred edge</strong> an operator accepted, which every route using
+      one names. An unreachable jewel means <strong>no modeled flow route</strong>
+      (a modeling gap — see the scope banner), never "segmented" or "safe".
     </p>
 
     <!-- mode toggle -->
@@ -157,6 +158,7 @@
                 <button type="button" class="trd-drill-mini trd-jewel-name" @click="$emit('drill', j.jewelId)" :title="`Open ${j.jewelName} profile`">{{ j.jewelName }}</button>
                 <template v-if="j.reachable">
                   <span class="trd-jewel-metric">reachable<span v-if="!j.isOrigin"> · shortest route {{ j.minHops }} hop{{ j.minHops === 1 ? '' : 's' }} · {{ j.crossingCount }} crossing{{ j.crossingCount === 1 ? '' : 's' }}</span></span>
+                  <span v-if="j.viaInferredEdge" class="trd-inferred" title="a route to this jewel rides an inferred edge an operator accepted, not a modeled flow">{{ j.onlyViaInferredEdge ? 'only ' : '' }}{{ j.inferredLabel }}</span>
                 </template>
                 <span v-else class="trd-jewel-noroute">no modeled flow route <span class="trd-muted">— see scope banner</span></span>
               </div>
@@ -201,7 +203,8 @@
         <div v-if="chokes && chokes.reachable" class="trd-choke" role="group" aria-label="Choke points — nodes on every modeled route">
           <template v-if="chokes.chokePoints.length">
             <p class="trd-choke-head">
-              Every modeled route passes through<template v-if="chokes.chokePoints.length > 1">, in order</template>:
+              Every {{ routeWord }} passes through<template v-if="chokes.chokePoints.length > 1">, in order</template>:
+              <span v-if="chokes.viaInferredEdge" class="trd-inferred" title="some route between them rides an inferred edge an operator accepted">{{ chokes.inferredLabel }}</span>
             </p>
             <div class="trd-choke-chain">
               <template v-for="(c, ci) in chokes.chokePoints" :key="c.id">
@@ -215,17 +218,28 @@
               </template>
             </div>
             <p class="trd-choke-note">
-              Controlling any one severs every <em>modeled</em> flow route between them — not unmodeled
+              Controlling any one severs every <em>{{ routeWord }}</em> between them — not unmodeled
               flows, shared credentials, or non-flow lateral movement.<template v-if="modeB && modeB.capped"> The route list below is capped, but this choke-point analysis is complete.</template>
             </p>
           </template>
           <p v-else-if="chokes.hasDirectFlow" class="trd-choke-note">
             A direct modeled flow connects <strong>{{ nameOf(mbOrigin) }}</strong> →
             <strong>{{ nameOf(mbTarget) }}</strong> — no intermediary to control.
+            <span v-if="chokes.viaInferredEdge" class="trd-inferred" title="some route between them rides an inferred edge an operator accepted">{{ chokes.inferredLabel }}</span>
+          </p>
+          <p v-else-if="chokes.directInferredEdge" class="trd-choke-note">
+            An inferred edge connects <strong>{{ nameOf(mbOrigin) }}</strong> →
+            <strong>{{ nameOf(mbTarget) }}</strong> directly — no intermediary to control.
+            <span class="trd-inferred" title="an inferred edge an operator accepted, not a modeled flow">{{ chokes.inferredLabel }}</span>
           </p>
           <p v-else class="trd-choke-note">
             No single choke point — at least two internally disjoint routes exist; controlling one node
-            won't sever modeled flow. Not a segmentation guarantee.
+            won't sever every {{ routeWord }}. Not a segmentation guarantee.
+            <span v-if="chokes.viaInferredEdge" class="trd-inferred" title="some route between them rides an inferred edge an operator accepted">{{ chokes.inferredLabel }}</span>
+          </p>
+          <!-- A declared choke point an inferred edge goes around: named, never silently dropped. -->
+          <p v-for="b in chokes.bypassedChokePoints" :key="b.id" class="trd-choke-note trd-choke-bypassed">
+            <span class="trd-inferred" aria-hidden="true">bypassed</span> {{ b.text }}
           </p>
         </div>
 
@@ -263,6 +277,7 @@
                 <button type="button" class="trd-linkbtn" @click="selectRoute(idx)">
                   Route {{ idx + 1 }} · {{ r.hopCount }} hop{{ r.hopCount === 1 ? '' : 's' }} · {{ r.crossingCount }} crossing{{ r.crossingCount === 1 ? '' : 's' }}
                 </button>
+                <span v-if="r.viaInferredEdge" class="trd-inferred" title="this route rides an inferred edge an operator accepted, not a modeled flow">{{ r.inferredLabel }}</span>
               </div>
               <!-- the linearised subway strip -->
               <div class="trd-strip">
@@ -286,6 +301,7 @@
                     >{{ r.hops[ni].flowName || '(flow)' }}</button>
                     <span class="trd-strip-line" aria-hidden="true">──</span>
                     <span class="trd-hop-marks">
+                      <span v-if="r.hops[ni].inferred" class="trd-inferred" title="an inferred edge an operator accepted, not a modeled flow">{{ r.hops[ni].inferredLabel }}</span>
                       <span v-if="r.hops[ni].maxSensitivity" class="trd-sens" :class="`trd-sens--${String(r.hops[ni].maxSensitivity).toLowerCase()}`" :title="`carries ${r.hops[ni].sensitivityLabel}`">{{ r.hops[ni].sensitivityLabel }}</span>
                       <span v-else-if="r.hops[ni].unclassifiedInMotion" class="trd-sens trd-sens--unclassified">unclassified</span>
                       <button v-for="(c, ci) in r.hops[ni].crossings" :key="ci" type="button" class="trd-cross trd-cross-btn" :class="`trd-cross--${c.direction.toLowerCase()}`" @click="$emit('drill', c.boundaryId)" :title="`Open ${c.boundaryName} profile (${c.direction})`">{{ c.direction === 'EXIT' ? '◂' : '▸' }} {{ c.boundaryName }}</button>
@@ -359,6 +375,7 @@
             <span v-if="blast.worstInRadius.band" class="trd-band" :class="`trd-band--${blast.worstInRadius.band}`">
               <span class="trd-dot" :class="`trd-dot--${blast.worstInRadius.band}`" aria-hidden="true">⬤</span> worst in radius: {{ bandLabel(blast.worstInRadius.band) }}
             </span>
+            <span v-if="blast.viaInferredEdge" class="trd-inferred" title="the radius rides an inferred edge an operator accepted">{{ blast.inferredLabel }}<template v-if="blast.inferredOnlyCount"> · {{ blast.inferredOnlyCount }} reached only that way</template></span>
           </div>
 
           <!-- … then the containment detail on its own row, so a long boundary list
@@ -381,6 +398,7 @@
                 <span class="trd-strip-glyph" :class="{ 'trd-strip-glyph--jewel': n.crownJewel }" aria-hidden="true">{{ n.crownJewel ? '⬢' : '◉' }}</span>
                 <button type="button" class="trd-drill-mini trd-jewel-name" @click="$emit('drill', n.id)" :title="`Open ${n.name} profile`">{{ n.name }}</button>
                 <span class="trd-jewel-metric">{{ n.minHops }} hop{{ n.minHops === 1 ? '' : 's' }}</span>
+                <span v-if="n.viaInferredEdge" class="trd-inferred" title="in the radius only through an inferred edge an operator accepted">only {{ n.inferredLabel }}</span>
                 <!-- the FIRST hop out of the breached origin toward this node — the flow the attacker
                      rides first + the data it carries in motion (drillable into the flow's profile) -->
                 <span v-if="n.firstFlow" class="trd-br-firstflow">
@@ -494,6 +512,9 @@
       ? chokePoints(props.modelGraph, props.ledger, mbOrigin.value, mbTarget.value)
       : null,
   )
+  // What "every route" means here: modeled flows, or modeled flows plus the inferred
+  // edges an operator accepted when a route between the two rides one.
+  const routeWord = computed(() => (chokes.value?.viaInferredEdge ? 'route (incl. inferred edges)' : 'modeled route'))
 
   // Mode C — the forward blast radius of the chosen node (full closure or 1-hop).
   const blast = computed(() =>
@@ -697,6 +718,8 @@
   .trd-jewel-noroute { font-size: 0.8rem; color: #8a5a00; }
   .trd-jewel-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.35rem; font-size: 0.8rem; }
   .trd-jewel-ra { color: #8a5a00; }
+  .trd-choke-bypassed { color: #7a5fc0; }
+  .trd-inferred { display: inline-block; border: 1px dashed currentColor; border-radius: 10px; padding: 0 6px; font-size: 0.66rem; color: #7a5fc0; white-space: nowrap; }
   .trd-jewel-ra--stale { color: #c0392b; font-weight: 600; }
   .trd-jewel-actions { margin-left: auto; display: inline-flex; gap: 0.7rem; }
 

@@ -29,7 +29,7 @@ Getting started:    {{cmd:status}}, {{cmd:login}}, {{cmd:help}}
 Viewing:            {{cmd:view}}
 Modeling:           {{cmd:create}}, {{cmd:discover}}, {{cmd:add}}, {{cmd:remove}}
 Enrichment:         {{cmd:classify}}, {{cmd:enrich}} (controls: {{cmd:enrich}} --focus controls)
-Review & analysis:  {{cmd:review}}, {{cmd:surface}}, {{cmd:triage}}
+Review & analysis:  {{cmd:review}}, {{cmd:surface}}, {{cmd:triage}}, {{cmd:hidden-edges}}
 Sync:               {{cmd:sync}}
 
 Full workflow:      {{cmd:threat-model}} — the guided process, recommended for a new model
@@ -56,5 +56,6 @@ Write each suggestion's `command` the way the command list spells that command.
 | {{cmd:review}} | Gates, quality breakdown, gaps and readiness (read-only) | `[directory-path] [--structure-only]` |
 | {{cmd:surface}} | Attack surface: components, boundary crossings, control coverage (read-only) | `[directory-path]` |
 | {{cmd:triage}} | Triage the platform's exposures: grouped proposals you review, then a gated apply | `[directory-path] [--stale] [--element <id>]` |
+| {{cmd:hidden-edges}} | Review the inferred attack paths the platform proposes; the accepted ones become flows | `[directory-path]` |
 | {{cmd:sync}} | Push to or pull from the platform, sync status, control-library recovery | `push\|pull\|status\|promote-external-edit\|tombstone\|repair-wal [directory-path]` |
 | {{cmd:threat-model}} | The guided end-to-end workflow, from scope to sync | `[system description or model path] [--full-scan] [--full\|--quick]` |

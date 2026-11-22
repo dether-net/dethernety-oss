@@ -15,6 +15,7 @@ import {
   type GatesResult,
 } from '../gates.js'
 import { gateModel, writeGateModel, type GateModel } from './fixtures/gate-model.js'
+import { acceptHiddenEdge, addHiddenEdge, type HiddenEdge } from './fixtures/hidden-edge.js'
 
 // Each test writes and gates whole models: slow under a full-suite load.
 vi.setConfig({ testTimeout: 30_000 })
@@ -578,6 +579,81 @@ describe('Gate 3 report', () => {
     })
     expect(r.gate3.criteria.C1.failing).toHaveLength(MAX_FAILING)
     expect(r.gate3.criteria.C1.failing_total).toBe(MAX_FAILING + 20)
+  })
+})
+
+describe('hidden-edge flows', () => {
+  // Into the crown-jewel store from the Internet: cross-boundary, sensitive and on Tier 2, unnamed and unprotected.
+  const EDGE = { id: 'he-1', source: 'x-customer', target: 'c-db' }
+  async function gatesWithEdge(accepted: boolean, edge: Partial<HiddenEdge> = {}, mutate?: (m: GateModel) => void): Promise<GatesResult> {
+    const m = gateModel()
+    addHiddenEdge(m, { ...EDGE, ...edge })
+    mutate?.(m)
+    const dir = path.join(root, `m${seq++}`)
+    await writeGateModel(dir, m)
+    if (accepted) await acceptHiddenEdge(dir, { ...EDGE, ...edge })
+    return computeGates(await loadGateInput(dir))
+  }
+
+  it('leaves an accepted hidden edge out of Gate 1, Gate 3 and the report, and counts it apart', async () => {
+    const ref = await gatesOf()
+    const r = await gatesWithEdge(true, { description: '' })
+    expect(ref.gate3.report.hidden_edge_flows).toBe(0)
+    expect(r.gate1).toEqual(ref.gate1)
+    expect(r.gate2.verdict).toBe('PASS')
+    expect(r.gate3.criteria).toEqual(ref.gate3.criteria)
+    expect(r.gate3.report).toEqual({ ...ref.gate3.report, hidden_edge_flows: 1 })
+    expect(r.lints.filter((l) => l.element?.id === 'he-1')).toEqual([])
+  })
+
+  it('reads the same flow as an ordinary one without this machine\'s accept', async () => {
+    const r = await gatesWithEdge(false, { description: '' })
+    expect(r.gate3.report.hidden_edge_flows).toBe(0)
+    for (const c of ['C3', 'C4', 'C8'] as const) expect(ids(r.gate3.criteria[c]), c).toContain('he-1')
+    expect(ids(r.gate1.checks.unnamed_flows!)).toEqual(['he-1'])
+    expect(ids(r.gate1.checks.unprotected_cross_boundary_flows!)).toEqual(['he-1'])
+    // Its path techniques are MITRE annotations on an ordinary flow, which block Gate 2.
+    expect(r.lints.some((l) => l.rule === 'mitre_technique_field' && l.element?.id === 'he-1')).toBe(true)
+    expect(r.gate2.verdict).toBe('FAIL')
+  })
+
+  it('C9 counts no credential that only a hidden edge requires', async () => {
+    const attributes = { hidden_edge_kind: 'remote-service', technique_ids: ['T1021'], required_credentials: ['backup-cred'] }
+    const scoped = (m: GateModel) => { cAttrs(m, 'c-db').credential_scope = ['db-app-cred', 'backup-cred'] }
+    const hidden = await gatesWithEdge(true, { attributes }, scoped)
+    expect(ids(hidden.gate3.criteria.C9)).toEqual(['c-db'])
+    expect(hidden.gate3.criteria.C9.failing[0]!.detail).toContain('backup-cred')
+    expect((await gatesWithEdge(false, { attributes }, scoped)).gate3.criteria.C9.verdict).toBe('PASS')
+  })
+
+  it('reads every flow as ordinary when the decisions file cannot be read', async () => {
+    const m = gateModel()
+    addHiddenEdge(m, EDGE)
+    const dir = path.join(root, `m${seq++}`)
+    await writeGateModel(dir, m)
+    await acceptHiddenEdge(dir, EDGE)
+    const file = path.join(dir, '.dethereal', 'hidden-edges-decisions.json')
+    await fs.chmod(file, 0o000)
+    try {
+      const r = computeGates(await loadGateInput(dir))
+      expect(r.gate3.report.hidden_edge_flows).toBe(0)
+      expect(ids(r.gate3.criteria.C3)).toContain('he-1')
+    } finally {
+      await fs.chmod(file, 0o600)
+    }
+  })
+
+  it('Gate 2 still reads it: the minimum structure, its endpoints and its attribute file', async () => {
+    const only = await gatesWithEdge(true, {}, (m) => {
+      m.dataFlows = m.dataFlows.filter((f) => f.id === 'he-1')
+      m.attributes.dataFlows = { 'he-1': m.attributes.dataFlows['he-1']! }
+    })
+    expect(only.gate3.report.hidden_edge_flows).toBe(1)
+    expect(only.gate2.checks.minimum_structure!.verdict).toBe('PASS')
+    expect(only.gate2.checks.no_orphan_attribute_files!.verdict).toBe('PASS')
+    const dangling = await gatesWithEdge(true, { target: 'c-gone' })
+    expect(dangling.gate3.report.hidden_edge_flows).toBe(1)
+    expect(ids(dangling.gate2.checks.flow_endpoints_exist!)).toEqual(['he-1'])
   })
 })
 

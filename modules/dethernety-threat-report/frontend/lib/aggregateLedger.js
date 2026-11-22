@@ -46,6 +46,51 @@ export function isLive(finding) {
   return isLiveKind(finding?.dispositionKind)
 }
 
+// The category of the exposures a hidden-edge flow carries: one per technique of an
+// inferred attack path an operator accepted. On such a flow they describe a route, not
+// a weakness of the model as drawn, so every severity and count total leaves them out
+// and reports how many it set apart. The platform's own constant; this standalone
+// bundle cannot import it.
+export const INFERRED_PATH_CATEGORY = 'Inferred Path'
+
+export function isInferredPath(finding) {
+  return finding?.category === INFERRED_PATH_CATEGORY
+}
+
+// A snapshot flow is a hidden edge when it carries `hiddenEdge` (the facts the edge
+// records: kind, tier, privilege granted). A snapshot from before those facts were kept
+// may hold `true`: still a hidden edge, just one that says nothing about itself.
+export function isHiddenEdgeFlow(flow) {
+  return Boolean(flow?.hiddenEdge)
+}
+
+export function hiddenEdgeFlowIds(modelGraph) {
+  const flows = Array.isArray(modelGraph?.flows) ? modelGraph.flows : []
+  return new Set(flows.filter(isHiddenEdgeFlow).map((f) => f.id))
+}
+
+/**
+ * Mark the findings set apart: an Inferred Path finding ON a hidden-edge flow (both
+ * facts, never one alone — an Inferred Path finding on any other element counts like
+ * any other). Returns the ledger with `setApart: true` on those findings; marks already
+ * there are kept, so it is safe to apply twice, and a ledger with no hidden-edge flow in
+ * `modelGraph` comes back as it was.
+ */
+export function markSetApart(ledger, modelGraph) {
+  const els = Array.isArray(ledger) ? ledger : []
+  const hidden = hiddenEdgeFlowIds(modelGraph)
+  if (hidden.size === 0) return els
+  return els.map((el) =>
+    el && hidden.has(el.id) && (el.findings ?? []).some((f) => isInferredPath(f) && !isSetApart(f))
+      ? { ...el, findings: el.findings.map((f) => (isInferredPath(f) ? { ...f, setApart: true } : f)) }
+      : el,
+  )
+}
+
+export function isSetApart(finding) {
+  return finding?.setApart === true
+}
+
 // Defensive de-duplication of ledger ELEMENTS by `id`. A model can carry duplicate
 // element nodes (the same `id` property on distinct graph nodes — a data-integrity
 // artefact, e.g. a re-imported flow), and the gather's `collect(DISTINCT node)`
@@ -110,16 +155,20 @@ export function bySeverity(a, b) {
  * Aggregate the ledger into the Residual Risk view model.
  *
  * @param {Array} ledger  the snapshot doc's `ledger` (LedgerElement[])
+ * @param {object} [modelGraph]  the snapshot's modelGraph, to tell hidden-edge flows
+ *   (a ledger already marked by markSetApart needs none)
  * @returns {{ totals, groups }}
- *   totals: { findings, live, dispositioned, stale, byKind, byProvenance, byBand, byLifecycle }
+ *   totals: { findings, live, dispositioned, stale, byKind, byProvenance, byBand, byLifecycle,
+ *     inferredPathSetApart } — the findings set apart (markSetApart) are in none of the
+ *     totals or groups; `inferredPathSetApart` counts them.
  *   groups: one per finding-bearing element, each
  *     { id, name, type, live[], dispositioned[], supportingControls,
  *       liveCount, dispositionedCount } — live sorted by severity, dispositioned
  *     kept (muted) and sorted by kind then name. Elements ordered: those with
  *     live findings first, then by worst live band, then name.
  */
-export function aggregateLedger(ledger) {
-  const els = Array.isArray(ledger) ? ledger : []
+export function aggregateLedger(ledger, modelGraph) {
+  const els = markSetApart(ledger, modelGraph)
 
   const totals = {
     findings: 0,
@@ -133,12 +182,15 @@ export function aggregateLedger(ledger) {
     // findings come solely from HAS_EXPOSURE). `confirmed` = reviewed & kept open;
     // `pending` = not yet reviewed. The number a lead reads to size the real backlog.
     byLifecycle: { confirmed: 0, pending: 0 },
+    inferredPathSetApart: 0,
   }
 
   const groups = []
 
   for (const el of els) {
-    const findings = (el.findings ?? []).map(annotate)
+    const own = el.findings ?? []
+    const findings = own.filter((f) => !isSetApart(f)).map(annotate)
+    totals.inferredPathSetApart += own.length - findings.length
     if (findings.length === 0) continue // the Residual Risk view is finding-focused
 
     const live = []

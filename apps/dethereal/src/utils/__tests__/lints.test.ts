@@ -6,6 +6,7 @@ import { canonicalFlag, isPlaceholderToken, regulatoryFlagFloor, type LintFindin
 import { validateModelTool } from '../../tools/validate-model.tool.js'
 import { modelStateTool } from '../../tools/model-state.tool.js'
 import { gateModel, writeGateModel, type GateModel } from './fixtures/gate-model.js'
+import { acceptHiddenEdge, addHiddenEdge } from './fixtures/hidden-edge.js'
 
 let root: string
 let seq = 0
@@ -107,6 +108,18 @@ describe('MITRE technique annotations', () => {
   it('catches a MITRE key moved into the structure', async () => {
     const lints = await lintsOf((m) => { component(m, 'c-web').mitre_techniques = ['T1190'] })
     expect(of(lints, 'mitre_technique_field')).toEqual(['c-web'])
+  })
+
+  it('leaves the path techniques of a hidden edge this machine accepted alone, and still catches them on an ordinary flow', async () => {
+    const edge = { id: 'he-1', source: 'x-customer', target: 'c-db' }
+    const withEdge = (m: GateModel) => {
+      addHiddenEdge(m, edge)
+      fAttrs(m, 'f-submit').technique_ids = ['T1190']
+    }
+    const accepted = computeGates(await loadGateInput(await dirOf(withEdge, (dir) => acceptHiddenEdge(dir, edge))))
+    expect(of(accepted.lints, 'mitre_technique_field')).toEqual(['f-submit'])
+    const unaccepted = await lintsOf(withEdge)
+    expect(of(unaccepted, 'mitre_technique_field')).toEqual(['f-submit', 'he-1'])
   })
 })
 

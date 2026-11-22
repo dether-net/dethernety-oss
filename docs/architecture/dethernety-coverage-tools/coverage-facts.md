@@ -2,7 +2,7 @@
 
 The `gradedCoverage` field returns a JSON-encoded `CoverageResult`: the complete, raw coverage picture for one model. This document is the field-by-field reference for that payload — every interface, every enum, the soft and uncovered semantics, how a consumer joins the facts to its own findings, and exactly what a consumer must add on top. It is the contract a consumer codes against.
 
-**What this document covers:** the `gradedCoverage` field and its JSON-string return; the full `CoverageResult` structure with a table per nested interface; the tier and function enumerations; soft and uncovered semantics; the consumer join model; and the explicit list of interpretation steps the primitive deliberately omits. For how these facts are produced from the graph, see [architecture.md](./architecture.md).
+**What this document covers:** the `gradedCoverage` field and its JSON-string return; the full `CoverageResult` structure with a table per nested interface; the tier and function enumerations; soft and uncovered semantics; the `Inferred Path` exposures set apart; the consumer join model; and the explicit list of interpretation steps the primitive deliberately omits. For how these facts are produced from the graph, see [architecture.md](./architecture.md).
 
 ---
 
@@ -27,7 +27,7 @@ The payload is returned as a JSON string rather than a typed GraphQL object so t
 |-------|------|-------------|
 | `modelId` | `string` | The model the facts were computed for (echoes the argument). |
 | `generatedAt` | `string` | ISO-8601 timestamp of when the result was assembled. |
-| `exposures` | `ExposureCoverage[]` | One entry per distinct exposure on the model's elements, sorted by `exposureId`. |
+| `exposures` | `ExposureCoverage[]` | One entry per distinct exposure on the model's elements, sorted by `exposureId`, except the exposures [set apart](#inferred-path-exposures-set-apart). |
 | `techniques` | `Record<attackId, TechniqueInfo>` | Human-readable name and description per technique, deduped across all exposures. The key is the ATT&CK id (for example `"T1190"`). |
 | `meta` | `CoverageMeta` | Aggregate counts (see below). |
 
@@ -116,6 +116,7 @@ The deduped per-technique descriptor, keyed by ATT&CK id in `CoverageResult.tech
 | `softExposureCount` | `number` | How many of those are soft (no technique). |
 | `coveredPairsByTier` | `Record<CoverageTier, number>` | Distinct `(exposure, technique)` pairs covered at each tier. |
 | `countermeasuresByTier` | `Record<CoverageTier, number>` | Distinct countermeasures contributing a covering edge at each tier. |
+| `inferredPathSetApart` | `number` | Distinct exposures [set apart](#inferred-path-exposures-set-apart): in none of `exposures`, `techniques` or the counts above. |
 
 Both per-tier maps always carry all three tier keys, defaulting to `0`. These counts are aggregate facts, not a score — they do not net out across tiers (a single pair covered at two tiers counts once under each), and the module computes no percentage from them.
 
@@ -152,6 +153,22 @@ Two distinct "nothing here" cases must not be conflated:
 | **Uncovered technique** | `TechniqueCoverage.covered === false`, `tiers` empty | The exposure does map to this technique, but no element-supporting countermeasure covers it at any tier. |
 
 A soft exposure is *unmappable* (no technique to cover); an uncovered technique is *mapped but unmet*. A consumer that wants a gap list keys on the second; a consumer reporting unmapped findings keys on the first.
+
+---
+
+## Inferred Path exposures set apart
+
+One kind of exposure is not a declared finding to cover: the exposures an accepted **hidden edge** carries. A hidden edge is an inferred attack path recorded as a data flow whose class is in the category `Hidden Edge`; its class policy emits one exposure per path technique, in the category `Inferred Path` (see the [hidden-edges analysis contract](../dethernety-hidden-edges/analysis-contract.md)). Those exposures restate a route the model's other findings already justify, so grading them as coverage would count the same risk twice.
+
+The rule is exact: an exposure is **set apart** only when its category is `Inferred Path` **and** it sits on a `DataFlow` whose class category is `Hidden Edge`.
+
+| Exposure | Treated as |
+|---|---|
+| `Inferred Path` on a flow of a `Hidden Edge` class | Set apart: in no `ExposureCoverage`, its techniques in no `techniques` entry unless another exposure maps them, its tier rows in no count, and counted once in `meta.inferredPathSetApart` |
+| `Inferred Path` on any other element | Counted as usual |
+| Any other category on a flow of a `Hidden Edge` class | Counted as usual |
+
+The set-apart count sits outside every other `meta` count. A consumer that joins these facts to its own finding records shows the count beside its coverage view rather than dropping the exposures silently.
 
 ---
 

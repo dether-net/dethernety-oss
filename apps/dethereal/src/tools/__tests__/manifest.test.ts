@@ -122,7 +122,7 @@ describe('tool manifest', () => {
       'auth_status', 'workspace_status', 'detect_drift', 'validate_model_json', 'get_model_schema',
       'get_example_models', 'list_models', 'get_classes', 'match_classes', 'search_mitre_attack',
       'get_mitre_defend', 'get_control_gaps', 'model_state', 'query_controls', 'query_exposures', 'query_countermeasures',
-      'triage_review', 'get_kg_chain', 'get_class_guide',
+      'triage_review', 'get_kg_chain', 'get_class_guide', 'hidden_edges',
     ]))
     for (const entry of TOOL_MANIFEST) expect(['auto', 'prompt']).toContain(entry.approval)
   })

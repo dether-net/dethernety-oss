@@ -62,6 +62,8 @@ For you, a pair is checked on each file you write: write the floor field beside 
 
 ## Writing
 
+Write only with your file-write or edit tool, never through a shell, a script or a heredoc. Write no script anywhere, and nothing to a scratchpad or temporary folder the harness offers: files go only where these instructions say.
+
 Read the files you will change first, in parallel, in one message.
 Then make every change in one `apply_patch` call: a section per file, with as many hunks as it needs.
 A write that failed is made once more, after reading the file again.

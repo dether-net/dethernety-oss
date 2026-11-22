@@ -1,0 +1,4131 @@
+// Generated from edge-kinds.json by scripts/generate-table.mjs. Do not edit; edit the JSON and regenerate.
+/* eslint-disable */
+export const EDGE_KIND_TABLE: unknown = {
+  "version": 2,
+  "status": "settled",
+  "kinds": [
+    {
+      "kind": "remote-service",
+      "fields": []
+    },
+    {
+      "kind": "credential-reuse",
+      "fields": [
+        {
+          "name": "credential_basis",
+          "values": [
+            "shared_item",
+            "default_account",
+            "instance_role",
+            "kerberos_realm"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "credential-capture",
+      "fields": [
+        {
+          "name": "transport_state",
+          "values": [
+            "cleartext",
+            "tls_unverified",
+            "unstated"
+          ]
+        },
+        {
+          "name": "capture_side",
+          "values": [
+            "initiator_segment",
+            "responder_segment",
+            "both"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "host-escape",
+      "fields": [
+        {
+          "name": "escape_vector",
+          "values": [
+            "configuration",
+            "kernel_or_runtime",
+            "unstated"
+          ]
+        }
+      ]
+    }
+  ],
+  "rows": [
+    {
+      "id": "remote-service/rs-1",
+      "edge_kind": "remote-service",
+      "techniques": [
+        "T1021"
+      ],
+      "anchors": [
+        {
+          "kind": "securityBoundary",
+          "classes": [
+            "Network Segment",
+            "Management & Monitoring Plane"
+          ]
+        }
+      ],
+      "exposed_role": "target",
+      "peer_relation": "in-zone",
+      "reached_types": [
+        "PROCESS"
+      ],
+      "path": {
+        "default": "T1021",
+        "from_cited": [],
+        "by_item_class": []
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "east_west_within_segment_restricted"
+          ],
+          "read_from": "anchor",
+          "classes": [
+            "Network Segment"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [
+            {
+              "class": "Network Segment",
+              "exposure": "Lateral movement on a flat tier"
+            }
+          ],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "east_west_within_segment_restricted"
+          ],
+          "read_from": "reached_ancestor",
+          "classes": [
+            "Network Segment"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [
+            {
+              "class": "Network Segment",
+              "exposure": "Lateral movement on a flat tier"
+            }
+          ],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "east_west_microsegmentation_enforced"
+          ],
+          "read_from": "shared_ancestor",
+          "classes": [
+            "Application Layer"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "east_west_microsegmentation_enforced"
+          ],
+          "read_from": "reached_ancestor",
+          "classes": [
+            "Application Layer"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "remote_admin_access_hardened"
+          ],
+          "read_from": "reached_ancestor",
+          "classes": [
+            "Operating System / Host"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "control_plane_access_mediated_by_pam_with_recording"
+          ],
+          "read_from": "anchor",
+          "classes": [
+            "Management & Monitoring Plane"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "Management & Monitoring Plane",
+              "exposure": "Direct admin-protocol exposure"
+            }
+          ],
+          "techniques": [],
+          "strength": "lowers"
+        }
+      ],
+      "control_breakers": [
+        {
+          "control_classes": [
+            "Firewall Policy"
+          ],
+          "attributes_true": [
+            "east_west_microsegmentation_enforced"
+          ],
+          "credential_item_classes": [],
+          "supports": "reached_end_or_ancestor",
+          "strength": "removes",
+          "techniques": []
+        },
+        {
+          "control_classes": [
+            "Privileged Access Management"
+          ],
+          "attributes_true": [
+            "privileged_access_via_pam_with_session_recording",
+            "bastion_mediates_all_admin_access"
+          ],
+          "credential_item_classes": [],
+          "supports": "reached_end_or_ancestor",
+          "strength": "lowers",
+          "techniques": []
+        },
+        {
+          "control_classes": [
+            "Multi-Factor Authentication"
+          ],
+          "attributes_true": [
+            "mfa_enforced_for_admin"
+          ],
+          "credential_item_classes": [],
+          "supports": "reached_end_or_ancestor",
+          "strength": "lowers",
+          "techniques": []
+        }
+      ],
+      "defaults": {
+        "required_capability": "opportunistic",
+        "required_privilege": "user",
+        "granted_privilege": "user"
+      },
+      "tier_cap": "high",
+      "provenance": "ATT&CK v19 T1021 Remote Services: valid accounts used to log in to a service that accepts remote connections (mitigations M1035, M1032).",
+      "emitters": [
+        "dethernety-general/securityBoundary/network-segment/policies.rego:5",
+        "dethernety-general/securityBoundary/network-segment/policies.rego:50",
+        "dethernety-general/securityBoundary/management-monitoring-plane/policies.rego:123"
+      ]
+    },
+    {
+      "id": "remote-service/rs-1f",
+      "edge_kind": "remote-service",
+      "techniques": [
+        "T1021"
+      ],
+      "anchors": [
+        {
+          "kind": "dataFlow",
+          "classes": [
+            "Secure Remote Access"
+          ],
+          "flow_end": "responder"
+        }
+      ],
+      "exposed_role": "target",
+      "peer_relation": "same-segment",
+      "reached_types": [
+        "PROCESS"
+      ],
+      "path": {
+        "default": "T1021",
+        "from_cited": [],
+        "by_item_class": []
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "east_west_within_segment_restricted"
+          ],
+          "read_from": "reached_ancestor",
+          "classes": [
+            "Network Segment"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "east_west_microsegmentation_enforced"
+          ],
+          "read_from": "shared_ancestor",
+          "classes": [
+            "Application Layer"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "east_west_microsegmentation_enforced"
+          ],
+          "read_from": "reached_ancestor",
+          "classes": [
+            "Application Layer"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "remote_admin_access_hardened"
+          ],
+          "read_from": "reached_ancestor",
+          "classes": [
+            "Operating System / Host"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        }
+      ],
+      "control_breakers": [
+        {
+          "control_classes": [
+            "Firewall Policy"
+          ],
+          "attributes_true": [
+            "east_west_microsegmentation_enforced"
+          ],
+          "credential_item_classes": [],
+          "supports": "reached_end_or_ancestor",
+          "strength": "removes",
+          "techniques": []
+        },
+        {
+          "control_classes": [
+            "Privileged Access Management"
+          ],
+          "attributes_true": [
+            "privileged_access_via_pam_with_session_recording",
+            "bastion_mediates_all_admin_access"
+          ],
+          "credential_item_classes": [],
+          "supports": "reached_end_or_ancestor",
+          "strength": "lowers",
+          "techniques": []
+        },
+        {
+          "control_classes": [
+            "Multi-Factor Authentication"
+          ],
+          "attributes_true": [
+            "mfa_enforced_for_admin"
+          ],
+          "credential_item_classes": [],
+          "supports": "reached_end_or_ancestor",
+          "strength": "lowers",
+          "techniques": []
+        }
+      ],
+      "defaults": {
+        "required_capability": "opportunistic",
+        "required_privilege": "user",
+        "granted_privilege": "user"
+      },
+      "tier_cap": "high",
+      "provenance": "ATT&CK v19 T1021 Remote Services: valid accounts used to log in to a service that accepts remote connections (mitigations M1035, M1032).",
+      "emitters": [
+        "dethernety-general/dataFlow/secure-remote-access/policies.rego:179"
+      ]
+    },
+    {
+      "id": "remote-service/rs-2",
+      "edge_kind": "remote-service",
+      "techniques": [
+        "T1021.001",
+        "T1021.004"
+      ],
+      "anchors": [
+        {
+          "kind": "securityBoundary",
+          "classes": [
+            "Operating System / Host"
+          ]
+        }
+      ],
+      "exposed_role": "target",
+      "peer_relation": "segment-outside-anchor",
+      "reached_types": [
+        "PROCESS",
+        "STORE"
+      ],
+      "path": {
+        "default": "T1021",
+        "from_cited": [
+          "T1021"
+        ],
+        "by_item_class": []
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "east_west_within_segment_restricted"
+          ],
+          "read_from": "reached_ancestor",
+          "classes": [
+            "Network Segment"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "remote_admin_access_hardened"
+          ],
+          "read_from": "anchor",
+          "classes": [
+            "Operating System / Host"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [
+            {
+              "class": "Operating System / Host",
+              "exposure": "Exposed/weak remote administrative access"
+            }
+          ],
+          "techniques": [],
+          "strength": "lowers"
+        }
+      ],
+      "control_breakers": [
+        {
+          "control_classes": [
+            "Firewall Policy"
+          ],
+          "attributes_true": [
+            "east_west_microsegmentation_enforced"
+          ],
+          "credential_item_classes": [],
+          "supports": "reached_end_or_ancestor",
+          "strength": "removes",
+          "techniques": []
+        },
+        {
+          "control_classes": [
+            "Privileged Access Management"
+          ],
+          "attributes_true": [
+            "privileged_access_via_pam_with_session_recording",
+            "bastion_mediates_all_admin_access"
+          ],
+          "credential_item_classes": [],
+          "supports": "reached_end_or_ancestor",
+          "strength": "lowers",
+          "techniques": []
+        },
+        {
+          "control_classes": [
+            "Multi-Factor Authentication"
+          ],
+          "attributes_true": [
+            "mfa_enforced_for_admin"
+          ],
+          "credential_item_classes": [],
+          "supports": "reached_end_or_ancestor",
+          "strength": "lowers",
+          "techniques": []
+        }
+      ],
+      "defaults": {
+        "required_capability": "opportunistic",
+        "required_privilege": "user",
+        "granted_privilege": "admin"
+      },
+      "tier_cap": "high",
+      "provenance": "ATT&CK v19 T1021.001 RDP and T1021.004 SSH: a password or root administrative login on the host, reached from its segment; it reaches what runs on the host.",
+      "emitters": [
+        "dethernety-general/securityBoundary/operating-system-host/policies.rego:191"
+      ]
+    },
+    {
+      "id": "remote-service/rs-3",
+      "edge_kind": "remote-service",
+      "techniques": [
+        "T1210"
+      ],
+      "anchors": [
+        {
+          "kind": "component",
+          "classes": [
+            "Cache / In-Memory Store",
+            "Email Server",
+            "File Storage / Shared Volume",
+            "Monitoring Agent",
+            "User Workstation / Endpoint"
+          ]
+        }
+      ],
+      "exposed_role": "target",
+      "peer_relation": "same-segment",
+      "reached_types": [
+        "PROCESS",
+        "STORE"
+      ],
+      "path": {
+        "default": "T1210",
+        "from_cited": [],
+        "by_item_class": []
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "east_west_within_segment_restricted"
+          ],
+          "read_from": "reached_ancestor",
+          "classes": [
+            "Network Segment"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "east_west_microsegmentation_enforced"
+          ],
+          "read_from": "shared_ancestor",
+          "classes": [
+            "Application Layer"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "east_west_microsegmentation_enforced"
+          ],
+          "read_from": "reached_ancestor",
+          "classes": [
+            "Application Layer"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        }
+      ],
+      "control_breakers": [
+        {
+          "control_classes": [
+            "Firewall Policy"
+          ],
+          "attributes_true": [
+            "east_west_microsegmentation_enforced"
+          ],
+          "credential_item_classes": [],
+          "supports": "reached_end_or_ancestor",
+          "strength": "removes",
+          "techniques": []
+        }
+      ],
+      "defaults": {
+        "required_capability": "targeted",
+        "required_privilege": "user",
+        "granted_privilege": "user"
+      },
+      "tier_cap": "high",
+      "provenance": "ATT&CK v19 T1210 Exploitation of Remote Services: a vulnerable internal service is exploited from another host (mitigations M1030, M1051).",
+      "emitters": [
+        "dethernety-general/component/cache-in-memory-store/policies.rego:114",
+        "dethernety-general/component/email-server/policies.rego:267",
+        "dethernety-general/component/file-storage-shared-volume/policies.rego:5",
+        "dethernety-general/component/monitoring-agent/policies.rego:214",
+        "dethernety-general/component/user-workstation-endpoint/policies.rego:280"
+      ]
+    },
+    {
+      "id": "remote-service/rs-3f",
+      "edge_kind": "remote-service",
+      "techniques": [
+        "T1210"
+      ],
+      "anchors": [
+        {
+          "kind": "dataFlow",
+          "classes": [
+            "Internal Service Communication"
+          ],
+          "flow_end": "responder"
+        }
+      ],
+      "exposed_role": "target",
+      "peer_relation": "same-segment",
+      "reached_types": [
+        "PROCESS",
+        "STORE"
+      ],
+      "path": {
+        "default": "T1210",
+        "from_cited": [],
+        "by_item_class": []
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "east_west_within_segment_restricted"
+          ],
+          "read_from": "reached_ancestor",
+          "classes": [
+            "Network Segment"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "east_west_microsegmentation_enforced"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "Internal Service Communication"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [
+            {
+              "class": "Internal Service Communication",
+              "exposure": "Flat pod network (no default-deny NetworkPolicy)"
+            }
+          ],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "east_west_microsegmentation_enforced"
+          ],
+          "read_from": "reached_ancestor",
+          "classes": [
+            "Application Layer"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        }
+      ],
+      "control_breakers": [
+        {
+          "control_classes": [
+            "Firewall Policy"
+          ],
+          "attributes_true": [
+            "east_west_microsegmentation_enforced"
+          ],
+          "credential_item_classes": [],
+          "supports": "reached_end_or_ancestor",
+          "strength": "removes",
+          "techniques": []
+        }
+      ],
+      "defaults": {
+        "required_capability": "targeted",
+        "required_privilege": "user",
+        "granted_privilege": "user"
+      },
+      "tier_cap": "medium",
+      "provenance": "ATT&CK v19 T1210 Exploitation of Remote Services: a vulnerable internal service is exploited from another host (mitigations M1030, M1051).",
+      "emitters": [
+        "dethernety-general/dataFlow/internal-service-communication/policies.rego:85"
+      ]
+    },
+    {
+      "id": "remote-service/rs-3b",
+      "edge_kind": "remote-service",
+      "techniques": [
+        "T1210"
+      ],
+      "anchors": [
+        {
+          "kind": "securityBoundary",
+          "classes": [
+            "Application Layer"
+          ]
+        }
+      ],
+      "exposed_role": "target",
+      "peer_relation": "in-zone",
+      "reached_types": [
+        "PROCESS",
+        "STORE"
+      ],
+      "path": {
+        "default": "T1210",
+        "from_cited": [],
+        "by_item_class": []
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "east_west_microsegmentation_enforced"
+          ],
+          "read_from": "anchor",
+          "classes": [
+            "Application Layer"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [
+            {
+              "class": "Application Layer",
+              "exposure": "East-west lateral movement on flat app-tier trust"
+            }
+          ],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "east_west_within_segment_restricted"
+          ],
+          "read_from": "reached_ancestor",
+          "classes": [
+            "Network Segment"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        }
+      ],
+      "control_breakers": [
+        {
+          "control_classes": [
+            "Firewall Policy"
+          ],
+          "attributes_true": [
+            "east_west_microsegmentation_enforced"
+          ],
+          "credential_item_classes": [],
+          "supports": "reached_end_or_ancestor",
+          "strength": "removes",
+          "techniques": []
+        }
+      ],
+      "defaults": {
+        "required_capability": "targeted",
+        "required_privilege": "user",
+        "granted_privilege": "user"
+      },
+      "tier_cap": "medium",
+      "provenance": "ATT&CK v19 T1210 Exploitation of Remote Services: a vulnerable internal service is exploited from another host (mitigations M1030, M1051).",
+      "emitters": [
+        "dethernety-general/securityBoundary/application-layer/policies.rego:83"
+      ]
+    },
+    {
+      "id": "remote-service/rs-4v",
+      "edge_kind": "remote-service",
+      "techniques": [
+        "T1021"
+      ],
+      "anchors": [
+        {
+          "kind": "component",
+          "classes": [
+            "VPN Gateway"
+          ]
+        }
+      ],
+      "exposed_role": "source",
+      "peer_relation": "landing-segment",
+      "reached_types": [
+        "PROCESS"
+      ],
+      "path": {
+        "default": "T1021",
+        "from_cited": [],
+        "by_item_class": []
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "vpn_pool_to_trust_segmentation_enforced"
+          ],
+          "read_from": "anchor",
+          "classes": [
+            "VPN Gateway"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "permit_any_from_vpn_pool"
+          ],
+          "read_from": "anchor",
+          "classes": [
+            "VPN Gateway"
+          ],
+          "polarity": "true_enables",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": []
+        },
+        {
+          "attributes": [
+            "least_privilege_access_enforced"
+          ],
+          "read_from": "anchor",
+          "classes": [
+            "VPN Gateway"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "VPN Gateway",
+              "exposure": "Flat internal access after admission"
+            }
+          ],
+          "techniques": [],
+          "strength": "lowers"
+        }
+      ],
+      "control_breakers": [],
+      "defaults": {
+        "required_capability": "opportunistic",
+        "required_privilege": "user",
+        "granted_privilege": "user"
+      },
+      "tier_cap": "medium",
+      "provenance": "ATT&CK v19 T1021: an admitted VPN session reaches the internal network it lands in.",
+      "emitters": [
+        "dethernety-general/component/vpn-gateway/policies.rego:190"
+      ]
+    },
+    {
+      "id": "remote-service/rs-4a",
+      "edge_kind": "remote-service",
+      "techniques": [
+        "T1021"
+      ],
+      "anchors": [
+        {
+          "kind": "component",
+          "classes": [
+            "Administrator"
+          ]
+        }
+      ],
+      "exposed_role": "source",
+      "peer_relation": "landing-segment",
+      "reached_types": [
+        "PROCESS"
+      ],
+      "path": {
+        "default": "T1021",
+        "from_cited": [],
+        "by_item_class": []
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "no_standing_admin_privileges_jit_required"
+          ],
+          "read_from": "anchor",
+          "classes": [
+            "Administrator"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "Administrator",
+              "exposure": "Standing / over-broad privilege exploited for lateral movement"
+            }
+          ],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "least_privilege_admin_scoping"
+          ],
+          "read_from": "anchor",
+          "classes": [
+            "Administrator"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "Administrator",
+              "exposure": "Standing / over-broad privilege exploited for lateral movement"
+            }
+          ],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "privileged_access_via_pam_with_session_recording"
+          ],
+          "read_from": "anchor",
+          "classes": [
+            "Administrator"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "Administrator",
+              "exposure": "Standing / over-broad privilege exploited for lateral movement"
+            }
+          ],
+          "techniques": [],
+          "strength": "lowers"
+        }
+      ],
+      "control_breakers": [],
+      "defaults": {
+        "required_capability": "opportunistic",
+        "required_privilege": "user",
+        "granted_privilege": "admin"
+      },
+      "tier_cap": "medium",
+      "provenance": "ATT&CK v19 T1021: a compromised administrator account is valid across the zone its sessions land in.",
+      "emitters": [
+        "dethernety-general/component/administrator/policies.rego:89"
+      ]
+    },
+    {
+      "id": "remote-service/rs-5",
+      "edge_kind": "remote-service",
+      "techniques": [
+        "T1021"
+      ],
+      "anchors": [
+        {
+          "kind": "securityBoundary",
+          "classes": [
+            "Endpoint / Office Environment"
+          ]
+        }
+      ],
+      "exposed_role": "source",
+      "peer_relation": "zone-egress",
+      "reached_types": [
+        "PROCESS",
+        "STORE"
+      ],
+      "path": {
+        "default": "T1021",
+        "from_cited": [],
+        "by_item_class": []
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "user_segment_isolated_from_production_tiers"
+          ],
+          "read_from": "anchor",
+          "classes": [
+            "Endpoint / Office Environment"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [
+            {
+              "class": "Endpoint / Office Environment",
+              "exposure": "Lateral movement from owned endpoint to internal services"
+            }
+          ],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "admin_protocols_require_pam_and_mfa"
+          ],
+          "read_from": "anchor",
+          "classes": [
+            "Endpoint / Office Environment"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "Endpoint / Office Environment",
+              "exposure": "Lateral movement from owned endpoint to internal services"
+            }
+          ],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "segment_boundary_enforced"
+          ],
+          "read_from": "reached_ancestor",
+          "classes": [
+            "Network Segment"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "inter_segment_traffic_filtered_by_identity"
+          ],
+          "read_from": "reached_ancestor",
+          "classes": [
+            "Network Segment"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        }
+      ],
+      "control_breakers": [
+        {
+          "control_classes": [
+            "Network Access Control"
+          ],
+          "attributes_true": [
+            "user_segment_isolated_from_production_tiers"
+          ],
+          "credential_item_classes": [],
+          "supports": "anchor",
+          "strength": "removes",
+          "techniques": []
+        }
+      ],
+      "defaults": {
+        "required_capability": "opportunistic",
+        "required_privilege": "user",
+        "granted_privilege": "user"
+      },
+      "tier_cap": "medium",
+      "provenance": "ATT&CK v19 T1021: from an owned endpoint in the user environment to internal services outside it.",
+      "emitters": [
+        "dethernety-general/securityBoundary/endpoint-office-environment/policies.rego:67"
+      ]
+    },
+    {
+      "id": "credential-reuse/cr-1",
+      "edge_kind": "credential-reuse",
+      "techniques": [
+        "T1078",
+        "T1078.004",
+        "T1550",
+        "T1550.001",
+        "T1550.004",
+        "T1552",
+        "T1552.001",
+        "T1552.004"
+      ],
+      "anchors": [
+        {
+          "kind": "component",
+          "classes": []
+        },
+        {
+          "kind": "data",
+          "classes": []
+        }
+      ],
+      "exposed_role": "credential",
+      "peer_relation": "shared-credential",
+      "credential_flows": "both",
+      "reached_types": [],
+      "path": {
+        "default": "T1078",
+        "from_cited": [
+          "T1550",
+          "T1078"
+        ],
+        "by_item_class": []
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "shared_service_credentials_used"
+          ],
+          "read_from": "shared_ancestor",
+          "classes": [
+            "Application Layer"
+          ],
+          "polarity": "true_enables",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": []
+        },
+        {
+          "attributes": [
+            "shared_service_credentials_used"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "Internal Service Communication"
+          ],
+          "polarity": "true_enables",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": []
+        },
+        {
+          "attributes": [
+            "per_workload_db_identity_used"
+          ],
+          "read_from": "reached_ancestor",
+          "classes": [
+            "Data Layer"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "per_workload_db_identity_used"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "Database Query"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "credential_guard_enabled"
+          ],
+          "read_from": "foothold",
+          "classes": [
+            "User Workstation / Endpoint"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "User Workstation / Endpoint",
+              "exposure": "Local credential theft and reuse"
+            }
+          ],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "sender_constrained"
+          ],
+          "read_from": "credential_item",
+          "classes": [
+            "Authentication Tokens"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [
+            "T1550",
+            "T1550.001",
+            "T1550.004"
+          ],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "sender_constrained"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "API Call",
+            "Authentication Exchange"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [
+            "T1550",
+            "T1550.001",
+            "T1550.004"
+          ],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "audience_claim_validated"
+          ],
+          "read_from": "reached_end",
+          "classes": [
+            "API Gateway",
+            "Identity Provider"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "Identity Provider",
+              "exposure": "Missing audience restriction / cross-RP token replay"
+            }
+          ],
+          "techniques": [
+            "T1550",
+            "T1550.001",
+            "T1550.004"
+          ],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "session_binding_or_short_session_lifetime"
+          ],
+          "read_from": "reached_ancestor",
+          "classes": [
+            "Management & Monitoring Plane"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [
+            "T1550",
+            "T1550.001",
+            "T1550.004"
+          ],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "session_binding_or_short_session_lifetime"
+          ],
+          "read_from": "foothold_ancestor",
+          "classes": [
+            "Endpoint / Office Environment"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [
+            "T1550",
+            "T1550.001",
+            "T1550.004"
+          ],
+          "strength": "lowers"
+        }
+      ],
+      "control_breakers": [
+        {
+          "control_classes": [
+            "Multi-Factor Authentication"
+          ],
+          "attributes_true": [
+            "mfa_enforced_for_admin"
+          ],
+          "credential_item_classes": [
+            "User Credentials"
+          ],
+          "supports": "reached_end",
+          "strength": "lowers",
+          "techniques": [
+            "T1078",
+            "T1078.004",
+            "T1552",
+            "T1552.001",
+            "T1552.004"
+          ]
+        }
+      ],
+      "defaults": {
+        "required_capability": "opportunistic",
+        "required_privilege": "user",
+        "granted_privilege": "user"
+      },
+      "tier_cap": "high",
+      "provenance": "ATT&CK v19 T1552 Unsecured Credentials, T1555 Credentials from Password Stores and T1003 OS Credential Dumping obtain a credential; T1078 Valid Accounts and T1550 Use Alternate Authentication Material use it where it is accepted.",
+      "emitters": [
+        "dethernety-general/component/application-service/policies.rego:321",
+        "dethernety-general/component/relational-database/policies.rego:91",
+        "dethernety-general/data/user-credentials/policies.rego:5",
+        "dethernety-general/data/authentication-tokens/policies.rego:84"
+      ]
+    },
+    {
+      "id": "credential-reuse/cr-1b",
+      "edge_kind": "credential-reuse",
+      "techniques": [
+        "T1078",
+        "T1078.004",
+        "T1550",
+        "T1550.001",
+        "T1550.004",
+        "T1552"
+      ],
+      "anchors": [
+        {
+          "kind": "securityBoundary",
+          "classes": [
+            "Application Layer",
+            "Data Layer",
+            "Management & Monitoring Plane",
+            "Network Perimeter",
+            "Managed Runtime",
+            "SaaS Tenant",
+            "Container"
+          ]
+        }
+      ],
+      "exposed_role": "credential",
+      "peer_relation": "shared-credential",
+      "credential_flows": "both",
+      "reached_types": [],
+      "path": {
+        "default": "T1078",
+        "from_cited": [
+          "T1550",
+          "T1078"
+        ],
+        "by_item_class": []
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "shared_service_credentials_used"
+          ],
+          "read_from": "shared_ancestor",
+          "classes": [
+            "Application Layer"
+          ],
+          "polarity": "true_enables",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": []
+        },
+        {
+          "attributes": [
+            "shared_service_credentials_used"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "Internal Service Communication"
+          ],
+          "polarity": "true_enables",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": []
+        },
+        {
+          "attributes": [
+            "per_workload_db_identity_used"
+          ],
+          "read_from": "reached_ancestor",
+          "classes": [
+            "Data Layer"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "per_workload_db_identity_used"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "Database Query"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "credential_guard_enabled"
+          ],
+          "read_from": "foothold",
+          "classes": [
+            "User Workstation / Endpoint"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "sender_constrained"
+          ],
+          "read_from": "credential_item",
+          "classes": [
+            "Authentication Tokens"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [
+            "T1550",
+            "T1550.001",
+            "T1550.004"
+          ],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "sender_constrained"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "API Call",
+            "Authentication Exchange"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [
+            "T1550",
+            "T1550.001",
+            "T1550.004"
+          ],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "audience_claim_validated"
+          ],
+          "read_from": "reached_end",
+          "classes": [
+            "API Gateway",
+            "Identity Provider"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [
+            "T1550",
+            "T1550.001",
+            "T1550.004"
+          ],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "session_binding_or_short_session_lifetime"
+          ],
+          "read_from": "reached_ancestor",
+          "classes": [
+            "Management & Monitoring Plane"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "Management & Monitoring Plane",
+              "exposure": "Admin credential theft and session-token replay"
+            }
+          ],
+          "techniques": [
+            "T1550",
+            "T1550.001",
+            "T1550.004"
+          ],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "session_binding_or_short_session_lifetime"
+          ],
+          "read_from": "foothold_ancestor",
+          "classes": [
+            "Endpoint / Office Environment"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [
+            "T1550",
+            "T1550.001",
+            "T1550.004"
+          ],
+          "strength": "lowers"
+        }
+      ],
+      "control_breakers": [
+        {
+          "control_classes": [
+            "Multi-Factor Authentication"
+          ],
+          "attributes_true": [
+            "mfa_enforced_for_admin"
+          ],
+          "credential_item_classes": [
+            "User Credentials"
+          ],
+          "supports": "reached_end",
+          "strength": "lowers",
+          "techniques": [
+            "T1078",
+            "T1078.004",
+            "T1552"
+          ]
+        }
+      ],
+      "defaults": {
+        "required_capability": "opportunistic",
+        "required_privilege": "user",
+        "granted_privilege": "user"
+      },
+      "tier_cap": "medium",
+      "provenance": "A credential exposure on a zone boundary anchors on the credential items its components carry; coarser than one component, so capped at medium.",
+      "emitters": [
+        "dethernety-general/securityBoundary/application-layer/policies.rego:115",
+        "dethernety-general/securityBoundary/saas-tenant/policies.rego:5"
+      ]
+    },
+    {
+      "id": "credential-reuse/cr-1s",
+      "edge_kind": "credential-reuse",
+      "techniques": [
+        "T1555",
+        "T1555.003",
+        "T1555.006"
+      ],
+      "anchors": [
+        {
+          "kind": "component",
+          "classes": []
+        },
+        {
+          "kind": "data",
+          "classes": []
+        }
+      ],
+      "exposed_role": "credential",
+      "peer_relation": "shared-credential",
+      "credential_flows": "received",
+      "reached_types": [],
+      "path": {
+        "default": "T1078",
+        "from_cited": [],
+        "by_item_class": []
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "shared_service_credentials_used"
+          ],
+          "read_from": "shared_ancestor",
+          "classes": [
+            "Application Layer"
+          ],
+          "polarity": "true_enables",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": []
+        },
+        {
+          "attributes": [
+            "shared_service_credentials_used"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "Internal Service Communication"
+          ],
+          "polarity": "true_enables",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": []
+        },
+        {
+          "attributes": [
+            "per_workload_db_identity_used"
+          ],
+          "read_from": "reached_ancestor",
+          "classes": [
+            "Data Layer"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "per_workload_db_identity_used"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "Database Query"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "credential_guard_enabled"
+          ],
+          "read_from": "foothold",
+          "classes": [
+            "User Workstation / Endpoint"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "User Workstation / Endpoint",
+              "exposure": "Local credential theft and reuse"
+            }
+          ],
+          "techniques": [],
+          "strength": "lowers"
+        }
+      ],
+      "control_breakers": [
+        {
+          "control_classes": [
+            "Multi-Factor Authentication"
+          ],
+          "attributes_true": [
+            "mfa_enforced_for_admin"
+          ],
+          "credential_item_classes": [
+            "User Credentials"
+          ],
+          "supports": "reached_end",
+          "strength": "lowers",
+          "techniques": [
+            "T1555",
+            "T1555.003",
+            "T1555.006"
+          ]
+        }
+      ],
+      "defaults": {
+        "required_capability": "opportunistic",
+        "required_privilege": "user",
+        "granted_privilege": "user"
+      },
+      "tier_cap": "medium",
+      "provenance": "ATT&CK v19 T1552 Unsecured Credentials, T1555 Credentials from Password Stores and T1003 OS Credential Dumping obtain a credential; T1078 Valid Accounts and T1550 Use Alternate Authentication Material use it where it is accepted.",
+      "emitters": [
+        "dethernety-general/component/user-workstation-endpoint/policies.rego:141",
+        "dethernety-general/data/user-credentials/policies.rego:317"
+      ]
+    },
+    {
+      "id": "credential-reuse/cr-1d",
+      "edge_kind": "credential-reuse",
+      "techniques": [
+        "T1003",
+        "T1003.001"
+      ],
+      "anchors": [
+        {
+          "kind": "component",
+          "classes": []
+        }
+      ],
+      "exposed_role": "credential",
+      "peer_relation": "shared-credential",
+      "credential_flows": "received",
+      "reached_types": [],
+      "path": {
+        "default": "T1078",
+        "from_cited": [],
+        "by_item_class": []
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "shared_service_credentials_used"
+          ],
+          "read_from": "shared_ancestor",
+          "classes": [
+            "Application Layer"
+          ],
+          "polarity": "true_enables",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": []
+        },
+        {
+          "attributes": [
+            "shared_service_credentials_used"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "Internal Service Communication"
+          ],
+          "polarity": "true_enables",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": []
+        },
+        {
+          "attributes": [
+            "per_workload_db_identity_used"
+          ],
+          "read_from": "reached_ancestor",
+          "classes": [
+            "Data Layer"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "per_workload_db_identity_used"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "Database Query"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "credential_guard_enabled"
+          ],
+          "read_from": "foothold",
+          "classes": [
+            "User Workstation / Endpoint"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "User Workstation / Endpoint",
+              "exposure": "Local credential theft and reuse"
+            }
+          ],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "host_credential_files_access_restricted"
+          ],
+          "read_from": "foothold_ancestor",
+          "classes": [
+            "Operating System / Host"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "windows_lsass_credential_protection_enabled"
+          ],
+          "read_from": "foothold_ancestor",
+          "classes": [
+            "Operating System / Host"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        }
+      ],
+      "control_breakers": [
+        {
+          "control_classes": [
+            "Multi-Factor Authentication"
+          ],
+          "attributes_true": [
+            "mfa_enforced_for_admin"
+          ],
+          "credential_item_classes": [
+            "User Credentials"
+          ],
+          "supports": "reached_end",
+          "strength": "lowers",
+          "techniques": [
+            "T1003",
+            "T1003.001"
+          ]
+        }
+      ],
+      "defaults": {
+        "required_capability": "opportunistic",
+        "required_privilege": "admin",
+        "granted_privilege": "user"
+      },
+      "tier_cap": "medium",
+      "provenance": "ATT&CK v19 T1003 OS Credential Dumping: material harvested by an administrative user or SYSTEM on the holder is used where it is accepted.",
+      "emitters": [
+        "dethernety-general/component/user-workstation-endpoint/policies.rego:141"
+      ]
+    },
+    {
+      "id": "credential-reuse/cr-1db",
+      "edge_kind": "credential-reuse",
+      "techniques": [
+        "T1003",
+        "T1003.001",
+        "T1003.008"
+      ],
+      "anchors": [
+        {
+          "kind": "securityBoundary",
+          "classes": [
+            "Operating System / Host"
+          ]
+        }
+      ],
+      "exposed_role": "credential",
+      "peer_relation": "shared-credential",
+      "credential_flows": "received",
+      "reached_types": [],
+      "path": {
+        "default": "T1078",
+        "from_cited": [],
+        "by_item_class": []
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "shared_service_credentials_used"
+          ],
+          "read_from": "shared_ancestor",
+          "classes": [
+            "Application Layer"
+          ],
+          "polarity": "true_enables",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": []
+        },
+        {
+          "attributes": [
+            "shared_service_credentials_used"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "Internal Service Communication"
+          ],
+          "polarity": "true_enables",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": []
+        },
+        {
+          "attributes": [
+            "per_workload_db_identity_used"
+          ],
+          "read_from": "reached_ancestor",
+          "classes": [
+            "Data Layer"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "per_workload_db_identity_used"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "Database Query"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "credential_guard_enabled"
+          ],
+          "read_from": "foothold",
+          "classes": [
+            "User Workstation / Endpoint"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "host_credential_files_access_restricted"
+          ],
+          "read_from": "foothold_ancestor",
+          "classes": [
+            "Operating System / Host"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "Operating System / Host",
+              "exposure": "On-host credential / secret exposure"
+            }
+          ],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "windows_lsass_credential_protection_enabled"
+          ],
+          "read_from": "foothold_ancestor",
+          "classes": [
+            "Operating System / Host"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "Operating System / Host",
+              "exposure": "On-host credential / secret exposure"
+            }
+          ],
+          "techniques": [],
+          "strength": "lowers"
+        }
+      ],
+      "control_breakers": [
+        {
+          "control_classes": [
+            "Multi-Factor Authentication"
+          ],
+          "attributes_true": [
+            "mfa_enforced_for_admin"
+          ],
+          "credential_item_classes": [
+            "User Credentials"
+          ],
+          "supports": "reached_end",
+          "strength": "lowers",
+          "techniques": [
+            "T1003",
+            "T1003.001",
+            "T1003.008"
+          ]
+        }
+      ],
+      "defaults": {
+        "required_capability": "opportunistic",
+        "required_privilege": "admin",
+        "granted_privilege": "user"
+      },
+      "tier_cap": "medium",
+      "provenance": "ATT&CK v19 T1003 OS Credential Dumping on a host: the credential items of the components on it are used where they are accepted; capped at medium.",
+      "emitters": [
+        "dethernety-general/securityBoundary/operating-system-host/policies.rego:115"
+      ]
+    },
+    {
+      "id": "credential-reuse/cr-1f",
+      "edge_kind": "credential-reuse",
+      "techniques": [
+        "T1078",
+        "T1550",
+        "T1550.001",
+        "T1550.004",
+        "T1552",
+        "T1552.001",
+        "T1003.007"
+      ],
+      "anchors": [
+        {
+          "kind": "dataFlow",
+          "classes": []
+        }
+      ],
+      "exposed_role": "credential",
+      "peer_relation": "shared-credential",
+      "credential_flows": "both",
+      "reached_types": [],
+      "path": {
+        "default": "T1078",
+        "from_cited": [
+          "T1550",
+          "T1078"
+        ],
+        "by_item_class": []
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "shared_service_credentials_used"
+          ],
+          "read_from": "shared_ancestor",
+          "classes": [
+            "Application Layer"
+          ],
+          "polarity": "true_enables",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": []
+        },
+        {
+          "attributes": [
+            "shared_service_credentials_used"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "Internal Service Communication"
+          ],
+          "polarity": "true_enables",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": []
+        },
+        {
+          "attributes": [
+            "per_workload_db_identity_used"
+          ],
+          "read_from": "reached_ancestor",
+          "classes": [
+            "Data Layer"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "per_workload_db_identity_used"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "Database Query"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "Database Query",
+              "exposure": "Long-lived shared DB credentials reused indefinitely"
+            }
+          ],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "credential_guard_enabled"
+          ],
+          "read_from": "foothold",
+          "classes": [
+            "User Workstation / Endpoint"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "sender_constrained"
+          ],
+          "read_from": "credential_item",
+          "classes": [
+            "Authentication Tokens"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [
+            "T1550",
+            "T1550.001",
+            "T1550.004"
+          ],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "sender_constrained"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "API Call",
+            "Authentication Exchange"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [
+            {
+              "class": "API Call",
+              "exposure": "Stolen-bearer-token replay"
+            },
+            {
+              "class": "Authentication Exchange",
+              "exposure": "Bearer access token theft and replay from a different sender"
+            }
+          ],
+          "techniques": [
+            "T1550",
+            "T1550.001",
+            "T1550.004"
+          ],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "audience_claim_validated"
+          ],
+          "read_from": "reached_end",
+          "classes": [
+            "API Gateway",
+            "Identity Provider"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [
+            "T1550",
+            "T1550.001",
+            "T1550.004"
+          ],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "session_binding_or_short_session_lifetime"
+          ],
+          "read_from": "reached_ancestor",
+          "classes": [
+            "Management & Monitoring Plane"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [
+            "T1550",
+            "T1550.001",
+            "T1550.004"
+          ],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "session_binding_or_short_session_lifetime"
+          ],
+          "read_from": "foothold_ancestor",
+          "classes": [
+            "Endpoint / Office Environment"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [
+            "T1550",
+            "T1550.001",
+            "T1550.004"
+          ],
+          "strength": "lowers"
+        }
+      ],
+      "control_breakers": [
+        {
+          "control_classes": [
+            "Multi-Factor Authentication"
+          ],
+          "attributes_true": [
+            "mfa_enforced_for_admin"
+          ],
+          "credential_item_classes": [
+            "User Credentials"
+          ],
+          "supports": "reached_end",
+          "strength": "lowers",
+          "techniques": [
+            "T1078",
+            "T1552",
+            "T1552.001",
+            "T1003.007"
+          ]
+        }
+      ],
+      "defaults": {
+        "required_capability": "opportunistic",
+        "required_privilege": "user",
+        "granted_privilege": "user"
+      },
+      "tier_cap": "medium",
+      "provenance": "A credential exposure on a flow anchors on the credential items the flow carries: the holders and acceptors of the same item are paired, wherever the leak sits.",
+      "emitters": [
+        "dethernety-general/dataFlow/database-query/policies.rego:96",
+        "dethernety-general/dataFlow/authentication-exchange/policies.rego:5",
+        "dethernety-general/dataFlow/secret-retrieval/policies.rego:155"
+      ]
+    },
+    {
+      "id": "credential-reuse/cr-2",
+      "edge_kind": "credential-reuse",
+      "techniques": [
+        "T1078.001"
+      ],
+      "anchors": [
+        {
+          "kind": "component",
+          "classes": []
+        }
+      ],
+      "exposed_role": "target",
+      "peer_relation": "same-segment",
+      "reached_types": [
+        "PROCESS",
+        "STORE"
+      ],
+      "path": {
+        "default": "T1078.001",
+        "from_cited": [],
+        "by_item_class": []
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "default_accounts_removed_or_changed"
+          ],
+          "read_from": "reached_end",
+          "classes": [
+            "Application Service",
+            "Firewall",
+            "Message Queue",
+            "Monitoring & SIEM Service",
+            "Network Router",
+            "Object Storage",
+            "Relational Database",
+            "VPN Gateway"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [
+            {
+              "class": "Firewall",
+              "exposure": "Internet-exposed management plane with default or weak admin credentials"
+            },
+            {
+              "class": "Message Queue",
+              "exposure": "Default / anonymous / weak broker authentication"
+            },
+            {
+              "class": "Network Router",
+              "exposure": "Weak / cleartext management credentials and missing AAA"
+            },
+            {
+              "class": "Relational Database",
+              "exposure": "Weak or trust authentication"
+            },
+            {
+              "class": "VPN Gateway",
+              "exposure": "Internet-exposed management interface / default credentials"
+            }
+          ],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "east_west_within_segment_restricted"
+          ],
+          "read_from": "reached_ancestor",
+          "classes": [
+            "Network Segment"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        }
+      ],
+      "control_breakers": [
+        {
+          "control_classes": [
+            "Multi-Factor Authentication"
+          ],
+          "attributes_true": [
+            "mfa_enforced_for_admin"
+          ],
+          "credential_item_classes": [],
+          "supports": "reached_end",
+          "strength": "lowers",
+          "techniques": []
+        }
+      ],
+      "defaults": {
+        "required_capability": "opportunistic",
+        "required_privilege": "user",
+        "granted_privilege": "admin"
+      },
+      "tier_cap": "high",
+      "provenance": "ATT&CK v19 T1078.001 Default Accounts: a default or unchanged account is public knowledge, so any peer in the segment can use it.",
+      "emitters": [
+        "dethernety-general/component/message-queue/policies.rego:5",
+        "dethernety-general/component/firewall/policies.rego:79",
+        "dethernety-general/component/vpn-gateway/policies.rego:222"
+      ]
+    },
+    {
+      "id": "credential-reuse/cr-2f",
+      "edge_kind": "credential-reuse",
+      "techniques": [
+        "T1078.001"
+      ],
+      "anchors": [
+        {
+          "kind": "dataFlow",
+          "classes": [
+            "SNMP Monitoring"
+          ],
+          "flow_end": "responder"
+        }
+      ],
+      "exposed_role": "target",
+      "peer_relation": "same-segment",
+      "reached_types": [
+        "PROCESS",
+        "STORE"
+      ],
+      "path": {
+        "default": "T1078.001",
+        "from_cited": [],
+        "by_item_class": []
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "east_west_within_segment_restricted"
+          ],
+          "read_from": "reached_ancestor",
+          "classes": [
+            "Network Segment"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        }
+      ],
+      "control_breakers": [],
+      "defaults": {
+        "required_capability": "opportunistic",
+        "required_privilege": "user",
+        "granted_privilege": "admin"
+      },
+      "tier_cap": "high",
+      "provenance": "ATT&CK v19 T1078.001 Default Accounts: a default community on the polled agent is usable from any peer in its segment.",
+      "emitters": [
+        "dethernety-general/dataFlow/snmp-monitoring/policies.rego:33"
+      ]
+    },
+    {
+      "id": "credential-reuse/cr-3",
+      "edge_kind": "credential-reuse",
+      "techniques": [
+        "T1552.005"
+      ],
+      "anchors": [
+        {
+          "kind": "securityBoundary",
+          "classes": [
+            "Operating System / Host"
+          ]
+        },
+        {
+          "kind": "component",
+          "classes": [
+            "Application Service"
+          ]
+        }
+      ],
+      "exposed_role": "source",
+      "peer_relation": "instance-role-reach",
+      "reached_types": [
+        "PROCESS",
+        "STORE",
+        "EXTERNAL_ENTITY"
+      ],
+      "path": {
+        "default": "T1078.004",
+        "from_cited": [],
+        "by_item_class": []
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "instance_metadata_service_hardened"
+          ],
+          "read_from": "foothold_ancestor",
+          "classes": [
+            "Operating System / Host"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "Operating System / Host",
+              "exposure": "Cloud instance-credential theft via IMDS"
+            }
+          ],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "cloud_metadata_endpoint_blocked"
+          ],
+          "read_from": "foothold",
+          "classes": [
+            "Application Service"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [
+            {
+              "class": "Application Service",
+              "exposure": "Server-side request forgery (SSRF)"
+            }
+          ],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "cloud_metadata_endpoint_blocked"
+          ],
+          "read_from": "foothold_ancestor",
+          "classes": [
+            "Application Layer"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        }
+      ],
+      "control_breakers": [],
+      "defaults": {
+        "required_capability": "opportunistic",
+        "required_privilege": "user",
+        "granted_privilege": "user"
+      },
+      "tier_cap": "medium",
+      "provenance": "ATT&CK v19 T1552.005 Cloud Instance Metadata API: the instance role credential is read from the metadata service and used at the cloud services the host reaches (T1078.004).",
+      "emitters": [
+        "dethernety-general/securityBoundary/operating-system-host/policies.rego:159",
+        "dethernety-general/component/application-service/policies.rego:137"
+      ]
+    },
+    {
+      "id": "credential-reuse/cr-3f",
+      "edge_kind": "credential-reuse",
+      "techniques": [
+        "T1552.005",
+        "T1552.007"
+      ],
+      "anchors": [
+        {
+          "kind": "dataFlow",
+          "classes": [
+            "API Call",
+            "Internal Service Communication"
+          ],
+          "flow_end": "initiator"
+        }
+      ],
+      "exposed_role": "source",
+      "peer_relation": "instance-role-reach",
+      "reached_types": [
+        "PROCESS",
+        "STORE",
+        "EXTERNAL_ENTITY"
+      ],
+      "path": {
+        "default": "T1078.004",
+        "from_cited": [],
+        "by_item_class": []
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "instance_metadata_service_hardened"
+          ],
+          "read_from": "foothold_ancestor",
+          "classes": [
+            "Operating System / Host"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "cloud_metadata_endpoint_blocked"
+          ],
+          "read_from": "foothold",
+          "classes": [
+            "Application Service"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "cloud_metadata_endpoint_blocked"
+          ],
+          "read_from": "foothold_ancestor",
+          "classes": [
+            "Application Layer"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        }
+      ],
+      "control_breakers": [],
+      "defaults": {
+        "required_capability": "opportunistic",
+        "required_privilege": "user",
+        "granted_privilege": "user"
+      },
+      "tier_cap": "medium",
+      "provenance": "ATT&CK v19 T1552.005 and T1552.007: a workload that can be made to fetch the metadata or container API yields the instance or workload credential (T1078.004).",
+      "emitters": [
+        "dethernety-general/dataFlow/api-call/policies.rego:220",
+        "dethernety-general/dataFlow/internal-service-communication/policies.rego:197"
+      ]
+    },
+    {
+      "id": "credential-reuse/cr-4",
+      "edge_kind": "credential-reuse",
+      "techniques": [
+        "T1558.003",
+        "T1558.004"
+      ],
+      "anchors": [
+        {
+          "kind": "dataFlow",
+          "classes": [
+            "Kerberos Authentication"
+          ],
+          "flow_end": "initiator"
+        }
+      ],
+      "exposed_role": "target",
+      "peer_relation": "kerberos-realm",
+      "reached_types": [
+        "PROCESS",
+        "STORE"
+      ],
+      "path": {
+        "default": "T1078.002",
+        "from_cited": [],
+        "by_item_class": []
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "kerberos_preauthentication_required"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "Kerberos Authentication"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "Kerberos Authentication",
+              "exposure": "Missing pre-authentication (AS-REP roasting)"
+            }
+          ],
+          "techniques": [
+            "T1558.004"
+          ],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "service_accounts_use_gmsa_or_strong_random_keys"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "Kerberos Authentication"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "Kerberos Authentication",
+              "exposure": "Weak service-account keys (Kerberoasting)"
+            }
+          ],
+          "techniques": [
+            "T1558.003"
+          ],
+          "strength": "lowers"
+        }
+      ],
+      "control_breakers": [],
+      "defaults": {
+        "required_capability": "targeted",
+        "required_privilege": "user",
+        "granted_privilege": "user"
+      },
+      "tier_cap": "low",
+      "provenance": "ATT&CK v19 T1558.003 Kerberoasting and T1558.004 AS-REP Roasting: a crackable key of the principal is used as its valid domain account (T1078.002) by any realm member.",
+      "emitters": [
+        "dethernety-general/dataFlow/kerberos-authentication/policies.rego:5"
+      ]
+    },
+    {
+      "id": "credential-reuse/cr-4b",
+      "edge_kind": "credential-reuse",
+      "techniques": [
+        "T1558",
+        "T1558.002",
+        "T1550.003"
+      ],
+      "anchors": [
+        {
+          "kind": "dataFlow",
+          "classes": [
+            "Kerberos Authentication"
+          ],
+          "flow_end": "initiator"
+        }
+      ],
+      "exposed_role": "source",
+      "peer_relation": "kerberos-realm",
+      "reached_types": [
+        "PROCESS",
+        "STORE"
+      ],
+      "path": {
+        "default": "T1550.003",
+        "from_cited": [],
+        "by_item_class": []
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "host_credential_files_access_restricted"
+          ],
+          "read_from": "anchor_ancestor",
+          "classes": [
+            "Operating System / Host"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "windows_lsass_credential_protection_enabled"
+          ],
+          "read_from": "anchor_ancestor",
+          "classes": [
+            "Operating System / Host"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        }
+      ],
+      "control_breakers": [],
+      "defaults": {
+        "required_capability": "advanced",
+        "required_privilege": "user",
+        "granted_privilege": "user"
+      },
+      "tier_cap": "low",
+      "provenance": "ATT&CK v19 T1558 Steal or Forge Kerberos Tickets enables Pass the Ticket (T1550.003) at the other services of the realm.",
+      "emitters": [
+        "dethernety-general/dataFlow/kerberos-authentication/policies.rego:147"
+      ]
+    },
+    {
+      "id": "credential-reuse/cr-4c",
+      "edge_kind": "credential-reuse",
+      "techniques": [
+        "T1558.001"
+      ],
+      "anchors": [
+        {
+          "kind": "dataFlow",
+          "classes": [
+            "Kerberos Authentication"
+          ],
+          "flow_end": "responder"
+        }
+      ],
+      "exposed_role": "source",
+      "peer_relation": "kerberos-realm",
+      "reached_types": [
+        "PROCESS",
+        "STORE"
+      ],
+      "path": {
+        "default": "T1550.003",
+        "from_cited": [],
+        "by_item_class": []
+      },
+      "attribute_breakers": [],
+      "control_breakers": [],
+      "defaults": {
+        "required_capability": "advanced",
+        "required_privilege": "admin",
+        "granted_privilege": "admin"
+      },
+      "tier_cap": "low",
+      "provenance": "ATT&CK v19 T1558.001 Golden Ticket: the KDC key forges tickets for any principal, usable at every service of the realm (T1550.003).",
+      "emitters": [
+        "dethernety-general/dataFlow/kerberos-authentication/policies.rego:111"
+      ]
+    },
+    {
+      "id": "credential-capture/cc-1",
+      "edge_kind": "credential-capture",
+      "techniques": [
+        "T1040"
+      ],
+      "anchors": [
+        {
+          "kind": "dataFlow",
+          "classes": []
+        }
+      ],
+      "exposed_role": "capture",
+      "peer_relation": "capture-footholds",
+      "reached_types": [],
+      "path": {
+        "default": "T1078",
+        "from_cited": [],
+        "by_item_class": [
+          {
+            "item_class": "Authentication Tokens",
+            "technique": "T1550.001"
+          }
+        ]
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "flow_tls_encrypted"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "API Call",
+            "Database Query",
+            "Log & Telemetry Collection",
+            "Deployment & Update Flow"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [
+            {
+              "class": "API Call",
+              "exposure": "Cleartext transport / TLS strip"
+            },
+            {
+              "class": "Database Query",
+              "exposure": "Cleartext DB transport sniffing"
+            },
+            {
+              "class": "Log & Telemetry Collection",
+              "exposure": "Cleartext log transport (sniffing and disclosure)"
+            }
+          ],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "encryption_in_transit_enabled"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "LDAP / Directory Access",
+            "Message Publish/Consume",
+            "Secret Retrieval",
+            "Inter-Broker Replication",
+            "Certificate Enrollment",
+            "Metrics Scrape"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [
+            {
+              "class": "Certificate Enrollment",
+              "exposure": "Cleartext enrollment transport"
+            },
+            {
+              "class": "Inter-Broker Replication",
+              "exposure": "Cleartext inter-broker / replication channel"
+            },
+            {
+              "class": "LDAP / Directory Access",
+              "exposure": "Cleartext LDAP bind credential exposure / StartTLS downgrade"
+            },
+            {
+              "class": "Message Publish/Consume",
+              "exposure": "Plaintext transport sniffing / unverified-TLS MITM"
+            },
+            {
+              "class": "Metrics Scrape",
+              "exposure": "Plaintext scrape transport"
+            }
+          ],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "tls_only_transport"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "HTTP/S Request"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "service_to_service_mtls_enforced"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "Internal Service Communication"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [
+            {
+              "class": "Internal Service Communication",
+              "exposure": "Plaintext east-west traffic (no mTLS)"
+            }
+          ],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "service_to_service_mtls_enforced"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "Log & Telemetry Collection"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "tls_only_transport"
+          ],
+          "read_from": "flow_responder",
+          "classes": [
+            "Cache / In-Memory Store",
+            "End User",
+            "Identity Provider",
+            "Message Queue",
+            "Mobile Device",
+            "Monitoring & SIEM Service",
+            "Object Storage",
+            "Payment Service Provider",
+            "Relational Database",
+            "Source Code & Artifact Repository"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "tls_only_transport"
+          ],
+          "read_from": "credential_item",
+          "classes": [
+            "User Credentials"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "service_to_service_mtls_enforced"
+          ],
+          "read_from": "shared_ancestor",
+          "classes": [
+            "Application Layer"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "east_west_within_segment_restricted"
+          ],
+          "read_from": "foothold_ancestor",
+          "classes": [
+            "Network Segment"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        }
+      ],
+      "control_breakers": [
+        {
+          "control_classes": [
+            "Encryption in Transit"
+          ],
+          "attributes_true": [
+            "tls_only_transport",
+            "service_to_service_mtls_enforced"
+          ],
+          "credential_item_classes": [],
+          "supports": "flow",
+          "strength": "removes",
+          "techniques": []
+        },
+        {
+          "control_classes": [
+            "Encryption in Transit"
+          ],
+          "attributes_true": [],
+          "credential_item_classes": [],
+          "supports": "flow",
+          "strength": "lowers",
+          "techniques": []
+        }
+      ],
+      "defaults": {
+        "required_capability": "targeted",
+        "required_privilege": "admin",
+        "granted_privilege": "user"
+      },
+      "tier_cap": "high",
+      "provenance": "ATT&CK v19 T1040 Network Sniffing and T1557 Adversary-in-the-Middle: a credential crossing the flow is read or intercepted next to it and used where it is accepted.",
+      "emitters": [
+        "dethernety-general/dataFlow/database-query/policies.rego:37",
+        "dethernety-general/dataFlow/ldap-directory-access/policies.rego:41"
+      ]
+    },
+    {
+      "id": "credential-capture/cc-2",
+      "edge_kind": "credential-capture",
+      "techniques": [
+        "T1557"
+      ],
+      "anchors": [
+        {
+          "kind": "dataFlow",
+          "classes": []
+        }
+      ],
+      "exposed_role": "capture",
+      "peer_relation": "capture-footholds",
+      "reached_types": [],
+      "path": {
+        "default": "T1078",
+        "from_cited": [],
+        "by_item_class": [
+          {
+            "item_class": "Authentication Tokens",
+            "technique": "T1550.001"
+          }
+        ]
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "flow_tls_encrypted"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "API Call",
+            "Database Query",
+            "Log & Telemetry Collection",
+            "Deployment & Update Flow"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [
+            {
+              "class": "API Call",
+              "exposure": "Cleartext transport / TLS strip"
+            },
+            {
+              "class": "Deployment & Update Flow",
+              "exposure": "Cleartext or downgraded TLS on registry/apiserver channel"
+            }
+          ],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "encryption_in_transit_enabled"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "LDAP / Directory Access",
+            "Message Publish/Consume",
+            "Secret Retrieval",
+            "Inter-Broker Replication",
+            "Certificate Enrollment",
+            "Metrics Scrape"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [
+            {
+              "class": "LDAP / Directory Access",
+              "exposure": "Cleartext LDAP bind credential exposure / StartTLS downgrade"
+            },
+            {
+              "class": "Message Publish/Consume",
+              "exposure": "Plaintext transport sniffing / unverified-TLS MITM"
+            },
+            {
+              "class": "Secret Retrieval",
+              "exposure": "Unverified TLS to secrets manager (MITM)"
+            }
+          ],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "tls_only_transport"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "HTTP/S Request"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [
+            {
+              "class": "HTTP/S Request",
+              "exposure": "Cleartext HTTP downgrade / missing HSTS"
+            }
+          ],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "service_to_service_mtls_enforced"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "Internal Service Communication"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "service_to_service_mtls_enforced"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "Log & Telemetry Collection"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "flow_tls_encrypted",
+            "server_certificate_validated"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "API Call",
+            "Database Query",
+            "Deployment & Update Flow",
+            "Log & Telemetry Collection"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "API Call",
+              "exposure": "Adversary-in-the-Middle via skipped certificate validation"
+            },
+            {
+              "class": "API Call",
+              "exposure": "Cleartext transport / TLS strip"
+            },
+            {
+              "class": "Database Query",
+              "exposure": "TLS without server certificate validation (AiTM)"
+            },
+            {
+              "class": "Deployment & Update Flow",
+              "exposure": "Cleartext or downgraded TLS on registry/apiserver channel"
+            },
+            {
+              "class": "Log & Telemetry Collection",
+              "exposure": "MITM modification of events in transit"
+            }
+          ],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "tls_only_transport"
+          ],
+          "read_from": "flow_responder",
+          "classes": [
+            "Cache / In-Memory Store",
+            "End User",
+            "Identity Provider",
+            "Message Queue",
+            "Mobile Device",
+            "Monitoring & SIEM Service",
+            "Object Storage",
+            "Payment Service Provider",
+            "Relational Database",
+            "Source Code & Artifact Repository"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "tls_only_transport"
+          ],
+          "read_from": "credential_item",
+          "classes": [
+            "User Credentials"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "service_to_service_mtls_enforced"
+          ],
+          "read_from": "shared_ancestor",
+          "classes": [
+            "Application Layer"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "east_west_within_segment_restricted"
+          ],
+          "read_from": "foothold_ancestor",
+          "classes": [
+            "Network Segment"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        }
+      ],
+      "control_breakers": [
+        {
+          "control_classes": [
+            "Encryption in Transit"
+          ],
+          "attributes_true": [
+            "tls_only_transport",
+            "service_to_service_mtls_enforced"
+          ],
+          "credential_item_classes": [],
+          "supports": "flow",
+          "strength": "lowers",
+          "techniques": []
+        },
+        {
+          "control_classes": [
+            "Encryption in Transit"
+          ],
+          "attributes_true": [],
+          "credential_item_classes": [],
+          "supports": "flow",
+          "strength": "lowers",
+          "techniques": []
+        }
+      ],
+      "defaults": {
+        "required_capability": "targeted",
+        "required_privilege": "admin",
+        "granted_privilege": "user"
+      },
+      "tier_cap": "high",
+      "provenance": "ATT&CK v19 T1040 Network Sniffing and T1557 Adversary-in-the-Middle: a credential crossing the flow is read or intercepted next to it and used where it is accepted.",
+      "emitters": [
+        "dethernety-general/dataFlow/api-call/policies.rego:89",
+        "dethernety-general/dataFlow/ldap-directory-access/policies.rego:81"
+      ]
+    },
+    {
+      "id": "credential-capture/cc-1c",
+      "edge_kind": "credential-capture",
+      "techniques": [
+        "T1040"
+      ],
+      "anchors": [
+        {
+          "kind": "component",
+          "classes": []
+        },
+        {
+          "kind": "securityBoundary",
+          "classes": [
+            "Application Layer",
+            "Data Layer",
+            "Managed Runtime"
+          ]
+        },
+        {
+          "kind": "data",
+          "classes": []
+        }
+      ],
+      "exposed_role": "capture",
+      "peer_relation": "capture-footholds",
+      "reached_types": [],
+      "path": {
+        "default": "T1078",
+        "from_cited": [],
+        "by_item_class": [
+          {
+            "item_class": "Authentication Tokens",
+            "technique": "T1550.001"
+          }
+        ]
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "flow_tls_encrypted"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "API Call",
+            "Database Query",
+            "Log & Telemetry Collection",
+            "Deployment & Update Flow"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "encryption_in_transit_enabled"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "LDAP / Directory Access",
+            "Message Publish/Consume",
+            "Secret Retrieval",
+            "Inter-Broker Replication",
+            "Certificate Enrollment",
+            "Metrics Scrape"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "tls_only_transport"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "HTTP/S Request"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "service_to_service_mtls_enforced"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "Internal Service Communication"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "service_to_service_mtls_enforced"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "Log & Telemetry Collection"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "tls_only_transport"
+          ],
+          "read_from": "flow_responder",
+          "classes": [
+            "Cache / In-Memory Store",
+            "End User",
+            "Identity Provider",
+            "Message Queue",
+            "Mobile Device",
+            "Monitoring & SIEM Service",
+            "Object Storage",
+            "Payment Service Provider",
+            "Relational Database",
+            "Source Code & Artifact Repository"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "Cache / In-Memory Store",
+              "exposure": "Cleartext transport interception"
+            },
+            {
+              "class": "Identity Provider",
+              "exposure": "Unencrypted IdP transport"
+            },
+            {
+              "class": "Message Queue",
+              "exposure": "Cleartext transport interception / MITM"
+            },
+            {
+              "class": "Mobile Device",
+              "exposure": "Cleartext transport / no certificate pinning"
+            },
+            {
+              "class": "Monitoring & SIEM Service",
+              "exposure": "Cleartext / weak-TLS ingest transport"
+            },
+            {
+              "class": "Object Storage",
+              "exposure": "Cleartext / weak-TLS transport"
+            },
+            {
+              "class": "Relational Database",
+              "exposure": "Missing encryption in transit / MITM"
+            }
+          ],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "tls_only_transport"
+          ],
+          "read_from": "anchor",
+          "classes": [
+            "Authentication Tokens",
+            "Cache / In-Memory Store",
+            "Customer & Personal Data",
+            "End User",
+            "Identity Provider",
+            "Managed Runtime",
+            "Message Queue",
+            "Mobile Device",
+            "Monitoring & SIEM Service",
+            "Object Storage",
+            "Payment Service Provider",
+            "Relational Database",
+            "Security Logs",
+            "Source Code & Artifact Repository",
+            "System Configuration",
+            "User Credentials"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "Cache / In-Memory Store",
+              "exposure": "Cleartext transport interception"
+            },
+            {
+              "class": "Identity Provider",
+              "exposure": "Unencrypted IdP transport"
+            },
+            {
+              "class": "Managed Runtime",
+              "exposure": "Plaintext HTTP accepted on a public endpoint"
+            },
+            {
+              "class": "Message Queue",
+              "exposure": "Cleartext transport interception / MITM"
+            },
+            {
+              "class": "Mobile Device",
+              "exposure": "Cleartext transport / no certificate pinning"
+            },
+            {
+              "class": "Monitoring & SIEM Service",
+              "exposure": "Cleartext / weak-TLS ingest transport"
+            },
+            {
+              "class": "Object Storage",
+              "exposure": "Cleartext / weak-TLS transport"
+            },
+            {
+              "class": "Relational Database",
+              "exposure": "Missing encryption in transit / MITM"
+            },
+            {
+              "class": "Security Logs",
+              "exposure": "Logs unencrypted in transit / at rest"
+            },
+            {
+              "class": "System Configuration",
+              "exposure": "Config and secrets unencrypted at rest or in transit"
+            },
+            {
+              "class": "User Credentials",
+              "exposure": "Credentials transmitted in cleartext"
+            }
+          ],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "flow_tls_encrypted"
+          ],
+          "read_from": "anchor",
+          "classes": [
+            "API Gateway",
+            "Cache / In-Memory Store",
+            "External Cloud Service",
+            "Message Queue"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "API Gateway",
+              "exposure": "Cleartext or weak TLS termination and unverified upstream re-encryption"
+            },
+            {
+              "class": "Cache / In-Memory Store",
+              "exposure": "Cleartext transport interception"
+            },
+            {
+              "class": "External Cloud Service",
+              "exposure": "Connectivity over the public internet instead of private link"
+            },
+            {
+              "class": "Message Queue",
+              "exposure": "Cleartext transport interception / MITM"
+            }
+          ],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "tls_only_transport"
+          ],
+          "read_from": "credential_item",
+          "classes": [
+            "User Credentials"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "User Credentials",
+              "exposure": "Credentials transmitted in cleartext"
+            }
+          ],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "service_to_service_mtls_enforced"
+          ],
+          "read_from": "shared_ancestor",
+          "classes": [
+            "Application Layer"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "east_west_within_segment_restricted"
+          ],
+          "read_from": "foothold_ancestor",
+          "classes": [
+            "Network Segment"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        }
+      ],
+      "control_breakers": [
+        {
+          "control_classes": [
+            "Encryption in Transit"
+          ],
+          "attributes_true": [
+            "tls_only_transport",
+            "service_to_service_mtls_enforced"
+          ],
+          "credential_item_classes": [],
+          "supports": "flow",
+          "strength": "removes",
+          "techniques": []
+        },
+        {
+          "control_classes": [
+            "Encryption in Transit"
+          ],
+          "attributes_true": [],
+          "credential_item_classes": [],
+          "supports": "flow",
+          "strength": "lowers",
+          "techniques": []
+        }
+      ],
+      "defaults": {
+        "required_capability": "targeted",
+        "required_privilege": "admin",
+        "granted_privilege": "user"
+      },
+      "tier_cap": "medium",
+      "provenance": "ATT&CK v19 T1040 Network Sniffing and T1557 Adversary-in-the-Middle: a credential crossing the flow is read or intercepted next to it and used where it is accepted.",
+      "emitters": [
+        "dethernety-general/component/message-queue/policies.rego:93",
+        "dethernety-general/securityBoundary/application-layer/policies.rego:177",
+        "dethernety-general/data/user-credentials/policies.rego:113"
+      ]
+    },
+    {
+      "id": "credential-capture/cc-2c",
+      "edge_kind": "credential-capture",
+      "techniques": [
+        "T1557"
+      ],
+      "anchors": [
+        {
+          "kind": "component",
+          "classes": []
+        },
+        {
+          "kind": "data",
+          "classes": []
+        }
+      ],
+      "exposed_role": "capture",
+      "peer_relation": "capture-footholds",
+      "reached_types": [],
+      "path": {
+        "default": "T1078",
+        "from_cited": [],
+        "by_item_class": [
+          {
+            "item_class": "Authentication Tokens",
+            "technique": "T1550.001"
+          }
+        ]
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "flow_tls_encrypted"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "API Call",
+            "Database Query",
+            "Log & Telemetry Collection",
+            "Deployment & Update Flow"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "encryption_in_transit_enabled"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "LDAP / Directory Access",
+            "Message Publish/Consume",
+            "Secret Retrieval",
+            "Inter-Broker Replication",
+            "Certificate Enrollment",
+            "Metrics Scrape"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "tls_only_transport"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "HTTP/S Request"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "service_to_service_mtls_enforced"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "Internal Service Communication"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "all_false",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "service_to_service_mtls_enforced"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "Log & Telemetry Collection"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "flow_tls_encrypted",
+            "server_certificate_validated"
+          ],
+          "read_from": "flow",
+          "classes": [
+            "API Call",
+            "Database Query",
+            "Deployment & Update Flow",
+            "Log & Telemetry Collection"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "tls_only_transport"
+          ],
+          "read_from": "flow_responder",
+          "classes": [
+            "Cache / In-Memory Store",
+            "End User",
+            "Identity Provider",
+            "Message Queue",
+            "Mobile Device",
+            "Monitoring & SIEM Service",
+            "Object Storage",
+            "Payment Service Provider",
+            "Relational Database",
+            "Source Code & Artifact Repository"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "Identity Provider",
+              "exposure": "Unencrypted IdP transport"
+            },
+            {
+              "class": "Mobile Device",
+              "exposure": "Cleartext transport / no certificate pinning"
+            },
+            {
+              "class": "Monitoring & SIEM Service",
+              "exposure": "Cleartext / weak-TLS ingest transport"
+            },
+            {
+              "class": "Object Storage",
+              "exposure": "Cleartext / weak-TLS transport"
+            },
+            {
+              "class": "Payment Service Provider",
+              "exposure": "TLS downgrade / MITM on PSP transport"
+            },
+            {
+              "class": "Relational Database",
+              "exposure": "Missing encryption in transit / MITM"
+            }
+          ],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "tls_only_transport"
+          ],
+          "read_from": "anchor",
+          "classes": [
+            "Authentication Tokens",
+            "Cache / In-Memory Store",
+            "Customer & Personal Data",
+            "End User",
+            "Identity Provider",
+            "Message Queue",
+            "Mobile Device",
+            "Monitoring & SIEM Service",
+            "Object Storage",
+            "Payment Service Provider",
+            "Relational Database",
+            "Security Logs",
+            "Source Code & Artifact Repository",
+            "System Configuration",
+            "User Credentials"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "Customer & Personal Data",
+              "exposure": "Cleartext or downgraded transport of PII"
+            },
+            {
+              "class": "Identity Provider",
+              "exposure": "Unencrypted IdP transport"
+            },
+            {
+              "class": "Mobile Device",
+              "exposure": "Cleartext transport / no certificate pinning"
+            },
+            {
+              "class": "Monitoring & SIEM Service",
+              "exposure": "Cleartext / weak-TLS ingest transport"
+            },
+            {
+              "class": "Object Storage",
+              "exposure": "Cleartext / weak-TLS transport"
+            },
+            {
+              "class": "Payment Service Provider",
+              "exposure": "TLS downgrade / MITM on PSP transport"
+            },
+            {
+              "class": "Relational Database",
+              "exposure": "Missing encryption in transit / MITM"
+            },
+            {
+              "class": "User Credentials",
+              "exposure": "Credentials transmitted in cleartext"
+            }
+          ],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "flow_tls_encrypted"
+          ],
+          "read_from": "anchor",
+          "classes": [
+            "API Gateway",
+            "Cache / In-Memory Store",
+            "External Cloud Service",
+            "Message Queue"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "API Gateway",
+              "exposure": "Cleartext or weak TLS termination and unverified upstream re-encryption"
+            },
+            {
+              "class": "External Cloud Service",
+              "exposure": "Connectivity over the public internet instead of private link"
+            }
+          ],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "tls_only_transport"
+          ],
+          "read_from": "credential_item",
+          "classes": [
+            "User Credentials"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "User Credentials",
+              "exposure": "Credentials transmitted in cleartext"
+            }
+          ],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "service_to_service_mtls_enforced"
+          ],
+          "read_from": "shared_ancestor",
+          "classes": [
+            "Application Layer"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "removes"
+        },
+        {
+          "attributes": [
+            "east_west_within_segment_restricted"
+          ],
+          "read_from": "foothold_ancestor",
+          "classes": [
+            "Network Segment"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        }
+      ],
+      "control_breakers": [
+        {
+          "control_classes": [
+            "Encryption in Transit"
+          ],
+          "attributes_true": [
+            "tls_only_transport",
+            "service_to_service_mtls_enforced"
+          ],
+          "credential_item_classes": [],
+          "supports": "flow",
+          "strength": "lowers",
+          "techniques": []
+        },
+        {
+          "control_classes": [
+            "Encryption in Transit"
+          ],
+          "attributes_true": [],
+          "credential_item_classes": [],
+          "supports": "flow",
+          "strength": "lowers",
+          "techniques": []
+        }
+      ],
+      "defaults": {
+        "required_capability": "targeted",
+        "required_privilege": "admin",
+        "granted_privilege": "user"
+      },
+      "tier_cap": "medium",
+      "provenance": "ATT&CK v19 T1040 Network Sniffing and T1557 Adversary-in-the-Middle: a credential crossing the flow is read or intercepted next to it and used where it is accepted.",
+      "emitters": [
+        "dethernety-general/component/web-server/policies.rego:5",
+        "dethernety-general/data/user-credentials/policies.rego:113"
+      ]
+    },
+    {
+      "id": "host-escape/he-1",
+      "edge_kind": "host-escape",
+      "techniques": [
+        "T1611"
+      ],
+      "anchors": [
+        {
+          "kind": "securityBoundary",
+          "classes": [
+            "Container"
+          ]
+        }
+      ],
+      "exposed_role": "source",
+      "peer_relation": "same-host-outside-container",
+      "reached_types": [
+        "PROCESS",
+        "STORE"
+      ],
+      "path": {
+        "default": "T1611",
+        "from_cited": [],
+        "by_item_class": []
+      },
+      "attribute_breakers": [
+        {
+          "attributes": [
+            "container_privileged_mode_disabled",
+            "container_capabilities_dropped_to_minimal",
+            "container_host_namespaces_not_shared",
+            "container_no_sensitive_host_mounts"
+          ],
+          "read_from": "anchor",
+          "classes": [
+            "Container"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "any_false",
+          "own_condition": [
+            {
+              "class": "Container",
+              "exposure": "Host namespace sharing & sensitive host bind-mounts"
+            },
+            {
+              "class": "Container",
+              "exposure": "Privileged mode / excessive capabilities"
+            }
+          ],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "container_seccomp_and_mac_profile_enforced",
+            "container_no_new_privileges_and_nonroot"
+          ],
+          "read_from": "anchor",
+          "classes": [
+            "Container"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "Container",
+              "exposure": "Weak kernel-sharing confinement"
+            }
+          ],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "container_runtime_patch_current"
+          ],
+          "read_from": "anchor",
+          "classes": [
+            "Container"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [
+            {
+              "class": "Container",
+              "exposure": "Unpatched container runtime"
+            }
+          ],
+          "techniques": [],
+          "strength": "lowers"
+        },
+        {
+          "attributes": [
+            "mandatory_access_control_enforcing",
+            "unprivileged_user_namespaces_restricted",
+            "host_patch_level_current"
+          ],
+          "read_from": "anchor_ancestor",
+          "classes": [
+            "Operating System / Host"
+          ],
+          "polarity": "true_breaks",
+          "high_when": "ignored",
+          "own_condition": [],
+          "techniques": [],
+          "strength": "lowers"
+        }
+      ],
+      "control_breakers": [],
+      "defaults": {
+        "required_capability": "targeted",
+        "required_privilege": "admin",
+        "granted_privilege": "system"
+      },
+      "tier_cap": "high",
+      "provenance": "ATT&CK v19 T1611 Escape to Host: from code in the container to the host and the other components on it (mitigations M1048, M1038, M1026, M1051).",
+      "emitters": [
+        "dethernety-general/securityBoundary/container/policies.rego:5",
+        "dethernety-general/securityBoundary/container/policies.rego:35",
+        "dethernety-general/securityBoundary/container/policies.rego:65",
+        "dethernety-general/securityBoundary/container/policies.rego:101"
+      ]
+    }
+  ]
+};

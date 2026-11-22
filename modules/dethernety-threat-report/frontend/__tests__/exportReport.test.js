@@ -682,6 +682,63 @@ describe('lists escaped once, at the join', () => {
   })
 })
 
+describe('hidden edges and Inferred Path findings in the export', () => {
+  // ext → db over a hidden-edge flow only, its Inferred Path finding on the flow, and one ordinary finding on db.
+  const HIDDEN_DOC = doc({
+    ledger: [
+      ledgerEl({ id: 'db', name: 'DB', findings: [finding({ id: 'e1' })] }),
+      ledgerEl({ id: 'h1', name: 'reused credential', type: 'DataFlow', findings: [finding({ id: 'ip1', score: 9.8, category: 'Inferred Path' })] }),
+    ],
+    modelGraph: {
+      boundaries: [
+        { id: 'edge', name: 'Edge', parentBoundaryId: null, planes: [], domains: [], conduits: [] },
+        { id: 'core', name: 'Core', parentBoundaryId: null, planes: [], domains: [], conduits: [] },
+      ],
+      components: [
+        { id: 'ext', name: 'Ext', type: 'external_entity', boundaryId: 'edge', crownJewel: false },
+        { id: 'db', name: 'DB', type: 'store', boundaryId: 'core', crownJewel: true },
+      ],
+      flows: [{
+        id: 'h1', name: 'reused credential', sourceId: 'ext', targetId: 'db', sensitivities: [], dataItemCount: 0,
+        hiddenEdge: { kind: 'credential-reuse', tier: 'high', grantedPrivilege: 'admin' },
+      }],
+      dataNodes: [],
+    },
+    zoning: { findings: [], effectiveZones: {} },
+  })
+
+  it('the reachability rollup labels a jewel reached only via an inferred edge', () => {
+    const out = JSON.parse(buildJsonExport(HIDDEN_DOC))
+    expect(out.reachability.flowRoutes).toEqual([expect.objectContaining({
+      jewel: 'DB', reachable: true, viaInferredEdge: true, onlyViaInferredEdge: true,
+      inferredEdgeLabel: 'via inferred edge (high, grants admin)',
+    })])
+    expect(out.reachability.inferredOnlyCount).toBe(1)
+    expect(buildHtmlExport(HIDDEN_DOC)).toContain('reachable · only via inferred edge (high, grants admin)')
+  })
+
+  it('boundary crossings set the hidden-edge flow apart and count it', () => {
+    const out = JSON.parse(buildJsonExport(HIDDEN_DOC))
+    expect(out.boundaryCrossings).toMatchObject({
+      crossingFlows: 0,
+      hiddenEdgeFlowsSetApart: 1,
+      setApartFlows: [{ flowId: 'h1', flowName: 'reused credential', kind: 'credential-reuse' }],
+    })
+    expect(buildHtmlExport(HIDDEN_DOC)).toContain('1 hidden-edge flow set apart: reused credential (credential-reuse)')
+  })
+
+  it('the coverage block leaves the Inferred Path exposure out of the grid and counts it', () => {
+    const cov = coverage([
+      exposure({ exposureId: 'e1', elementId: 'db', techniques: [technique('T1190')] }),
+      exposure({ exposureId: 'ip1', elementId: 'h1', elementKind: 'DataFlow', techniques: [technique('T1078', undefined, [tier('DIRECT', 'PREVENT')])] }),
+    ])
+    const out = JSON.parse(buildJsonExport(HIDDEN_DOC, cov))
+    expect(out.coverage.techniques.map((t) => t.techniqueId)).toEqual(['T1190'])
+    expect(out.coverage.offGrid.inferredPathSetApart).toBe(1)
+    expect(buildHtmlExport(HIDDEN_DOC, cov)).toContain('1 inferred-path exposure set apart')
+  })
+})
+
 describe('formatUtc', () => {
   it('reads an ISO timestamp as the report kit does, and passes anything else through', () => {
     expect(formatUtc('2026-11-15T10:00:00.000Z')).toBe('15 Nov 2026, 10:00 UTC')

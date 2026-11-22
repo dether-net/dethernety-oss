@@ -287,3 +287,33 @@ describe('MatchClassesTool: elements matched by type only', () => {
     expect(data).not.toHaveProperty('hint')
   })
 })
+
+describe('MatchClassesTool: the hidden-edge classes', () => {
+  const context: ToolContext = { debug: false, apolloClient: {} as never }
+  const candidate = (classId: string, moduleName: string, matchType = 'vector_similarity') => ({ classId, className: `Class ${classId}`, moduleId: `mod-${moduleName}`, moduleName, matchType, confidence: 'medium' })
+  const hidden = ['he-1', 'he-2', 'he-3', 'he-4'].map((id) => candidate(id, 'dethernety-hidden-edges'))
+  beforeEach(() => mockMatchClasses.mockReset())
+
+  it('asks for topN more by the number of hidden-edge kinds, and drops the hidden-edges module’s classes', async () => {
+    mockMatchClasses.mockResolvedValueOnce({
+      matches: [{ elementName: 'ssh', candidates: [hidden[0], candidate('cls-ssh', 'general'), hidden[1], candidate('cls-rdp', 'general'), candidate('cls-vnc', 'general')] }],
+      unmatched: [], vectorAvailable: true,
+    })
+    const r = await matchClassesTool.execute({ elements: [{ name: 'ssh' }], classLabel: 'DATA_FLOW', topN: 2 }, context)
+    expect(mockMatchClasses).toHaveBeenCalledWith(expect.objectContaining({ topN: 6 }))
+    expect(r.data!.matches[0]!.candidates.map((c) => c.classId)).toEqual(['cls-ssh', 'cls-rdp'])
+  })
+
+  it('lists an element left with none as unmatched', async () => {
+    mockMatchClasses.mockResolvedValueOnce({
+      matches: [
+        { elementName: 'a', candidates: [hidden[2], candidate('cls-a', 'general')] },
+        { elementName: 'b', candidates: hidden },
+      ],
+      unmatched: [], vectorAvailable: true,
+    })
+    const r = await matchClassesTool.execute({ elements: [{ name: 'a' }, { name: 'b' }], classLabel: 'DATA_FLOW', topN: 3 }, context)
+    expect(r.data!.matches.map((m) => [m.elementName, m.candidates.map((c) => c.classId)])).toEqual([['a', ['cls-a']]])
+    expect(r.data!).toMatchObject({ unmatched: ['b'], matched_count: 1, unmatched_count: 1 })
+  })
+})

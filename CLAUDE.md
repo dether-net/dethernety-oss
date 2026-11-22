@@ -46,10 +46,11 @@ pnpm docker:run           # Run Docker container
 - `packages/typescript-config` — Shared TypeScript configuration
 
 ### Modules
-- `modules/dethernety-general` — Component, boundary, data flow, control, data, and issue classes + the Rego policies behind exposures and countermeasures; the only module contributing classes
+- `modules/dethernety-general` — Component, boundary, data flow, control, data, and issue classes + the Rego policies behind exposures and countermeasures; the class catalogue for modelled elements
 - `modules/mitre-frameworks` — MITRE ATT&CK, ATLAS and D3FEND data pack + ingestion scripts (the API and the technique-picker components support ATLAS kinds, but no dialog offers them yet; dt-ui shows ATLAS links read-only); no `main`, no `DTModule` class, contributes no classes
 - `modules/dethernety-threat-report` — The "Threat Report" analysis type and the report UI it renders; no classes, no policies, no AI
 - `modules/dethernety-coverage-tools` — Backend-only; the graded MITRE coverage facts the Threat Report's Coverage & Gaps matrix reads
+- `modules/dethernety-hidden-edges` — Proposes inferred attack paths ("hidden edges") from a model's exposures as one read-only query (`hiddenEdgeCandidates`), and ships the four `Hidden Edge` data flow classes an accepted one is recorded with
 
 ### Database
 - Bolt/Cypher compatible (Neo4j or Memgraph)

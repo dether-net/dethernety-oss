@@ -94,6 +94,7 @@
         <span v-if="summary.disposition.compensatingNoControl > 0" class="trd-hollow" :title="'A disposition claims a compensating control, but no control is present on the element'">
           · ⚠ {{ summary.disposition.compensatingNoControl }} compensating-control claim{{ summary.disposition.compensatingNoControl === 1 ? '' : 's' }} with no control present
         </span>
+        <span v-if="summary.inferredPathSetApart > 0" class="trd-muted">· {{ summary.inferredPathSetApart }} inferred-path finding{{ summary.inferredPathSetApart === 1 ? '' : 's' }} set apart</span>
 
         <template v-if="summary.boundaryCrossings">
           <span class="trd-stat-gap"></span>
@@ -116,6 +117,7 @@
             <strong>{{ reachability.reachableCount }}</strong> of <strong>{{ reachability.jewelCount }}</strong> crown jewels reachable from external entry ↗
           </button>
           <span v-if="reachability.unreachableCount > 0" class="trd-muted">· {{ reachability.unreachableCount }} with no modeled flow route</span>
+          <span v-if="reachability.inferredOnlyCount > 0" class="trd-muted">· {{ reachability.inferredOnlyCount }} only via inferred edge</span>
         </template>
         <template v-else-if="reachability.hasCrownJewels && !reachability.hasOrigin">
           <button type="button" class="trd-stat" @click="emitView('reachability')" title="Open the Reachability view">
@@ -191,11 +193,11 @@
   // Reuses the SAME boundary-crossing engine result (cheap, pure) for its
   // crossing count — no second analysis.
   const crossings = computed(() => computeCrossings(props.modelGraph, props.ledger))
-  const summary = computed(() => computePostureSummary(props.ledger, { crossings: crossings.value }))
+  const summary = computed(() => computePostureSummary(props.ledger, { crossings: crossings.value, modelGraph: props.modelGraph }))
   const presentLiveBands = computed(() => bandOrder.filter((b) => summary.value.liveBands[b] > 0))
 
   // The coverage block, from the same pure honesty layer the Coverage & Gaps matrix uses.
-  const coverageView = computed(() => props.coverageView ?? buildCoverageView(props.coverage, props.ledger))
+  const coverageView = computed(() => props.coverageView ?? buildCoverageView(props.coverage, props.ledger, props.modelGraph))
 
   const emitView = (view) => emit('navigate', { type: 'view', view })
   const emitDrill = (elementId) => emit('navigate', { type: 'drill', elementId })

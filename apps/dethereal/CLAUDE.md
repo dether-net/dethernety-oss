@@ -61,8 +61,8 @@ oss/apps/dethereal/
 ├── bundles/claude/               # Generated Claude bundle (committed)
 │   ├── .mcp.json                 # MCP server: node ${CLAUDE_PLUGIN_ROOT}/dist/index.js
 │   ├── hooks/hooks.json          # Lifecycle hooks
-│   ├── skills/                   # 17 skills (14 slash commands + 3 companions)
-│   ├── agents/                   # 6 agents
+│   ├── skills/                   # 19 skills (16 slash commands + 3 companions)
+│   ├── agents/                   # 9 agents
 │   └── bundle.json               # File list and hashes of the generated bundle
 ├── workflow/                     # Source of skills, agents, shared fragments, harness settings
 ├── src/                          # MCP server, hook CLI (src/cli/), generator (src/generator/)
@@ -83,6 +83,9 @@ The manifest points at `bundles/claude/` for skills, agents, hooks and the MCP s
 | `security-enricher` | MITRE ATT&CK/D3FEND enrichment, security attributes | high |
 | `model-reviewer` | Read-only quality auditing and readiness assessment | medium |
 | `enrichment-applier` | Applies the operator's reply to the enrichment relay: writes attribute files only | high |
+| `triage-analyst` | Read-only: proposes a disposition per group of platform findings, for `/dethereal:triage` | high |
+| `kg-cross-examiner` | Read-only: challenges triage proposals from the knowledge graph | high |
+| `hidden-edge-analyst` | Read-only: argues for and against each hidden-edge candidate, for `/dethereal:hidden-edges` | high |
 
 No default agent (D64). Users invoke via skills or `@agent-dethereal:<agent-name>`.
 
@@ -121,6 +124,8 @@ No default agent (D64). Users invoke via skills or `@agent-dethereal:<agent-name
 | `/dethereal:review` | Quality dashboard, structural validation, readiness assessment |
 | `/dethereal:surface` | Attack surface summary with control gap analysis |
 | `/dethereal:threat-model` | Guided end-to-end threat modeling workflow |
+| `/dethereal:triage` | Triage the platform's findings: grouped proposals, then a gated apply of dispositions |
+| `/dethereal:hidden-edges` | Review the hidden edges the platform proposes; a gated apply adds the accepted ones as flows |
 
 ### Companions (not user-invocable)
 | Skill | Description |
@@ -149,7 +154,7 @@ The compaction reminder is a `SessionStart` hook because a `PreCompact` hook's o
 - Entry: `src/index.ts` — Stdio transport; the server reports the package version (`serverVersion()` in `src/server.ts`)
 - Config: `src/config.ts` — validation, HTTPS enforcement, debug mode
 
-### Tools (`src/tools/`) — 34 total
+### Tools (`src/tools/`) — 36 total
 
 The registered tools are `TOOL_MANIFEST` in `src/tools/manifest.ts`; this table lists each once. Settlement — registering the operator's confirmed values — is off by default (`src/utils/settlement-switch.ts`); with it off `model_state_settle` is not served (it is served only with `DETHEREAL_SETTLEMENT=on`), and nothing blocks a review or a push on unregistered or pending values.
 
@@ -166,6 +171,7 @@ The registered tools are `TOOL_MANIFEST` in `src/tools/manifest.ts`; this table 
 | Security Elements (6) | manage_controls, manage_countermeasures, get_control_gaps, query_controls, query_exposures, query_countermeasures |
 | Analysis (1) | manage_analyses |
 | Triage (4) | triage_review, manage_dispositions, get_kg_chain, get_class_guide |
+| Hidden edges (2) | hidden_edges, manage_hidden_edges |
 
 `validate_model_json` covers validation, quality score, coverage, zoning and gates. The `query_*` tools are read-only; every control and countermeasure write goes through `manage_controls` and `manage_countermeasures`, and every disposition write through `manage_dispositions`.
 
@@ -193,5 +199,5 @@ The MCP tool `get_model_schema` retains its own copy for backward compatibility 
 ## State Management
 
 - **`.dethernety/`** (project root) — model registry (`models.json`), plugin config
-- **`.dethereal/`** (per-model) — workflow state (`state.json`), quality cache (`quality.json`), scope (`scope.json`), sync metadata (`sync.json`), triage record (`triage-log.json`, this machine's, kept out of git)
+- **`.dethereal/`** (per-model) — workflow state (`state.json`), quality cache (`quality.json`), scope (`scope.json`), sync metadata (`sync.json`), triage record (`triage-log.json`, this machine's, kept out of git), hidden-edge decisions (`hidden-edges-decisions.json`, committed; accepts signed with this machine's key) and record (`hidden-edges-log.json`, this machine's, kept out of git)
 - 6 workflow states: INITIALIZED → SCOPE_DEFINED → DISCOVERED → STRUCTURE_COMPLETE → ENRICHING → REVIEWED

@@ -543,3 +543,134 @@ describe('blastRadius — forward flow-reachable set from a node', () => {
     expect(direct.radiusEdgeIds.sort()).toEqual(['f1', 'f2b']) // origin's outgoing only
   })
 })
+
+describe('inferred edges — a hidden-edge flow is a route, and is labelled', () => {
+  // Leaf ─▶ Vault over a hidden-edge flow: the only route to the otherwise-unreachable Vault.
+  const HIDDEN = {
+    id: 'h1', name: 'reused credential', sourceId: 'leaf', targetId: 'vault',
+    sensitivities: [], dataItemCount: 0, hiddenEdge: { kind: 'credential-reuse', tier: 'medium', grantedPrivilege: 'admin' },
+  }
+  const LABEL = 'via inferred edge (medium, grants admin)'
+  const MGH = { ...MG, flows: [...MG.flows, HIDDEN] }
+  // Its own Inferred Path findings: a live critical and a risk-accepted one, neither of which may count.
+  const LEDGERH = [
+    ...LEDGER,
+    {
+      id: 'h1', name: 'reused credential', type: 'DataFlow', supportingControls: [],
+      findings: [
+        { id: 'ip1', name: 'Valid Accounts', score: 9.8, category: 'Inferred Path', dispositionKind: null },
+        { id: 'ip2', name: 'Remote Services', score: 8, category: 'Inferred Path', dispositionKind: 'RISK_ACCEPTED' },
+      ],
+    },
+  ]
+
+  it('keeps the flow in the projection and marks its edge inferred', () => {
+    const p = buildProjection(MGH)
+    expect(p.forward.get('leaf')).toEqual([expect.objectContaining({ flowId: 'h1', to: 'vault', inferred: true })])
+    expect(p.forward.get('ext').every((e) => e.inferred === false)).toBe(true)
+  })
+
+  it('a jewel reachable only through it is reachable, and labelled only via inferred edge', () => {
+    const a = modeAReachability(MGH, LEDGERH)
+    const vault = a.jewels.find((j) => j.jewelId === 'vault')
+    expect(vault.reachable).toBe(true)
+    expect(vault.viaInferredEdge).toBe(true)
+    expect(vault.onlyViaInferredEdge).toBe(true)
+    expect(vault.shortestViaInferredEdge).toBe(true)
+    expect(vault.inferredLabel).toBe(LABEL)
+    expect(vault.inferredEdges).toEqual([{ flowId: 'h1', flowName: 'reused credential', kind: 'credential-reuse', tier: 'medium', grantedPrivilege: 'admin' }])
+    const db = a.jewels.find((j) => j.jewelId === 'db')
+    expect(db.viaInferredEdge).toBe(false)
+    expect(db.onlyViaInferredEdge).toBe(false)
+    expect(a.inferredOnlyCount).toBe(1)
+    // Without the flow, Vault has no modeled flow route.
+    expect(modeAReachability(MG, LEDGER).jewels.find((j) => j.jewelId === 'vault').reachable).toBe(false)
+  })
+
+  it('its Inferred Path finding never raises the worst band or the risk-accepted count on the route', () => {
+    const withFinding = modeAReachability(MGH, LEDGERH).jewels.find((j) => j.jewelId === 'vault')
+    const without = modeAReachability(MGH, LEDGER).jewels.find((j) => j.jewelId === 'vault')
+    expect(withFinding.worstOnRoute).toEqual(without.worstOnRoute)
+    expect(withFinding.riskAccepted).toBe(without.riskAccepted)
+  })
+
+  it('pick two: the route through it is enumerated, labelled per hop and per route', () => {
+    const b = modeBRoutes(MGH, LEDGERH, 'db', 'vault')
+    expect(b.routes).toHaveLength(1)
+    expect(b.viaInferredEdge).toBe(true)
+    expect(b.routes[0].viaInferredEdge).toBe(true)
+    expect(b.routes[0].hops.map((h) => [h.flowId, h.inferred])).toEqual([['f6', false], ['h1', true]])
+    expect(b.routes[0].inferredLabel).toBe(LABEL)
+    expect(b.routes[0].hops[1].inferredLabel).toBe('inferred edge (medium, grants admin)')
+    expect(b.routes[0].hops[0].inferredLabel).toBe('')
+    expect(b.routes[0].hops[1].worstBand).toBe(null) // its Inferred Path finding is not on-flow posture
+    expect(modeBRoutes(MGH, LEDGERH, 'ext', 'db').viaInferredEdge).toBe(false)
+  })
+
+  it('choke points: says when a route between the two rides one', () => {
+    const c = chokePoints(MGH, LEDGERH, 'api', 'vault')
+    expect(c.viaInferredEdge).toBe(true)
+    expect(c.inferredLabel).toBe(LABEL)
+    expect(c.chokePoints.map((x) => x.id)).toEqual(['db', 'leaf'])
+    expect(c.bypassedChokePoints).toEqual([])
+    expect(chokePoints(MGH, LEDGERH, 'ext', 'db').viaInferredEdge).toBe(false)
+  })
+
+  // Web ─▶ DB over an inferred edge goes around API, the declared choke point of every ext→db route.
+  const AROUND = {
+    id: 'h2', name: 'web-db shortcut', sourceId: 'web', targetId: 'db', sensitivities: [], dataItemCount: 0,
+    hiddenEdge: { kind: 'remote-service', tier: 'high', grantedPrivilege: 'user' },
+  }
+
+  it('choke points: a declared choke point an inferred edge goes around is named, not dropped', () => {
+    expect(chokePoints(MG, LEDGER, 'ext', 'db').chokePoints.map((x) => x.id)).toEqual(['api'])
+    const c = chokePoints({ ...MG, flows: [...MG.flows, AROUND] }, LEDGER, 'ext', 'db')
+    expect(c.chokePoints).toEqual([])
+    expect(c.viaInferredEdge).toBe(true)
+    expect(c.bypassedChokePoints).toEqual([{
+      id: 'api',
+      name: 'API',
+      bypassedBy: [{ flowId: 'h2', flowName: 'web-db shortcut', kind: 'remote-service', tier: 'high', grantedPrivilege: 'user' }],
+      text: 'declared choke point API is bypassed by inferred edge (high, grants user) web-db shortcut',
+    }])
+  })
+
+  it('choke points: a direct inferred edge is not a direct modeled flow', () => {
+    const direct = { ...AROUND, id: 'h3', name: 'ext-db shortcut', sourceId: 'ext' }
+    const c = chokePoints({ ...MG, flows: [...MG.flows, direct] }, LEDGER, 'ext', 'db')
+    expect(c.hasDirectFlow).toBe(false)
+    expect(c.directInferredEdge).toEqual(expect.objectContaining({ flowId: 'h3', tier: 'high' }))
+    expect(c.chokePoints).toEqual([])
+    expect(c.bypassedChokePoints.map((b) => [b.id, b.bypassedBy.map((e) => e.flowId)])).toEqual([['api', ['h3']]])
+    // A modeled direct flow stays hasDirectFlow, with no inferred one to name.
+    const m = chokePoints(MG, LEDGER, 'ext', 'web')
+    expect(m.hasDirectFlow).toBe(true)
+    expect(m.directInferredEdge).toBe(null)
+  })
+
+  it('an edge from an earlier snapshot (hiddenEdge: true) is an inferred edge with no detail', () => {
+    const b = modeBRoutes({ ...MG, flows: [...MG.flows, { ...HIDDEN, hiddenEdge: true }] }, LEDGER, 'db', 'vault')
+    expect(b.routes[0].inferredLabel).toBe('via inferred edge')
+  })
+
+  it('the Residual Risk join says which jewels an element leads to only through an inferred edge', () => {
+    const a = modeAReachability(MGH, LEDGERH)
+    expect([...a.routeElementToJewels.get('api')].sort()).toEqual(['DB', 'Vault'])
+    expect([...a.routeElementToJewelsViaInferredOnly.get('api')]).toEqual(['Vault'])
+    expect(a.routeElementToJewelsViaInferredOnly.get('h1')).toEqual(new Set(['Vault']))
+    expect(modeAReachability(MG, LEDGER).routeElementToJewelsViaInferredOnly.size).toBe(0)
+  })
+
+  it('blast radius: the node reached only through it is labelled, and the radius says so', () => {
+    const r = blastRadius(MGH, LEDGERH, 'db')
+    expect(r.nodes.map((n) => [n.id, n.viaInferredEdge])).toEqual([['leaf', false], ['vault', true]])
+    expect(r.nodes.map((n) => n.inferredLabel)).toEqual(['', LABEL])
+    expect(r.inferredLabel).toBe(LABEL)
+    expect(r.viaInferredEdge).toBe(true)
+    expect(r.inferredOnlyCount).toBe(1)
+    expect(r.radiusEdgeIds).toContain('h1')
+    const plain = blastRadius(MG, LEDGER, 'db')
+    expect(plain.viaInferredEdge).toBe(false)
+    expect(plain.inferredOnlyCount).toBe(0)
+  })
+})

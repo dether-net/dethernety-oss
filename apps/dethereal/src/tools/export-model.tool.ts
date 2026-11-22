@@ -38,6 +38,9 @@ import { computeContentHash, collectBaselineElementIds, readSyncJson } from '../
 import { baselineForSync, fingerprintSplitModel, recordSyncBaseline } from '../utils/platform-baseline.js'
 import { registerModel, registerWarning } from '../utils/model-registry.js'
 import { registerPulled, type Registration } from '../utils/settlement-writers.js'
+import { alignClassCacheModules } from '../utils/manifest-modules.js'
+import { StateFileError } from '../utils/state-store.js'
+import { ModelTreeError } from '../utils/path-confinement.js'
 
 const InputSchema = z.object({
   model_id: z.string().describe('The ID of the model to export'),
@@ -160,6 +163,15 @@ export class ExportModelTool extends ClientDependentTool<ExportInput, ExportOutp
       await writeModelDirectory(directoryPath, splitModel)
       await writeScope(directoryPath, scope ?? {})
       debugLog(config, `Exported model to directory: ${directoryPath}`)
+      // The files now name this platform's module for each class; a class-cache entry naming another
+      // platform's would read as a conflict in Gate 2. Warnings only: the pull itself is done.
+      let cacheWarnings: string[]
+      try {
+        cacheWarnings = await alignClassCacheModules(directoryPath, splitModel)
+      } catch (cacheError) {
+        const code = cacheError instanceof StateFileError || cacheError instanceof ModelTreeError ? cacheError.code : 'unwritable'
+        cacheWarnings = [`The class cache could not be pointed at the modules the model now names (${code}): run generate_attribute_stubs to refresh it.`]
+      }
 
       const filesWritten = [
         'manifest.json',
@@ -190,6 +202,7 @@ export class ExportModelTool extends ClientDependentTool<ExportInput, ExportOutp
       // The pulled directory in the project's model registry (added, or its entry updated).
       const modelRegistry = await registerModel(directoryPath, { name: splitModel.manifest.model.name || input.model_id, source: 'pull' })
       const warnings = [
+        ...cacheWarnings,
         ...(recorded.warning ? [recorded.warning] : []),
         ...(settled.warning ? [settled.warning] : []),
         ...(settled.status === 'failed' ? [`The pulled values were not registered (${settled.code ?? 'failed'}): they show as unregistered values until the operator settles them.`] : []),

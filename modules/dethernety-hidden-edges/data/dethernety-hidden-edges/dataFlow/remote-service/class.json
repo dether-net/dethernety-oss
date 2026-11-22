@@ -1,0 +1,9 @@
+{
+  "id": "06d06f99-2d0f-41d0-8e73-346223071c86",
+  "name": "Hidden Edge: Remote Service",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "An inferred attack path reviewed by the operator, not a declared flow: an attacker who holds the source reaches a remote service on the target (ATT&CK T1021, T1210): a path the model does not declare as a flow. Dethereal writes a flow of this class when the operator accepts a hidden-edge candidate; it is never the class of an ordinary data flow.",
+  "category": "Hidden Edge",
+  "status": "draft"
+}

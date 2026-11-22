@@ -383,3 +383,53 @@ describe('buildExposureTechniqueIndex — per-exposure technique chips', () => {
     expect(buildExposureTechniqueIndex(cov).x1[0]).toEqual({ techniqueId: 'T9999', name: null, tactics: [TACTIC['Impact']], description: null })
   })
 })
+
+describe('buildCoverageView — Inferred Path exposures and hidden-edge flows', () => {
+  const tiers = [tier('DIRECT', 'PREVENT', ['cm1'], ['kH'])]
+  const ledger = [
+    ledgerEl({ id: 'c1', findings: [{ id: 'e1', dispositionKind: null }] }),
+    ledgerEl({
+      id: 'h1', name: 'reused credential', type: 'DataFlow', supportingControls: [{ id: 'kH', name: 'MFA' }],
+      findings: [{ id: 'ip1', category: 'Inferred Path', dispositionKind: null }],
+    }),
+  ]
+  const modelGraph = { flows: [{ id: 'h1', hiddenEdge: true }] }
+
+  it('sets an Inferred Path exposure apart from the grid and every count, and counts it', () => {
+    const v = buildCoverageView(coverage([
+      exposure({ exposureId: 'e1', techniques: [technique('T1190')] }),
+      exposure({ exposureId: 'ip1', elementId: 'h1', elementKind: 'DataFlow', techniques: [technique('T1078', undefined, tiers)] }),
+      exposure({ exposureId: 'ip2', elementId: 'h1', elementKind: 'DataFlow', soft: true }),
+    ]), [...ledger, ledgerEl({ id: 'h1', findings: [{ id: 'ip2', category: 'Inferred Path' }] })], modelGraph)
+    expect(v.rows.map((r) => r.techniqueId)).toEqual(['T1190'])
+    expect(v.summary).toMatchObject({ directPrevent: 0, uncovered: 1, soft: 0 })
+    expect(v.offGrid.inferredPathSetApart).toBe(2)
+  })
+
+  it('an Inferred Path exposure on any other element is graded like any other', () => {
+    const v = buildCoverageView(coverage([
+      exposure({ exposureId: 'ipc', elementId: 'c1', techniques: [technique('T1078', undefined, tiers)] }),
+    ]), [ledgerEl({ id: 'c1', findings: [{ id: 'ipc', category: 'Inferred Path', dispositionKind: null }] })], {
+      flows: [{ id: 'h1', hiddenEdge: { kind: 'credential-reuse', tier: null, grantedPrivilege: null } }],
+    })
+    expect(v.rows.map((r) => r.techniqueId)).toEqual(['T1078'])
+    expect(v.summary.directPrevent).toBe(1)
+    expect(v.offGrid.inferredPathSetApart).toBe(0)
+  })
+
+  it('adds the count coverage-tools already set apart', () => {
+    const v = buildCoverageView(coverage([exposure({ exposureId: 'e1' })], { meta: { inferredPathSetApart: 3 } }), ledger, modelGraph)
+    expect(v.offGrid.inferredPathSetApart).toBe(3)
+  })
+
+  it('never grades a hidden-edge flow\'s controls: no structural gap, defense-in-depth or mismatch from it', () => {
+    const v = buildCoverageView(coverage([]), ledger, modelGraph)
+    expect(v.structuralGaps).toEqual(['Component'])
+    expect(v.summary.defenseInDepth).toBe(0)
+    expect(v.mismatchByElement).toEqual({})
+    // Read as an ordinary flow, its control would count.
+    const plain = buildCoverageView(coverage([]), ledger)
+    expect(plain.summary.defenseInDepth).toBe(1)
+    expect(plain.mismatchByElement).toEqual({ h1: ['kH'] })
+  })
+})

@@ -65,6 +65,8 @@ For you, a pair is checked on each file you write: write the floor field beside 
 
 ## Writing
 
+Write only with your file-write or edit tool, never through a shell, a script or a heredoc. Write no script anywhere, and nothing to a scratchpad or temporary folder the harness offers: files go only where these instructions say.
+
 Read the files you will change first, in parallel, in one message.
 Then, in each message, at most one edit per attribute file; different files go in parallel. One edit may span adjacent keys that change. Keys that are not adjacent go in the messages after. A file you would edit more than 3 times gets one write instead: read, merge, write.
 A write that failed is made once more, after reading the file again.

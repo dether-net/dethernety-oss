@@ -41,6 +41,7 @@ The implementation lives at [`modules/dethernety-threat-report/`](../../../modul
 | Document | Description |
 |---|---|
 | [`../dethernety-coverage-tools/README.md`](../dethernety-coverage-tools/README.md) | The sibling module that produces the graded MITRE coverage facts |
+| [Hidden edges in the report](./frontend.md#hidden-edges-in-the-report) | How the report treats an accepted hidden edge: included and labelled in reachability, left out of boundary crossings and zoning, and its `Inferred Path` findings set apart from every total (the platform-wide rule is in the [hidden-edges analysis contract](../dethernety-hidden-edges/analysis-contract.md)) |
 | [Module System Overview](../modules/README.md) | How modules load, register, and route through the platform |
 | [Platform Architecture](../README.md) | The graph-native platform overview |
 | [Glossary](../../GLOSSARY.md) | Platform-wide terminology |

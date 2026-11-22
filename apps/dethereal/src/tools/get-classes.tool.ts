@@ -14,6 +14,7 @@ import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { DtModule, DtClass } from '@dethernety/dt-core'
 import { Class, Module } from '@dethernety/dt-core'
+import { HIDDEN_EDGES_MODULE } from '../hidden-edges/contract.js'
 import { ClientDependentTool, ToolContext, ToolResult } from './base-tool.js'
 import { getConfig, debugLog } from '../config.js'
 
@@ -291,8 +292,12 @@ export class GetClassesTool extends ClientDependentTool<GetClassesInput, GetClas
     const buckets: Bucket[] = input.class_type ? [this.mapClassType(input.class_type)] : [...BUCKETS]
     // A component class carries its own type; one that does not is listed for every component type.
     const ownType = input.class_type && COMPONENT_TYPES.has(input.class_type) ? input.class_type : undefined
+    // The hidden-edges module's classes record inferred paths the operator accepted, never an element of the system:
+    // listed only when that module (the only one then read) or a class id is asked for.
+    const asked = !!(input.module_id || input.module_name || input.class_id)
     const out: Match[] = []
     for (const module of modules) {
+      if (!asked && module.name === HIDDEN_EDGES_MODULE) continue
       const moduleRef = { id: module.id, name: module.name }
       for (const bucket of buckets) {
         for (const cls of this.getClassArrayFromModule(module, bucket) ?? []) {

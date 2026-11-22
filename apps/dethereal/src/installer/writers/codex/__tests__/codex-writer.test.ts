@@ -153,7 +153,7 @@ describe('the Codex writer', { timeout: 60_000 }, () => {
     expect(text).not.toMatch(/DETHERNETY_URL = /)
     expect(text).toContain('[plugins."dethereal@dethereal-local"]')
     expect(text).toContain(`source = "${path.join(paths.runtime, '0.5.0', 'bundles', 'codex')}"`)
-    expect(await agentsIn(path.join(codexHome, 'agents'))).toHaveLength(8)
+    expect(await agentsIn(path.join(codexHome, 'agents'))).toHaveLength(9)
     const { manifest } = await readManifest(paths, env)
     expect(manifest.installs['codex:user']?.runtimes).toEqual(['0.5.0'])
     expect((manifest.shared as Record<string, unknown>).codex).toMatchObject({ marketplace: { runtimeVersion: '0.5.0', state: 'done' }, plugin: { state: 'done' } })
@@ -290,7 +290,7 @@ describe('the Codex writer', { timeout: 60_000 }, () => {
     const trusted = await install('0.5.0', { scope: 'project', project: proj })
     expect(trusted.scope).toBe('project')
     expect(await fs.readFile(path.join(proj, '.codex', 'config.toml'), 'utf8')).toContain('[mcp_servers.dethereal]')
-    expect(await agentsIn(path.join(proj, '.codex', 'agents'))).toHaveLength(8)
+    expect(await agentsIn(path.join(proj, '.codex', 'agents'))).toHaveLength(9)
     // removing the project keeps the plugin the user entry still uses, and leaves no empty folders behind
     const r = await uninstall('project', proj)
     expect(r.pluginRemoved).toBe(false)

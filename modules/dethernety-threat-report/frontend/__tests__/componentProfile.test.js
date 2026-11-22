@@ -272,3 +272,19 @@ describe('computeComponentProfile — defensive', () => {
     expect(p.neighbours).toEqual([])
   })
 })
+
+describe('computeComponentProfile — a hidden-edge flow among the neighbours', () => {
+  const graph = {
+    ...MODEL_GRAPH,
+    flows: [
+      ...MODEL_GRAPH.flows,
+      { id: 'h1', name: 'reused credential', sourceId: 'c3', targetId: 'c1', sensitivities: [], dataItemCount: 0, hiddenEdge: { kind: 'credential-reuse', tier: null, grantedPrivilege: null } },
+    ],
+  }
+
+  it('marks the neighbour reached over it inferred, and no other', () => {
+    const p = computeComponentProfile('c1', { ledger: [], modelGraph: graph })
+    expect(p.neighbours.map((n) => [n.flowId, n.inferred])).toEqual(expect.arrayContaining([['f1', false], ['f2', false], ['h1', true]]))
+    expect(computeComponentProfile('h1', { ledger: [], modelGraph: graph }).neighbours.every((n) => n.inferred)).toBe(true)
+  })
+})

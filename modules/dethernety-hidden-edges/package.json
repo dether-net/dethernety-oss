@@ -1,0 +1,28 @@
+{
+  "name": "dethernety-hidden-edges",
+  "type": "module",
+  "version": "0.1.2",
+  "main": "dist/dethernety/dethernety-hidden-edges/DethernetyHiddenEdgesModule.js",
+  "types": "dist/dethernety/dethernety-hidden-edges/DethernetyHiddenEdgesModule.d.ts",
+  "scripts": {
+    "build": "pnpm build:ts && pnpm build:package",
+    "build:ts": "tsc",
+    "build:package": "node ../../scripts/package-module.js",
+    "generate:table": "node scripts/generate-table.mjs",
+    "embed": "../../scripts/module-manager.sh embed .",
+    "hash": "node ../../scripts/hash-module.mjs .",
+    "hash:check": "node ../../scripts/hash-module.mjs . --check",
+    "dev": "tsc -w",
+    "test": "pnpm hash:check && vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@dethernety/dt-module": "workspace:*",
+    "@nestjs/common": "^11.2.10"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.9",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.12"
+  }
+}

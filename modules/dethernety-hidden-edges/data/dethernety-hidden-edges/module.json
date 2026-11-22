@@ -1,0 +1,10 @@
+{
+  "formatVersion": 1,
+  "name": "dethernety-hidden-edges",
+  "displayName": "Dethernety Hidden Edges",
+  "description": "The classes of inferred attack paths (\"hidden edges\") a threat model does not declare, which an operator accepts after review. Each carries one generic policy that turns its path techniques into exposures in category Inferred Path.",
+  "version": "0.1.2",
+  "tags": [],
+  "classCount": 4,
+  "contentHash": "sha256:e1b81be921c80baea749a6be871feb0ccbff99f04119f810537ee6773f7a9b52"
+}

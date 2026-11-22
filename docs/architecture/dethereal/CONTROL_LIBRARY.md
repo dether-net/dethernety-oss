@@ -1054,7 +1054,7 @@ dt-ws has no migration mechanism; its bootstrap ensures these indexes (and other
 > - **DEC-CL-7** — refuse-by-default ships, with `push-unverified` as the per-row choice for a Control whose ownership is unknown. The `--force-unverified` CLI flag was not built, so there is no non-interactive path.
 > - **DEC-CL-9** — pulls are batched, but there is no `STALE_TTL` gate and no `.dethereal/config.json`: every pull refreshes every id it is given. The 15 minutes are only the "stale" hint of `/dethereal:status`.
 >
-> **DEC-CL-13** holds as written: the server's `.dethereal/.gitignore` lists `control-audit.log` with the other per-machine files (`sync.json`, `relay/` and the settlement's two files). Discovery also recommends a `.gitignore` entry for it.
+> **DEC-CL-13** holds as written: the server's `.dethereal/.gitignore` lists `control-audit.log` with the other per-machine files (`sync.json`, `relay/`, the settlement's two files, and the triage and hidden-edge records). Discovery also recommends a `.gitignore` entry for it.
 
 ---
 

@@ -1,0 +1,9 @@
+{
+  "id": "6b1564a2-ddec-4b60-a1e8-e4338d9332c8",
+  "name": "Hidden Edge: Credential Capture",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "An inferred attack path reviewed by the operator, not a declared flow: an attacker positioned at the source captures a credential carried by a flow and uses it at the flow's responder (ATT&CK T1040, T1557): a path the model does not declare as a flow. Dethereal writes a flow of this class when the operator accepts a hidden-edge candidate; it is never the class of an ordinary data flow.",
+  "category": "Hidden Edge",
+  "status": "draft"
+}

@@ -7,8 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**Dethereal users:** Dethereal 0.7.0 reviews hidden edges, and needs the next platform release:
+`/dethereal:hidden-edges` reads the platform's `dethernety-hidden-edges` module, its query and its
+classes; a platform without it answers `module_not_loaded`. Dethereal is published separately from
+this release.
+
 ### Added
 
+- **`@dether.net/dethereal` 0.7.0: hidden edges, on all three harnesses.** `/dethereal:hidden-edges`
+  (`$dethereal:hidden-edges` on Codex, `/dethereal-hidden-edges` on OpenCode) reviews the hidden
+  edges the platform's hidden-edges module proposes for a model pushed with no local changes:
+  attack paths between two of its components that no declared flow shows, inferred from the
+  model's exposures and their ATT&CK techniques. The module's answer is checked as untrusted
+  input: each candidate's kind, class, id and ends, the exposures it cites and the facts it rests
+  on; the class must be one of the platform's hidden-edges module's data flow classes. A new
+  read-only agent, the hidden-edge analyst, argues for and against each candidate from the
+  project's sources, citing locators only; it adds no candidate. You decide one command per reply
+  (`accept`, `skip`, `reject`, `edit`, `show`, `accept-all`, `done`): `accept <n>` also affirms the
+  pending findings with no disposition that the candidate rests on, `accept-all` takes only the candidates marked for it and
+  affirms none, and a reject writes only the decision. Nothing is written before the gated apply:
+  on `yes`, Dethereal writes each accepted edge as a data flow of the class the candidate names,
+  with that class's module (the attribute files, then `dataflows.json`), then the decisions, and
+  the next push takes the flows to the platform. The decisions are kept in `.dethereal/hidden-edges-decisions.json`, committed with the
+  model: an accept is signed with this machine's key and counts only where it verifies (a
+  teammate's shows as not verified here); a reject is unsigned and counts everywhere. The review
+  record, `.dethereal/hidden-edges-log.json`, is this machine's and kept out of git.
+  `/dethereal:remove` records a reject before it removes an accepted edge's flow. Two tools are
+  new: `hidden_edges` (runs without asking, main session only) and `manage_hidden_edges` (asks).
+  See the Dethereal guide, *Reviewing Hidden Edges*.
+- **`dethernety-hidden-edges` 0.1.2, a new module shipped with the platform.** One read-only query,
+  `hiddenEdgeCandidates`, proposes a model's hidden-edge candidates from its exposures, their
+  ATT&CK techniques and its structure; when the platform serves the knowledge graph, it may lower a
+  candidate's tier, never raise one or add one. The module also ships the four data flow classes an
+  accepted edge is recorded with, in category Hidden Edge (Remote Service, Credential Reuse,
+  Credential Capture, Host Escape); each turns the edge's path techniques into findings in category
+  Inferred Path, one per technique. Each candidate names the class an accepted edge of its kind is
+  written with (`class: { id, name }`); the class ids live only in the module's class files, which it
+  reads when it loads. A finding dispositioned `RISK_ACCEPTED` still feeds candidates as a confirmed
+  one, and one dispositioned `COMPENSATING_CONTROL` as a pending one; every other disposition
+  keeps a finding out. See the hidden-edges module's architecture.
 - **Report details carry an author, a project and custom fields.** Beside the client, an
   analysis's report details hold who wrote the report (`author`), the project it belongs to
   (`project`) and up to 10 fields the user adds, each a label and a value (`customFields`, a
@@ -36,15 +73,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the details to the kit; none of them reaches its sections, its stored snapshot or `getDocument`.
   See the user guide's *Security Analysis Workflow*, *Report Details*.
 
+### Changed
+
+- **The threat report labels hidden edges and sets their findings apart.** A hidden edge, a flow
+  whose class is in category Hidden Edge, stays a route in reachability, and every use of it is
+  labelled `via inferred edge (<tier>, grants <privilege>)`; a crown jewel reached only through one
+  is counted, and a declared choke point an inferred edge goes around is named as bypassed. An
+  Inferred Path finding on a hidden edge is set apart from every total, posture and coverage count,
+  with one count of its own; the same category on any other element counts as usual. Zoning and
+  boundary crossings leave hidden edges out, and name them.
+- **Coverage-tools sets inferred-path findings apart.** `dethernety-coverage-tools` leaves an
+  Inferred Path finding on a hidden-edge flow out of its totals and counts it on its own.
+- **`@dether.net/dethereal` 0.7.0 leaves hidden edges out of its checks.** Dethereal recognises a
+  hidden edge's flow by its class's module, `dethernety-hidden-edges`. On the machine that
+  accepted it, such a flow is left out of the quality gates, the lints, the quality score,
+  coverage, zoning, the settlement drift and the review hash, and counted on its own
+  (`hidden_edge_flows`); the structure checks still read it. Adding or removing one is no
+  structural change, so a REVIEWED model stays REVIEWED. `match_classes` drops the hidden-edges
+  module's classes, and `get_classes` lists them only when asked for by a module or a class id.
+
 ### Fixed
 
+- **`@dether.net/dethereal`: the secret guard lets a link to a parent folder through as a line's
+  last command.** `ln -s ../ up` was refused; as the line's last command, the folder is now judged
+  as written, and a later command follows the link on disk. When the line goes on after the link,
+  the climb is still judged from the home folder and the project root, as before.
+- **`@dether.net/dethereal`: `echo ln ..` is no longer read as a link.** The word `ln` that `echo`
+  or `printf` only prints is not judged as a link being made, unless what they print feeds a
+  command or goes into a file.
+- **`@dether.net/dethereal`: a review whose record has grown too large is let go.** A triage or
+  hidden-edge review whose record has grown too large to take a reply is let go at once while it is
+  open, so a new review can be opened at once instead of after it expires; a closed one is kept for
+  prepare. The known issue that such a triage review could not be closed no longer applies.
 - **Three small fixes.** A model-diagram component whose type is `constructor` or
   `__proto__` draws at the default size rather than with no size: the diagram looks a type's size
   up among its own keys only. In `dethernety-threat-report` 2.4.0's export through the report kit,
   a table's left line is drawn on each row's first cell, not on the table, so where a page break
   cuts a table it no longer runs on to the foot of the page in Chrome. `components.d.ts` lists the
   **Report details** dialog.
-
 
 ## [0.17.0] - 2026-11-16
 

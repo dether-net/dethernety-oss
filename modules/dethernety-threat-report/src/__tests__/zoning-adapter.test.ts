@@ -115,6 +115,14 @@ describe('graphToZoningStructure (pure adapter)', () => {
     expect(flows[0].target).toEqual({ id: 'c2' });
   });
 
+  it('sets a hidden-edge flow apart, by its flag alone, and counts it', () => {
+    const { flows, hiddenEdgeFlowsSetApart } = graphToZoningStructure(
+      graph({ flows: [flow('f1', 'c1', 'c2'), { ...flow('h1', 'c2', 'c1'), hiddenEdge: true }] }),
+    );
+    expect(flows.map((f) => f.id)).toEqual(['f1']);
+    expect(hiddenEdgeFlowsSetApart).toBe(1);
+  });
+
   it('maps conduits and normalizes null justification to undefined', () => {
     const { structure } = graphToZoningStructure(
       graph({
@@ -181,6 +189,19 @@ describe('computeZoning (engine integration)', () => {
     expect(ei).toHaveLength(1);
     expect(ei[0].boundaryId).toBe('ext');
     expect(ei[0].peerId).toBe('app');
+  });
+
+  it('raises no crossing for a hidden-edge flow, and reports the count beside the findings', () => {
+    const res = computeZoning(
+      graph({
+        boundaries: [bnd('ext', { zone: 'UNTRUSTED' }), bnd('app')],
+        components: [cmp('extC', 'ext'), cmp('appC', 'app')],
+        flows: [{ ...flow('h', 'extC', 'appC'), hiddenEdge: { kind: 'remote-service', tier: 'high', grantedPrivilege: 'user' } }],
+      }),
+      engine,
+    );
+    expect(res.findings.filter((f) => f.kind === 'external-ingress')).toEqual([]);
+    expect(res.hiddenEdgeFlowsSetApart).toBe(1);
   });
 
   it('carries each component\'s class, so a load balancer in a public tier cannot hide a crossing', () => {

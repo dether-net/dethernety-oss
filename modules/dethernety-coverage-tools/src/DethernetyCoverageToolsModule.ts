@@ -212,22 +212,30 @@ class DethernetyCoverageToolsModule implements DTModule {
     //    property reads once per list comprehension, so `[x IN tacs | {id: x.attack_id}]`
     //    returns the first tactic's id for every element. An exposure with no
     //    EXPLOITED_BY technique yields a single row with techniqueId = null (the
-    //    soft/unmapped marker). Tactic is resolved through SUBTECHNIQUE_OF*0..1: an
-    //    ATT&CK sub-technique (single-level, e.g. T1078.004 → T1078) belongs to its
-    //    parent's tactic(s), so a single TACTIC_INCLUDES_TECHNIQUE hop could drop a
-    //    sub-technique's column. `*0..1` unions the technique's own tactic edges with
+    //    soft/unmapped marker). The exposure's category and the element's class
+    //    category ride along so the aggregator can set apart an inferred-path
+    //    exposure on a hidden-edge flow; the class is collected per (element,
+    //    exposure) before the technique hop, so an element with no class (or,
+    //    malformed, two) never adds or drops a row. Tactic is resolved through
+    //    SUBTECHNIQUE_OF*0..1: an ATT&CK sub-technique (single-level, e.g.
+    //    T1078.004 → T1078) belongs to its parent's tactic(s), so a single
+    //    TACTIC_INCLUDES_TECHNIQUE hop could drop a sub-technique's column. `*0..1` unions the technique's own tactic edges with
     //    its parent's — correct-by-derivation (here every sub-technique also carries
     //    direct tactic edges, so it is robustness, not a live fix). NOTE: ATT&CK's
     //    `SUBTECHNIQUE_OF` (no underscore between SUB and TECHNIQUE) is a DIFFERENT
     //    relationship from D3FEND's `SUB_TECHNIQUE_OF` used in the d3fend tier below.
     const baseCypher = `${D}
       MATCH (element)-[:HAS_EXPOSURE]->(exp:Exposure)
+      OPTIONAL MATCH (element)-[:IS_INSTANCE_OF]->(ecls)
+      WITH element, exp, head(collect(DISTINCT ecls.category)) AS elementClassCategory
       OPTIONAL MATCH (exp)-[:EXPLOITED_BY]->(t:MitreAttackTechnique)
       OPTIONAL MATCH (t)-[:SUBTECHNIQUE_OF*0..1]->(tp:MitreAttackTechnique)<-[:TACTIC_INCLUDES_TECHNIQUE]-(tac:MitreAttackTactic)
-      WITH element, exp, t, collect(DISTINCT tac) AS tacs
+      WITH element, exp, elementClassCategory, t, collect(DISTINCT tac) AS tacs
       RETURN element.id AS elementId,
              [l IN labels(element) WHERE l IN ['Component','DataFlow','SecurityBoundary','Data']][0] AS elementKind,
+             elementClassCategory,
              exp.id AS exposureId,
+             exp.category AS exposureCategory,
              t.attack_id AS techniqueId,
              t.name AS techniqueName,
              t.description AS techniqueDescription,
@@ -299,7 +307,9 @@ class DethernetyCoverageToolsModule implements DTModule {
     const baseRows: BaseRow[] = baseRecs.map((r) => ({
       elementId: r.get('elementId'),
       elementKind: r.get('elementKind') ?? null,
+      elementClassCategory: r.get('elementClassCategory') ?? null,
       exposureId: r.get('exposureId'),
+      exposureCategory: r.get('exposureCategory') ?? null,
       techniqueId: r.get('techniqueId') ?? null,
       techniqueName: r.get('techniqueName') ?? null,
       techniqueDescription: r.get('techniqueDescription') ?? null,

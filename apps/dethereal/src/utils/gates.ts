@@ -575,6 +575,8 @@ export interface Gate3Report {
   }
   /** Crown-jewel map entries worth a look that do not fail C6. */
   crown_jewel_map: { unmapped_keys: string[]; dangling_ids: string[] }
+  /** The hidden edges this machine accepted: flows no criterion reads. */
+  hidden_edge_flows: number
 }
 
 export interface GatesResult {
@@ -666,6 +668,20 @@ export interface GateInput {
   templateFieldsRefused?: Array<{ file: string; code: string }>
   /** The settlement mode the model was read with: both loaders resolve it once, the caller's or the environment's. */
   settlement?: SettlementMode
+  /**
+   * The flows that are hidden edges on this machine, each with the path techniques its decision accepted (read from a
+   * directory). They stay in `dataFlows`, but the checks that read flows leave them out: see {@link ordinaryFlows}.
+   */
+  hiddenEdgeFlows?: ReadonlyMap<string, ReadonlySet<string>>
+}
+
+/**
+ * The flows the checks read: every flow but the hidden edges this machine accepted. A hidden edge records an inferred
+ * path the operator accepted, not a flow of the system, so it is never measured, zoned or reviewed as one.
+ */
+export function ordinaryFlows(input: Pick<GateInput, 'dataFlows' | 'hiddenEdgeFlows'>): DataFlow[] {
+  const hidden = input.hiddenEdgeFlows
+  return hidden?.size ? input.dataFlows.filter((f) => !hidden.has(f.id)) : input.dataFlows
 }
 
 // =============================================================================
@@ -1034,6 +1050,10 @@ export async function loadGateInput(dirPath: string, options: { settlement?: Set
   }
   const dataFlows = listOf(await readModelJson(dirPath, 'dataflows.json', false), 'dataFlows') as DataFlow[]
   const dataItems = listOf(await readModelJson(dirPath, 'data-items.json', false), 'dataItems') as DataItem[]
+  // Read here, not imported at the top: the decisions' module imports this one.
+  const { hiddenEdgeFlows: readHidden } = await import('../hidden-edges/predicate.js')
+  // A key or decisions file that cannot be read leaves every flow ordinary.
+  const hiddenEdgeFlows: ReadonlyMap<string, ReadonlySet<string>> = await readHidden(dirPath, dataFlows).catch(() => new Map<string, Set<string>>())
   const attributeIssues: AttributeReadIssue[] = []
   const unsafe = await unsafeAttributeFiles(dirPath)
   let attributes: ConsolidatedAttributesFile
@@ -1048,7 +1068,7 @@ export async function loadGateInput(dirPath: string, options: { settlement?: Set
 
   const templateFieldManifests = new Map<string, { classId?: string; fields: number }>()
   const templateFieldsRefused: Array<{ file: string; code: string }> = []
-  const tiers = classifyTiers({ structure, dataFlows, dataItems, crownJewelIds: crownJewelIds(scope.scope) })
+  const tiers = classifyTiers({ structure, dataFlows: ordinaryFlows({ dataFlows, hiddenEdgeFlows }), dataItems, crownJewelIds: crownJewelIds(scope.scope) })
   for (const [id, tier] of tiers.tierOf) {
     if (tier > 2 || !ELEMENT_ID.test(id)) continue
     try {
@@ -1068,10 +1088,10 @@ export async function loadGateInput(dirPath: string, options: { settlement?: Set
   const pending = await readPendingEnrichment(dirPath)
   // manifest.json's modules are derived: every gate, and the review hash, see the derived list.
   const manifestModulesOnDisk = manifest?.modules
-  const derived = deriveManifestModules({ manifestModules: manifestModulesOnDisk, scope, structure, dataFlows, dataItems, classModules: classTemplates.modules ?? new Map() })
+  const derived = deriveManifestModules({ manifestModules: manifestModulesOnDisk, scope, structure, dataFlows, dataItems, classModules: classTemplates.modules ?? new Map(), hiddenEdgeFlows })
   const withModules = manifest && typeof manifest === 'object' ? { ...manifest, modules: derived.modules } : manifest
   return { manifest: withModules, structure, dataFlows, dataItems, attributes, attributeIssues, classTemplates, scope, templateFieldManifests, pending,
-    moduleGaps: derived.gaps, manifestModulesOnDisk, templateFieldsRefused, settlement: settlementOn(options.settlement) ? 'on' : 'off' }
+    moduleGaps: derived.gaps, manifestModulesOnDisk, templateFieldsRefused, settlement: settlementOn(options.settlement) ? 'on' : 'off', hiddenEdgeFlows }
 }
 
 /**
@@ -1080,10 +1100,13 @@ export async function loadGateInput(dirPath: string, options: { settlement?: Set
  */
 export async function modulesForPush(dirPath: string, model: { manifest: ModelManifest; structure: ModelStructure; dataFlows?: unknown; dataItems?: unknown }): Promise<DerivedModules> {
   const [classTemplates, scope] = await Promise.all([readClassTemplates(dirPath), readScopeFile(dirPath)])
+  const dataFlows = listOf(model.dataFlows, 'dataFlows') as DataFlow[]
+  const { hiddenEdgeFlows: readHidden } = await import('../hidden-edges/predicate.js')
+  const hiddenEdgeFlows = await readHidden(dirPath, dataFlows).catch(() => new Map<string, Set<string>>())
   return deriveManifestModules({
     manifestModules: model.manifest?.modules, scope, structure: model.structure,
-    dataFlows: listOf(model.dataFlows, 'dataFlows') as DataFlow[], dataItems: listOf(model.dataItems, 'dataItems') as DataItem[],
-    classModules: classTemplates.modules ?? new Map(),
+    dataFlows, dataItems: listOf(model.dataItems, 'dataItems') as DataItem[],
+    classModules: classTemplates.modules ?? new Map(), hiddenEdgeFlows,
   })
 }
 
@@ -1116,6 +1139,8 @@ interface Model {
   flowById: Map<string, DataFlow>
   itemById: Map<string, DataItem>
   boundaryById: Map<string, StructureBoundary>
+  /** The flows the checks read: every flow but the hidden edges. */
+  flows: DataFlow[]
   cross: DataFlow[]
   mappedIds: Set<string>
   attrs(group: 'boundaries' | 'components' | 'dataFlows' | 'dataItems', id: string): Record<string, unknown>
@@ -1183,7 +1208,8 @@ export function priorityGaps(input: GateInput): PriorityGaps | 'not_computed' | 
 
 function buildModel(input: GateInput): Model {
   const mappedIds = crownJewelIds(input.scope.scope)
-  const tiers = classifyTiers({ structure: input.structure, dataFlows: input.dataFlows, dataItems: input.dataItems, crownJewelIds: mappedIds })
+  const flows = ordinaryFlows(input)
+  const tiers = classifyTiers({ structure: input.structure, dataFlows: flows, dataItems: input.dataItems, crownJewelIds: mappedIds })
   const { boundaries, components } = flattenStructure(input.structure)
   const internal = components.filter((c) => !tiers.externals.has(c.id))
   const names = new Map<string, string>()
@@ -1198,7 +1224,8 @@ function buildModel(input: GateInput): Model {
     flowById: new Map(input.dataFlows.map((f) => [f.id, f])),
     itemById: new Map(input.dataItems.map((i) => [i.id, i])),
     boundaryById: new Map(boundaries.map((b) => [b.id, b])),
-    cross: input.dataFlows.filter((f) => tiers.crossBoundaryFlowIds.has(f.id)),
+    flows,
+    cross: flows.filter((f) => tiers.crossBoundaryFlowIds.has(f.id)),
     mappedIds,
     attrs: (group, id) => {
       const values = attributeEntry(input.attributes, group, id)?.attributes
@@ -1358,7 +1385,7 @@ function gate3(m: Model, waived: Waived = new Map()): {
 
   // C4 — sensitive flows carry a classified data item with a sensitivity.
   {
-    const sensitive = m.input.dataFlows.filter((f) => {
+    const sensitive = m.flows.filter((f) => {
       const s = f.source?.id
       const t = f.target?.id
       if (m.tiers.locationOf(s) === undefined || m.tiers.locationOf(t) === undefined) return false
@@ -1482,7 +1509,7 @@ function gate3(m: Model, waived: Waived = new Map()): {
       return missing.length || placeholder.length ? [failure(m, c.id, gapDetail(missing, placeholder), { missing, placeholder })] : []
     })
     const tier12Ids = new Set(m.tier12.map((c) => c.id))
-    const flows = m.input.dataFlows.filter((f) => tier12Ids.has(f.source?.id) || tier12Ids.has(f.target?.id))
+    const flows = m.flows.filter((f) => tier12Ids.has(f.source?.id) || tier12Ids.has(f.target?.id))
     const badFlows = flows.flatMap((f) => {
       const a = m.attrs('dataFlows', f.id)
       const v = a.encryption_in_transit
@@ -1514,7 +1541,7 @@ function gate3(m: Model, waived: Waived = new Map()): {
   // C9 — no dangling credential_scope id.
   {
     const required = new Set<string>()
-    for (const f of m.input.dataFlows) {
+    for (const f of m.flows) {
       const r = m.attrs('dataFlows', f.id).required_credentials
       if (Array.isArray(r)) for (const x of r) if (isRealListEntry(x)) required.add(x as string)
     }
@@ -1608,7 +1635,7 @@ function report(m: Model, minRate: number | null): Gate3Report {
   const count = (t: number) => m.internal.filter((c) => m.tiers.tierOf.get(c.id) === t).length
 
   // Declared or inherited zone against the engine's proposal, on boundaries that hold components.
-  const zoning = buildZoningContext(m.input.structure, m.input.dataFlows, m.input.dataItems)
+  const zoning = buildZoningContext(m.input.structure, m.flows, m.input.dataItems)
   const zone_disagreements: Gate3Report['zone_disagreements'] = []
   for (const b of m.boundaries) {
     if (b.id === zoning.defaultBoundaryId || !(b.components ?? []).length) continue
@@ -1663,7 +1690,7 @@ function report(m: Model, minRate: number | null): Gate3Report {
 
   return {
     tiers: { tier1: count(1), tier2: count(2), tier3: count(3), externals: m.tiers.externals.size, unzoned: m.tiers.unzoned.length },
-    tier_members: tierMembers({ ...m, dataFlows: m.input.dataFlows, externalCrownJewels: [...m.tiers.externals].filter((id) => m.tiers.components.get(id)?.crownJewel === true).length }),
+    tier_members: tierMembers({ ...m, dataFlows: m.flows, externalCrownJewels: [...m.tiers.externals].filter((id) => m.tiers.components.get(id)?.crownJewel === true).length }),
     ...(settlementOn(m.input.settlement) ? { pending_enrichment: (({ state, blocking, blocks }) => ({ state, blocking, blocks }))(pendingEnrichment(m.input)) } : {}),
     zone_disagreements,
     floored_data_outside_tier12,
@@ -1679,13 +1706,14 @@ function report(m: Model, minRate: number | null): Gate3Report {
       unmapped_keys: map ? Object.keys(map).filter((k) => !jewels.includes(k)) : [],
       dangling_ids: [...crownJewelIds(m.input.scope.scope)].filter((id) => !known(id)),
     },
+    hidden_edge_flows: m.input.dataFlows.length - m.flows.length,
   }
 }
 
 function gate1(m: Model): Record<string, GateCheck> {
   const warn = (ok: boolean, value: string, failing: GateFailure[], remedy: string) => check(ok, value, failing, remedy, 'WARN')
   const unclassified = m.internal.filter((c) => !c.classData?.id)
-  const unnamed = m.input.dataFlows.filter((f) =>
+  const unnamed = m.flows.filter((f) =>
     !(typeof f.name === 'string' && f.name.trim()) || !(typeof f.description === 'string' && f.description.trim()))
   const single = m.boundaries.filter((b) =>
     b.id !== m.input.structure.defaultBoundary.id && (b.components ?? []).length + (b.boundaries ?? []).length === 1)
@@ -2306,7 +2334,7 @@ function project(input: GateInput): Projection {
     put(c.id, { name: c.name, description: c.description, type: c.type, classId: c.classData?.id, crownJewel: c.crownJewel === true,
       dataItems: itemLabels(c.dataItemIds), controls: controlNames(c.controls), attributes: attrsOf('components', c.id) })
   }
-  for (const f of input.dataFlows) {
+  for (const f of ordinaryFlows(input)) {
     put(f.id, { name: f.name, description: f.description, classId: f.classData?.id, dataItems: itemLabels(f.dataItemIds),
       controls: controlNames((f as { controls?: unknown }).controls), attributes: attrsOf('dataFlows', f.id) })
   }
@@ -2348,7 +2376,7 @@ function project(input: GateInput): Projection {
     depth: scope.depth, modeling_intent: scope.modeling_intent, compliance_drivers: scope.compliance_drivers,
     exclusions: scope.exclusions, trust_assumptions: scope.trust_assumptions,
   }))}`)
-  const used = new Set([...boundaries, ...components, ...input.dataFlows, ...input.dataItems].map((e) => e.classData?.id).filter(Boolean) as string[])
+  const used = new Set([...boundaries, ...components, ...ordinaryFlows(input), ...input.dataItems].map((e) => e.classData?.id).filter(Boolean) as string[])
   entries.push(`TEMPLATES\t${JSON.stringify(canon(Object.fromEntries([...used].map((id) => [id, input.classTemplates.templates.get(id)?.fields ?? null]))))}`)
   entries.sort()
   return { records, labels, entries }
@@ -2391,7 +2419,7 @@ export function reviewHash(input: GateInput): { hash: string } | { unavailable: 
   if (!input.pending || input.pending === PENDING_NOT_READ) return { unavailable: { code: 'not_read_from_directory', ...shownFiles([]) } }
   if (input.attributeIssues.length) return { unavailable: { code: 'attribute_files_unreadable', ...shownFiles(input.attributeIssues.map((i) => i.file)) } }
   const { boundaries, components } = flattenStructure(input.structure)
-  const used = new Set([...boundaries, ...components, ...input.dataFlows, ...input.dataItems].map((e) => e.classData?.id).filter(Boolean) as string[])
+  const used = new Set([...boundaries, ...components, ...ordinaryFlows(input), ...input.dataItems].map((e) => e.classData?.id).filter(Boolean) as string[])
   const cacheDir = CLASS_CACHE.split(path.sep).join('/')
   const classOf = (file: string) => (file.startsWith(`${cacheDir}/`) && file.endsWith('.json') ? file.slice(cacheDir.length + 1, -'.json'.length) : null)
   const blocking = refusedReads(input).filter((r) => r.file === '.dethereal/scope.json' || r.file === cacheDir || used.has(classOf(r.file) ?? ''))
@@ -2780,6 +2808,7 @@ export async function payloadPushRefusal(
   const fromPayload = payload ? gateInputFromModel(payload, options.settlement) : null
   const input: GateInput | null = fromPayload && onDisk
     ? { ...fromPayload, classTemplates: onDisk.classTemplates, scope: fromPayload.scope.scope ? fromPayload.scope : onDisk.scope, attributeIssues: onDisk.attributeIssues, pending: onDisk.pending,
+      hiddenEdgeFlows: onDisk.hiddenEdgeFlows,
       // A push of its own directory: the module list it sends was derived there, and what could not be derived blocks it.
       ...(options.carryModuleGaps ? { moduleGaps: onDisk.moduleGaps } : {}) }
     : fromPayload ?? onDisk
@@ -3035,6 +3064,7 @@ export const MAC_TAGS = {
   modelPath: 'dethereal/model-path/v1',
   auditValue: 'dethereal/audit-value/v1',
   waiver: 'dethereal/waiver/v2',
+  hiddenEdgeDecision: 'dethereal/hidden-edge-decision/v1',
 } as const
 
 /** A key derived from this machine's key for one purpose. */

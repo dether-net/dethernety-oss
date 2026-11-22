@@ -34,6 +34,9 @@ approval_mode = "approve"
 [mcp_servers.dethereal.tools.get_model_schema]
 approval_mode = "approve"
 
+[mcp_servers.dethereal.tools.hidden_edges]
+approval_mode = "approve"
+
 [mcp_servers.dethereal.tools.list_models]
 approval_mode = "approve"
 

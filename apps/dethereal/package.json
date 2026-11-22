@@ -1,6 +1,6 @@
 {
   "name": "@dether.net/dethereal",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Dethereal - AI-guided threat modeling with Dethernety: an MCP server with skills and agents for AI coding assistants",
   "type": "module",
   "main": "dist/index.js",

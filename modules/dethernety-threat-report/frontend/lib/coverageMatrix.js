@@ -23,12 +23,15 @@
 //   - detect-only = covered but no PREVENT edge at ANY tier (a reduction).
 //   - structural gap (an element CLASS with zero supporting controls model-wide) is
 //     ONE completeness line, not N per-technique UNCOVERED cells.
+//   - Inferred Path exposures on a hidden-edge flow (the techniques of an inferred
+//     attack path an operator accepted) are set apart from every count and COUNTED; a
+//     hidden-edge flow is not an element whose controls are graded.
 //
 // Drift: coverage is live, the ledger is the snapshot. When in sync (the common,
 // non-stale case) the join is exact; an exposure present live but absent from the
 // snapshot ledger defaults to live (the staleness banner owns that drift).
 
-import { isLiveKind } from './aggregateLedger.js'
+import { hiddenEdgeFlowIds, isLiveKind, isSetApart, markSetApart } from './aggregateLedger.js'
 
 export const TIER_RANK = { DIRECT: 3, INDIRECT_MITIGATION: 2, INDIRECT_D3FEND: 1 }
 export const TIER_LABEL = {
@@ -92,18 +95,24 @@ function hasLegacyTactics(coverage) {
  *
  * @param {object|null} coverage  parsed gradedCoverage (or null when unavailable)
  * @param {Array}       ledger    SnapshotDoc.ledger (elements with findings + controls)
+ * @param {object}      [modelGraph]  SnapshotDoc.modelGraph, to tell hidden-edge flows
+ *   (a ledger already marked by markSetApart needs none for the exposures)
  * @returns {object} view-model (see fields inline). `available:false` ⇒ render the
  *   no-coverage affordance, never an empty/green grid; `reason: 'incompatible'` when the
  *   deployed coverage-tools is older than this report reads.
  */
-export function buildCoverageView(coverage, ledger) {
+export function buildCoverageView(coverage, ledger, modelGraph) {
   if (!coverage || !Array.isArray(coverage.exposures)) {
     return { available: false }
   }
   if (hasLegacyTactics(coverage)) {
     return { available: false, reason: 'incompatible' }
   }
-  const ledgerEls = Array.isArray(ledger) ? ledger : []
+  // A hidden-edge flow is an inferred attack path, not a modeled element: its controls
+  // are never graded (structural gaps, defense-in-depth, mismatch).
+  const hiddenEdgeIds = hiddenEdgeFlowIds(modelGraph)
+  const allLedgerEls = markSetApart(ledger, modelGraph)
+  const ledgerEls = allLedgerEls.filter((el) => !hiddenEdgeIds.has(el?.id))
   // attack_id -> { name, description } (deduped upstream) so each row can carry the
   // human-readable technique name + description for the info dialog/tooltip.
   const techInfo = coverage.techniques ?? {}
@@ -111,18 +120,23 @@ export function buildCoverageView(coverage, ledger) {
   // disposition by finding id; an exposure absent from the snapshot ledger defaults
   // to live (the staleness banner owns coverage-vs-snapshot drift).
   const dispositionById = new Map()
+  // The findings set apart, by id: the join that sets them apart when the coverage
+  // facts still carry them (coverage-tools sets them apart itself, and counts them in
+  // its meta).
+  const inferredPathIds = new Set()
   // element id -> display name, so the matrix can name the impacted element(s)
   // inline (rather than only on drill-through).
   const nameById = new Map()
   // element id -> the controls applied to it, for the off-grid Data disclosure.
   const controlsById = new Map()
-  for (const el of ledgerEls) {
+  for (const el of allLedgerEls) {
     if (el && el.id) {
       nameById.set(el.id, el.name || el.id)
       controlsById.set(el.id, el.supportingControls ?? [])
     }
     for (const f of el.findings ?? []) {
       if (f && f.id) dispositionById.set(f.id, f.dispositionKind ?? null)
+      if (f && f.id && isSetApart(f)) inferredPathIds.add(f.id)
     }
   }
   // Route through the shared predicate so AFFIRMED counts as live in the grid too
@@ -151,6 +165,7 @@ export function buildCoverageView(coverage, ledger) {
   let softCount = 0
   let dataMappedCount = 0
   let dispositionedExcluded = 0
+  let inferredPathSetApart = coverage.meta?.inferredPathSetApart ?? 0
   // Data exposures are OFF the coverage grid (see the header: charting them would
   // grade data whose protection sits on its handling elements) — but the ATT&CK
   // mapping itself IS a known fact about the exposure. Collect it, grouped by the
@@ -160,6 +175,10 @@ export function buildCoverageView(coverage, ledger) {
   const dataMappedByElement = new Map()
 
   for (const e of coverage.exposures) {
+    if (inferredPathIds.has(e.exposureId)) {
+      inferredPathSetApart++
+      continue
+    }
     const live = isLive(e.exposureId)
     if (!live) {
       dispositionedExcluded++
@@ -327,7 +346,7 @@ export function buildCoverageView(coverage, ledger) {
     generatedAt: coverage.generatedAt ?? null,
     tactics,
     rows,
-    offGrid: { softCount, dataMappedCount, dispositionedExcluded, dataMapped },
+    offGrid: { softCount, dataMappedCount, dispositionedExcluded, dataMapped, inferredPathSetApart },
     structuralGaps,
     summary: {
       directPrevent: bucket.directPrevent.size,

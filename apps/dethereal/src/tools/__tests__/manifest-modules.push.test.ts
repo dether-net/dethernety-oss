@@ -7,9 +7,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { promises as fs } from 'fs'
 import path from 'path'
 import type { ToolContext } from '../base-tool.js'
-import { FIXTURE_MODULE, gateModel, writeGateModel, type GateModel } from '../../utils/__tests__/fixtures/gate-model.js'
+import { DATA_CLASS, FIXTURE_MODULE, gateModel, writeGateModel, type GateModel } from '../../utils/__tests__/fixtures/gate-model.js'
 import { registerAll } from './helpers/settle.js'
 import { richExport } from './fixtures/platform-export.js'
+import { localChangeStatus } from '../../utils/sync-utils.js'
 
 vi.setConfig({ testTimeout: 30_000 })
 
@@ -82,6 +83,7 @@ vi.mock('../../utils/platform-baseline.js', async (importOriginal) => {
 
 const { importModelTool } = await import('../import-model.tool.js')
 const { updateModelTool } = await import('../update-model.tool.js')
+const { exportModelTool } = await import('../export-model.tool.js')
 const { updateAttributesTool } = await import('../update-attributes.tool.js')
 const { createModelTool } = await import('../create-model.tool.js')
 const { modelStateTool } = await import('../model-state.tool.js')
@@ -364,6 +366,92 @@ describe('update_model', () => {
     expect(onDiskAtPush).toEqual(DERIVED)
     expect(res.success, res.error).toBe(true)
     expect(res.data.manifest_modules).toEqual({ after: DERIVED, before: [] })
+  })
+})
+
+describe("update_model's write-back and the class cache", () => {
+  /** The platform's export of the pushed model: every element's class names `module`, as a platform's export does. */
+  function exportNaming(m: GateModel, module: { id: string; name: string }) {
+    const named = (v: any): any =>
+      Array.isArray(v) ? v.map(named)
+        : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, k === 'classData' && x ? { ...(x as object), module } : named(x)]))
+        : v
+    return {
+      manifest: { ...m.manifest, model: { ...m.manifest.model, scope: m.scope }, modules: [AWS, module] },
+      structure: named(m.structure),
+      dataFlows: named(m.dataFlows),
+      dataItems: named(m.dataItems),
+      attributes: m.attributes,
+    }
+  }
+  const cacheDir = (d: string) => path.join(d, '.dethereal', 'class-cache')
+  const cacheFiles = async (d: string) => {
+    const out: Record<string, Buffer> = {}
+    for (const f of (await fs.readdir(cacheDir(d))).sort()) out[f] = await fs.readFile(path.join(cacheDir(d), f))
+    return out
+  }
+  /** The class ids the model's elements use. */
+  const usedClasses = (m: GateModel) => {
+    const used = new Set<string>()
+    const walk = (v: any): void => {
+      if (Array.isArray(v)) v.forEach(walk)
+      else if (v && typeof v === 'object') {
+        for (const [k, x] of Object.entries(v)) {
+          if (k === 'classData' && (x as any)?.id) used.add((x as any).id)
+          else walk(x)
+        }
+      }
+    }
+    walk([m.structure, m.dataFlows, m.dataItems])
+    return used
+  }
+  const gate2 = async (d: string) => ((await validateModelTool.run({ action: 'gates', directory_path: d } as never, context)) as any).data.gate2.checks.manifest_complete
+
+  it("pushed to a platform whose module has another id: the cache follows the elements, Gate 2 passes, and nothing is left to push", async () => {
+    const d = await scopeModulesModel()
+    const model = gateModel()
+    const OTHER = { id: 'mod-general-elsewhere', name: 'dethernety-general' }
+    mockExport.mockImplementation(async () => exportNaming(model, OTHER))
+    const res = (await updateModelTool.run({ model_id: 'm-1', directory_path: d, create_backup: false }, context)) as any
+    expect(res.success, res.error).toBe(true)
+    // The classes the elements use move to the platform's module, and only their module moves; an entry no element
+    // uses is not the push's to change.
+    const used = usedClasses(model)
+    expect(used.size).toBeGreaterThan(3)
+    expect(used.has(DATA_CLASS.userCredentials.id)).toBe(false)
+    expect(res.data.warnings ?? []).not.toContainEqual(expect.stringMatching(/class.cache/))
+    for (const [f, bytes] of Object.entries(await cacheFiles(d))) {
+      const classId = f.slice(0, -'.json'.length)
+      const { module, ...rest } = JSON.parse(bytes.toString('utf8'))
+      const { module: was, ...wasRest } = model.classCache[classId]!
+      expect(module, f).toEqual(used.has(classId) ? OTHER : was)
+      expect(rest, f).toEqual(wasRest)
+    }
+    expect((await gate2(d)).verdict).toBe('PASS')
+    expect((await localChangeStatus(d)).status).toBe('no_local_changes')
+  })
+
+  it('pushed to a platform naming the same module: every cache entry is left byte for byte', async () => {
+    const d = await scopeModulesModel()
+    const before = await cacheFiles(d)
+    mockExport.mockImplementation(async () => exportNaming(gateModel(), FIXTURE_MODULE))
+    const res = (await updateModelTool.run({ model_id: 'm-1', directory_path: d, create_backup: false }, context)) as any
+    expect(res.success, res.error).toBe(true)
+    expect(await cacheFiles(d)).toEqual(before)
+    expect((await gate2(d)).verdict).toBe('PASS')
+  })
+
+  it("a pull from a platform whose module has another id: the cache follows the pulled model, and Gate 2 passes", async () => {
+    const d = await scopeModulesModel()
+    const OTHER = { id: 'mod-general-elsewhere', name: 'dethernety-general' }
+    mockExport.mockImplementation(async () => exportNaming(gateModel(), OTHER))
+    const res = (await exportModelTool.run({ model_id: 'm-1', directory_path: d, if_exists: 'update' }, context)) as any
+    expect(res.success, res.error).toBe(true)
+    expect(res.data.warnings ?? []).not.toContainEqual(expect.stringMatching(/class.cache/))
+    const used = usedClasses(gateModel())
+    expect(used.size).toBeGreaterThan(3)
+    for (const id of used) expect(JSON.parse(await fs.readFile(path.join(cacheDir(d), `${id}.json`), 'utf8')).module, id).toEqual(OTHER)
+    expect((await gate2(d)).verdict).toBe('PASS')
   })
 })
 

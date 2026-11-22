@@ -146,3 +146,36 @@ describe('computePostureSummary — honesty guards (no silent green)', () => {
     expect(JSON.stringify(s)).not.toMatch(/"covered"|coverage|%/i)
   })
 })
+
+describe('computePostureSummary — Inferred Path findings on a hidden-edge flow', () => {
+  const inferred = (id, score, extra = {}) => live(id, 'Valid Accounts', score, { category: 'Inferred Path', ...extra })
+  const HIDDEN = {
+    id: 'h1', name: 'reused credential', type: 'DataFlow',
+    findings: [inferred('ip1', 9.8), inferred('ip2', 7, { dispositionKind: 'RISK_ACCEPTED', dispositionStale: true })],
+    supportingControls: [ctrl('ctrlH')],
+  }
+  const modelGraph = { flows: [{ id: 'h1', name: 'reused credential', hiddenEdge: { kind: 'credential-reuse', tier: null, grantedPrivilege: null } }] }
+
+  it('raise no band, no open or dispositioned count and no residual, and are counted once', () => {
+    const base = computePostureSummary(LEDGER, { modelGraph })
+    const s = computePostureSummary([...LEDGER, HIDDEN], { modelGraph })
+    expect(s.liveBands).toEqual(base.liveBands)
+    expect(s.liveTotal).toBe(base.liveTotal)
+    expect(s.disposition).toEqual(base.disposition)
+    expect(s.topResiduals).toEqual(base.topResiduals)
+    expect(s.inferredPathSetApart).toBe(2)
+    expect(base.inferredPathSetApart).toBe(0)
+  })
+
+  it('count like any finding when the flow is not a hidden edge', () => {
+    const s = computePostureSummary([HIDDEN])
+    expect(s.inferredPathSetApart).toBe(0)
+    expect(s.liveTotal).toBe(1)
+  })
+
+  it('defense-in-depth leaves a hidden-edge flow out, as the coverage view does', () => {
+    expect(computePostureSummary([HIDDEN], { modelGraph }).defenseInDepth).toEqual({ controlCount: 0, elementCount: 0 })
+    const ordinary = { ...HIDDEN, findings: [] }
+    expect(computePostureSummary([ordinary]).defenseInDepth).toEqual({ controlCount: 1, elementCount: 1 })
+  })
+})

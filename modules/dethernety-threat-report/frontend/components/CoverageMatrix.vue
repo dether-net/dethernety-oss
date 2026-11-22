@@ -163,6 +163,10 @@
         {{ view.offGrid.dispositionedExcluded }} dispositioned exposure(s) excluded from the live coverage grid
         (still listed in Residual Risk — never silently dropped).
       </p>
+      <p v-if="view.offGrid.inferredPathSetApart > 0" class="trd-muted-line">
+        {{ view.offGrid.inferredPathSetApart }} inferred-path exposure(s) set apart — the techniques of an inferred
+        edge an operator accepted, never graded as coverage.
+      </p>
       </template>
 
       <!-- Empty grid: no technique reached — suppress the grid, never a clean-green matrix. -->
@@ -339,6 +343,7 @@
     if (o.dataMappedCount > 0) parts.push({ key: 'data', label: `${o.dataMappedCount} Data-mapped` })
     if (sg.length) parts.push({ key: 'struct', label: `${sg.length} structural gap${sg.length > 1 ? 's' : ''}` })
     if (o.dispositionedExcluded > 0) parts.push({ key: 'disp', label: `${o.dispositionedExcluded} excluded` })
+    if (o.inferredPathSetApart > 0) parts.push({ key: 'inferred', label: `${o.inferredPathSetApart} inferred-path set apart` })
     return parts
   })
 

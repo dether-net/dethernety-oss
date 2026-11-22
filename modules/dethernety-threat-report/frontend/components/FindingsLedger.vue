@@ -28,6 +28,7 @@
           — none dispositioned yet
         </span>
         <span v-if="totals.stale > 0" class="trd-stale-count">· {{ totals.stale }} stale</span>
+        <span v-if="totals.inferredPathSetApart > 0" class="trd-setapart">· {{ totals.inferredPathSetApart }} inferred-path finding{{ totals.inferredPathSetApart === 1 ? '' : 's' }} set apart</span>
       </span>
     </div>
 
@@ -303,8 +304,8 @@
     zoning: { type: Object, default: () => ({ findings: [], effectiveZones: {} }) },
     // The snapshot's who-runs-it block, frozen at generate time. Absent on a report from before 2.2.0.
     operation: { type: Object, default: null },
-    // The snapshot modelGraph — used only to resolve boundary names for the zoning
-    // advisory block.
+    // The snapshot modelGraph — resolves boundary names for the zoning advisory
+    // block, and tells the hidden-edge flows whose Inferred Path findings are set apart.
     modelGraph: { type: Object, default: () => ({ boundaries: [] }) },
   })
 
@@ -333,7 +334,7 @@
     return Number.isNaN(d.getTime()) ? ts : d.toLocaleString()
   }
 
-  const aggregation = computed(() => aggregateLedger(props.ledger))
+  const aggregation = computed(() => aggregateLedger(props.ledger, props.modelGraph))
   const totals = computed(() => aggregation.value.totals)
   const groups = computed(() => aggregation.value.groups)
   const presentBands = computed(() => bandOrder.filter((b) => totals.value.byBand[b]))
@@ -371,7 +372,7 @@
 
   // The coverage honesty view — the shell's shared build when provided, otherwise
   // built once here. Read by the mismatch derivation below (built at most once).
-  const view = computed(() => props.coverageView ?? buildCoverageView(props.coverage, props.ledger))
+  const view = computed(() => props.coverageView ?? buildCoverageView(props.coverage, props.ledger, props.modelGraph))
 
   // Configured-mismatch: controls supporting an element but covering none of its
   // modeled-threat gaps (from the live coverage facts). Absent coverage ⇒ no flags.
@@ -392,11 +393,13 @@
   // Crown-jewel-route cross-ref: the jewel name(s) this element leads to on a
   // reachable crown-jewel route (element-keyed join from mode-A). A visibility
   // join — surfacing "you accepted this, and it still sits on a path to a high-
-  // value asset" — never a score. routeElementToJewels is an in-memory Map (Set).
+  // value asset" — never a score. routeElementToJewels is an in-memory Map (Set). A
+  // jewel this element leads to only through an inferred edge says so.
   const routeJewels = (id) => {
     const m = props.reachability?.routeElementToJewels
     if (!m || typeof m.get !== 'function') return []
-    return [...(m.get(id) ?? [])]
+    const inferredOnly = props.reachability?.routeElementToJewelsViaInferredOnly?.get?.(id)
+    return [...(m.get(id) ?? [])].map((name) => (inferredOnly?.has(name) ? `${name} (via inferred edge)` : name))
   }
   const onRoute = (id) => routeJewels(id).length > 0
   const groupHasStaleDisposition = (g) => g.dispositioned.some((f) => f.stale)
@@ -458,6 +461,7 @@
   }
   .trd-untriaged { opacity: 0.7; }
   .trd-stale-count { color: #c77700; font-weight: 600; }
+  .trd-setapart { opacity: 0.65; }
   /* In-view facet filter bar (band · source · element type) */
   .trd-filterbar {
     display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.4rem;

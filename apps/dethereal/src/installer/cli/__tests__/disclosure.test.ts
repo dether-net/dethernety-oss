@@ -22,14 +22,14 @@ describe('what the install summary discloses', () => {
     const server = cfg.mcp_servers.dethereal
     expect(server.default_tools_approval_mode).toBe('prompt')
     expect(Object.entries(server.tools).filter(([, v]) => v.approval_mode === 'approve').map(([k]) => k).sort()).toEqual(AUTO)
-    expect(AUTO).toHaveLength(19)
+    expect(AUTO).toHaveLength(20)
     const sandbox: Record<string, string> = {}
     for (const f of await fs.readdir(path.join(pkgRoot, 'bundles/codex/agents'))) {
       sandbox[f.replace(/\.toml$/, '')] = (parseToml(await read(`bundles/codex/agents/${f}`)) as { sandbox_mode: string }).sandbox_mode
     }
     expect(sandbox).toEqual({
       'dethereal-infrastructure-scout': 'read-only', 'dethereal-infrastructure-scout-scoped': 'read-only', 'dethereal-model-reviewer': 'read-only',
-      'dethereal-triage-analyst': 'read-only', 'dethereal-kg-cross-examiner': 'read-only',
+      'dethereal-triage-analyst': 'read-only', 'dethereal-kg-cross-examiner': 'read-only', 'dethereal-hidden-edge-analyst': 'read-only',
       'dethereal-threat-modeler': 'workspace-write', 'dethereal-security-enricher': 'workspace-write', 'dethereal-enrichment-applier': 'workspace-write',
     })
   })
@@ -37,7 +37,7 @@ describe('what the install summary discloses', () => {
   it('OpenCode: the agents allow only read-only Dethereal tools, never a shell command, and the rest ask', async () => {
     const fragment = JSON.parse(await read('bundles/opencode/mcp.fragment.json')) as { permission: Record<string, string> }
     expect(Object.entries(fragment.permission).filter(([, v]) => v === 'ask').map(([k]) => k.replace(/^dethereal_/, '')).sort()).toEqual(PROMPT)
-    expect(PROMPT).toHaveLength(15)
+    expect(PROMPT).toHaveLength(16)
     const shell: string[] = []
     const edits: string[] = []
     for (const f of (await fs.readdir(path.join(pkgRoot, 'bundles/opencode/agents'))).sort()) {

@@ -38,6 +38,7 @@ disallowedTools:
   - mcp__plugin_dethereal_dethereal__manage_controls
   - mcp__plugin_dethereal_dethereal__manage_countermeasures
   - mcp__plugin_dethereal_dethereal__manage_dispositions
+  - mcp__plugin_dethereal_dethereal__manage_hidden_edges
   - mcp__plugin_dethereal_dethereal__model_state
   - mcp__plugin_dethereal_dethereal__model_state_settle
   - mcp__plugin_dethereal_dethereal__model_state_prune

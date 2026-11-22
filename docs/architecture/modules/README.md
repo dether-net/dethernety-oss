@@ -20,6 +20,7 @@ The Dethernety module system provides an extensible architecture for adding thre
 |--------|-------------|
 | `dethernety-general` | General-purpose threat-model classes — components, controls, data flows, data assets, and security boundaries — with OPA/Rego policies (`DtFileOpaModule`) |
 | `mitre-frameworks` | MITRE ATT&CK, ATLAS and D3FEND data ingestion (the API and the technique-picker components support ATLAS kinds; no dialog offers them yet) |
+| `dethernety-hidden-edges` | Inferred attack paths ("hidden edges") proposed from a model's exposures as one read-only query, and the four `Hidden Edge` data flow classes an accepted one is recorded with (`DtFileOpaModule`); see [dethernety-hidden-edges](../dethernety-hidden-edges/README.md) |
 
 Additional analysis and custom modules can be developed using the DTModule interface (see [DEVELOPMENT_GUIDE.md](./DEVELOPMENT_GUIDE.md)).
 

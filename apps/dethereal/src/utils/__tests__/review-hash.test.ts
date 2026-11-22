@@ -9,6 +9,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { gateInputFromModel, loadGateInput, refusedReads, reviewHash, type GateInput } from '../gates.js'
 import { gateModel, writeGateModel } from './fixtures/gate-model.js'
+import { acceptHiddenEdge, addHiddenEdge } from './fixtures/hidden-edge.js'
 
 let dir: string
 /** Directories a test made outside the model, removed after it. */
@@ -142,5 +143,36 @@ describe('the review hash', () => {
     const file = path.join(dir, 'attributes', 'components', 'c-web.json')
     await linked(file)
     expect(await unavailable()).toMatchObject({ code: 'attribute_files_unreadable' })
+  })
+})
+
+describe('the review hash and hidden edges', () => {
+  const EDGE = { id: 'he-1', source: 'x-customer', target: 'c-db' }
+  const hash = async () => reviewHash(await loadGateInput(dir))
+  /** The edge's flow and attribute file written into the model, as the hidden-edges apply writes them. */
+  async function writeEdge(): Promise<void> {
+    const m = gateModel()
+    addHiddenEdge(m, EDGE)
+    const flows = JSON.parse(await fs.readFile(path.join(dir, 'dataflows.json'), 'utf8')) as unknown[]
+    await fs.writeFile(path.join(dir, 'dataflows.json'), JSON.stringify([...flows, m.dataFlows.at(-1)], null, 2))
+    await fs.writeFile(path.join(dir, 'attributes', 'dataFlows', 'he-1.json'), JSON.stringify(m.attributes.dataFlows['he-1'], null, 2))
+  }
+
+  it('is unchanged when an accepted hidden edge is added, and when it is removed again', async () => {
+    const before = await hash()
+    await writeEdge()
+    await acceptHiddenEdge(dir, EDGE)
+    expect(await hash()).toEqual(before)
+    // Removed as the remove skill removes a flow: from dataflows.json, its attribute file pruned.
+    const flows = JSON.parse(await fs.readFile(path.join(dir, 'dataflows.json'), 'utf8')) as Array<{ id: string }>
+    await fs.writeFile(path.join(dir, 'dataflows.json'), JSON.stringify(flows.filter((f) => f.id !== 'he-1'), null, 2))
+    await fs.rm(path.join(dir, 'attributes', 'dataFlows', 'he-1.json'))
+    expect(await hash()).toEqual(before)
+  })
+
+  it('changes for the same flow without this machine\'s accept: it is then an ordinary flow', async () => {
+    const before = await hash()
+    await writeEdge()
+    expect(await hash()).not.toEqual(before)
   })
 })

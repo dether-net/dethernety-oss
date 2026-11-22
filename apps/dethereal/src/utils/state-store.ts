@@ -256,7 +256,10 @@ export async function updateState(
 }
 
 /** The `.dethereal/` files the store may rewrite. */
-const WRITABLE_FILES: ReadonlySet<string> = new Set([STATE_FILE, 'scope.json', 'quality.json', 'loop-back.json', 'triage-log.json'])
+const WRITABLE_FILES: ReadonlySet<string> = new Set([
+  STATE_FILE, 'scope.json', 'quality.json', 'loop-back.json', 'triage-log.json',
+  'hidden-edges-log.json', 'hidden-edges-decisions.json',
+])
 
 /**
  * Read-modify-write one JSON object file directly under `.dethereal/`, with the
@@ -265,7 +268,7 @@ const WRITABLE_FILES: ReadonlySet<string> = new Set([STATE_FILE, 'scope.json', '
  * kept as `mutate` returns them, and no write when nothing changed.
  *
  * `file` is one of WRITABLE_FILES (`state.json`, `scope.json`, `quality.json`, `loop-back.json`,
- * `triage-log.json`); anything else is refused. The lock is
+ * `triage-log.json`, and the hidden-edge records); anything else is refused. The lock is
  * not reentrant: never call this from inside another store update.
  */
 export async function updateDetherealJson(
@@ -393,6 +396,8 @@ export async function deleteDetherealFile(modelDir: string, file: string, option
  * the operator set), or a settlement file under `.dethereal/`.
  */
 const SETTLEMENT_TARGET = /^(attributes\/(components|dataFlows|dataItems|boundaries)\/[A-Za-z0-9_-]{1,256}\.json|structure\.json|data-items\.json|\.dethereal\/(settlement-baseline|settlements|enrichment-pending)\.json|\.dethereal\/\.gitignore)$/
+/** Files a hidden-edge apply may replace under the same lock: one flow's attribute file, the flows file, the hidden-edge decisions. */
+export const HIDDEN_EDGE_TARGET = /^(attributes\/dataFlows\/[A-Za-z0-9_-]{1,256}\.json|dataflows\.json|\.dethereal\/hidden-edges-decisions\.json)$/
 /** Largest file a settlement reads back to check it is unchanged. */
 const SETTLEMENT_MAX_BYTES = 8 * 1024 * 1024
 
@@ -421,6 +426,8 @@ export interface SettlementOptions extends StoreOptions {
   lock?: Omit<FileLockOptions, 'label'>
   /** Tests only: fail after this many replaces and removes, to prove a retry converges. */
   failAfterReplaces?: number
+  /** The files this caller may replace, in place of a settlement's own */
+  targets?: RegExp
 }
 
 /**
@@ -446,7 +453,7 @@ export async function withSettlementLock<T>(modelDir: string, fn: (io: Settlemen
     path.join(dir, LOCK_FILE),
     async (handle) => {
       const locate = async (rel: string) => {
-        if (!SETTLEMENT_TARGET.test(rel)) throw new StateFileError('outside_root', rel)
+        if (!(options.targets ?? SETTLEMENT_TARGET).test(rel)) throw new StateFileError('outside_root', rel)
         const parts = rel.split('/')
         let d = root
         for (const part of parts.slice(0, -1)) {

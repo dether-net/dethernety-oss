@@ -1,0 +1,145 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "required_capability": {
+        "type": "string",
+        "enum": [
+          "opportunistic",
+          "targeted",
+          "advanced"
+        ],
+        "title": "Required Capability",
+        "description": "The capability an attacker needs to take this path: opportunistic, targeted or advanced. Set from the edge-kind table; the operator may edit it."
+      },
+      "required_privilege": {
+        "type": "string",
+        "enum": [
+          "none",
+          "user",
+          "admin",
+          "system"
+        ],
+        "title": "Required Privilege",
+        "description": "The privilege an attacker must hold at the source to take this path: none, user, admin or system. Set from the edge-kind table; the operator may edit it."
+      },
+      "granted_privilege": {
+        "type": "string",
+        "enum": [
+          "none",
+          "user",
+          "admin",
+          "system"
+        ],
+        "title": "Granted Privilege",
+        "description": "The privilege an attacker holds at the target once the path is taken: none, user, admin or system. Set from the edge-kind table; the operator may edit it."
+      },
+      "hidden_edge_kind": {
+        "type": "string",
+        "enum": [
+          "remote-service"
+        ],
+        "default": "remote-service",
+        "readOnly": true,
+        "title": "Hidden Edge Kind",
+        "description": "The kind of inferred path this class records. Fixed."
+      },
+      "technique_ids": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "pattern": "^T[0-9]{4}(\\.[0-9]{3})?$"
+        },
+        "maxItems": 10,
+        "title": "Path Techniques",
+        "description": "The ATT&CK techniques an attacker uses to take this path. Written by Dethereal from the accepted candidate; each becomes an exposure of the flow in category Inferred Path.",
+        "readOnly": true
+      },
+      "source_exposure_ids": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 50,
+        "title": "Source Exposures",
+        "description": "The exposures the path was inferred from. Written by Dethereal from the accepted candidate.",
+        "readOnly": true
+      },
+      "proposed_by": {
+        "type": "string",
+        "enum": [
+          "rule",
+          "operator"
+        ],
+        "title": "Proposed By",
+        "description": "rule: accepted as the hidden-edges module proposed it; operator: the operator edited it before accepting (its values may still be the module's, when only a rationale was added). Written by Dethereal.",
+        "readOnly": true
+      },
+      "tier": {
+        "type": "string",
+        "enum": [
+          "high",
+          "medium",
+          "low"
+        ],
+        "title": "Tier",
+        "description": "How firmly the model's facts support the path, as the hidden-edges module rated it: high, medium or low.",
+        "readOnly": true
+      },
+      "rationale": {
+        "type": "string",
+        "maxLength": 1000,
+        "title": "Rationale",
+        "description": "The operator's own words on why the path holds, given when accepting. Empty unless the operator wrote one."
+      }
+    },
+    "required": []
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Hidden Edge",
+        "elements": [
+          {
+            "type": "Control",
+            "scope": "#/properties/required_capability"
+          },
+          {
+            "type": "Control",
+            "scope": "#/properties/required_privilege"
+          },
+          {
+            "type": "Control",
+            "scope": "#/properties/granted_privilege"
+          },
+          {
+            "type": "Control",
+            "scope": "#/properties/hidden_edge_kind"
+          },
+          {
+            "type": "Control",
+            "scope": "#/properties/technique_ids"
+          },
+          {
+            "type": "Control",
+            "scope": "#/properties/source_exposure_ids"
+          },
+          {
+            "type": "Control",
+            "scope": "#/properties/proposed_by"
+          },
+          {
+            "type": "Control",
+            "scope": "#/properties/tier"
+          },
+          {
+            "type": "Control",
+            "scope": "#/properties/rationale"
+          }
+        ]
+      }
+    ]
+  }
+}

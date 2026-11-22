@@ -56,12 +56,14 @@ import {
   leftUnclassifiedIds,
   loadGateInput,
   mayAnswerNotApplicable,
+  ordinaryFlows,
   readClassTemplates,
   safeErrorMessage,
   TRANSIT_ALIASES,
   waiverVerifier,
 } from '../utils/gates.js'
 import { authenticationClaimed, encryptionClaim, flowAuthentication, normToken } from '../utils/lints.js'
+import { hiddenEdgeFlows } from '../hidden-edges/predicate.js'
 import { readRepoJson, readState, StateFileError, updateDetherealJson } from '../utils/state-store.js'
 import type { SettlementMode } from '../utils/settlement-switch.js'
 
@@ -333,8 +335,10 @@ interface QualityOutput {
   element_counts: {
     boundaries: number
     components: number
+    /** The ordinary flows: the hidden edges this machine accepted are counted apart */
     data_flows: number
     data_items: number
+    hidden_edge_flows: number
   }
   /**
    * Which class template fields are still unresolved, and where. This is the
@@ -597,7 +601,8 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     const structure = await readStructure(dirPath)
     const dataFlows = await readDataFlows(dirPath) // normalizes [] and { dataFlows: [] }
     const dataItems = await readDataItems(dirPath)
-    const ctx = buildZoningContext(structure, dataFlows, dataItems)
+    // The hidden edges this machine accepted are no flows of the system: they never zone a boundary.
+    const ctx = buildZoningContext(structure, await this.withoutHiddenEdges(dirPath, dataFlows), dataItems)
     // A boundary's own enforcement attributes: one that allows any inbound traffic is proposed PUBLIC.
     const attributes = await readAttributes(dirPath, { structure, dataFlows, dataItems })
     const allowAnyInbound = (id: string): unknown => {
@@ -691,6 +696,12 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     return (boundary.boundaries ?? []).some((b) => this.hasMixedTrustBoundary(b))
   }
 
+  /** The flows but the hidden edges this machine accepted; with no key or decisions to read, every flow. */
+  private async withoutHiddenEdges<F extends { id: string }>(dirPath: string, flows: F[]): Promise<F[]> {
+    const hidden = await hiddenEdgeFlows(dirPath, flows).catch(() => new Map<string, Set<string>>())
+    return hidden.size ? flows.filter((f) => !hidden.has(f.id)) : flows
+  }
+
   private async computeQuality(dirPath: string): Promise<ToolResult<QualityOutput>> {
     if (!await pathExists(dirPath)) {
       return { success: false, error: `Directory not found: ${dirPath}` }
@@ -701,10 +712,12 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
 
     const manifest = await readManifest(dirPath)
     const structure = await readStructure(dirPath)
-    const dataFlows = await readDataFlows(dirPath)
+    const allFlows = await readDataFlows(dirPath)
     const dataItems = await readDataItems(dirPath)
     const attributeIssues: AttributeReadIssue[] = []
-    const attributes = await readAttributes(dirPath, { structure, dataFlows, dataItems }, attributeIssues)
+    const attributes = await readAttributes(dirPath, { structure, dataFlows: allFlows, dataItems }, attributeIssues)
+    // Every factor reads the ordinary flows: the hidden edges this machine accepted are counted apart.
+    const dataFlows = await this.withoutHiddenEdges(dirPath, allFlows)
 
     const allComponentIds = this.collectComponentIds(structure.defaultBoundary)
     const allBoundaryIds = this.collectBoundaryIds(structure.defaultBoundary)
@@ -965,7 +978,8 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
           boundaries: totalBoundaries,
           components: totalComponents,
           data_flows: dataFlows.length,
-          data_items: totalDataItems
+          data_items: totalDataItems,
+          hidden_edge_flows: allFlows.length - dataFlows.length,
         },
         attribute_residual: attributeResidual,
         model_name: manifest.model.name,
@@ -1107,7 +1121,8 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
   }> {
     // The gates' own read of the model, so coverage and the gates can never disagree on a tier.
     const input = await loadGateInput(dirPath)
-    const { structure, dataFlows, dataItems, attributes } = input
+    const { structure, dataItems, attributes } = input
+    const dataFlows = ordinaryFlows(input)
     // An attribute file that cannot be read contributes nothing to coverage,
     // which is indistinguishable from an element that genuinely has no security
     // attributes — it drags the percentage down and names no cause. Coverage is

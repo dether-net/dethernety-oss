@@ -62,6 +62,11 @@ describe('gradedCoverage on the equivalence fixture (Memgraph)', () => {
 
     const t9001 = result.exposures.flatMap((e: any) => e.techniques).find((t: any) => t.techniqueId === 'T9001');
     expect(t9001.tactics.map((t: any) => t.id)).toEqual(['TA0001', 'TA0005', 'TA0112']);
+    // The hidden-edge flow's inferred-path exposure is read from the graph, then set apart; the one on an ordinary
+    // component is counted.
+    expect(result.exposures.some((e: any) => e.exposureId === 'exp-hidden-path')).toBe(false);
+    expect(result.exposures.some((e: any) => e.exposureId === 'exp-db-inferred')).toBe(true);
+    expect(result.meta.inferredPathSetApart).toBe(1);
     expect(canonical(result)).toBe(canonical(expected));
   });
 

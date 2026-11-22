@@ -51,6 +51,10 @@ export { ManageDispositionsTool, manageDispositionsTool } from './manage-disposi
 export { GetKgChainTool, getKgChainTool } from './get-kg-chain.tool.js'
 export { GetClassGuideTool, getClassGuideTool } from './get-class-guide.tool.js'
 
+// Hidden edges
+export { HiddenEdgesTool, hiddenEdgesTool } from './hidden-edges.tool.js'
+export { ManageHiddenEdgesTool, manageHiddenEdgesTool } from './manage-hidden-edges.tool.js'
+
 import { BaseTool } from './base-tool.js'
 // Auth tools
 import { loginTool } from './auth/login.tool.js'
@@ -92,6 +96,9 @@ import { triageReviewTool } from './triage-review.tool.js'
 import { manageDispositionsTool } from './manage-dispositions.tool.js'
 import { getKgChainTool } from './get-kg-chain.tool.js'
 import { getClassGuideTool } from './get-class-guide.tool.js'
+// Hidden edges
+import { hiddenEdgesTool } from './hidden-edges.tool.js'
+import { manageHiddenEdgesTool } from './manage-hidden-edges.tool.js'
 import { TOOL_MANIFEST } from './manifest.js'
 import { StubTool } from './stub-tool.js'
 import { SETTLEMENT_ONLY_TOOLS, settlementOn } from '../utils/settlement-switch.js'
@@ -142,6 +149,8 @@ const implementedTools: BaseTool[] = [
   manageDispositionsTool,
   getKgChainTool,
   getClassGuideTool,
+  hiddenEdgesTool,
+  manageHiddenEdgesTool,
 ]
 
 /**
@@ -185,6 +194,7 @@ export const clientFreeTools: BaseTool[] = [
   workspaceStatusTool,
   detectDriftTool,
   triageReviewTool,
+  hiddenEdgesTool,
 ]
 
 /**
@@ -237,6 +247,8 @@ export const clientDependentTools: BaseTool[] = [
   manageDispositionsTool,
   getKgChainTool,
   getClassGuideTool,
+  // Hidden edges
+  manageHiddenEdgesTool,
 ]
 
 export { WorkspaceStatusTool, workspaceStatusTool } from './workspace-status.tool.js'
