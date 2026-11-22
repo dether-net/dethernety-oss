@@ -55,7 +55,7 @@ Getting started:    /dethereal-status, /dethereal-login, /dethereal-help
 Viewing:            /dethereal-view
 Modeling:           /dethereal-create, /dethereal-discover, /dethereal-add, /dethereal-remove
 Enrichment:         /dethereal-classify, /dethereal-enrich (controls: /dethereal-enrich --focus controls)
-Review & analysis:  /dethereal-review, /dethereal-surface, /dethereal-triage
+Review & analysis:  /dethereal-review, /dethereal-surface, /dethereal-triage, /dethereal-hidden-edges
 Sync:               /dethereal-sync
 
 Full workflow:      /dethereal-threat-model — the guided process, recommended for a new model
@@ -82,5 +82,6 @@ Write each suggestion's `command` the way the command list spells that command.
 | `/dethereal-review` | Gates, quality breakdown, gaps and readiness (read-only) | `[directory-path] [--structure-only]` |
 | `/dethereal-surface` | Attack surface: components, boundary crossings, control coverage (read-only) | `[directory-path]` |
 | `/dethereal-triage` | Triage the platform's exposures: grouped proposals you review, then a gated apply | `[directory-path] [--stale] [--element <id>]` |
+| `/dethereal-hidden-edges` | Review the inferred attack paths the platform proposes; the accepted ones become flows | `[directory-path]` |
 | `/dethereal-sync` | Push to or pull from the platform, sync status, control-library recovery | `push\|pull\|status\|promote-external-edit\|tombstone\|repair-wal [directory-path]` |
 | `/dethereal-threat-model` | The guided end-to-end workflow, from scope to sync | `[system description or model path] [--full-scan] [--full\|--quick]` |

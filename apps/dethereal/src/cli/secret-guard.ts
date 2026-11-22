@@ -1547,7 +1547,9 @@ function decideBash(command: string, cwd: string, j: Judge, home: string, depth 
   // xargs running a reader reads files whose names another command of the line produces: the folders
   // those commands name are read in full, as a recursive search's are.
   const fedReader = parsed.some((x) => x.words?.[0] === 'xargs' && readsContent(xargsCommand(x.words)))
-  for (const { segment, words } of parsed) {
+  for (const [at, { segment, words }] of parsed.entries()) {
+    // The line's own last command: nothing after it in the line can use a link it makes.
+    const last = depth === 0 && at === parsed.length - 1
     if (sanctionedSecretCommand(segment)) continue
     if (VALUE_PRINTERS.some((re) => re.test(segment, onTime))) return deny(`\`${segment.slice(0, 80)}\` prints configuration values, which may hold secrets: it is never run. Take names from the files' structure instead.`)
     if (!words || base === null) {
@@ -1578,7 +1580,7 @@ function decideBash(command: string, cwd: string, j: Judge, home: string, depth 
     try {
       let v: FileVerdict = { secret: false }
       for (const b of new Set([segBase, base, cwd])) {
-        v = judgeSegment(words, b, fedReader, j)
+        v = judgeSegment(words, b, fedReader, j, last)
         if (v.secret) break
       }
       if (v.secret) {
@@ -1635,15 +1637,17 @@ function lnCommands(words: string[]): string[][] {
  * line, a link over a link with `-n`, a folder reached through a link made earlier), so a target is read from the
  * destination and from its parent, each as written and as resolved now; and a target that climbs (`../`) is read once
  * more without its climb, from each of `anchors` (the project root, the home folder) and from every folder between
- * the link's folder and an anchor, so a link made through another one, or moved after it is made, is judged too. Any
- * `ln`, hard or symbolic: a hard link's target is judged from where the command runs as well, as any operand is.
- * Absolute paths; none for a target that is absolute or starts with `~`.
+ * the link's folder and an anchor, so a link made through another one, or moved after it is made, is judged too. A
+ * climb that stops at a folder (`../`) is read so only when something may follow the link in the same line (`last`
+ * false): a link the line ends with is on disk for the next command, which follows it. Any `ln`, hard or symbolic: a
+ * hard link's target is judged from where the command runs as well, as any operand is. Absolute paths; none for a
+ * target that is absolute or starts with `~`.
  */
-function symlinkTargets(words: string[], base: string, anchors: readonly string[] = []): string[] {
-  return [...new Set(lnCommands(words).flatMap((ln) => linkTargetsOf(ln, base, anchors)))]
+function symlinkTargets(words: string[], base: string, anchors: readonly string[] = [], last = false): string[] {
+  return [...new Set(lnCommands(words).flatMap((ln) => linkTargetsOf(ln, base, anchors, last)))]
 }
 
-function linkTargetsOf(ln: string[], base: string, anchors: readonly string[]): string[] {
+function linkTargetsOf(ln: string[], base: string, anchors: readonly string[], last: boolean): string[] {
   let into: string | undefined
   let noTargetDir = false
   const operands: string[] = []
@@ -1701,6 +1705,8 @@ function linkTargetsOf(ln: string[], base: string, anchors: readonly string[]): 
     while (parts[climb] === '..') climb++
     if (climb === 0 || climb === parts.length) continue
     const rest = parts.slice(climb).join(path.sep)
+    // A climb that stops at a folder (`../`), the line's last command: the folder is the target read above.
+    if (!rest && last) continue
     for (const anchor of anchors) {
       out.add(path.resolve(anchor, rest))
       for (const f of places) {
@@ -1712,7 +1718,7 @@ function linkTargetsOf(ln: string[], base: string, anchors: readonly string[]): 
 }
 
 /** The first secret file one simple command reaches, from `base`. */
-function judgeSegment(words: string[], base: string, fedReader: boolean, j: Judge): FileVerdict {
+function judgeSegment(words: string[], base: string, fedReader: boolean, j: Judge, last = false): FileVerdict {
   // echo and printf print their words and read no file, unless what they print feeds a reader (xargs).
   if ((words[0] === 'echo' || words[0] === 'printf') && !fedReader) return { secret: false }
   const isXargs = words[0] === 'xargs'
@@ -1751,7 +1757,7 @@ function judgeSegment(words: string[], base: string, fedReader: boolean, j: Judg
   }
   // A link's target, from where the link is made, wherever an `ln` stands among the words: each a whole path, never
   // read in pieces (a folder's name may hold a space).
-  for (const t of symlinkTargets(words, base, [j.place.root])) {
+  for (const t of symlinkTargets(words, base, [j.place.root], last)) {
     for (const f of expand(t, base, j)) {
       const v = judgeFile(f, j)
       if (v.secret) return v
@@ -2807,7 +2813,8 @@ export function reachedRoot(command: string, cwd: string, home: string, fold: (p
   const earlier = new Set<string>()
   // CDPATH as the environment gives it, and as the command sets it.
   let cdpath: string | null = vars.CDPATH ?? null
-  for (const segment of commandSegments(spelled)) {
+  const segments = commandSegments(spelled)
+  for (const [at, segment] of segments.entries()) {
     onTime()
     const raw = shellWords(segment)
     if (!raw) {
@@ -2938,7 +2945,10 @@ export function reachedRoot(command: string, cwd: string, home: string, fold: (p
     }
     // A link's target, from where the link is made: each a whole path, never read in pieces. A climb may end above the
     // home folder (a project elsewhere), so what it names is read from each of the home folder's ancestors too.
-    for (const t of segBase === null ? [] : symlinkTargets(words, segBase, withAncestors(home))) {
+    // echo and printf print the word `ln`, they do not run it, unless what they print feeds a command or a file.
+    const prints = (run[0] === 'echo' || run[0] === 'printf') && !fed && !/>/.test(withoutQuoted(segment))
+    const last = depth === 0 && at === segments.length - 1
+    for (const t of segBase === null || prints ? [] : symlinkTargets(words, segBase, withAncestors(home), last)) {
       const hit = judge(t, bases, true, reading, strong)
       if (hit) return hit
     }

@@ -10,6 +10,7 @@
 
 import { z } from 'zod'
 import { DtClass } from '@dethernety/dt-core'
+import { HIDDEN_EDGES_MODULE, KINDS } from '../hidden-edges/contract.js'
 import { ClientDependentTool, ToolContext, ToolResult } from './base-tool.js'
 
 const InputSchema = z.object({
@@ -172,19 +173,26 @@ export class MatchClassesTool extends ClientDependentTool<MatchClassesInput, Mat
 
       const dtClass = new DtClass(context.apolloClient)
 
+      // The hidden-edges module's classes (one per kind) record inferred paths the operator accepted, never an element
+      // of the system: they are asked for on top of topN and dropped here, by their module.
+      const topN = input.topN ?? 3
       const result = await dtClass.matchClasses({
         elements: input.elements,
         classLabel: input.classLabel,
         ...(input.componentType ? { componentType: input.componentType } : {}),
         ...(input.moduleIds ? { moduleIds: input.moduleIds } : {}),
-        ...(input.topN !== undefined ? { topN: input.topN } : {}),
+        topN: topN + KINDS.size,
         ...(input.fields ? { fields: input.fields } : {}),
       })
 
       // Destructure rather than spread: re-emit `vectorAvailable` under the
       // snake_case `vector_search_available` so the output has one canonical
       // spelling for AI agents to read.
-      const { matches: found, unmatched: none, vectorAvailable } = result
+      const { unmatched: none, vectorAvailable } = result
+      const found = result.matches.map((m) => ({
+        ...m,
+        candidates: m.candidates.filter((c) => c.moduleName !== HIDDEN_EDGES_MODULE).slice(0, topN),
+      }))
       // A type match only says the class is of the element's type: such candidates are no match at all.
       const typeOnly = found.filter((m) => m.candidates.length > 0 && m.candidates.every((c) => c.matchType === 'type_match'))
       // An entry with no candidate at all matched nothing either.

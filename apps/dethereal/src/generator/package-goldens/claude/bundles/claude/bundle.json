@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "harness": "claude",
   "version": "<VERSION>",
-  "generatedFrom": "b3a3dc42cd0af44d15fb235d9601b5c693292a9dd89c90c06fd16c4892363cde",
-  "contentHash": "71d55445265cae54ebb3503f4a7ff90709fce4b7a82c9f7737978aa12e81e400",
+  "generatedFrom": "60e26c85ff0c52e3432d839567047d6cf1b7479101cdcd5a1faf0f1bec612b53",
+  "contentHash": "c1d1532270190ab54a73bee9bf974ac10f5eee7b4fa602f4a3d413de89e99325",
   "files": [
     {
       "path": ".claude-plugin/plugin.json",
-      "sha256": "51b04d6e19dd25e6df2d5f90d5359c3223a1be5d12d663a8ca1a0e8e47d1972b"
+      "sha256": "0f736a554d330e4b70879e63f569c66615da183ca37a364269f64dd4ead32c57"
     },
     {
       "path": "bundles/claude/.mcp.json",
@@ -15,7 +15,11 @@
     },
     {
       "path": "bundles/claude/agents/enrichment-applier.md",
-      "sha256": "a1dfb8ecccbace983e2fe1807659579baada3a8d8a8479f0e01c533fe8a061f0"
+      "sha256": "98edc581767b747dac25ec5b9050afdec885e32d4a7800c9c1b56f2b92c83855"
+    },
+    {
+      "path": "bundles/claude/agents/hidden-edge-analyst.md",
+      "sha256": "49bb56460632c1c318f5b5dc4fe2026c38bae40f7fe752021b68f6dc520d1edf"
     },
     {
       "path": "bundles/claude/agents/infrastructure-scout-scoped.md",
@@ -35,11 +39,11 @@
     },
     {
       "path": "bundles/claude/agents/security-enricher.md",
-      "sha256": "e833ac9bfebe07a52897a7c880104fccb0b8cbbaf6e1f36017abacab4404af75"
+      "sha256": "8f4882347abc7286123c0918f1533fda276a5c717fb9f1fcef3598ea561d4847"
     },
     {
       "path": "bundles/claude/agents/threat-modeler.md",
-      "sha256": "cfb550e48fe99345ba0fb60044388d25a8fa80420c187abd33732387c98b9e3e"
+      "sha256": "a48df5d57efe3ea14b3afb942300254dfdf18fc0050995173ccec122eca53f66"
     },
     {
       "path": "bundles/claude/agents/triage-analyst.md",
@@ -47,11 +51,11 @@
     },
     {
       "path": "bundles/claude/hooks/hooks.json",
-      "sha256": "952f99fc1160501d9006a7109229a60f42fd01741a386a4499880624addcd7be"
+      "sha256": "21e7fb125cf910fac0178b5585adde1212f1b27e7b3bf44006e64eeb966c1593"
     },
     {
       "path": "bundles/claude/skills/add/SKILL.md",
-      "sha256": "3fa925e8defdf1aad4d2b95c637a89a90b12079a373fb94456e2ebaca9195c43"
+      "sha256": "fec877171095c02d3f571e3d723e0692cea30e355859fd24536dc7ee86991951"
     },
     {
       "path": "bundles/claude/skills/add/git-undo.md",
@@ -79,7 +83,7 @@
     },
     {
       "path": "bundles/claude/skills/classify/classification-protocol.md",
-      "sha256": "267d78dd7fc83af092c30235114f49e1b006fcc07051fc906139bc54ff333a7e"
+      "sha256": "81b8812df1f3a8df9833c8100af17f6558b172bff28b4543dab6557ccdf1f13b"
     },
     {
       "path": "bundles/claude/skills/classify/secret-files.md",
@@ -155,7 +159,7 @@
     },
     {
       "path": "bundles/claude/skills/enrich-controls/enrichment-invariants.md",
-      "sha256": "adb2d2fcac419f12bc58dbeff0b3987da537d58c2eeda4d85a69d97ea98219f0"
+      "sha256": "3e19e18d3bd0a4036c53c6f00333e752a1d9ed64ab5cbb2a6603c3c046006141"
     },
     {
       "path": "bundles/claude/skills/enrich-controls/relay.md",
@@ -167,7 +171,7 @@
     },
     {
       "path": "bundles/claude/skills/enrich/SKILL.md",
-      "sha256": "b740e8ce186e67ab72a89348c7b699393380b4a57babea7a1cbc3c1d76933cec"
+      "sha256": "7274f949ba713152b95ef782862dc43734f795b48032c14b4623bf9572f2f9e4"
     },
     {
       "path": "bundles/claude/skills/enrich/enrich-skill-asks.md",
@@ -191,7 +195,11 @@
     },
     {
       "path": "bundles/claude/skills/help/SKILL.md",
-      "sha256": "fe04a5527e9967caa87feb09d3887d31052f8557862eed623da317a4818152ae"
+      "sha256": "ccfc1405023dc9a00f76c30744a4efb116339ccdacadad867c69665188c031b9"
+    },
+    {
+      "path": "bundles/claude/skills/hidden-edges/SKILL.md",
+      "sha256": "08d18968ff71ba07131f87e4fc3404e8941e2f617504969041c95cee4a22a40a"
     },
     {
       "path": "bundles/claude/skills/login/SKILL.md",
@@ -199,7 +207,7 @@
     },
     {
       "path": "bundles/claude/skills/remove/SKILL.md",
-      "sha256": "3c2532d0424a50264f062c2a0c6b5edb101d5af55bab2add363e9033e4e318a8"
+      "sha256": "fa38f3107d7b497d4fa984eeb23c9f1da2bec600a6f1f02b8412442a98943274"
     },
     {
       "path": "bundles/claude/skills/remove/git-undo.md",
@@ -263,7 +271,7 @@
     },
     {
       "path": "bundles/claude/skills/threat-model/guided-build.md",
-      "sha256": "7aaa0e92ff32b7df5b7e65b19be7b7d7da2178d7006994490a6fb53d5efefa7d"
+      "sha256": "dfab0b99f9f5a76a181b978f682a500fd3e20aac66de2945ae761d70c53447d9"
     },
     {
       "path": "bundles/claude/skills/threat-model/guided-classify.md",
@@ -307,7 +315,7 @@
     },
     {
       "path": "bundles/claude/skills/triage/SKILL.md",
-      "sha256": "00235575aa24a0efa2da9b39a3400d28a5c840c49d97d27997c08307289df76c"
+      "sha256": "d941a4539d08ad3d4b8e4d725a47dbe08b2c7e465e22084ab0b42f223b6e1cba"
     },
     {
       "path": "bundles/claude/skills/triage/secret-files.md",
@@ -315,7 +323,7 @@
     },
     {
       "path": "bundles/claude/skills/triage/triage-evidence.md",
-      "sha256": "89f14c171b18c0bc19bc85eec41b1afb649792055cbb3cb82f1e600921c3706e"
+      "sha256": "3c6dda2fa58f028f3794e5ca2f82bd2db70bdf2bd1bd5b8f2187d42b392f4052"
     },
     {
       "path": "bundles/claude/skills/triage/triage-review.md",

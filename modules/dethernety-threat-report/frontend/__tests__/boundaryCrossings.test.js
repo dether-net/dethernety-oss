@@ -454,3 +454,46 @@ describe('honest handling of empty/missing input', () => {
     expect(r.totals.crossingFlows).toBe(0)
   })
 })
+
+describe('computeCrossings — hidden-edge flows are set apart', () => {
+  // A hidden-edge flow L → R (siblings: EXIT Left + ENTER Right) beside the modeled f_sibling, with
+  // an Inferred Path finding of its own.
+  const HIDDEN = {
+    id: 'h1', name: 'reused credential', sourceId: 'L', targetId: 'R', sensitivities: [], dataItemCount: 0,
+    hiddenEdge: { kind: 'credential-reuse', tier: 'medium', grantedPrivilege: 'admin' },
+  }
+  const MGH = { ...MG, flows: [...MG.flows, HIDDEN] }
+  const LEDGERH = [
+    ...LEDGER,
+    { id: 'h1', name: 'reused credential', type: 'DataFlow', findings: [{ id: 'ip1', name: 'Valid Accounts', score: 9.8, category: 'Inferred Path', dispositionKind: null }], supportingControls: [] },
+  ]
+  const all = (r) => [...r.crossings, ...r.underModeled]
+
+  it('is never a crossing; the totals count it once, and it is named with its kind', () => {
+    const base = computeCrossings(MG, LEDGER)
+    const r = computeCrossings(MGH, LEDGERH)
+    expect(all(r).map((g) => g.flowId)).not.toContain('h1')
+    expect(r.totals).toEqual({ ...base.totals, hiddenEdgeFlowsSetApart: 1 })
+    expect(r.setApartFlows).toEqual([{ flowId: 'h1', flowName: 'reused credential', kind: 'credential-reuse' }])
+    expect(base.totals.hiddenEdgeFlowsSetApart).toBe(0)
+    expect(base.setApartFlows).toEqual([])
+  })
+
+  it('is told by the flag alone: the same flow without it is a crossing; true from an earlier snapshot sets it apart, kind unknown', () => {
+    const plain = computeCrossings({ ...MG, flows: [...MG.flows, { ...HIDDEN, hiddenEdge: null }] }, LEDGERH)
+    expect(all(plain).map((g) => g.flowId)).toContain('h1')
+    expect(plain.totals.hiddenEdgeFlowsSetApart).toBe(0)
+    const earlier = computeCrossings({ ...MG, flows: [...MG.flows, { ...HIDDEN, hiddenEdge: true }] }, LEDGERH)
+    expect(earlier.setApartFlows).toEqual([{ flowId: 'h1', flowName: 'reused credential', kind: null }])
+  })
+
+  it('an Inferred Path finding on an ordinary flow counts toward its posture like any other', () => {
+    const ledger = [
+      ...LEDGER,
+      { id: 'f_sibling', name: 'sibling', type: 'DataFlow', findings: [{ id: 'ip2', name: 'Remote Services', score: 9, category: 'Inferred Path', dispositionKind: null }], supportingControls: [] },
+    ]
+    const g = all(computeCrossings(MG, ledger)).find((x) => x.flowId === 'f_sibling')
+    expect(g.flowLiveCount).toBe(1)
+    expect(g.flowWorstBand).toBe('critical')
+  })
+})

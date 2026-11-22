@@ -87,7 +87,7 @@ export interface Registration {
 }
 
 /** The files the server keeps out of git: they hold this machine's attestations and records, never shared. */
-export const PER_MACHINE_FILES = ['settlement-baseline.json', 'settlements.json', 'sync.json', 'control-audit.log', 'relay/', 'triage-log.json', 'triage-run/'] as const
+export const PER_MACHINE_FILES = ['settlement-baseline.json', 'settlements.json', 'sync.json', 'control-audit.log', 'relay/', 'triage-log.json', 'triage-run/', 'hidden-edges-log.json'] as const
 const GITIGNORE_REL = '.dethereal/.gitignore'
 
 interface Context {
@@ -164,7 +164,7 @@ export async function ensureGitignore(io: SettlementIO): Promise<'written' | 'pr
     const have = new Set(text.split(/\r?\n/).map((l) => l.trim()))
     const missing = PER_MACHINE_FILES.filter((f) => !have.has(f) && !have.has(`/${f}`))
     if (!missing.length) return 'present'
-    const prefix = text === '' ? '# Written by Dethereal: the settlement, sync, control audit and triage records of this machine, the relay files of its specialists and its triage runs, never shared.\n' : text.endsWith('\n') ? '' : '\n'
+    const prefix = text === '' ? '# Written by Dethereal: the settlement, sync, control audit, triage and hidden-edge records of this machine, the relay files of its specialists and its triage runs, never shared.\n' : text.endsWith('\n') ? '' : '\n'
     await io.replace(GITIGNORE_REL, `${text}${prefix}${missing.join('\n')}\n`, bytes)
     return 'written'
   } catch {

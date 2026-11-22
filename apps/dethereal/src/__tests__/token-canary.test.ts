@@ -212,6 +212,20 @@ async function writeTriageModel(sandbox: Sandbox, platformUrl: string): Promise<
   await writeFile(path.join(dir, '.dethereal', 'sync.json'), JSON.stringify({ platform_model_id: 'canary-model', platform_url: platformUrl }))
 }
 
+/** A model synced with no local changes (its recorded hash predates the content hash), for hidden_edges to read. */
+async function writeHiddenEdgesModel(sandbox: Sandbox, platformUrl: string): Promise<void> {
+  const dir = path.join(sandbox.cwd, 'canary-hidden-edges')
+  await mkdir(path.join(dir, '.dethereal'), { recursive: true })
+  await writeFile(path.join(dir, 'manifest.json'), JSON.stringify({ name: 'canary hidden edges' }))
+  await writeFile(path.join(dir, 'structure.json'), JSON.stringify({ defaultBoundary: { id: 'canary-root', name: 'Root', components: [{ id: 'canary-a', name: 'a', type: 'PROCESS', positionX: 0, positionY: 0 }] } }))
+  await writeFile(path.join(dir, 'dataflows.json'), JSON.stringify({ dataFlows: [] }))
+  await writeFile(path.join(dir, 'data-items.json'), JSON.stringify({ dataItems: [] }))
+  await writeFile(path.join(dir, '.dethereal', 'sync.json'), JSON.stringify({
+    platform_model_id: 'canary-model', platform_url: platformUrl, last_push_at: '2026-11-17T00:00:00.000Z', push_content_hash: 'canary-legacy-hash',
+    baseline_element_ids: { boundaries: ['canary-root'], components: ['canary-a'], flows: [], dataItems: [] },
+  }))
+}
+
 const TRIAGE_GROUPS = [{ group: 1, exposure_ids: ['canary-exposure'], proposal: { op: 'dispose', kind: 'FALSE_POSITIVE', reason: 'canary triage reason' } }]
 
 async function writeStore(sandbox: Sandbox, content: string): Promise<void> {
@@ -294,6 +308,10 @@ const ARGS: Record<string, Record<string, unknown>> = {
   get_class_guide: { class_id: 'canary-class', element_kind: 'component', attribute_keys: ['authentication_type'] },
   // manage_dispositions is given a closed review of its own first (below), so its prepare reads the platform.
   triage_review: { action: 'open', directory_path: 'canary-triage', mode: 'review', groups: TRIAGE_GROUPS },
+  hidden_edges: { action: 'open', directory_path: 'canary-hidden-edges' },
+  // No review can close on the hostile platform's answer: the take-back of a flow is refused before any platform call.
+  // Its platform writes go through the disposition core, which manage_dispositions takes to the hostile platform.
+  manage_hidden_edges: { action: 'record', directory_path: 'canary-hidden-edges', flow_id: 'he-0000000000000000' },
   query_countermeasures: { action: 'list', control_id: 'canary-control' },
   generate_attribute_stubs: { directory_path: 'canary-model' },
   get_classes: { fields: ['id', 'name', 'module'] },
@@ -308,7 +326,7 @@ const ARGS: Record<string, Record<string, unknown>> = {
 }
 
 /** Tools that must have reached the hostile platform, or the echo channel was never exercised. */
-const MUST_REACH_PLATFORM = ['list_models', 'get_classes', 'search_mitre_attack', 'manage_controls', 'export_model', 'query_controls', 'get_kg_chain', 'get_class_guide', 'triage_review', 'manage_dispositions']
+const MUST_REACH_PLATFORM = ['list_models', 'get_classes', 'search_mitre_attack', 'manage_controls', 'export_model', 'query_controls', 'get_kg_chain', 'get_class_guide', 'triage_review', 'manage_dispositions', 'hidden_edges']
 
 describe('token canary (built server over stdio)', () => {
   let root: string
@@ -345,6 +363,7 @@ describe('token canary (built server over stdio)', () => {
     await writeStore(sandbox, storeWith(platform.url, session({ baseUrl: platform.url })))
     await writeSettleModel(sandbox)
     await writeTriageModel(sandbox, platform.url)
+    await writeHiddenEdgesModel(sandbox, platform.url)
     const s = await connect(entry, sandbox, platform.url)
     const leaks: string[] = []
     const reached: string[] = []

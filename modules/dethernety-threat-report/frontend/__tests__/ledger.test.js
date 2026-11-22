@@ -7,6 +7,7 @@ import {
   isLiveKind,
   lifecycleStatus,
   dedupeLedgerElements,
+  markSetApart,
 } from '../lib/aggregateLedger.js'
 import { buildJsonExport, buildHtmlExport } from '../lib/exportReport.js'
 
@@ -326,5 +327,56 @@ describe('dedupeLedgerElements', () => {
     expect(dedupeLedgerElements(led)).toEqual(led)
     expect(dedupeLedgerElements([{ findings: [] }, { findings: [] }]).length).toBe(2) // no id ⇒ both kept
     expect(dedupeLedgerElements(null)).toEqual([])
+  })
+})
+
+describe('aggregateLedger — an Inferred Path finding on a hidden-edge flow is set apart, and counted', () => {
+  const inferred = (over = {}) => finding({ category: 'Inferred Path', score: 9.8, ...over })
+  const MODEL_GRAPH = { flows: [{ id: 'h1', name: 'reused credential', hiddenEdge: { kind: 'credential-reuse', tier: 'medium', grantedPrivilege: 'admin' } }] }
+  const ledger = [
+    { id: 'c1', name: 'API', type: 'Component', findings: [finding({ score: 8 }), finding({ score: 3, dispositionKind: 'WAIVED' })], supportingControls: [] },
+    {
+      id: 'h1', name: 'reused credential', type: 'DataFlow', supportingControls: [],
+      findings: [inferred(), inferred({ dispositionKind: 'RISK_ACCEPTED', dispositionStale: true, createdBy: 'USER' })],
+    },
+  ]
+
+  it('leaves them out of every total and reports one count', () => {
+    const { totals } = aggregateLedger(ledger, MODEL_GRAPH)
+    expect(totals).toEqual({ ...aggregateLedger([ledger[0]]).totals, inferredPathSetApart: 2 })
+    expect(totals.byBand.critical).toBe(0)
+    expect(totals.stale).toBe(0)
+    expect(totals.byKind.RISK_ACCEPTED).toBeUndefined()
+  })
+
+  it('a hidden-edge flow whose only findings are set apart forms no group', () => {
+    expect(aggregateLedger(ledger, MODEL_GRAPH).groups.map((g) => g.id)).toEqual(['c1'])
+  })
+
+  it('needs both: an Inferred Path finding on any other element, or another category on the flow, counts', () => {
+    const onComponent = [{ ...ledger[0], findings: [inferred()] }]
+    expect(aggregateLedger(onComponent, MODEL_GRAPH).totals).toMatchObject({ findings: 1, inferredPathSetApart: 0 })
+    // The same flow, not a hidden edge in this snapshot (an ordinary flow, or no modelGraph to tell).
+    expect(aggregateLedger(ledger, { flows: [{ id: 'h1' }] }).totals).toMatchObject({ findings: 4, inferredPathSetApart: 0 })
+    expect(aggregateLedger(ledger).totals.inferredPathSetApart).toBe(0)
+    const otherCategory = [{ ...ledger[1], findings: [finding({ category: 'Inferred', score: 9.8 })] }]
+    expect(aggregateLedger(otherCategory, MODEL_GRAPH).totals).toMatchObject({ findings: 1, inferredPathSetApart: 0 })
+  })
+
+  it('a ledger marked once is read the same without the graph', () => {
+    const marked = markSetApart(ledger, MODEL_GRAPH)
+    expect(aggregateLedger(marked).totals).toEqual(aggregateLedger(ledger, MODEL_GRAPH).totals)
+    expect(markSetApart(marked, MODEL_GRAPH)).toEqual(marked)
+  })
+
+  it('an earlier snapshot holding hiddenEdge: true still marks the flow', () => {
+    expect(aggregateLedger(ledger, { flows: [{ id: 'h1', hiddenEdge: true }] }).totals.inferredPathSetApart).toBe(2)
+  })
+
+  it('the export carries the count beside the totals it is not in', () => {
+    const doc = { modelId: 'm', generatedAt: 't', fingerprint: 'f', ledger, modelGraph: { boundaries: [], components: [], dataNodes: [], ...MODEL_GRAPH } }
+    expect(JSON.parse(buildJsonExport(doc)).provenance.counts).toMatchObject({ findings: 2, live: 1, inferredPathSetApart: 2 })
+    expect(buildHtmlExport(doc)).toContain('2 inferred-path findings set apart')
+    expect(buildHtmlExport({ ...doc, ledger: [ledger[0]] })).not.toContain('set apart')
   })
 })

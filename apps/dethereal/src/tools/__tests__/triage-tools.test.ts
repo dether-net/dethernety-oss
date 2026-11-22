@@ -791,11 +791,24 @@ describe('the next question, returned as ask', () => {
     const big = log(dir2)
     big.reviews[0].replies = Array.from({ length: 60 }, () => ({ at: 'T', reply: 'r'.repeat(16_000), outcome: { verb: 'skip' } }))
     fs.writeFileSync(path.join(dir2, '.dethereal', 'triage-log.json'), JSON.stringify(big))
-    for (const text of ['skip 1', 'done']) {
-      const r = await reply(id2, text)
-      expect(codes(r)).toEqual(['record_too_large'])
-      expect(r.data).not.toHaveProperty('ask')
-    }
+    const r = await reply(id2, 'skip 1')
+    expect(codes(r)).toEqual(['record_too_large'])
+    expect(r.data).not.toHaveProperty('ask')
+    // The open review is let go at once: it is gone, and the model directory takes a new review, the record as it is.
+    expect(codes(await reply(id2, 'done'))).toEqual(['review_not_found'])
+    expect(await open(dir2)).not.toBe(id2)
+  })
+
+  it('keeps a closed review for prepare when a stray reply finds its record too large', async () => {
+    const dir = modelDir()
+    const id = await open(dir)
+    expect((await reply(id, 'accept-all')).success).toBe(true)
+    const big = log(dir)
+    big.reviews[0].replies.push(...Array.from({ length: 60 }, () => ({ at: 'T', reply: 'r'.repeat(16_000), outcome: { verb: 'skip' } })))
+    fs.writeFileSync(path.join(dir, '.dethereal', 'triage-log.json'), JSON.stringify(big))
+    expect(codes(await reply(id, 'skip 1'))).toEqual(['record_too_large'])
+    const p = await prepare(dir, id)
+    expect(p.success, p.error).toBe(true)
   })
 
   it('a reply to a review closed at the reply count keeps review_closed, unrecorded, with no question', async () => {

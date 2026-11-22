@@ -164,7 +164,7 @@ describe('the fixture workflow for Claude', () => {
       memory: 'project',
       color: 'cyan',
       // The server's wildcard reaches every tool but the main session's own, which are disallowed.
-      disallowedTools: ['mcp__plugin_dethereal_dethereal__triage_review'],
+      disallowedTools: ['mcp__plugin_dethereal_dethereal__triage_review', 'mcp__plugin_dethereal_dethereal__hidden_edges'],
       tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash', 'mcp__plugin_dethereal_dethereal__*', 'Agent(dethereal:scout)', 'Agent(dethereal:reviewer)'],
     })
     expect(file('bundles/claude/agents/lead.md')).toContain('`subagent_type: "dethereal:scout"`')

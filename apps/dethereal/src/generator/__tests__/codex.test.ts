@@ -77,8 +77,9 @@ describe('Codex tools for an agent', () => {
     expect(codexTools(['fs-read', 'mcp:get_classes'])).toEqual({ mcp: ['mcp__dethereal__get_classes'], useShell: true, write: false, literal: [] })
     expect(codexTools(['fs-write'])).toMatchObject({ useShell: true, write: true })
     // A leaf cannot ask for approval: every Dethereal tool means every tool that needs none, but the main session's own.
-    expect(codexTools(['mcp:*']).mcp).toEqual(TOOL_MANIFEST.filter((t) => t.approval === 'auto' && t.name !== 'triage_review').map((t) => `mcp__dethereal__${t.name}`).sort())
+    expect(codexTools(['mcp:*']).mcp).toEqual(TOOL_MANIFEST.filter((t) => t.approval === 'auto' && t.name !== 'triage_review' && t.name !== 'hidden_edges').map((t) => `mcp__dethereal__${t.name}`).sort())
     expect(codexTools(['mcp:*']).mcp).not.toContain('mcp__dethereal__triage_review')
+    expect(codexTools(['mcp:*']).mcp).not.toContain('mcp__dethereal__hidden_edges')
     expect(codexTools(['mcp:*']).mcp).not.toContain('mcp__dethereal__update_attributes')
     expect(codexTools(['mcp:model_state'])).toMatchObject({ useShell: false, write: false })
   })
@@ -159,7 +160,7 @@ describe('the fixture workflow for Codex', () => {
       [
         'auth_status', 'workspace_status', 'detect_drift', 'validate_model_json', 'get_model_schema', 'get_example_models',
         'list_models', 'get_classes', 'match_classes', 'search_mitre_attack', 'get_mitre_defend', 'get_control_gaps', 'model_state',
-        'query_controls', 'query_exposures', 'query_countermeasures', 'triage_review', 'get_kg_chain', 'get_class_guide',
+        'query_controls', 'query_exposures', 'query_countermeasures', 'triage_review', 'get_kg_chain', 'get_class_guide', 'hidden_edges',
       ].sort(),
     )
     expect(approved.every((t) => manifestToolNames().includes(t!))).toBe(true)

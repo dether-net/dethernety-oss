@@ -489,7 +489,7 @@ git commit -m "feat: initial threat model for web application"
 
 **What to gitignore:** the control audit log, a few transient working files, and backups. Copy the full list from [What to Commit](SYNC_AND_VERSION_CONTROL.md#what-to-commit) — and use its per-file rules rather than ignoring the whole `.dethereal/` directory.
 
-This machine's records — `.dethereal/sync.json`, the enrichment relay files in `.dethereal/relay/`, and triage's record (`.dethereal/triage-log.json`) and run folders (`.dethereal/triage-run/`) — need no entry: the Dethereal server lists them in the model's own `.dethereal/.gitignore`.
+This machine's records — `.dethereal/sync.json`, the enrichment relay files in `.dethereal/relay/`, triage's record (`.dethereal/triage-log.json`) and run folders (`.dethereal/triage-run/`), and the hidden-edge record (`.dethereal/hidden-edges-log.json`) — need no entry: the Dethereal server lists them in the model's own `.dethereal/.gitignore`.
 
 Token storage (`~/.dethernety/`) is in your home directory, outside the repository — no gitignore entry needed.
 

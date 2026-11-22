@@ -20,8 +20,8 @@ import type { Harness } from '../types.js'
 
 vi.setConfig({ testTimeout: 60_000 })
 
-const DISPOSITIONS = 'manage_dispositions'
-const MAIN_ONLY = 'triage_review'
+/** The prompted review tools, each with its actions. */
+const PROMPTED_REVIEW_TOOLS: ReadonlyArray<readonly [string, string[]]> = [['manage_dispositions', ['prepare', 'commit']], ['manage_hidden_edges', ['prepare', 'record', 'commit']]]
 const pkg = { name: '@dether.net/dethereal', version: '1.2.3' }
 
 /** The bundles under test: the package's own workflow and the fixture, settlement off and on. */
@@ -58,13 +58,16 @@ const allowsFor = (permission: unknown, tool: string) => rulesOf(permission).fil
 
 describe('the main session’s own tools', () => {
   it('are auto-approved manifest tools, left out of what `mcp:*` means', () => {
-    expect(MAIN_SESSION_ONLY).toEqual([MAIN_ONLY])
-    for (const t of MAIN_SESSION_ONLY) expect(manifestTool(t)?.approval, t).toBe('auto')
-    expect(leafMcpTools(['mcp:*'])).not.toContain(MAIN_ONLY)
-    expect(leafMcpTools(['mcp:*'])).toEqual(TOOL_MANIFEST.filter((t) => t.approval === 'auto' && t.name !== MAIN_ONLY).map((t) => t.name).sort())
+    expect(MAIN_SESSION_ONLY).toEqual(['triage_review', 'hidden_edges'])
+    for (const t of MAIN_SESSION_ONLY) {
+      expect(manifestTool(t)?.approval, t).toBe('auto')
+      expect(leafMcpTools(['mcp:*'])).not.toContain(t)
+    }
+    expect(leafMcpTools(['mcp:*'])).toEqual(TOOL_MANIFEST.filter((t) => t.approval === 'auto' && !MAIN_SESSION_ONLY.includes(t.name)).map((t) => t.name).sort())
   })
 
-  it('Claude: no agent can use triage_review — an agent granted the wildcard has it disallowed', () => {
+  for (const MAIN_ONLY of MAIN_SESSION_ONLY) {
+  it(`Claude: no agent can use ${MAIN_ONLY} — an agent granted the wildcard has it disallowed`, () => {
     const name = `mcp__plugin_dethereal_dethereal__${MAIN_ONLY}`
     for (const [label, files] of bundles('claude')) {
       const agents = agentFiles(files, 'bundles/claude/agents', '.md')
@@ -81,7 +84,7 @@ describe('the main session’s own tools', () => {
     }
   })
 
-  it('Codex: no agent role, nor the allowlist its hook checks, grants triage_review', () => {
+  it(`Codex: no agent role, nor the allowlist its hook checks, grants ${MAIN_ONLY}`, () => {
     const name = `mcp__dethereal__${MAIN_ONLY}`
     for (const [label, files] of bundles('codex')) {
       const agents = agentFiles(files, 'bundles/codex/agents', '.toml')
@@ -96,7 +99,7 @@ describe('the main session’s own tools', () => {
     }
   })
 
-  it('OpenCode: no agent permission allows triage_review, wildcards included, nor names it to the agent', () => {
+  it(`OpenCode: no agent permission allows ${MAIN_ONLY}, wildcards included, nor names it to the agent`, () => {
     const name = `dethereal_${MAIN_ONLY}`
     for (const [label, files] of bundles('opencode')) {
       const agents = agentFiles(files, 'bundles/opencode/agents', '.md')
@@ -107,6 +110,7 @@ describe('the main session’s own tools', () => {
       }
     }
   })
+  }
 })
 
 describe('OpenCode: no allow rule reaches a tool that asks', () => {
@@ -114,8 +118,8 @@ describe('OpenCode: no allow rule reaches a tool that asks', () => {
   afterAll(() => rmSync(tmp, { recursive: true, force: true }))
   const asking = TOOL_MANIFEST.filter((t) => t.approval === 'prompt').map((t) => `dethereal_${t.name}`)
 
-  it('holds for manage_dispositions in the fragment, every agent and the plugin, as written and as the plugin leaves the configuration', async () => {
-    expect(asking).toContain(`dethereal_${DISPOSITIONS}`)
+  it('holds for the prompted review tools in the fragment, every agent and the plugin, as written and as the plugin leaves the configuration', async () => {
+    for (const [t] of PROMPTED_REVIEW_TOOLS) expect(asking).toContain(`dethereal_${t}`)
     for (const [label, files] of bundles('opencode')) {
       const fragment = JSON.parse(files.get('bundles/opencode/mcp.fragment.json')!) as { permission: unknown; agent: Record<string, { permission: unknown }> }
       const agents = agentFiles(files, 'bundles/opencode/agents', '.md').map(([p, text]) => [path.basename(p, '.md'), frontmatter(text).permission] as const)
@@ -158,12 +162,13 @@ describe('OpenCode: no allow rule reaches a tool that asks', () => {
   })
 })
 
-describe('a disposition asks the operator on every harness, at prepare and at commit', () => {
+for (const [DISPOSITIONS, ACTIONS] of PROMPTED_REVIEW_TOOLS)
+describe(`${DISPOSITIONS} asks the operator on every harness, at every action`, () => {
   const tool = manifestTool(DISPOSITIONS)!
 
-  it('is an approval-required tool with prepare and commit', () => {
+  it('is an approval-required tool with its actions', () => {
     expect(tool.approval).toBe('prompt')
-    expect(tool.actions).toEqual(['prepare', 'commit'])
+    expect(tool.actions).toEqual(ACTIONS)
   })
 
   it('Claude: the approve hook is not routed it, and approves neither action', () => {

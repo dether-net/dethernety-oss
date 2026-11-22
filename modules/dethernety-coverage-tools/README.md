@@ -19,6 +19,14 @@ The returned string is JSON: for every exposure on the model's elements, its
 `EXPLOITED_BY` ATT&CK technique set, and per technique which **tiers** cover it,
 by which **function** (prevent/detect) and which countermeasures.
 
+One kind of exposure is **set apart**: an exposure in the category
+`Inferred Path` on a data flow whose class is in the category `Hidden Edge` (the
+findings of an accepted hidden edge, which restate a route other findings
+already justify). It is in no exposure entry and no count; `meta.inferredPathSetApart`
+counts it. Both categories must hold: an `Inferred Path` exposure anywhere else
+counts as usual. See
+[coverage-facts.md](../../docs/architecture/dethernety-coverage-tools/coverage-facts.md#inferred-path-exposures-set-apart).
+
 ## The three coverage tiers
 
 A technique is **covered for an exposure** only when the covering countermeasure's

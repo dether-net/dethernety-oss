@@ -17,6 +17,8 @@ Two-pass classification for assigning platform module classes to model elements.
 3. If that listing also errors → skip Pass 1, all classification in Pass 2
 4. Warning: "Platform connectivity issues — classification running in LLM-only mode."
 
+Classes in the category Hidden Edge are never used for an ordinary flow: they record inferred paths the operator accepted in {{cmd:hidden-edges}}.
+
 ### Pass 2 — LLM-Assisted Classification
 
 For remaining unclassified elements:

@@ -21,6 +21,7 @@
   ],
   "agents": [
     "./bundles/claude/agents/enrichment-applier.md",
+    "./bundles/claude/agents/hidden-edge-analyst.md",
     "./bundles/claude/agents/infrastructure-scout-scoped.md",
     "./bundles/claude/agents/infrastructure-scout.md",
     "./bundles/claude/agents/kg-cross-examiner.md",

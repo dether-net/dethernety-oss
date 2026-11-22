@@ -1,0 +1,9 @@
+{
+  "id": "c39671d7-009b-4910-899f-e9b9f7db1fed",
+  "name": "Hidden Edge: Credential Reuse",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "An inferred attack path reviewed by the operator, not a declared flow: a credential the source holds is accepted by the target (ATT&CK T1078, T1550, T1552): a path the model does not declare as a flow. Dethereal writes a flow of this class when the operator accepts a hidden-edge candidate; it is never the class of an ordinary data flow.",
+  "category": "Hidden Edge",
+  "status": "draft"
+}

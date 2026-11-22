@@ -761,7 +761,7 @@ export class ModelStateTool extends ClientFreeTool<Input, Record<string, unknown
 
   private gateFields(a: Assessment, view: PageView, mode: SettlementMode): Record<string, unknown> {
     const gates = a.available
-      ? { gates: { gate2: a.gate2, gate3: a.gate3, failing_criteria: a.failing }, content_state: a.content }
+      ? { gates: { gate2: a.gate2, gate3: a.gate3, failing_criteria: a.failing, hidden_edge_flows: a.input?.hiddenEdgeFlows?.size ?? 0 }, content_state: a.content }
       : { gates: { verdict: 'UNAVAILABLE', reason: a.reason } }
     const hash = typeof a.hash === 'string' ? { content_hash: a.hash } : { content_hash: null, content_hash_unavailable: this.unavailable(a) }
     if (mode === 'off') return { ...gates, ...(a.manifestModules ? { manifest_modules: a.manifestModules } : {}), settlement: 'off', ...hash }

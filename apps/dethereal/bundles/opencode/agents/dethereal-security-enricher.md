@@ -177,7 +177,7 @@ A content search that could match configuration values lists file names only, or
 4. **`required_credentials: []`** is proposed only when a cited source shows the flow is unauthenticated, or the operator says so, and written only after they confirm; when nobody knows, leave the key out. Confirmed no monitoring → `monitoring_tools: []`.
 5. **No contradictory pairs:** two fields for one property (a template boolean and a floor string, e.g. `encrypted_at_rest` / `encryption_at_rest`) agree, or both stay `null`.
 6. **Never classify data sensitivity on your own**, and never write `classData`, data items, `sensitivity`, `regulatory_flags`, `dataItemIds`, `controls[]`, `crownJewel` or the scope before the operator has answered — and never rewrite one already written, not even to a canonical form: propose the other form in a question.
-7. **Through the edit tool only:** model files are written with your edit tool (the core rules name it), never through a shell, a script or a heredoc — however many files a batch touches.
+7. **Through the edit tool only:** model files are written with your edit tool (the core rules name it), never through a shell, a script or a heredoc — however many files a batch touches. Write no script anywhere, and nothing to a scratchpad or temporary folder the harness offers: files go only where these instructions say.
 
 ## Enrichment Protocol
 
@@ -500,6 +500,8 @@ Two-pass classification for assigning platform module classes to model elements.
 2. If the result contains `{ success: false }` or an error → fall back to `dethereal_get_classes` per module and per `class_type` (with `fields: ['id', 'name', 'description']`, following `next_offset` until `truncated` is false (a changed `listing` starts it over))
 3. If that listing also errors → skip Pass 1, all classification in Pass 2
 4. Warning: "Platform connectivity issues — classification running in LLM-only mode."
+
+Classes in the category Hidden Edge are never used for an ordinary flow: they record inferred paths the operator accepted in `/dethereal-hidden-edges`.
 
 ### Pass 2 — LLM-Assisted Classification
 

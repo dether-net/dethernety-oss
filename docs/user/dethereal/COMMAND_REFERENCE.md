@@ -1,6 +1,6 @@
 ---
 title: 'Command Reference'
-description: 'Complete reference for all 15 Dethereal slash commands'
+description: 'Complete reference for all 16 Dethereal slash commands'
 category: 'documentation'
 position: 5
 navigation: true
@@ -37,7 +37,7 @@ Only `review` and `surface` run as a dedicated AI agent. The other commands run 
 
 | Agent | Role | Commands |
 |-------|------|----------|
-| *(no agent)* | Runs in the main conversation — no dedicated agent, so no agent-level tool allowlist applies | status, login, help, view, sync, create, add, remove, classify, enrich, discover, threat-model, triage |
+| *(no agent)* | Runs in the main conversation — no dedicated agent, so no agent-level tool allowlist applies | status, login, help, view, sync, create, add, remove, classify, enrich, discover, threat-model, triage, hidden-edges |
 | model-reviewer | Read-only quality analysis | review, surface |
 
 Specialist agents started by commands:
@@ -51,6 +51,7 @@ Specialist agents started by commands:
 | model-reviewer | Read-only review | threat-model |
 | triage-analyst | Read-only: proposes a disposition for each group of findings | triage |
 | kg-cross-examiner | Read-only: challenges proposals to mute or rewrite a finding, from the knowledge graph | triage (with the knowledge graph) |
+| hidden-edge-analyst | Read-only: argues for and against each hidden-edge candidate from the project's sources | hidden-edges |
 
 The threat-modeler agent is not started by any command. You can start it yourself to edit a model's files: on Claude Code with `@agent-dethereal:threat-modeler`, on Codex by asking the conversation to start the `dethereal-threat-modeler` agent, and on OpenCode by mentioning `@dethereal-threat-modeler`. It sends other work to the command that runs it — removing elements to `/dethereal:remove`, for example. On Claude Code, when you start it directly, it hands a scan, classification proposals, enrichment and a review to the specialist agents itself; on Codex and OpenCode it runs as a subagent of your conversation, which relays its questions, and starts no other agent (see [threat-modeler](AGENTS_AND_ARCHITECTURE.md#threat-modeler-model-editor)).
 
@@ -310,7 +311,9 @@ After the removal, the plugin deletes the removed elements' attribute files thro
 
 If removing a boundary, child components are relocated to the parent boundary — they're never silently deleted.
 
-**State behavior:** Same as `/dethereal:add` — backward transition at ENRICHING or later.
+**Hidden edges.** Removing the flow of a hidden edge you accepted takes the edge back: before the flow is removed, the plugin shows what it records (the edge as rejected, and the findings the edge affirmed, to clear in `/dethereal:triage`) and asks `Apply N hidden-edge change(s)? Type yes or cancel.` The flow is removed either way; on `cancel` the edge stays accepted and is not proposed again. See [Taking an Edge Back](HIDDEN_EDGES.md#taking-an-edge-back).
+
+**State behavior:** Same as `/dethereal:add` — backward transition at ENRICHING or later. Removing only hidden edges calls no transition.
 
 ---
 
@@ -491,6 +494,28 @@ Triage the platform's exposures for a synced model that the platform has analyse
 **Requires** a sign-in, a synced model and a platform analysis run. With the knowledge graph, a second agent (kg-cross-examiner) challenges proposals that would mute or rewrite a finding, and triage can write a remediation task list; see [Triage With and Without the Knowledge Graph](TRIAGE_AND_THE_KNOWLEDGE_GRAPH.md).
 
 See [Triaging Platform Findings](TRIAGE.md) for the full run.
+
+---
+
+### `/dethereal:hidden-edges [directory-path]`
+
+Review the hidden edges the platform's hidden-edges module proposes for a synced model: attack paths between two of its components that no declared flow shows, inferred from the model's exposures and their ATT&CK techniques. The hidden-edge-analyst agent argues for and against each candidate from your project's sources; you decide one command per reply, then a gated apply adds each accepted edge to the local files as a flow. The next push takes the flows to the platform.
+
+```
+> /dethereal:hidden-edges
+```
+
+| Argument | Effect |
+|----------|--------|
+| `directory-path` | The model directory; without it, the working directory when it holds a synced model, else the usual model resolution |
+
+**Review commands**, one per reply: `accept <n> [<n> …]`, `skip <n> [<n> …]`, `reject <n> [<n> …]`, `show <n>`, `show rejected`, `edit <n> capability: <v>`, `edit <n> required: <v>`, `edit <n> granted: <v>`, `edit <n> <field>: <v>`, `edit <n> rationale: <text>`, `accept-all` and `done`. `accept <n>` also affirms the pending findings with no disposition that the candidate rests on; `accept-all` takes only the candidates marked for it and affirms none. A `reject` writes only the decision.
+
+**The apply question** is `Apply N hidden-edge change(s)? Type yes or cancel.` Approve the harness prompts for prepare and commit each on its own, never with an "always" choice.
+
+**Requires** a sign-in, a platform that carries the hidden-edges module, and a model pushed with no local changes (`push_first` otherwise). Then push with `/dethereal:sync push`.
+
+See [Reviewing Hidden Edges](HIDDEN_EDGES.md) for the full run.
 
 ---
 

@@ -2,7 +2,7 @@
 title: 'Dethereal Glossary'
 description: 'Definitions for Dethereal-specific terminology'
 category: 'documentation'
-position: 13
+position: 14
 navigation: true
 tags: ['dethereal', 'glossary', 'terminology', 'reference']
 ---
@@ -15,13 +15,13 @@ Plugin-specific terminology. For platform-wide terms, see the [Dethernety Glossa
 
 ## Plugin Concepts
 
-**Agent** — A specialized AI persona with specific tools, behaviors, and constraints. Dethereal has 8 agents: threat-modeler, infrastructure-scout, infrastructure-scout-scoped, security-enricher, model-reviewer, enrichment-applier, triage-analyst, and kg-cross-examiner. See [Agents, Tools, and Hooks](AGENTS_AND_ARCHITECTURE.md#the-8-ai-agents).
+**Agent** — A specialized AI persona with specific tools, behaviors, and constraints. Dethereal has 9 agents: threat-modeler, infrastructure-scout, infrastructure-scout-scoped, security-enricher, model-reviewer, enrichment-applier, triage-analyst, kg-cross-examiner, and hidden-edge-analyst. See [Agents, Tools, and Hooks](AGENTS_AND_ARCHITECTURE.md#the-9-ai-agents).
 
-**Command** (also called **Skill** internally) — A command that performs a specific modeling workflow step. Each harness names it its own way: `/dethereal:<name>` on Claude Code, `$dethereal:<name>` on Codex, `/dethereal-<name>` on OpenCode; this documentation uses the Claude Code form. Commands invoke agents and use MCP tools. Dethereal has 15 commands. See [Command Reference](COMMAND_REFERENCE.md).
+**Command** (also called **Skill** internally) — A command that performs a specific modeling workflow step. Each harness names it its own way: `/dethereal:<name>` on Claude Code, `$dethereal:<name>` on Codex, `/dethereal-<name>` on OpenCode; this documentation uses the Claude Code form. Commands invoke agents and use MCP tools. Dethereal has 16 commands. See [Command Reference](COMMAND_REFERENCE.md).
 
 **Hook** — A lifecycle event handler that runs automatically at specific moments: when a session starts (including right after a context compaction), before a tool call, and after a file write. The Claude Code plugin ships five, on three events. See [Lifecycle Hooks](AGENTS_AND_ARCHITECTURE.md#lifecycle-hooks).
 
-**MCP Tool** — A function exposed by the MCP (Model Context Protocol) server for platform communication. 34 tools (33 with the default settings) handle authentication, model CRUD, the local workspace and workflow state, MITRE queries, security elements, classification, control-gap analysis, attribute stub generation, and triage. See [MCP Tools](AGENTS_AND_ARCHITECTURE.md#mcp-tools).
+**MCP Tool** — A function exposed by the MCP (Model Context Protocol) server for platform communication. 36 tools (35 with the default settings) handle authentication, model CRUD, the local workspace and workflow state, MITRE queries, security elements, classification, control-gap analysis, attribute stub generation, triage, and hidden edges. See [MCP Tools](AGENTS_AND_ARCHITECTURE.md#mcp-tools).
 
 **MCP Server** — The TypeScript server (`@dether.net/dethereal`) that implements the Model Context Protocol, exposing platform capabilities as tools that AI agents can use.
 
@@ -175,6 +175,18 @@ For **disposition**, **disposition kind**, **stale disposition** and **supersede
 
 ---
 
+## Hidden Edges
+
+**Hidden Edge** — An attack path between two of a model's components that no declared flow shows, which the platform's hidden-edges module infers from the model's exposures and their ATT&CK techniques: a remote service, credential reuse, credential capture or host escape. `/dethereal:hidden-edges` puts each candidate to you; one you accept is written as a data flow of its kind's class (category *Hidden Edge*), which records an inferred path, not a flow of the system. On the machine that accepted it, it is left out of the quality gates, the lints, the quality score, coverage and zoning. See [Reviewing Hidden Edges](HIDDEN_EDGES.md).
+
+**Inferred Path** — The category of the findings the platform gives an accepted hidden edge: one per ATT&CK technique of the path. The threat report and the coverage tools set an Inferred Path finding on a hidden edge apart from every total, posture and coverage count, and count it on its own; reachability labels each use of the edge `via inferred edge (<tier>, grants <privilege>)`. See [What the Threat Report Shows](HIDDEN_EDGES.md#what-the-threat-report-shows).
+
+**Hidden-Edge Decision** — An entry in `.dethereal/hidden-edges-decisions.json`, committed with the model: an accepted edge, signed with the key of the machine that accepted it, or a rejected one, unsigned. A rejected decision keeps the candidate out of every machine's reviews; an accepted one counts only on the machine whose key verifies it, and shows as not verified on a teammate's. The latest decision for an edge stands. See [Working With Teammates](HIDDEN_EDGES.md#working-with-teammates).
+
+**Hidden-Edge Record** — `.dethereal/hidden-edges-log.json` in the model directory: every reply a hidden-edge review received and every answer to the apply question, recorded before it takes effect. It is this machine's own record, kept out of git, and holds the latest 20 reviews.
+
+---
+
 ## Controls and the Control Library
 
 **Control** — A reusable security control (e.g., "Database Encryption Package", "SOC Monitoring") that one or more model elements can reference. Controls live in the platform's library and are mirrored locally as `controls/<id>.json`.
@@ -229,7 +241,7 @@ For **disposition**, **disposition kind**, **stale disposition** and **supersede
 
 **`.dethernety/`** — Plugin-level metadata at the project root. Contains `models.json` (model registry), `discovery-cache.json` (cached discovery results), and `decomposition-plan.json` (multi-model plan).
 
-**`.dethereal/`** — Per-model workflow metadata inside each model directory. Contains `state.json` (workflow state), `scope.json` (scope definition), `quality.json` (quality cache), `discovery.json` (discovery provenance), `sync.json` (sync metadata), `relay/` (the enrichment relay files, one per enrichment run), `settlement-baseline.json` and `settlements.json` (with the settlement on only: the values you registered on this machine, and their log), `control-audit.log` (control-decision ledger), `triage-log.json` (the triage record) and `triage-run/` (each triage run's dossiers, batch files and task list), `class-cache/` (cached class templates and guides), and `template-fields/` (per-element template field manifests, used on reclassification).
+**`.dethereal/`** — Per-model workflow metadata inside each model directory. Contains `state.json` (workflow state), `scope.json` (scope definition), `quality.json` (quality cache), `discovery.json` (discovery provenance), `sync.json` (sync metadata), `relay/` (the enrichment relay files, one per enrichment run), `settlement-baseline.json` and `settlements.json` (with the settlement on only: the values you registered on this machine, and their log), `control-audit.log` (control-decision ledger), `triage-log.json` (the triage record) and `triage-run/` (each triage run's dossiers, batch files and task list), `hidden-edges-decisions.json` (the hidden-edge decisions, committed with the model) and `hidden-edges-log.json` (the hidden-edge record), `class-cache/` (cached class templates and guides), and `template-fields/` (per-element template field manifests, used on reclassification).
 
 ---
 

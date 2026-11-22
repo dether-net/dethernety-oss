@@ -49,10 +49,10 @@ export { SETTLEMENT_ENV, SETTLEMENT_FLAG, SETTLEMENT_ON } from '../../utils/sett
 
 /**
  * Auto-approved tools only the main session holds: no specialist agent is granted one, on any harness.
- * `mcp:*` leaves them out, and an explicit grant is refused at generation. `triage_review` opens and
- * answers the operator's review of a triage, so it belongs to the conversation the operator talks to.
+ * `mcp:*` leaves them out, and an explicit grant is refused at generation. `triage_review` and `hidden_edges`
+ * open and answer the operator's reviews, so they belong to the conversation the operator talks to.
  */
-export const MAIN_SESSION_ONLY: readonly string[] = ['triage_review']
+export const MAIN_SESSION_ONLY: readonly string[] = ['triage_review', 'hidden_edges']
 
 /** Dethereal tools a specialist agent holds, by manifest name: `mcp:*` means the auto-approved ones, less the main session's own. */
 export function leafMcpTools(entries: readonly string[]): string[] {

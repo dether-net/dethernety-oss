@@ -28,7 +28,8 @@
     "dethereal_manage_controls": "ask",
     "dethereal_manage_countermeasures": "ask",
     "dethereal_manage_analyses": "ask",
-    "dethereal_manage_dispositions": "ask"
+    "dethereal_manage_dispositions": "ask",
+    "dethereal_manage_hidden_edges": "ask"
   },
   "agent": {
     "explore": {

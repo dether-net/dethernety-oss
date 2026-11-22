@@ -15,12 +15,14 @@ disallowedTools:
   - mcp__plugin_dethereal_dethereal__manage_controls
   - mcp__plugin_dethereal_dethereal__manage_countermeasures
   - mcp__plugin_dethereal_dethereal__manage_dispositions
+  - mcp__plugin_dethereal_dethereal__manage_hidden_edges
   - mcp__plugin_dethereal_dethereal__model_state_prune
   - mcp__plugin_dethereal_dethereal__model_state_settle
   - mcp__plugin_dethereal_dethereal__model_state_waive
   - mcp__plugin_dethereal_dethereal__update_attributes
   - mcp__plugin_dethereal_dethereal__update_model
   - mcp__plugin_dethereal_dethereal__triage_review
+  - mcp__plugin_dethereal_dethereal__hidden_edges
 tools:
   - Read
   - Write
@@ -639,6 +641,8 @@ After completing a mutating operation, output a footer with the state as `mcp__p
 ## Backward Transition Protocol
 
 When a structural change (add/remove element) occurs at ENRICHING or REVIEWED state:
+
+Adding or removing only hidden-edge flows (`/dethereal:hidden-edges`) is no structural change: call no transition.
 
 1. Call `mcp__plugin_dethereal_dethereal__model_state` with `action: 'transition'`, `to: 'STRUCTURE_COMPLETE'`, and `add` = the ids of the new or changed elements that still exist. A removed element has no id left to track: the tool returns it under `rejected_ids`, which is expected.
 2. The server applies the side effects: it deletes `.dethereal/quality.json` (forcing recomputation) and clears the sign-off and the review.

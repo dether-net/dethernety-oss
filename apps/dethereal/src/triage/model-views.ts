@@ -146,6 +146,8 @@ export interface GroupPart {
   /** The whole group's member count, across its parts */
   size: number
   members: GroupMember[]
+  /** Every member is on a hidden edge the operator accepted, for a technique that edge was accepted with: the edge's own finding, reviewed with it */
+  inferred?: true
 }
 
 function memberOf(r: ExposureState): GroupMember {
@@ -176,7 +178,7 @@ export function triageRows(rows: ExposureState[], elementId?: string): ExposureS
  * member order until a part holds GROUP_PART_MAX members or the next member would take it past GROUP_PART_CHARS;
  * a part always holds at least one member.
  */
-export function groupTriageSet(rows: ExposureState[], elementId?: string): GroupPart[] {
+export function groupTriageSet(rows: ExposureState[], elementId?: string, hiddenEdges: ReadonlyMap<string, ReadonlySet<string>> = new Map()): GroupPart[] {
   const sorted = triageRows(rows, elementId)
   const groups: ExposureState[][] = []
   for (const r of sorted) {
@@ -195,6 +197,7 @@ export function groupTriageSet(rows: ExposureState[], elementId?: string): Group
       ...cappedIds([...first.attack_ids].sort(), 'attack_ids'),
       ...cappedIds([...first.atlas_ids].sort(), 'atlas_ids'),
       size: members.length,
+      ...(members.every((m) => m.element_kind === 'dataFlow' && first.attack_ids.length > 0 && first.attack_ids.every((t) => hiddenEdges.get(m.element_id)?.has(t))) ? { inferred: true as const } : {}),
     }
     const chunks: GroupMember[][] = []
     let chunk: GroupMember[] = []

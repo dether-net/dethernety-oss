@@ -17,7 +17,12 @@
 //   - boundary-inherited control support (exactly one BELONGS_TO level),
 //   - an element-scoping negative: a countermeasure countering a technique
 //     while its control supports a DIFFERENT element must not be credited,
-//   - an uncovered technique (mapped but unmet).
+//   - an uncovered technique (mapped but unmet),
+//   - an inferred-path exposure on a hidden-edge flow (its class in the
+//     'Hidden Edge' category), covered at two tiers yet set apart: in no
+//     exposure, technique or tier count, only in meta.inferredPathSetApart,
+//   - an inferred-path exposure on an ordinary component, counted as usual
+//     (both categories must hold to set an exposure apart).
 //
 // All ids are synthetic (T9xxx / M9xxx / D9xxx are not real ATT&CK or
 // D3FEND ids). `rows.json` pins what the module's four queries return for
@@ -41,6 +46,18 @@ CREATE (:Component {id: 'c-db', name: 'Database'})-[:BELONGS_TO]->(b);
 
 MATCH (w:Component {id: 'c-web'}), (d:Component {id: 'c-db'})
 CREATE (w)-[:FLOWS]->(f:DataFlow {id: 'f-web-db', name: 'Web to DB'})-[:FLOWS]->(d);
+
+// An accepted hidden edge: a flow whose class is in the 'Hidden Edge' category.
+// The ordinary flow above has a class of its own, in another category.
+MATCH (w:Component {id: 'c-web'}), (d:Component {id: 'c-db'})
+CREATE (w)-[:FLOWS]->(f:DataFlow {id: 'f-web-db-hidden', name: 'Inferred Web to DB'})-[:FLOWS]->(d);
+
+CREATE (:DataFlowClass {id: 'cls-flow', name: 'Encrypted Channel', category: 'Data Flow'});
+CREATE (:DataFlowClass {id: 'cls-hidden-edge', name: 'Hidden Edge: Remote Service', category: 'Hidden Edge'});
+MATCH (f:DataFlow {id: 'f-web-db'}), (cls:DataFlowClass {id: 'cls-flow'})
+CREATE (f)-[:IS_INSTANCE_OF]->(cls);
+MATCH (f:DataFlow {id: 'f-web-db-hidden'}), (cls:DataFlowClass {id: 'cls-hidden-edge'})
+CREATE (f)-[:IS_INSTANCE_OF]->(cls);
 
 MATCH (m:Model {id: 'model-eq-fixture'})
 CREATE (m)-[:CONTAINS]->(:Data {id: 'd-records', name: 'Customer Records'});
@@ -153,6 +170,13 @@ CREATE (c)-[:HAS_EXPOSURE]->(:Exposure {id: 'exp-db-exfil', name: 'Data Exfiltra
 MATCH (e:Exposure {id: 'exp-db-exfil'}), (t:MitreAttackTechnique {attack_id: 'T9003'})
 CREATE (e)-[:EXPLOITED_BY]->(t);
 
+// c-db: an inferred-path exposure on an ordinary component — counted as usual
+// (mapped, and uncovered on c-db).
+MATCH (c:Component {id: 'c-db'})
+CREATE (c)-[:HAS_EXPOSURE]->(:Exposure {id: 'exp-db-inferred', name: 'Inferred Path: Flow Interception', category: 'Inferred Path'});
+MATCH (e:Exposure {id: 'exp-db-inferred'}), (t:MitreAttackTechnique {attack_id: 'T9004'})
+CREATE (e)-[:EXPLOITED_BY]->(t);
+
 // f-web-db: mapped but UNCOVERED (flows do not inherit boundary support and
 // no control supports the flow directly).
 MATCH (f:DataFlow {id: 'f-web-db'})
@@ -166,14 +190,23 @@ CREATE (d)-[:HAS_EXPOSURE]->(:Exposure {id: 'exp-data-harvest', name: 'Record Ha
 MATCH (e:Exposure {id: 'exp-data-harvest'}), (t:MitreAttackTechnique {attack_id: 'T9005'})
 CREATE (e)-[:EXPLOITED_BY]->(t);
 
+// f-web-db-hidden: the hidden edge's inferred-path exposure. Its technique is
+// covered (ctrl-edge supports the flow below), but it is set apart.
+MATCH (f:DataFlow {id: 'f-web-db-hidden'})
+CREATE (f)-[:HAS_EXPOSURE]->(:Exposure {id: 'exp-hidden-path', name: 'Inferred Path: Exploit Edge Service', category: 'Inferred Path'});
+MATCH (e:Exposure {id: 'exp-hidden-path'}), (t:MitreAttackTechnique {attack_id: 'T9001'})
+CREATE (e)-[:EXPLOITED_BY]->(t);
+
 // ── Controls & countermeasures ──────────────────────────────────────────────
-// ctrl-edge supports c-web DIRECTLY. Its countermeasures:
+// ctrl-edge supports c-web DIRECTLY (and the hidden-edge flow). Its countermeasures:
 //   cm-waf      → DIRECT prevent on T9001 (PROTECTS_AGAINST)
 //                 + D3FEND both-function bridge to T9001 (via D9003)
 //   cm-acctpol  → INDIRECT_MITIGATION on T9002 (parent) — covers T9002.004
 CREATE (:Control {id: 'ctrl-edge', name: 'Edge Protection'});
 MATCH (ctrl:Control {id: 'ctrl-edge'}), (c:Component {id: 'c-web'})
 CREATE (ctrl)-[:SUPPORTS]->(c);
+MATCH (ctrl:Control {id: 'ctrl-edge'}), (f:DataFlow {id: 'f-web-db-hidden'})
+CREATE (ctrl)-[:SUPPORTS]->(f);
 MATCH (ctrl:Control {id: 'ctrl-edge'})
 CREATE (ctrl)-[:HAS_COUNTERMEASURE]->(:Countermeasure {id: 'cm-waf', name: 'Web Application Firewall'});
 MATCH (ctrl:Control {id: 'ctrl-edge'})

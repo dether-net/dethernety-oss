@@ -353,6 +353,8 @@ export interface ReviewOperation {
   edited: boolean
   /** The reason is the operator's own rationale, not the proposal's */
   operator_reason?: boolean
+  /** The marker the reason ends with, when the write is not triage's (triage's own otherwise) */
+  marker?: string
   modifications?: Modifications
   verified_technique_ids?: string[]
 }

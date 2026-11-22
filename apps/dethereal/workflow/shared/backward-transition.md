@@ -2,6 +2,8 @@
 
 When a structural change (add/remove element) occurs at ENRICHING or REVIEWED state:
 
+Adding or removing only hidden-edge flows ({{cmd:hidden-edges}}) is no structural change: call no transition.
+
 1. Call {{tool:model_state}} with `action: 'transition'`, `to: 'STRUCTURE_COMPLETE'`, and `add` = the ids of the new or changed elements that still exist. A removed element has no id left to track: the tool returns it under `rejected_ids`, which is expected.
 2. The server applies the side effects: it deletes `.dethereal/quality.json` (forcing recomputation) and clears the sign-off and the review.
 3. Warn the operator: "Adding or removing elements reverted state from [previous] to STRUCTURE_COMPLETE. Enrichment on existing elements is preserved. New or changed elements are tracked as stale and will be enriched next." Say that REVIEWED is cleared and that waivers lapse on the elements that changed, and show the result's `loop_back_note` when it carries one.

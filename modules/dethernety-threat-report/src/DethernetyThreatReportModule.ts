@@ -22,6 +22,9 @@ import {
 import { writeThreatReportSnapshot } from './snapshot-write';
 import { type DeleteCounts, deleteModelAnalyses, MODULE_NAME } from './model-deleted';
 
+/** The class category of a hidden-edge flow, as the model's data holds it. */
+const HIDDEN_EDGE_CATEGORY = 'Hidden Edge';
+
 /**
  * Normalize a graph-engine numeric value to a plain JS number (or null).
  * Handles native numbers, graph-engine Integer wrappers (toNumber()), and
@@ -35,6 +38,11 @@ function toNum(v: any): number | null {
       : typeof v?.toNumber === 'function'
         ? v.toNumber()
         : Number(v);
+}
+
+/** A non-empty string, or null: the facts on a class relation are free attributes. */
+function textOrNull(v: any): string | null {
+  return typeof v === 'string' && v.trim() !== '' ? v : null;
 }
 
 /**
@@ -173,7 +181,11 @@ interface ModelGraphComponent {
 /** A flow as a component-to-component edge, with the data sensitivities it
  *  carries. `sensitivities` excludes nulls; `dataItemCount` is the total carried
  *  data count — so the engine distinguishes "no data" (count 0) from
- *  "data-in-motion but unclassified" (count > 0, sensitivities empty). */
+ *  "data-in-motion but unclassified" (count > 0, sensitivities empty).
+ *  `hiddenEdge` marks an inferred attack path an operator accepted, told by its
+ *  class category alone, with what the edge records about itself (kind, tier,
+ *  privilege granted) so a route through it can be explained; null on an ordinary
+ *  flow. Reachability keeps it and labels it, flow hygiene and zoning set it apart. */
 interface ModelGraphFlow {
   id: string;
   name: string;
@@ -184,6 +196,14 @@ interface ModelGraphFlow {
   targetId: string | null;
   sensitivities: string[]; // SensitivityLevel values, nulls dropped
   dataItemCount: number;
+  hiddenEdge: HiddenEdgeFacts | null; // set when the flow's class is in the hidden-edge category
+}
+
+/** What a hidden-edge flow records on its class relation; each null when not recorded. */
+interface HiddenEdgeFacts {
+  kind: string | null;
+  tier: string | null;
+  grantedPrivilege: string | null;
 }
 
 /** A Data node with its author-asserted sensitivity and the ids of the elements
@@ -244,7 +264,7 @@ interface SnapshotDoc {
    *  default, authoritative) — never the topological `determineZoneTier` proposal. Graceful-degrades to empty
    *  (`{ findings: [], effectiveZones: {} }`) on any adapter/engine failure so a zoning fault never
    *  takes down the ledger/modelGraph snapshot. Absent on pre-zoning snapshots — the frontend defaults it. */
-  zoning?: { findings: ZoningFinding[]; effectiveZones: Record<string, EffectiveZone> };
+  zoning?: { findings: ZoningFinding[]; effectiveZones: Record<string, EffectiveZone>; hiddenEdgeFlowsSetApart?: number };
   /** Who runs each component and boundary, resolved at generate time through dt-core's rules, and frozen with the
    *  report. `state: 'unavailable'` when the rules could not load or the zones failed: nothing is guessed. Absent on a
    *  snapshot from before 2.2.0, which the frontend says rather than showing a default. */
@@ -686,15 +706,20 @@ class DethernetyThreatReportModule implements DTModule {
          WITH df, srcIds, dstIds,
               collect(DISTINCT d.sensitivity) AS sensRaw,
               collect(DISTINCT d.id) AS dataIds
-         OPTIONAL MATCH (df)-[:IS_INSTANCE_OF]->(fcls)
+         // The class and the facts recorded on the class relation (a hidden edge's kind, tier and
+         // privilege granted), collected as one scalar tuple and indexed: no relationship in a map.
+         OPTIONAL MATCH (df)-[fi:IS_INSTANCE_OF]->(fcls)
          // head() assumes a single class per element (the platform assigns one), so it is deterministic in practice.
-         WITH df, srcIds, dstIds, sensRaw, dataIds, head(collect(DISTINCT fcls)) AS cls
+         WITH df, srcIds, dstIds, sensRaw, dataIds,
+              head(collect(DISTINCT CASE WHEN fcls IS NULL THEN NULL ELSE
+                [fcls.name, fcls.description, fcls.category, fi.hidden_edge_kind, fi.tier, fi.granted_privilege] END)) AS cls
          RETURN collect({
            id: df.id, name: df.name, description: df.description,
            sourceId: head(srcIds), targetId: head(dstIds),
            sensitivities: [s IN sensRaw WHERE s IS NOT NULL],
            dataItemCount: size(dataIds),
-           className: cls.name, classDescription: cls.description
+           className: cls[0], classDescription: cls[1], classCategory: cls[2],
+           hiddenEdgeKind: cls[3], hiddenEdgeTier: cls[4], grantedPrivilege: cls[5]
          }) AS flows`,
         { modelId },
       );
@@ -813,6 +838,10 @@ class DethernetyThreatReportModule implements DTModule {
               ? f.sensitivities.filter((s: any) => s != null)
               : [],
             dataItemCount: toNum(f.dataItemCount) ?? 0,
+            hiddenEdge:
+              f.classCategory === HIDDEN_EDGE_CATEGORY
+                ? { kind: textOrNull(f.hiddenEdgeKind), tier: textOrNull(f.hiddenEdgeTier), grantedPrivilege: textOrNull(f.grantedPrivilege) }
+                : null,
           })),
         dataNodes: rawD
           .filter((d) => d && d.id)

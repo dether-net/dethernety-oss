@@ -340,3 +340,32 @@ describe('get_classes as the server sends it', () => {
     expect(Object.keys(manifestTool('get_classes')!.inputs ?? {})).toEqual(expect.arrayContaining(['limit', 'offset', 'view']))
   })
 })
+
+describe('get_classes: the hidden-edge classes', () => {
+  const REMOTE = { id: 'cls-he-remote-service', name: 'Hidden Edge: Remote Service', type: 'DATA_FLOW', category: 'Hidden Edge', description: '' }
+  const withHiddenEdges = () => {
+    catalogue.push({
+      id: 'mod-he', name: 'dethernety-hidden-edges', componentClasses: [], securityBoundaryClasses: [],
+      dataFlowClasses: [REMOTE], dataClasses: [], controlClasses: [],
+    })
+  }
+
+  it('leaves the hidden-edges module’s classes out of a listing for an ordinary flow, under any category', async () => {
+    withHiddenEdges()
+    const flows = await call({ class_type: 'DATA_FLOW', fields: LEAN })
+    expect(flows.data.classes.map((c: { id: string }) => c.id)).not.toContain(REMOTE.id)
+    expect(flows.data.total).toBe(20)
+    expect((await call({ name: 'remote service', fields: LEAN })).data.total).toBe(0)
+    expect((await call({ category: 'Hidden Edge', fields: LEAN })).data.total).toBe(0)
+    // An empty module name or class id asks for nothing.
+    for (const input of [{ module_name: '' }, { class_id: '' }]) expect((await call({ ...input, category: 'Hidden Edge', fields: LEAN })).data.total, JSON.stringify(input)).toBe(0)
+  })
+
+  it('lists them when asked for by a class id or their module', async () => {
+    withHiddenEdges()
+    for (const input of [{ class_id: REMOTE.id }, { module_name: 'dethernety-hidden-edges' }, { module_id: 'mod-he' }]) {
+      const r = await call({ ...input, fields: LEAN })
+      expect(r.data.classes.map((c: { id: string }) => c.id), JSON.stringify(input)).toEqual([REMOTE.id])
+    }
+  })
+})

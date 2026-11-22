@@ -1,6 +1,6 @@
 # Dethernety Coverage Tools
 
-Dethernety Coverage Tools is a small, backend-only [`DTModule`](../modules/DT_MODULE_INTERFACE.md) that answers one question about a threat model: **for every exposure on the model's elements, which MITRE ATT&CK techniques are countered, by what kind of defensive control, and graded by how specific the evidence is.** It contributes a single GraphQL query field, runs read-only against the graph, and returns raw coverage facts as a JSON-encoded string. It deliberately produces no scores, no buckets, and no percentages — it computes the facts and leaves interpretation to whatever surface consumes them.
+Dethernety Coverage Tools is a small, backend-only [`DTModule`](../modules/DT_MODULE_INTERFACE.md) that answers one question about a threat model: **for every exposure on the model's elements (but the findings of an accepted hidden edge, which are set apart), which MITRE ATT&CK techniques are countered, by what kind of defensive control, and graded by how specific the evidence is.** It contributes a single GraphQL query field, runs read-only against the graph, and returns raw coverage facts as a JSON-encoded string. It deliberately produces no scores, no buckets, and no percentages — it computes the facts and leaves interpretation to whatever surface consumes them.
 
 **What this document covers:** what the module is and is not, the one field it adds, who consumes it and why it stands alone, how to build and test it, and a map to the rest of this documentation set.
 
@@ -29,7 +29,7 @@ Dethernety Coverage Tools is a small, backend-only [`DTModule`](../modules/DT_MO
 
 - **Not a threat-modeling module.** It declares no component, data-flow, boundary, data, or control classes; it adds nothing to the diagram and nothing to the class registry.
 - **Not an analysis module.** It declares no `AnalysisClass`, runs no AI, starts no chat, and stores no analysis state. It contributes a query field and nothing else.
-- **Not a presentation layer.** It emits no percentage, no single "covered" count, no tier bucketing, no disposition filtering, and no detect-only reduction. Those are consumer concerns (see [Raw-facts contract](#the-raw-facts-contract)).
+- **Not a presentation layer.** It emits no percentage, no single "covered" count, no tier bucketing, no disposition filtering, and no detect-only reduction. Those are consumer concerns (see [Raw-facts contract](./architecture.md#8-the-raw-facts-contract-and-the-division-of-labor)).
 - **Not an authorization boundary.** It neither adds nor broadens scope; it runs only what the session-scoped driver already permits.
 
 ---
@@ -45,7 +45,9 @@ extend type Query {
 }
 ```
 
-The returned `String` is JSON. Parsing it yields a `CoverageResult` object: every exposure on the model's elements, the ATT&CK technique set each exposure is exploited by, and per technique which **tiers** cover it, by which **function** (prevent or detect), and which countermeasures and parent controls supplied the evidence. The full shape is documented field by field in [coverage-facts.md](./coverage-facts.md).
+The returned `String` is JSON. Parsing it yields a `CoverageResult` object: every exposure on the model's elements except those set apart (below), the ATT&CK technique set each exposure is exploited by, and per technique which **tiers** cover it, by which **function** (prevent or detect), and which countermeasures and parent controls supplied the evidence. The full shape is documented field by field in [coverage-facts.md](./coverage-facts.md).
+
+**One kind of exposure is set apart.** An exposure is left out of `exposures` and every count, and counted once in `meta.inferredPathSetApart`, only when its category is `Inferred Path` **and** it sits on a data flow whose class category is `Hidden Edge`: the findings of an accepted [hidden edge](../dethernety-hidden-edges/analysis-contract.md), which restate a route the model's other findings already justify. An `Inferred Path` exposure anywhere else counts as usual. See [coverage-facts.md](./coverage-facts.md#inferred-path-exposures-set-apart).
 
 The field is returned as a JSON string (rather than a declared GraphQL object type) on purpose: it keeps the coverage payload from being interpreted as a graph node by the schema layer, and it matches the convention the consuming report surface already uses for its own custom field.
 
@@ -96,7 +98,7 @@ The test suite targets the pure aggregator (`aggregateCoverage`), which assemble
 |----------|----------------|
 | **README.md** (this file) | Orientation, the single field, the tiers at a glance, consumers, build/test |
 | [architecture.md](./architecture.md) | Design and mechanics: the pure-module shape, the resolver and scoped driver, the three-tier graded bridge, element scoping, prevent/detect rules, anchor-first query design, the four-query + pure-aggregator structure, the raw-facts contract, and database portability |
-| [coverage-facts.md](./coverage-facts.md) | The output contract: the `gradedCoverage` field, field-by-field tables for every interface in `CoverageResult`, the tier/function enums, soft/uncovered semantics, and exactly what a consumer must add |
+| [coverage-facts.md](./coverage-facts.md) | The output contract: the `gradedCoverage` field, field-by-field tables for every interface in `CoverageResult`, the tier/function enums, soft/uncovered semantics, the `Inferred Path` exposures set apart, and exactly what a consumer must add |
 
 ---
 

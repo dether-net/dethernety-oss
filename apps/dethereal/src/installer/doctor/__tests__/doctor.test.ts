@@ -87,7 +87,7 @@ describe('doctor', () => {
 
   it('checks every prompt-class tool in OpenCode\'s live rules', () => {
     expect([...LIVE_ASK_TOOLS].sort()).toEqual(TOOL_MANIFEST.filter((t) => t.approval === 'prompt').map((t) => `dethereal_${t.name}`).sort())
-    expect(LIVE_ASK_TOOLS).toHaveLength(15)
+    expect(LIVE_ASK_TOOLS).toHaveLength(16)
   })
 
   it('names the version of another plugin copy only when it is a version', async () => {

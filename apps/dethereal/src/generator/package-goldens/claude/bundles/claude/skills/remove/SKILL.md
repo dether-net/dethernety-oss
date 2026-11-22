@@ -77,8 +77,13 @@ With none, suggest `/dethereal:create`. Read model files from disk at the start 
    `[prompt: remove-simple]` Remove [<TYPE>] "<name>" from <boundary>? (yes / no) — table first, then AskUserQuestion, the tag first in its question text.
 
    Nothing is written before the reply. `no` removes nothing, and so does a reply that picks none of the choices — "no more information, continue" included: say that nothing was removed.
-6. **Remove** what was confirmed from its file — `structure.json`, `dataflows.json`, `data-items.json`. A removed data item's id leaves every `dataItemIds`; a removed element's id leaves the scope's `crown_jewel_elements`, and a crown jewel left with no element must be mapped again (the classify skill, or the guided workflow). A removed boundary's child components move to its parent boundary, never deleted with it.
-7. **Prune** the removed elements' attribute files — you never delete a file yourself: call `mcp__plugin_dethereal_dethereal__model_state_prune` with `directory_path` and `files` = those files (`attributes/<group>/<id>.json`, at most 50 a call) — the files the operator confirmed in the table above; that table is the display. Then:
+6. **Hidden edges.** For each flow to remove whose `classData.module.name` in `dataflows.json` is `dethernety-hidden-edges`: `mcp__plugin_dethereal_dethereal__manage_hidden_edges` `record` with `directory_path` and `flow_id`. `not_hidden_edge`, or any other refusal: it is removed as an ordinary flow. Otherwise it is a hidden edge: show its `lines` verbatim, then the `ask` it returns:
+
+   `[prompt: hidden-edges-apply]` Apply N hidden-edge change(s)? Type yes or cancel. — the tag first, then a plain message; end your turn.
+
+   `mcp__plugin_dethereal_dethereal__manage_hidden_edges` `commit` with `plan_id`, `lines` exactly as returned and the reply as typed (`reply_not_answer` returns the question as `ask`); show its outcome. The flow is removed either way; on `cancel` nothing is recorded, so the edge stays accepted and the next `/dethereal:hidden-edges` run does not propose it again.
+7. **Remove** what was confirmed from its file — `structure.json`, `dataflows.json`, `data-items.json`. A removed data item's id leaves every `dataItemIds`; a removed element's id leaves the scope's `crown_jewel_elements`, and a crown jewel left with no element must be mapped again (the classify skill, or the guided workflow). A removed boundary's child components move to its parent boundary, never deleted with it.
+8. **Prune** the removed elements' attribute files — you never delete a file yourself: call `mcp__plugin_dethereal_dethereal__model_state_prune` with `directory_path` and `files` = those files (`attributes/<group>/<id>.json`, at most 50 a call) — the files the operator confirmed in the table above; that table is the display. Then:
    - `deleted`, with `remaining` — the next page is `next_files`. When every file in it was in the confirmed table, call again with exactly `next_files`; otherwise show `next_files` and `not_deleted` as a table and ask `prune-confirm` below. (A result without `next_files`: a call with the files you expect is refused with `files_differ`, which lists the page.)
    - `files_differ` — the server's orphaned set is not the one named (older orphans, or files it will not delete). Show `orphaned_files` and `not_deleted` (with each reason) as a table, then ask:
 
@@ -89,8 +94,8 @@ With none, suggest `/dethereal:create`. Read model files from disk at the start 
    - Any other refusal — show its message and code; delete nothing another way.
 
    A file listed under `not_deleted` is the operator's to handle by hand; Gate 2 names any left behind.
-8. **State.** At ENRICHING or REVIEWED, apply the Backward Transition Protocol: `add` the ids of the elements that were changed and still exist (reconnected flows, moved components); removed ids come back as `rejected_ids`, which is expected.
-9. **Validate and footer.** Call `mcp__plugin_dethereal_dethereal__validate_model_json`, then:
+9. **State.** When every removed element was a hidden edge (`record` returned a plan), call no transition: a hidden edge is outside the review, so its removal never makes REVIEWED stale. Otherwise, at ENRICHING or REVIEWED, apply the Backward Transition Protocol: `add` the ids of the elements that were changed and still exist (reconnected flows, moved components); removed ids come back as `rejected_ids`, which is expected.
+10. **Validate and footer.** Call `mcp__plugin_dethereal_dethereal__validate_model_json`, then:
 
    ```
    [done] Removed [<TYPE>] "<name>" and N dependent elements. Quality: X/100.
@@ -100,6 +105,8 @@ With none, suggest `/dethereal:create`. Read model files from disk at the start 
 ## Backward Transition Protocol
 
 When a structural change (add/remove element) occurs at ENRICHING or REVIEWED state:
+
+Adding or removing only hidden-edge flows (`/dethereal:hidden-edges`) is no structural change: call no transition.
 
 1. Call `mcp__plugin_dethereal_dethereal__model_state` with `action: 'transition'`, `to: 'STRUCTURE_COMPLETE'`, and `add` = the ids of the new or changed elements that still exist. A removed element has no id left to track: the tool returns it under `rejected_ids`, which is expected.
 2. The server applies the side effects: it deletes `.dethereal/quality.json` (forcing recomputation) and clears the sign-off and the review.

@@ -75,6 +75,26 @@
       ]
     },
     {
+      "exposureId": "exp-db-inferred",
+      "elementId": "c-db",
+      "elementKind": "Component",
+      "soft": false,
+      "techniques": [
+        {
+          "techniqueId": "T9004",
+          "tactics": [
+            {
+              "id": "TA0006",
+              "name": "Credential Access",
+              "order": 8
+            }
+          ],
+          "covered": false,
+          "tiers": []
+        }
+      ]
+    },
+    {
       "exposureId": "exp-flow-intercept",
       "elementId": "f-web-db",
       "elementKind": "DataFlow",
@@ -222,7 +242,7 @@
     }
   },
   "meta": {
-    "exposureCount": 6,
+    "exposureCount": 7,
     "softExposureCount": 1,
     "coveredPairsByTier": {
       "DIRECT": 2,
@@ -233,6 +253,7 @@
       "DIRECT": 2,
       "INDIRECT_MITIGATION": 1,
       "INDIRECT_D3FEND": 3
-    }
+    },
+    "inferredPathSetApart": 1
   }
 }

@@ -3,7 +3,7 @@
   "harness": "claude",
   "version": "<VERSION>",
   "generatedFrom": "59708494500ba79a9f0642def6442660eb88b6049e1a079633f1c86214c380a5",
-  "contentHash": "54411e02f91d895b0bbb9b9153554a6c66b8dd1d6081edb13d6e3577ac80fe74",
+  "contentHash": "f2cee8eb8e35a851c6ed2e02c720d19c3c54c2b67b4213b73fb6f0595eb74f8b",
   "files": [
     {
       "path": ".claude-plugin/plugin.json",
@@ -15,11 +15,11 @@
     },
     {
       "path": "bundles/claude/agents/enricher.md",
-      "sha256": "e19f0a64184cc31aaf2501f0feef825a218f81dcfb236f8e79938ba049de4821"
+      "sha256": "34f7c9f6270c6e471cfccb10840babff0c993daae049940023c0f455867752eb"
     },
     {
       "path": "bundles/claude/agents/lead.md",
-      "sha256": "cf1c9857d11b4d03be2bb4efd902b2e9be6d07ff0de578c1b7954c73ec1d0fc5"
+      "sha256": "be1b3b70fe938b742b2beb8f08c4cab3106c2cd2859215724eb219f09b3bb6ed"
     },
     {
       "path": "bundles/claude/agents/reviewer.md",
@@ -31,7 +31,7 @@
     },
     {
       "path": "bundles/claude/hooks/hooks.json",
-      "sha256": "952f99fc1160501d9006a7109229a60f42fd01741a386a4499880624addcd7be"
+      "sha256": "21e7fb125cf910fac0178b5585adde1212f1b27e7b3bf44006e64eeb966c1593"
     },
     {
       "path": "bundles/claude/skills/audit/SKILL.md",

@@ -10,6 +10,7 @@ The Threat Report renders over a single **persisted snapshot document** that is 
 - [SnapshotDoc](#snapshotdoc) — the top-level persisted document, including its empty-state form.
 - [The ledger](#the-ledger) — elements, findings, and supporting controls (`LedgerElement` / `LedgerFinding` / `LedgerControl`).
 - [The model graph](#the-model-graph) — positional boundaries, components, flows, and data nodes, including each boundary's declared trust-zoning.
+- [Hidden-edge flows and set-apart findings](#hidden-edge-flows-and-set-apart-findings) — how the snapshot marks an inferred attack path, and which findings stay out of every total.
 - [The zoning block](#the-zoning-block) — the computed per-boundary declared effective zones and advisory zoning findings.
 - [The operation block](#the-operation-block) — who runs each component and boundary, resolved and frozen at generate time.
 - [The graded coverage payload](#the-graded-coverage-payload) — the live, disposition-agnostic coverage facts.
@@ -70,7 +71,7 @@ The top-level persisted document. It is serialized to a JSON string and stored o
 | `boundaryCount` | `number?` | Count of security boundaries discovered at generate time. |
 | `ledger` | `LedgerElement[]?` | The residual-risk ledger — every element with its findings and supporting controls. See [the ledger](#the-ledger). |
 | `modelGraph` | `ModelGraph?` | The positional model graph — boundaries, components, flows, and data nodes. See [the model graph](#the-model-graph). |
-| `zoning` | `{ findings: ZoningFinding[]; effectiveZones: Record<boundaryId, EffectiveZone> }?` | The computed trust-zoning block — per-boundary **declared effective zones** and advisory zoning findings. See [the zoning block](#the-zoning-block). Absent on snapshots generated before this field existed (the frontend defaults it). |
+| `zoning` | `{ findings: ZoningFinding[]; effectiveZones: Record<boundaryId, EffectiveZone>; hiddenEdgeFlowsSetApart?: number }?` | The computed trust-zoning block — per-boundary **declared effective zones**, advisory zoning findings, and the count of hidden-edge flows left out of the zoning input. See [the zoning block](#the-zoning-block). Absent on snapshots generated before this field existed (the frontend defaults it). |
 | `operation` | `OperationBlock?` | Who runs each component and boundary, frozen at generate time. See [the operation block](#the-operation-block). Absent on a snapshot from before 2.2.0, which the frontend says rather than showing a default. |
 
 ### Empty state
@@ -222,6 +223,7 @@ A flow rendered as a component-to-component edge, with the data sensitivities it
 | `targetId` | `string \| null` | Target component id, or `null` if unresolved. |
 | `sensitivities` | `string[]` | The sensitivity levels carried on the flow, with nulls dropped. |
 | `dataItemCount` | `number` | Total count of data items carried by the flow. |
+| `hiddenEdge` | `HiddenEdgeFacts \| null` | Set when the flow's class is in the category `Hidden Edge`: the flow is an inferred attack path an operator accepted, not a declared flow. `null` on an ordinary flow. See [Hidden-edge flows and set-apart findings](#hidden-edge-flows-and-set-apart-findings). |
 
 **The count/sensitivity distinction matters.** `dataItemCount` and `sensitivities` together encode three states the Boundary Crossings engine treats differently:
 
@@ -248,15 +250,48 @@ A `Data` node with its author-asserted sensitivity and the elements that handle 
 
 ---
 
+## Hidden-edge flows and set-apart findings
+
+A **hidden edge** is an inferred attack path an operator accepted, recorded in the model as a data flow whose class is in the category `Hidden Edge` (see the [hidden-edges analysis contract](../dethernety-hidden-edges/analysis-contract.md)). The snapshot marks it on the flow; the report includes it in reachability, excludes it from the checks that judge the model as drawn, and sets its own findings apart from every total.
+
+### HiddenEdgeFacts
+
+`ModelGraphFlow.hiddenEdge` is decided by the flow's **class category alone** at generate time, and carries what the edge records about itself on its class relation, so a route through it can be explained:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `kind` | `string \| null` | The edge's `hidden_edge_kind` (`remote-service`, `credential-reuse`, `credential-capture`, `host-escape`) |
+| `tier` | `string \| null` | The edge's `tier`: how firmly the model's facts supported it when it was proposed (`high`, `medium`, `low`) |
+| `grantedPrivilege` | `string \| null` | The edge's `granted_privilege`: what an attacker holds at its target (`none`, `user`, `admin`, `system`) |
+
+Each field is `null` when the edge does not record it (a blank value counts as not recorded). The frontend reads any truthy `hiddenEdge` as a hidden edge, so a snapshot that holds `hiddenEdge: true` is still read as one, with no facts to show. A snapshot generated before the field existed has no `hiddenEdge` on any flow, so every flow in it reads as ordinary until the report is regenerated.
+
+### The set-apart rule
+
+A finding is **set apart** when its `category` is `Inferred Path` **and** it sits on a flow whose `hiddenEdge` is set. Both halves must hold: an `Inferred Path` finding on any other element counts like any other finding, and an ordinary finding on a hidden-edge flow counts too.
+
+Set-apart findings describe the route the edge records, which the findings it was inferred from already count. They stay in the snapshot's `ledger` unchanged; the frontend marks them (`setApart: true`, see [frontend.md](./frontend.md#hidden-edges-in-the-report)) and leaves them out of every severity and count total, posture, and coverage count, reporting **one count**, `inferredPathSetApart`, beside those totals.
+
+| Rule | What it covers |
+|---|---|
+| **Included and labelled** | Reachability: a hidden-edge flow is a route, and every route, jewel, choke point or radius that uses one says so |
+| **Excluded and counted** | Boundary Crossings, the declared-zone data-flow policy, the zoning block, defense-in-depth, and the grading of controls in Coverage & Gaps: these judge the model as drawn |
+| **Set apart and counted** | The edge's `Inferred Path` findings, in every total |
+
+---
+
 ## The zoning block
 
 The zoning block (`SnapshotDoc.zoning`) is the computed trust-zoning view, produced at generate time by projecting the model graph into the shared dt-core zoning engine (see [backend.md](./backend.md)). It carries two things: a per-boundary map of **declared effective zones**, and a list of advisory zoning findings.
 
 ```
 zoning
-├── effectiveZones : Record<boundaryId, EffectiveZone>
-└── findings       : ZoningFinding[]
+├── effectiveZones          : Record<boundaryId, EffectiveZone>
+├── findings                : ZoningFinding[]
+└── hiddenEdgeFlowsSetApart : number   (absent on older snapshots and on the degraded empty form)
 ```
+
+**Hidden-edge flows are not zoning input.** A flow whose `hiddenEdge` is set is an inferred attack path, not a declared channel, so it is left out of the flows the zoning engine reads, and `hiddenEdgeFlowsSetApart` counts how many were left out.
 
 The block **graceful-degrades to the empty form** `{ findings: [], effectiveZones: {} }` — a zoning fault at generate time never takes down the ledger or model graph — and is **absent entirely** on a snapshot generated before this field existed. In both cases the frontend defaults it, so the pure engines never see `undefined`.
 
@@ -342,6 +377,7 @@ Always present on the payload. It carries producer-side roll-up counts; the repo
 | `softExposureCount` | `number` | How many of those are soft (no ATT&CK mapping). |
 | `coveredPairsByTier` | `Record<'DIRECT' \| 'INDIRECT_MITIGATION' \| 'INDIRECT_D3FEND', number>` | Distinct `(exposure, technique)` pairs covered at each tier. |
 | `countermeasuresByTier` | `Record<'DIRECT' \| 'INDIRECT_MITIGATION' \| 'INDIRECT_D3FEND', number>` | Distinct countermeasures contributing a covering edge at each tier. |
+| `inferredPathSetApart` | `number` | Distinct `Inferred Path` exposures on hidden-edge flows the producer left out of `exposures` and every count above. The report adds any such exposure the live facts still carry, and shows the sum as one off-grid line. Absent from an older coverage module; the report reads it as `0`. |
 
 #### CoverageExposure
 

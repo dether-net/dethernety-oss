@@ -51,6 +51,11 @@ export class ReviewStore {
     return undefined
   }
 
+  /** Forget review `id`: one whose record can take nothing more is closed for good. */
+  drop(id: string): void {
+    this.reviews.delete(id)
+  }
+
   clear(): void {
     this.reviews.clear()
   }

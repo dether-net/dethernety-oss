@@ -19,7 +19,7 @@
 //     sensitivity + boundary posture as secondary signals. Still no single risk
 //     score, no coverage %.
 
-import { isLive, scoreBand } from './aggregateLedger.js'
+import { isHiddenEdgeFlow, isLive, isSetApart, markSetApart, scoreBand } from './aggregateLedger.js'
 import { evaluateDataFlowPolicy } from './zoningPolicy.js'
 
 // SensitivityLevel ordering (schema enum). null/absent ⇒ unknown (rank 0) —
@@ -134,9 +134,10 @@ export function makeStackResolver(modelGraph) {
 }
 
 /** Posture lens over a raw ledger element (or undefined): live findings, the
- *  worst live score band, and whether a supporting control is present. */
+ *  worst live score band, and whether a supporting control is present. A finding
+ *  set apart (markSetApart) never raises it. */
 export function postureOf(ledgerEl) {
-  const findings = ledgerEl?.findings ?? []
+  const findings = (ledgerEl?.findings ?? []).filter((f) => !isSetApart(f))
   const live = findings.filter(isLive)
   let worstBand = 'unknown'
   let worstRank = -1
@@ -231,7 +232,10 @@ function byFlowRankDesc(a, b) {
  *   crossings: worklist flow groups (signal- OR verdict-bearing), ranked desc.
  *   underModeled: allowed + zero-signal flow groups (one muted tail).
  *   worklistUnranked: worklist exists but nothing differentiates its ranking.
- *   totals: { crossingFlows, membranes, signalFlows, underModeledFlows, hiddenByCap }
+ *   totals: { crossingFlows, membranes, signalFlows, underModeledFlows, hiddenByCap,
+ *     hiddenEdgeFlowsSetApart } — a hidden-edge flow is an inferred attack path, not a
+ *     declared flow, so it is never a crossing; the last count says how many were set apart.
+ *   setApartFlows: those hidden-edge flows, named ({ flowId, flowName, kind }), by name.
  *   conduitErrors: declared conduits authorizing an illegal crossing.
  *   deadConduits: legally-declared conduits with no matching modeled flow (dead intent).
  *   policy: { fails, violations, warnings, advisories } (per-flow verdict rollup).
@@ -240,8 +244,13 @@ function byFlowRankDesc(a, b) {
 export function computeCrossings(modelGraph, ledger, zoning) {
   const mg = modelGraph && typeof modelGraph === 'object' ? modelGraph : {}
   const boundaries = Array.isArray(mg.boundaries) ? mg.boundaries : []
-  const flows = Array.isArray(mg.flows) ? mg.flows : []
-  const ledgerById = new Map((Array.isArray(ledger) ? ledger : []).map((e) => [e.id, e]))
+  const allFlows = Array.isArray(mg.flows) ? mg.flows : []
+  const flows = allFlows.filter((f) => !isHiddenEdgeFlow(f))
+  const setApartFlows = allFlows
+    .filter(isHiddenEdgeFlow)
+    .map((f) => ({ flowId: f.id, flowName: f.name ?? '', kind: f.hiddenEdge?.kind ?? null }))
+    .sort((a, b) => String(a.flowName).localeCompare(String(b.flowName)))
+  const ledgerById = new Map(markSetApart(ledger, mg).map((e) => [e.id, e]))
 
   // Declared-zone data-flow policy — per-flow verdicts keyed by flowId, computed
   // over the same modelGraph + the snapshot's declared effective zones.
@@ -405,12 +414,14 @@ export function computeCrossings(modelGraph, ledger, zoning) {
     // muted review surface, never alarming).
     deadConduits: deadConduits ?? [],
     policy,
+    setApartFlows,
     totals: {
       crossingFlows: groups.length,
       membranes: membraneCount,
       signalFlows: crossings.length,
       underModeledFlows: underModeled.length,
       hiddenByCap,
+      hiddenEdgeFlowsSetApart: setApartFlows.length,
     },
     flags,
   }

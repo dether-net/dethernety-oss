@@ -122,7 +122,8 @@ export function zoningAdvisories(zoning, modelGraph) {
  *   byFlow: Record<string, Verdict>,      // per-flow verdict keyed by flowId (crossing flows only)
  *   conduitErrors: any[],                  // declared conduits authorizing an illegal crossing
  *   deadConduits: any[],                   // legally-declared conduits with no matching modeled flow
- *   rollup: { fails: boolean }             // any violation or conduit error ⇒ the model fails
+ *   rollup: { fails: boolean },            // any violation or conduit error ⇒ the model fails
+ *   hiddenEdgeFlowsSetApart: number        // hidden-edge flows left out (inferred paths, never judged)
  * }}
  *
  * Verdict = { verdict:'violation'|'warning'|'advisory'|'allowed'|null, verdictRank:number,
@@ -132,7 +133,10 @@ export function zoningAdvisories(zoning, modelGraph) {
 export function evaluateDataFlowPolicy(modelGraph, zoning) {
   const boundaries = modelGraph?.boundaries ?? []
   const components = modelGraph?.components ?? []
-  const flows = modelGraph?.flows ?? []
+  // A hidden-edge flow is an inferred attack path, not a declared channel: the policy
+  // judges the model as drawn, so it neither gets a verdict nor keeps a conduit live.
+  const allFlows = modelGraph?.flows ?? []
+  const flows = allFlows.filter((f) => !f?.hiddenEdge)
   const effectiveZones = zoning?.effectiveZones ?? {}
 
   const boundaryById = new Map(boundaries.map((b) => [b.id, b]))
@@ -376,5 +380,5 @@ export function evaluateDataFlowPolicy(modelGraph, zoning) {
   const fails =
     Object.values(byFlow).some((v) => v.verdict === 'violation') || conduitErrors.length > 0
 
-  return { byFlow, conduitErrors, deadConduits, rollup: { fails } }
+  return { byFlow, conduitErrors, deadConduits, rollup: { fails }, hiddenEdgeFlowsSetApart: allFlows.length - flows.length }
 }

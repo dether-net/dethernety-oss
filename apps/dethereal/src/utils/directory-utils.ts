@@ -50,6 +50,7 @@ import {
   SCHEMA_VERSION,
   flattenStructure,
 } from '@dethernety/dt-core'
+import { remapDecisions } from '../hidden-edges/records.js'
 
 // =============================================================================
 // Constants
@@ -1000,6 +1001,7 @@ export async function remapLocalSidecars(
   const warnings = [
     await remapStateStaleElements(dirPath, idMapping),
     await remapCrownJewelElements(dirPath, idMapping),
+    ...(await remapDecisions(dirPath, idMapping)),
   ].filter((w): w is string => w !== null)
   return warnings.length > 0 ? warnings : undefined
 }

@@ -30,7 +30,7 @@ Add elements to an existing Dethernety threat model, described in plain words. A
 3. **Its details:**
    - **component** — name; type (PROCESS, STORE or EXTERNAL_ENTITY); parent boundary, from the request or asked; a position relative to the parent (Layout); a proposed class from {{tool:match_classes}} when the platform answers — `classLabel: 'COMPONENT'` with `componentType` set to its type, never a class of another type — confirmed with the change; a new id (a UUID).
    - **boundary** — name and parent; a proposed class as for a component, with `classLabel: 'SECURITY_BOUNDARY'`; position and size to contain its children with at least 50px padding; `dimensionsMinWidth` and `dimensionsMinHeight` so it cannot collapse.
-   - **data flow** — source and target matched by name, ignoring case; a proposed class with `classLabel: 'DATA_FLOW'`; source and target handles from the ends' relative position (Layout), never a handle pair already used between the same two components; description and protocol.
+   - **data flow** — source and target matched by name, ignoring case; a proposed class with `classLabel: 'DATA_FLOW'`, never a Hidden Edge class (those record inferred paths accepted in {{cmd:hidden-edges}}); source and target handles from the ends' relative position (Layout), never a handle pair already used between the same two components; description and protocol.
    - **data item** — name and description; a proposed class with `classLabel: 'DATA'`; the elements that handle it; a sensitivity only when the operator gives it.
 4. **Show what will change** as a table — each element with its type, where it goes (boundary, position, or the flow's ends and handles) and its class — then ask:
 

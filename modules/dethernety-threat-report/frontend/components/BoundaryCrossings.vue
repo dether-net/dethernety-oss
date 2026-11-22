@@ -59,6 +59,13 @@
           <span v-if="policy.advisories" class="trd-muted"><strong>{{ policy.advisories }}</strong> advisor{{ policy.advisories === 1 ? 'y' : 'ies' }}</span>
           <span class="trd-muted">· {{ totals.underModeledFlows }} under-modeled</span>
           <span v-if="totals.hiddenByCap" class="trd-muted">· {{ totals.hiddenByCap }} outer membranes collapsed</span>
+          <span v-if="setApartFlows.length" class="trd-muted">
+            · {{ setApartFlows.length }} hidden-edge flow{{ setApartFlows.length === 1 ? '' : 's' }} set apart:
+            <template v-for="(f, i) in setApartFlows" :key="f.flowId"
+              ><button type="button" class="trd-drill-mini" @click="$emit('drill', f.flowId)" :title="`Open ${f.flowName || 'flow'} profile`">{{ f.flowName || '(unnamed flow)' }}</button
+              ><span v-if="f.kind"> ({{ f.kind }})</span><span v-if="i < setApartFlows.length - 1">, </span></template
+            >
+          </span>
         </div>
 
         <p class="trd-caveat">
@@ -277,6 +284,7 @@
   const underModeled = computed(() => result.value.underModeled)
   const underModeledCount = computed(() => result.value.underModeledCount)
   const totals = computed(() => result.value.totals)
+  const setApartFlows = computed(() => result.value.setApartFlows ?? [])
   const conduitErrors = computed(() => result.value.conduitErrors)
   const deadConduits = computed(() => result.value.deadConduits)
   const policy = computed(() => result.value.policy)

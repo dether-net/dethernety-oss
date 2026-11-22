@@ -1,0 +1,301 @@
+[
+  {
+    "option_name": "required_capability",
+    "option_description": "The attacker capability this path needs, on a three-step scale from the lowest to the highest: opportunistic, targeted, advanced. The hidden-edges module sets it from the edge-kind table's default for the table row that found the path. When several rows found the same path, only the rows at the path's tier count, and of those it takes the row that is easiest for the attacker; a lower-tier row's defaults never apply. The operator may change it in Dethereal's review before accepting the edge.",
+    "security_impact": "The class policy does not read it. It tells an analysis which attackers can take this path: the lower the capability, the more attackers can. Table default for this kind: targeted.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Read the candidate's \"base\" values in the hidden-edge review table. To change the value before accepting, reply \"edit <n> capability: <value>\". There is nothing to discover from code or configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "base.required_capability is one of: opportunistic, targeted, advanced.",
+        "source": "Dethereal hidden-edge review"
+      },
+      {
+        "type": "config_file",
+        "instruction": "After the accept, read required_capability in the flow's attribute file in the Dethereal model directory, under \"attributes\". A new hidden-edge flow's id is \"he-\" followed by 16 hex characters.",
+        "command": null,
+        "file_path": "attributes/dataFlows/<flow-id>.json",
+        "navigation": null,
+        "expected_output": "\"required_capability\": \"targeted\"",
+        "source": "Dethereal model files"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "opportunistic",
+      "targeted",
+      "advanced"
+    ]
+  },
+  {
+    "option_name": "required_privilege",
+    "option_description": "The privilege the attacker must already hold at the source end to take this path. none: no account. user: an ordinary account. admin: an administrator account. system: the highest privilege on the host. The hidden-edges module sets it from the edge-kind table's default for the row that found the path; the operator may change it in Dethereal's review.",
+    "security_impact": "The class policy does not read it. It tells an analysis what the attacker must have won at the source before this path opens. Table default for this kind: admin, that is, code running with administrator (root) rights in the container.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Read the candidate's \"base\" values in the hidden-edge review table. To change the value before accepting, reply \"edit <n> required: <value>\". There is nothing to discover from code or configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "base.required_privilege is one of: none, user, admin, system.",
+        "source": "Dethereal hidden-edge review"
+      },
+      {
+        "type": "config_file",
+        "instruction": "After the accept, read required_privilege in the flow's attribute file in the Dethereal model directory, under \"attributes\". A new hidden-edge flow's id is \"he-\" followed by 16 hex characters.",
+        "command": null,
+        "file_path": "attributes/dataFlows/<flow-id>.json",
+        "navigation": null,
+        "expected_output": "\"required_privilege\": \"admin\"",
+        "source": "Dethereal model files"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "user",
+      "admin",
+      "system"
+    ]
+  },
+  {
+    "option_name": "granted_privilege",
+    "option_description": "The privilege the attacker holds at the target end once the path is taken: none, user, admin or system. The hidden-edges module sets it from the edge-kind table's default for the row that found the path; the operator may change it in Dethereal's review.",
+    "security_impact": "The class policy reads it to set the criticality and score of each of this flow's Inferred Path exposures (none: low, 3.0; user: medium, 5.0; admin: high, 7.5; system: critical, 9.0; missing or invalid: medium, 5.0), and states it at the end of each exposure's description (\"grants <value> at the target\"; \"unstated\" when missing or invalid). It also tells an analysis what the attacker gains at the target, and so what the next step of an attack path can start from. Table default for this kind: system, the host's highest privilege.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Read the candidate's \"base\" values in the hidden-edge review table. To change the value before accepting, reply \"edit <n> granted: <value>\". There is nothing to discover from code or configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "base.granted_privilege is one of: none, user, admin, system.",
+        "source": "Dethereal hidden-edge review"
+      },
+      {
+        "type": "config_file",
+        "instruction": "After the accept, read granted_privilege in the flow's attribute file in the Dethereal model directory, under \"attributes\". A new hidden-edge flow's id is \"he-\" followed by 16 hex characters.",
+        "command": null,
+        "file_path": "attributes/dataFlows/<flow-id>.json",
+        "navigation": null,
+        "expected_output": "\"granted_privilege\": \"system\"",
+        "source": "Dethereal model files"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "user",
+      "admin",
+      "system"
+    ]
+  },
+  {
+    "option_name": "hidden_edge_kind",
+    "option_description": "The kind of inferred path this flow records: host-escape. Fixed and read-only. A flow of this class is an inferred attack path that an operator accepted in Dethereal after review. It is not a declared flow, and it is never the class of an ordinary data flow. It says that an attacker who runs code in a container can break out to its host (Escape to Host, T1611) and reach the components that run on that host outside the container. The source is a component inside the Container boundary. The target is a component under the same Operating System / Host or Managed Runtime, outside the container. The attacker gains the host's highest privilege.",
+    "security_impact": "The class policy reads it to name this flow's Inferred Path exposures (\"Inferred host escape path: <id>\") and to set their attack vector: LOCAL for this kind. For an analysis, the flow is a step an attacker may take from the source to the target, not traffic the system sends.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Dethereal writes the kind from the accepted candidate (the \"kind\" column of the hidden-edge review table). There is nothing to discover from code or configuration. Never give this class to an ordinary flow.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "kind: Host escape",
+        "source": "Dethereal hidden-edge review"
+      },
+      {
+        "type": "config_file",
+        "instruction": "After the accept, read hidden_edge_kind in the flow's attribute file in the Dethereal model directory, under \"attributes\". A new hidden-edge flow's id is \"he-\" followed by 16 hex characters.",
+        "command": null,
+        "file_path": "attributes/dataFlows/<flow-id>.json",
+        "navigation": null,
+        "expected_output": "\"hidden_edge_kind\": \"host-escape\"",
+        "source": "Dethereal model files"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "host-escape"
+    ]
+  },
+  {
+    "option_name": "technique_ids",
+    "option_description": "The ATT&CK techniques an attacker uses at the target end to take this path. Dethereal writes them from the accepted candidate; the review cannot edit them, and they are read-only on the platform. For this kind: T1611 Escape to Host. The path is inferred from the model's exposures, their ATT&CK techniques and the model's structure, and an operator reviewed it. It is not a declared flow.",
+    "security_impact": "Each id becomes one exposure of this flow in category Inferred Path, named \"Inferred host escape path: <id>\" (for example \"Inferred host escape path: T1611\"), exploited by that technique, with attack vector LOCAL. Its description ends with \"Confidence: <tier>; grants <granted_privilege> at the target.\" Its criticality and score come from granted_privilege only, never from the tier (none: low, 3.0; user: medium, 5.0; admin: high, 7.5; system: critical, 9.0; missing or invalid: medium, 5.0). The policy reads only the first 10 entries, and only well-formed ATT&CK ids (T1234 or T1234.567) count. The category lets a consumer tell these findings apart from findings on declared elements. Breakers: when an attribute or control below holds in the model, the hidden-edges module stops proposing this path (\"removes\") or proposes it at a lower tier (\"lowers\"). An edge already accepted stays in the model until its flow is removed; Dethereal then records it as rejected, so it is not proposed again. No attribute or control removes this path: a kernel or runtime flaw can remain. Lowers: container_privileged_mode_disabled, container_capabilities_dropped_to_minimal, container_host_namespaces_not_shared and container_no_sensitive_host_mounts all true on the Container; the path then cannot reach high. Lowers: container_seccomp_and_mac_profile_enforced and container_no_new_privileges_and_nonroot both true on the Container. Lowers: container_runtime_patch_current true on the Container. Lowers: mandatory_access_control_enforcing, unprivileged_user_namespaces_restricted and host_patch_level_current all true on the Operating System / Host above the container.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Read the \"techniques\" column of the candidate in the hidden-edge review table. There is nothing to discover from code or configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "techniques: [\"T1611\"]",
+        "source": "Dethereal hidden-edge review"
+      },
+      {
+        "type": "config_file",
+        "instruction": "After the accept, read technique_ids in the flow's attribute file in the Dethereal model directory, under \"attributes\". A new hidden-edge flow's id is \"he-\" followed by 16 hex characters.",
+        "command": null,
+        "file_path": "attributes/dataFlows/<flow-id>.json",
+        "navigation": null,
+        "expected_output": "\"technique_ids\": [\"T1611\"]",
+        "source": "Dethereal model files"
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "T1611"
+    ]
+  },
+  {
+    "option_name": "source_exposure_ids",
+    "option_description": "The ids of the exposures the path was inferred from. Dethereal writes them from the accepted candidate, and they are read-only on the platform; at most 50 are kept. When several findings support one path, only the exposures of those at the path's tier are listed. For this kind they are escape exposures on the Container boundary.",
+    "security_impact": "The class policy does not read it. The ids tie the edge to its evidence: when an exposure listed here is fixed or disposed, the path loses its ground. When the operator accepts this edge on its own, not through accept-all, Dethereal marks each pending exposure listed here as affirmed on the platform. When the flow is later removed, Dethereal lists the affirmed exposures it cites for triage.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Read the \"exposures\" column of the candidate in the hidden-edge review table; it shows the exposures by name. There is nothing to discover from code or configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One or more exposure names, each on an element of the model.",
+        "source": "Dethereal hidden-edge review"
+      },
+      {
+        "type": "config_file",
+        "instruction": "After the accept, read source_exposure_ids in the flow's attribute file in the Dethereal model directory, under \"attributes\". A new hidden-edge flow's id is \"he-\" followed by 16 hex characters.",
+        "command": null,
+        "file_path": "attributes/dataFlows/<flow-id>.json",
+        "navigation": null,
+        "expected_output": "\"source_exposure_ids\": [\"<exposure-id>\", ...]",
+        "source": "Dethereal model files"
+      }
+    ],
+    "value_type": "array",
+    "typical_values": []
+  },
+  {
+    "option_name": "proposed_by",
+    "option_description": "Who shaped the accepted edge. rule: accepted as the hidden-edges module proposed it; operator: the operator edited it before accepting, by changing a base value or a kind field, or by adding a rationale. Adding only a rationale also makes it operator, while the values on the flow may still be the module's. Dethereal writes it from the accepted candidate; it is read-only on the platform.",
+    "security_impact": "The class policy does not read it. rule means the values on the flow are the module's. operator means the operator edited the candidate: the values may be the operator's, or still the module's when only a rationale was added. An edited candidate is never accepted through accept-all; each one needs its own accept.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Check whether the operator edited the candidate in the hidden-edge review: any edit of capability, required, granted, a kind field or the rationale makes it operator. There is nothing to discover from code or configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "rule for an unedited accept; operator after any edit.",
+        "source": "Dethereal hidden-edge review"
+      },
+      {
+        "type": "config_file",
+        "instruction": "After the accept, read proposed_by in the flow's attribute file in the Dethereal model directory, under \"attributes\". A new hidden-edge flow's id is \"he-\" followed by 16 hex characters.",
+        "command": null,
+        "file_path": "attributes/dataFlows/<flow-id>.json",
+        "navigation": null,
+        "expected_output": "\"proposed_by\": \"rule\"",
+        "source": "Dethereal model files"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "rule",
+      "operator"
+    ]
+  },
+  {
+    "option_name": "tier",
+    "option_description": "How firmly the model's facts support the path, as the hidden-edges module rated it. high: the exposure the path rests on is confirmed, and the attributes that would break the path are stated false. medium: only one of the two holds, or a breaker lowered the path. low: neither holds, or the path is capped at low. Each attribute or control that weakens the path lowers it one step. A pending exposure caps it at medium. When several findings support one path, the highest tier counts, and the path keeps only the techniques, exposures and base values of the findings at that tier. When the optional knowledge-graph check runs, it can lower the tier one step, never raise it. Dethereal writes the tier from the accepted candidate; the review cannot edit it, and it is read-only on the platform.",
+    "security_impact": "The class policy states the tier in each Inferred Path exposure's description (\"Confidence: <tier>\"); a missing or unknown tier is stated as low. The tier does not set the exposure's criticality or score: those come from granted_privilege. The table caps this kind at high. A container on a Managed Runtime caps the path at low. High needs at least one of container_privileged_mode_disabled, container_capabilities_dropped_to_minimal, container_host_namespaces_not_shared or container_no_sensitive_host_mounts stated false on the Container.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Read the \"tier\" column of the candidate in the hidden-edge review table. \"kg\": \"lowered\" beside it means the knowledge-graph check lowered it. There is nothing to discover from code or configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "tier: high, medium or low.",
+        "source": "Dethereal hidden-edge review"
+      },
+      {
+        "type": "config_file",
+        "instruction": "After the accept, read tier in the flow's attribute file in the Dethereal model directory, under \"attributes\". A new hidden-edge flow's id is \"he-\" followed by 16 hex characters.",
+        "command": null,
+        "file_path": "attributes/dataFlows/<flow-id>.json",
+        "navigation": null,
+        "expected_output": "\"tier\": \"medium\"",
+        "source": "Dethereal model files"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "high",
+      "medium",
+      "low"
+    ]
+  },
+  {
+    "option_name": "rationale",
+    "option_description": "The operator's own words on why the path holds, at most 1000 characters. The operator gives it in Dethereal's review before accepting. Empty unless the operator wrote one.",
+    "security_impact": "The class policy does not read it. It records the operator's reasoning for later reviewers. Adding one counts as an edit: proposed_by becomes operator, and the candidate leaves accept-all.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "In the hidden-edge review, reply \"edit <n> rationale: <text>\" before accepting the candidate. Write why the path holds in this system.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The candidate shows the rationale and is marked as edited.",
+        "source": "Dethereal hidden-edge review"
+      },
+      {
+        "type": "config_file",
+        "instruction": "After the accept, read rationale in the flow's attribute file in the Dethereal model directory, under \"attributes\". A new hidden-edge flow's id is \"he-\" followed by 16 hex characters.",
+        "command": null,
+        "file_path": "attributes/dataFlows/<flow-id>.json",
+        "navigation": null,
+        "expected_output": "\"rationale\": \"<the operator's text>\"",
+        "source": "Dethereal model files"
+      }
+    ],
+    "value_type": "string",
+    "typical_values": []
+  },
+  {
+    "option_name": "escape_vector",
+    "option_description": "How the escape happens. configuration: the container's configuration allows it; one of container_privileged_mode_disabled, container_capabilities_dropped_to_minimal, container_host_namespaces_not_shared or container_no_sensitive_host_mounts is false on the Container. kernel_or_runtime: relies on a kernel or runtime flaw: the confinement that would contain one (seccomp or a MAC profile, no-new-privileges, a non-root user) is missing, or the runtime is unpatched; none of those configuration attributes is false, but one of container_seccomp_and_mac_profile_enforced, container_no_new_privileges_and_nonroot or container_runtime_patch_current is. unstated: none of these attributes is false on the Container. The hidden-edges module sets it from the Container's configuration attributes; the operator may change it in Dethereal's review.",
+    "security_impact": "The class policy does not read it. It tells the reader the fix: drop the privilege, the capabilities, the shared namespaces or the host mounts for configuration; confine and patch for kernel_or_runtime. unstated means the Container's attributes are still to be set.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Read the candidate's \"fields\" in the hidden-edge review table. The hidden-edges module reads the Container's configuration attributes. To change it before accepting, reply \"edit <n> escape_vector: <value>\".",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "fields.escape_vector is one of: configuration, kernel_or_runtime, unstated.",
+        "source": "Dethereal hidden-edge review"
+      },
+      {
+        "type": "config_file",
+        "instruction": "After the accept, read escape_vector in the flow's attribute file in the Dethereal model directory, under \"attributes\". A new hidden-edge flow's id is \"he-\" followed by 16 hex characters.",
+        "command": null,
+        "file_path": "attributes/dataFlows/<flow-id>.json",
+        "navigation": null,
+        "expected_output": "\"escape_vector\": \"configuration\"",
+        "source": "Dethereal model files"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "configuration",
+      "kernel_or_runtime",
+      "unstated"
+    ]
+  }
+]

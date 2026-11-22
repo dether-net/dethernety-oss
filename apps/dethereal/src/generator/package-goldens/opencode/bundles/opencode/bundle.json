@@ -2,12 +2,16 @@
   "schemaVersion": 1,
   "harness": "opencode",
   "version": "<VERSION>",
-  "generatedFrom": "b3a3dc42cd0af44d15fb235d9601b5c693292a9dd89c90c06fd16c4892363cde",
-  "contentHash": "6c6e2c008183823c42bc0464183e30004f2e17f686578ea267e5ac2dd4d0b37e",
+  "generatedFrom": "60e26c85ff0c52e3432d839567047d6cf1b7479101cdcd5a1faf0f1bec612b53",
+  "contentHash": "697a577e6aad1b8b586723785daaecd63ba5e946807ab0c3272d2097a7649690",
   "files": [
     {
       "path": "bundles/opencode/agents/dethereal-enrichment-applier.md",
-      "sha256": "19b3359a2142469be52f3b4cce83fd534c3cefbe9c54de3f66d7bbd513311e4c"
+      "sha256": "a59a8ebed9f66ae2ae79080419e36cca0c4f71cb5f9c2109e918499d5aad91a4"
+    },
+    {
+      "path": "bundles/opencode/agents/dethereal-hidden-edge-analyst.md",
+      "sha256": "edee0e8d5abd970cb0aaa1a7a2ef7622d8d09ea9964573595d9c8812e8ba1646"
     },
     {
       "path": "bundles/opencode/agents/dethereal-infrastructure-scout-scoped.md",
@@ -27,11 +31,11 @@
     },
     {
       "path": "bundles/opencode/agents/dethereal-security-enricher.md",
-      "sha256": "aa62d3b9e69445813cc1e9566ed1eeb175d1b912f2d0ba31040ecdc6a54f8ba9"
+      "sha256": "b2874fcb366e1951688d6d74ee2f92df9dc3ef8f9c727ea61572fa1598a79af0"
     },
     {
       "path": "bundles/opencode/agents/dethereal-threat-modeler.md",
-      "sha256": "243b71aef47f4f50ea6f42aee9d6fe6c82162787f18314391854a964d21e48b1"
+      "sha256": "65c2ca2152568ecbb782da71f446989851c6dd9cab4869cbbeb2cc2fb7c57578"
     },
     {
       "path": "bundles/opencode/agents/dethereal-triage-analyst.md",
@@ -47,15 +51,15 @@
     },
     {
       "path": "bundles/opencode/mcp.fragment.json",
-      "sha256": "28d4ce6e1589c4ac62a5ef02359397d03e97e38ee0383d4a48914819066a1887"
+      "sha256": "d44476db7b8d630c4a2fb0c16e4a4c45d1487a3f905ada31024415762a481249"
     },
     {
       "path": "bundles/opencode/plugins/dethereal.ts",
-      "sha256": "a4e893a225ec2699e8f50eab06690398836c2a70fe4f564e0f602f7fbe571c11"
+      "sha256": "f259a61313d9b89024c9f70f9f17d16f9d336f75399e7d0663de1e09103a3f6b"
     },
     {
       "path": "bundles/opencode/skills/dethereal-add/SKILL.md",
-      "sha256": "2739974e604bd2f2800765e7f0095d111cb9be8e56897b101baa4340788d59bb"
+      "sha256": "5d9a4c527cc37ec8e5b4c8b4e05e74654225c43d13d4b91ed7b8edfd893a7b6d"
     },
     {
       "path": "bundles/opencode/skills/dethereal-add/git-undo.md",
@@ -83,7 +87,7 @@
     },
     {
       "path": "bundles/opencode/skills/dethereal-classify/classification-protocol.md",
-      "sha256": "7b3b00182d455a62a137ed8ccf53e4beca7cff744d5840830fc0c72f51f54c61"
+      "sha256": "61284af8f331c74f1b96da99764fd1b1f61cbb6c8b0d03d64ef033321e479df5"
     },
     {
       "path": "bundles/opencode/skills/dethereal-classify/secret-files.md",
@@ -159,7 +163,7 @@
     },
     {
       "path": "bundles/opencode/skills/dethereal-enrich-controls/enrichment-invariants.md",
-      "sha256": "adb2d2fcac419f12bc58dbeff0b3987da537d58c2eeda4d85a69d97ea98219f0"
+      "sha256": "3e19e18d3bd0a4036c53c6f00333e752a1d9ed64ab5cbb2a6603c3c046006141"
     },
     {
       "path": "bundles/opencode/skills/dethereal-enrich-controls/relay.md",
@@ -171,7 +175,7 @@
     },
     {
       "path": "bundles/opencode/skills/dethereal-enrich/SKILL.md",
-      "sha256": "1d84b5b836fac8b8d01023a146a5f53f9e86b331ca1c5998162482479e4541d0"
+      "sha256": "d52397a99c56d539d7b74b0de8bfa7f678b1d4688c857a29ddb3b47efaeaf314"
     },
     {
       "path": "bundles/opencode/skills/dethereal-enrich/enrich-skill-asks.md",
@@ -195,7 +199,11 @@
     },
     {
       "path": "bundles/opencode/skills/dethereal-help/SKILL.md",
-      "sha256": "87edbe04d2f6dcfeb72a84b40b237b556518c4e1de82f090786f62ba4ea04a5a"
+      "sha256": "d6f0ca68b1ec9e103286bbaa9b301d410909250ad8084fe1dc9d033c5654b660"
+    },
+    {
+      "path": "bundles/opencode/skills/dethereal-hidden-edges/SKILL.md",
+      "sha256": "8ac11dae78edb914724588935f70d417af2f51225df62ad6e2fdb5a4c37bdf4d"
     },
     {
       "path": "bundles/opencode/skills/dethereal-login/SKILL.md",
@@ -203,7 +211,7 @@
     },
     {
       "path": "bundles/opencode/skills/dethereal-remove/SKILL.md",
-      "sha256": "ad5736fbca1cff0a45e7937b3cda22116b45896058800da65cad25eebd1e34eb"
+      "sha256": "209b90f07f89b5175bfa19a43ec58989e249d8bbab6d4a5fbd67ba6e48622e78"
     },
     {
       "path": "bundles/opencode/skills/dethereal-remove/git-undo.md",
@@ -275,7 +283,7 @@
     },
     {
       "path": "bundles/opencode/skills/dethereal-threat-model/guided-build.md",
-      "sha256": "a23bad269fd999899e20030b9165f2715018d8d6741d5348dad5f7c617737b7e"
+      "sha256": "85ad58bc326010396742c5998b2fa3ad17b141786ad28973f9da299badb9ccc8"
     },
     {
       "path": "bundles/opencode/skills/dethereal-threat-model/guided-classify.md",
@@ -319,7 +327,7 @@
     },
     {
       "path": "bundles/opencode/skills/dethereal-triage/SKILL.md",
-      "sha256": "ecedd3f1211db299012b82359d78b94fffd084013b8d97ac863fbcb67254a80f"
+      "sha256": "555a39adc25a15565e6c9f9b17226ad7bf24422e36cdda2670db2678d5d60af2"
     },
     {
       "path": "bundles/opencode/skills/dethereal-triage/secret-files.md",
@@ -327,7 +335,7 @@
     },
     {
       "path": "bundles/opencode/skills/dethereal-triage/triage-evidence.md",
-      "sha256": "f1e13f04e9602042c8658ffaa62c785218bafb16cd2a878f0ba6974ea14fd038"
+      "sha256": "3863098c8b6abf4e01d895280f11fcf14d52597099eff6d9d8a1cf3dfcacf926"
     },
     {
       "path": "bundles/opencode/skills/dethereal-triage/triage-review.md",

@@ -145,6 +145,7 @@ permission:
   dethereal_manage_countermeasures: deny
   dethereal_manage_analyses: deny
   dethereal_manage_dispositions: deny
+  dethereal_manage_hidden_edges: deny
 ---
 
 You run as a specialist agent for the orchestrating conversation. Nobody answers you from here: never wait for a reply. Where these instructions give a question tagged `[prompt: <id>]`, end with it exactly as they say; put anything else that needs the operator in your final answer. Never start other agents. Return your result as your final answer.

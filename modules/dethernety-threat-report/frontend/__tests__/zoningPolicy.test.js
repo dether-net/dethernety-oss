@@ -423,3 +423,23 @@ describe('byFlow keying, intra-boundary skip, and rollup', () => {
     expect(res.byFlow.f.verdict).toBe('allowed') // INTERNAL→INTERNAL same tier
   })
 })
+
+describe('hidden-edge flows', () => {
+  it('get no verdict, keep no conduit live, and are counted once', () => {
+    const mg = {
+      boundaries: [
+        bnd('s', { conduits: [{ peerId: 't', direction: 'OUTBOUND', justification: 'ratified' }] }),
+        bnd('t'),
+      ],
+      components: [cmp('sc', 's'), cmp('tc', 't')],
+      flows: [{ ...flow('h', 'sc', 'tc'), hiddenEdge: true }],
+    }
+    const z = { effectiveZones: { s: { zone: 'INTERNAL' }, t: { zone: 'RESTRICTED' } } }
+    const res = evaluateDataFlowPolicy(mg, z)
+    expect(res.byFlow['h']).toBeUndefined()
+    expect(res.hiddenEdgeFlowsSetApart).toBe(1)
+    // The conduit has no modeled flow behind it: the inferred edge does not make it live.
+    expect(res.deadConduits.map((c) => c.peerId)).toEqual(['t'])
+    expect(evaluateDataFlowPolicy({ ...mg, flows: [flow('h', 'sc', 'tc')] }, z).byFlow['h']).toBeDefined()
+  })
+})

@@ -21,6 +21,8 @@ import { platformModelOf, TriageModelError } from '../triage/model.js'
 import { ModelReadError, readExposureEvidence, readModelExposures, ROW_REASON_MAX } from '../triage/exposures.js'
 import { elementOf, GROUP_PART_MAX, groupTriageSet, listingOf, pageOf, PARTS_MAX, partitionView, rowOf, selectRows, triageRows } from '../triage/model-views.js'
 import { keepTriageFilesOut } from '../triage/log.js'
+import { hiddenEdgeFlows } from '../hidden-edges/predicate.js'
+import { readDataFlows } from '../utils/directory-utils.js'
 
 const TEXT = z.string().max(200)
 const IDS = z.array(PLATFORM_ID).max(500)
@@ -148,7 +150,7 @@ export class QueryExposuresTool extends ClientDependentTool<ExposuresInput, unkn
     'tool-output limits. View \'partition\' (the default) returns the model\'s exposure count, its lifecycle partition (pending, ' +
     'confirmed, disposed, the stale overlay, USER and SYSTEM), the triage count (pending, not created by USER), the USER-created ' +
     'pending count and the elements with no exposures, with no rows; with element_id, that element\'s counts too. It also adds the ' +
-    'triage files (.dethereal/triage-log.json, .dethereal/triage-run/) to the model\'s .dethereal/.gitignore. View \'groups\' returns ' +
+    'per-machine files (.dethereal/triage-log.json, .dethereal/triage-run/, .dethereal/hidden-edges-log.json among them) to the model\'s .dethereal/.gitignore. View \'groups\' returns ' +
     'the triage set, pending findings not created by USER, grouped by name, type, category and definition hash, in parts of at ' +
     `most ${GROUP_PART_MAX} members. View 'rows' returns rows filtered by select (stale, user, all): element and its class, ` +
     `lifecycle, disposition fields with the reason cut to ${ROW_REASON_MAX} characters, ATT&CK and ATLAS ids, definition hash. ` +
@@ -215,7 +217,10 @@ export class QueryExposuresTool extends ClientDependentTool<ExposuresInput, unkn
       const rows = triageRows(read.rows, elementId)
       const listing = listingOf(rows)
       if (changed(listing)) return coded('listing_changed', LISTING_CHANGED)
-      const parts = groupTriageSet(read.rows, elementId)
+      // Findings on hidden edges this machine accepted are marked: they are the edge's own, reviewed with it.
+      const flows = await readDataFlows(dir).catch(() => [])
+      // A label only: a failure to read the decisions leaves the groups unmarked, never fails the listing.
+      const parts = groupTriageSet(read.rows, elementId, await hiddenEdgeFlows(dir, flows).catch(() => new Map<string, Set<string>>()))
       const kept = parts.slice(0, PARTS_MAX)
       const data = pageOf(kept, offset, (page, next, returned) => ({
         model_id: read.model_id, view: 'groups', ...scope, groups: page, rows_total: rows.length,

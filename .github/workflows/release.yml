@@ -154,12 +154,12 @@ jobs:
 
       # manifest.json is repo content at the tagged commit, and both fields reach a
       # filename and the index. Validate before use, assert the manifest name matches
-      # the directory, and fail on a count other than exactly three — an added module
+      # the directory, and fail on a count other than exactly four — an added module
       # must announce itself here rather than ship unnoticed, and a dropped one must
       # not pass silently.
       - name: Collect and validate module payloads
         env:
-          EXPECTED: "dethernety-general dethernety-coverage-tools dethernety-threat-report"
+          EXPECTED: "dethernety-general dethernety-coverage-tools dethernety-threat-report dethernety-hidden-edges"
         run: |
           set -euo pipefail
           mkdir -p staging
@@ -177,7 +177,7 @@ jobs:
             cp "$SRC" staging/
           done
           COUNT=$(find staging -maxdepth 1 -name '*.tar.gz' | wc -l | tr -d ' ')
-          [ "$COUNT" -eq 3 ] || { echo "::error::expected 3 payloads, staged ${COUNT}"; exit 1; }
+          [ "$COUNT" -eq 4 ] || { echo "::error::expected 4 payloads, staged ${COUNT}"; exit 1; }
           (cd staging && sha256sum *.tar.gz > SHA256SUMS)
           cat staging/SHA256SUMS
 

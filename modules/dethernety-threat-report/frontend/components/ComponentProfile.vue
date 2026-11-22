@@ -247,7 +247,7 @@
               <span class="trd-dir" :class="`trd-dir--${n.direction}`">{{ dirLabel(n.direction) }}</span>
               <button v-if="n.neighbourResolved" type="button" class="trd-drill-mini" @click="$emit('drill', n.neighbourId)" :title="`Open ${n.neighbourName} profile`">{{ n.neighbourName }}</button>
               <span v-else class="trd-unresolved" title="endpoint not present in this snapshot">{{ n.neighbourName }}</span>
-              <span class="trd-muted">via {{ n.flowName || '(unnamed flow)' }}</span>
+              <span class="trd-muted">via {{ n.flowName || '(unnamed flow)' }}<template v-if="n.inferred"> · inferred</template></span>
               <span v-if="n.maxSensitivity" class="trd-sens" :class="`trd-sens--${sensKey(n.maxSensitivity)}`">{{ n.sensitivityLabel }}</span>
             </li>
           </ul>

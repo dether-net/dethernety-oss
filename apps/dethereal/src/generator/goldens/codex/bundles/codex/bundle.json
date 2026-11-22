@@ -3,7 +3,7 @@
   "harness": "codex",
   "version": "<VERSION>",
   "generatedFrom": "59708494500ba79a9f0642def6442660eb88b6049e1a079633f1c86214c380a5",
-  "contentHash": "775ed4c6ab67d71499205a36657bbcc70fb99167a16e8f2d7628c006740a08a6",
+  "contentHash": "136b96af09a29307e1daba360d6fd00964abeac8a31ca90899a3b057f1512064",
   "files": [
     {
       "path": "bundles/codex/.agents/plugins/marketplace.json",
@@ -27,7 +27,7 @@
     },
     {
       "path": "bundles/codex/config.fragment.toml",
-      "sha256": "f4f2b22d9fa1cee78835e1026be4ba581f7700b42866a3d8d332cea66fc99c39"
+      "sha256": "ad3610905bca6dab7bc62633c3399a403ec0f8a0e5482abcd3af23cd23c670be"
     },
     {
       "path": "bundles/codex/plugins/dethereal/.codex-plugin/plugin.json",

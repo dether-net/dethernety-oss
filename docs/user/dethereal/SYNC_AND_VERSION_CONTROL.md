@@ -389,6 +389,7 @@ The plugin uses content hashes to determine if local changes exist. Diagram layo
 - Control files: `controls/<id>.json` (one per Control referenced by the model)
 - Workflow metadata: `.dethereal/state.json`, `.dethereal/quality.json`, `.dethereal/scope.json` — `state.json` is safe to share: a Gate 3 waiver it records counts only on the machine that granted it (see [Waiving a Gate 3 gap](GUIDED_WORKFLOW.md#waiving-a-gate-3-gap))
 - Discovery provenance: `.dethereal/discovery.json` — drift detection reads it
+- Hidden-edge decisions: `.dethereal/hidden-edges-decisions.json` — the hidden edges you accepted and rejected, shared with your teammates (see [Working With Teammates](HIDDEN_EDGES.md#working-with-teammates))
 - Class files: `.dethereal/class-cache/`, `.dethereal/template-fields/`
 - Auto-generated README: `README.md`
 - Model registry: `.dethernety/models.json`
@@ -398,6 +399,8 @@ The plugin uses content hashes to determine if local changes exist. Diagram layo
 - `.dethereal/sync.json` — this machine's sync state
 - `.dethereal/relay/` — the enrichment relay files, one per enrichment run: Step 8 of the guided workflow (see [One relay turn](GUIDED_WORKFLOW.md#one-relay-turn)), or an enrichment the threat-modeler agent hands to the security-enricher. Nothing reads them again once that enrichment is over: you may delete the folder by hand, in your own terminal, whenever no enrichment is running
 - `.dethereal/settlement-baseline.json`, `.dethereal/settlements.json` — the settlement's records, written only with the [settlement](#the-settlement-switch) switched on
+- `.dethereal/triage-log.json`, `.dethereal/triage-run/` — triage's record and run folders (see [Triaging Platform Findings](TRIAGE.md#on-this-machine))
+- `.dethereal/hidden-edges-log.json` — the hidden-edge record (see [Reviewing Hidden Edges](HIDDEN_EDGES.md#on-this-machine))
 
 These belong to this machine and are never shared. With the default settings, the Dethereal server writes `.dethereal/.gitignore` listing them, together with `control-audit.log`, on every pull, push and workflow-state change. It creates the file if there is none; otherwise it only appends the lines that are missing, and never changes a line you wrote. If `.dethereal/.gitignore` is a link or not a regular file, the server leaves it alone, and the plugin tells you to keep these files out of git yourself. If your repository already tracks one of them, untrack it once, in your own terminal:
 

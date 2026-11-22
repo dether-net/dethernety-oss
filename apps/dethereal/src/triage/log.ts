@@ -92,7 +92,7 @@ const ignored = new Set<string>()
 export async function keepTriageFilesOut(dir: string): Promise<string[]> {
   if (ignored.has(dir)) return []
   if ((await keepMachineFilesOut(dir)) === 'refused') {
-    return [".dethereal/.gitignore could not be updated: keep .dethereal/triage-log.json and .dethereal/triage-run/ out of git, as they hold the operator's replies and the runs' evidence"]
+    return [".dethereal/.gitignore could not be updated: keep .dethereal/triage-log.json, .dethereal/hidden-edges-log.json and .dethereal/triage-run/ out of git, as they hold the operator's replies and the runs' evidence"]
   }
   ignored.add(dir)
   return []
@@ -103,9 +103,20 @@ export async function keepTriageFilesOut(dir: string): Promise<string[]> {
  * a RecordError to refuse, writing nothing. The record file is kept out of git before its first write here.
  */
 export async function recordReview(dir: string, reviewId: string, fresh: () => LoggedReview, change: (r: LoggedReview) => void): Promise<{ warnings: string[] }> {
+  return recordReviewIn(dir, { file: LOG_FILE, name: 'triage record' }, reviewId, fresh, change)
+}
+
+/** A review record of this machine's, under `.dethereal/`, and what its refusals call it. */
+export interface ReviewRecordFile {
+  file: string
+  name: string
+}
+
+/** {@link recordReview} for any review record of the same shape: triage's, or another review's. */
+export async function recordReviewIn(dir: string, record: ReviewRecordFile, reviewId: string, fresh: () => LoggedReview, change: (r: LoggedReview) => void): Promise<{ warnings: string[] }> {
   const warnings = await keepTriageFilesOut(dir)
   try {
-    await updateDetherealJson(dir, LOG_FILE, (doc) => {
+    await updateDetherealJson(dir, record.file, (doc) => {
       const reviews = (Array.isArray(doc.reviews) ? doc.reviews : []).filter(isReview) as LoggedReview[]
       let entry = reviews.find((r) => r.review_id === reviewId)
       if (!entry) {
@@ -126,8 +137,8 @@ export async function recordReview(dir: string, reviewId: string, fresh: () => L
     throw new RecordError(
       'record_unwritable',
       code === 'invalid_json' || code === 'not_object' || code === 'too_large'
-        ? 'the triage record (.dethereal/triage-log.json) cannot be read: move it aside, then try again; nothing was taken'
-        : `the triage record could not be written (${code ?? 'error'}); nothing was taken: try again`,
+        ? `the ${record.name} (.dethereal/${record.file}) cannot be read: move it aside, then try again; nothing was taken`
+        : `the ${record.name} could not be written (${code ?? 'error'}); nothing was taken: try again`,
     )
   }
   return { warnings }

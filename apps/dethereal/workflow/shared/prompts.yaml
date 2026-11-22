@@ -790,6 +790,24 @@ prompts:
     options: [yes, no]
     requires: ["remediation task list", "(yes / no)"]
 
+  # Hidden edges
+  - id: hidden-edges-review
+    skill: hidden-edges
+    mandatory: true
+    when: the review table has been shown, and again after every reply until the review closes
+    after: the review table and its candidate numbers the first time; after that, the result of the last reply, or its refusal
+    decides: the operator's next review command, passed verbatim to the review parser
+    free_text: true
+    requires: ["Your command?"]
+  - id: hidden-edges-apply
+    skill: hidden-edges
+    mandatory: true
+    when: prepare returned a plan
+    after: the plan's lines, verbatim
+    decides: whether the accepted edges are written to the local files and their findings affirmed; the reply goes to commit as typed, so it is the word yes or the word cancel, never a number
+    free_text: true
+    requires: ["Apply", "hidden-edge change(s)?", "Type yes or cancel."]
+
 # Questions a phase asks together, in one dialog (the phase files name each group where it is asked). A question
 # that ratifies trust or crown jewels — boundary-trust, approved-channels, crown-jewel-confirm,
 # restricted-promotion — is never grouped: its answer is the record of that decision, and stays the operator's

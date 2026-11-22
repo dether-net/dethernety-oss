@@ -175,12 +175,12 @@ given and describes where they are enforced.
 
 | Library | Purpose |
 |---|---|
-| [`aggregateLedger.js`](../../../modules/dethernety-threat-report/frontend/lib/aggregateLedger.js) | The base aggregation over the snapshot `ledger`: per-element live/dispositioned partition, score-band annotation, USER/SYSTEM provenance, control-consistency audit. Also **derives each finding's lifecycle** (`pending \| confirmed \| disposed`) from `dispositionKind` + provenance — never stored, recomputed at view time, mirroring the dt-ui `useFindingDisposition` composable so report and editor agree. The rules: `AFFIRMED` with an attributed actor → **confirmed**; `AFFIRMED` with a null actor → **pending** (an unattributed affirm is not a real confirmation); no disposition + USER-authored → **confirmed**; no disposition + SYSTEM-authored (or null) → **pending**; any muting kind → **disposed**. **AFFIRMED is treated as live** (`isLive` = `dispositionKind` is null **or** `=== 'AFFIRMED'`). The shared substrate the other engines reuse. |
+| [`aggregateLedger.js`](../../../modules/dethernety-threat-report/frontend/lib/aggregateLedger.js) | The base aggregation over the snapshot `ledger`: per-element live/dispositioned partition, score-band annotation, USER/SYSTEM provenance, control-consistency audit. Also **derives each finding's lifecycle** (`pending \| confirmed \| disposed`) from `dispositionKind` + provenance — never stored, recomputed at view time, mirroring the dt-ui `useFindingDisposition` composable so report and editor agree. The rules: `AFFIRMED` with an attributed actor → **confirmed**; `AFFIRMED` with a null actor → **pending** (an unattributed affirm is not a real confirmation); no disposition + USER-authored → **confirmed**; no disposition + SYSTEM-authored (or null) → **pending**; any muting kind → **disposed**. **AFFIRMED is treated as live** (`isLive` = `dispositionKind` is null **or** `=== 'AFFIRMED'`). It also owns the hidden-edge helpers every engine shares (`isHiddenEdgeFlow`, `hiddenEdgeFlowIds`, `isInferredPath`, `markSetApart`, `isSetApart`); see [Hidden edges in the report](#hidden-edges-in-the-report). The shared substrate the other engines reuse. |
 | [`postureSummary.js`](../../../modules/dethernety-threat-report/frontend/lib/postureSummary.js) | Composes the ledger aggregation plus the boundary-crossing counts into the Posture Summary roll-up. The only aggregating surface; introduces no new analysis. |
 | [`coverageMatrix.js`](../../../modules/dethernety-threat-report/frontend/lib/coverageMatrix.js) | The MITRE ATT&CK coverage presentation/honesty layer: joins live coverage facts to the ledger for disposition, buckets by tactic × tier × prevent/detect, and accounts for everything held off the grid. |
-| [`reachability.js`](../../../modules/dethernety-threat-report/frontend/lib/reachability.js) | The flow-route engine: a pure, bounded, simple-path traversal over the snapshot topology for crown-jewel reachability, origin→target route enumeration, origin→target choke points (`chokePoints()`, a vertex-cut dominator test), and a node's forward blast radius (`blastRadius()`). |
-| [`boundaryCrossings.js`](../../../modules/dethernety-threat-report/frontend/lib/boundaryCrossings.js) | The boundary-crossing engine, now in **two layers**: a *structural* layer (ancestor-stack resolution, the EXIT/ENTER symmetric-difference membrane model, on-flow and crossed-boundary posture) and a *policy* layer (the per-flow declared-zone verdict from `zoningPolicy.js`, folded in). `computeCrossings` takes the snapshot `zoning` block, ranks the worklist **verdict-severity first**, and returns the per-flow verdicts, `conduitErrors`, `deadConduits`, and the policy rollup alongside the structural crossings. |
-| [`zoningPolicy.js`](../../../modules/dethernety-threat-report/frontend/lib/zoningPolicy.js) | The **declared-zone data-flow policy engine**. `evaluateDataFlowPolicy(modelGraph, zoning)` classifies each crossing flow against the operator's declared zones / domains / planes / conduits, in a deterministic first-match order (type axis → plane gate → direction gate → domain split + zone-pair matrix → conduit reconciliation), returning per-flow verdicts (`violation` / `warning` / `advisory` / `allowed`), conduit errors and dead conduits, and a fail rollup. `zoningAdvisories` groups the per-boundary advisory findings for the ledger; `tierClass` maps a zone to its chip class. A verdict asserts "the model as drawn encodes an illegal crossing," never "we verified the flow cannot occur." |
+| [`reachability.js`](../../../modules/dethernety-threat-report/frontend/lib/reachability.js) | The flow-route engine: a pure, bounded, simple-path traversal over the snapshot topology for crown-jewel reachability, origin→target route enumeration, origin→target choke points (`chokePoints()`, a vertex-cut dominator test), and a node's forward blast radius (`blastRadius()`). Hidden-edge flows are routes here, and every result that uses one labels it (`inferredEdgeName`, `inferredEdgeText`). |
+| [`boundaryCrossings.js`](../../../modules/dethernety-threat-report/frontend/lib/boundaryCrossings.js) | The boundary-crossing engine, now in **two layers**: a *structural* layer (ancestor-stack resolution, the EXIT/ENTER symmetric-difference membrane model, on-flow and crossed-boundary posture) and a *policy* layer (the per-flow declared-zone verdict from `zoningPolicy.js`, folded in). `computeCrossings` takes the snapshot `zoning` block, ranks the worklist **verdict-severity first**, and returns the per-flow verdicts, `conduitErrors`, `deadConduits`, and the policy rollup alongside the structural crossings. Hidden-edge flows are never crossings: it returns them, named, in `setApartFlows`. |
+| [`zoningPolicy.js`](../../../modules/dethernety-threat-report/frontend/lib/zoningPolicy.js) | The **declared-zone data-flow policy engine**. `evaluateDataFlowPolicy(modelGraph, zoning)` classifies each crossing flow against the operator's declared zones / domains / planes / conduits, in a deterministic first-match order (type axis → plane gate → direction gate → domain split + zone-pair matrix → conduit reconciliation), returning per-flow verdicts (`violation` / `warning` / `advisory` / `allowed`), conduit errors and dead conduits, a fail rollup, and `hiddenEdgeFlowsSetApart` (hidden-edge flows get no verdict and keep no conduit live). `zoningAdvisories` groups the per-boundary advisory findings for the ledger; `tierClass` maps a zone to its chip class. A verdict asserts "the model as drawn encodes an illegal crossing," never "we verified the flow cannot occur." |
 | [`componentProfile.js`](../../../modules/dethernety-threat-report/frontend/lib/componentProfile.js) | Synthesises a single element's residual-risk profile: boundary context (now with each ancestor boundary's effective-zone chip), handled data, exposures, controls, 1-hop neighbours, and — for a SecurityBoundary target — a dedicated **trust-zoning block** (effective zone + source, planes, domains, in/outbound conduits) joined from the snapshot `zoning` block. For a Component or SecurityBoundary target it also carries the **who-runs-it block** from `whoRunsIt.js`. |
 | [`whoRunsIt.js`](../../../modules/dethernety-threat-report/frontend/lib/whoRunsIt.js) | The words for who runs an element, over the snapshot `operation` block: the profile block (`whoRunsItView`), the exposure detail line (`whoRunsItLine`), and the HTML export's rows (`entryTexts`, `hasOperationToShow`). Free of dt-core values: the rules ran in the backend. It states a declaration and how it was decided, never a judgement. |
 | [`completenessFlags.js`](../../../modules/dethernety-threat-report/frontend/lib/completenessFlags.js) | Model-wide "silent-green" guards: under-analyzed high-value elements, orphan components outside any boundary. Surfaced banner-first. |
@@ -231,7 +231,9 @@ the host to re-fetch the document.
 The shell normalizes the raw document into a `snapshot` computed that always
 presents the four graph keys (`boundaries`, `components`, `flows`, `dataNodes`)
 and a `ledger`, defaulting any absent key so the pure libraries never see
-`undefined`. It owns three concerns: lifecycle gating, the banner, and the
+`undefined`. It de-duplicates the ledger's elements, overlays optimistic edits,
+and marks the set-apart findings once for every view (`markSetApart`, see
+[Hidden edges in the report](#hidden-edges-in-the-report)). It owns three concerns: lifecycle gating, the banner, and the
 view/drill switch.
 
 ### Lifecycle gating
@@ -385,6 +387,80 @@ and domains, and its declared conduits (outbound plus the re-derived inbound
 mirror, each drillable) — framed explicitly as declared intent, not an enforced
 permission. The zone chips and the block default cleanly to absent on a pre-zoning
 snapshot.
+
+### Hidden edges in the report
+
+A **hidden edge** is an inferred attack path an operator accepted, recorded as a
+flow whose class is in the category `Hidden Edge`; the snapshot marks it with
+`hiddenEdge` on the flow (see
+[data-model.md](./data-model.md#hidden-edge-flows-and-set-apart-findings)). Its own
+findings, one per path technique, are in the category `Inferred Path`. The
+report applies the platform-wide
+[hidden-edges analysis contract](../dethernety-hidden-edges/analysis-contract.md):
+reachability includes the edge and labels it, the checks that judge the model as
+drawn leave it out and count it, and its own findings are set apart from every
+total.
+
+**Recognising one.** `isHiddenEdgeFlow(flow)` is true for any truthy `hiddenEdge`:
+the facts object (`{ kind, tier, grantedPrivilege }`) or, on an older snapshot,
+`true`. A flow with no `hiddenEdge` is an ordinary flow, so a snapshot generated
+before the field existed reads every flow as ordinary until it is regenerated.
+
+**The set-apart rule.** `markSetApart(ledger, modelGraph)` marks a finding
+`setApart: true` when its `category` is `Inferred Path` **and** its element is a
+hidden-edge flow; both facts, never one alone. It is idempotent, and a ledger
+with no hidden-edge flow comes back as it was. The shell applies it once; each
+engine applies it again over its own inputs, so it stays correct when used on its
+own. `isSetApart(finding)` is the test every engine uses to leave a finding out.
+
+| Surface | Hidden-edge flows | Set-apart findings |
+|---|---|---|
+| **Residual Risk** (`aggregateLedger(ledger, modelGraph)`) | — | In none of the totals or groups; `totals.inferredPathSetApart` counts them, and the header reads "· N inferred-path finding(s) set apart". A crown-jewel cross-reference reached only through an inferred edge reads "\<jewel\> (via inferred edge)", from `routeElementToJewelsViaInferredOnly` |
+| **Posture Summary** (`computePostureSummary`) | Left out of the defense-in-depth line, whose controls are never graded | Out of every band and count; `inferredPathSetApart` and a "· N inferred-path finding(s) set apart" line. The reachability block adds "· N only via inferred edge" |
+| **Coverage & Gaps** (`buildCoverageView(coverage, ledger, modelGraph)`) | Left out of structural gaps, defense-in-depth and the mismatch flags: a hidden-edge flow is not an element whose controls are graded | Off the grid: `offGrid.inferredPathSetApart` is the coverage facts' own `meta.inferredPathSetApart` plus any such exposure the live facts still carry, shown as one off-grid line and summary chip |
+| **Reachability** (`reachability.js`) | Included as routes and labelled (below) | Never raise on-route posture or the risk-accepted counts (`postureOf` and `riskAcceptedOf` skip them) |
+| **Boundary Crossings** (`computeCrossings`) | Never a crossing and never given a policy verdict; `setApartFlows` names them (`{ flowId, flowName, kind }`, by name), `totals.hiddenEdgeFlowsSetApart` counts them, and the view lists them, drillable | Never raise on-flow or crossed-boundary posture |
+| **Component Profile** (`computeComponentProfile`) | A 1-hop neighbour reached through one carries `inferred: true` and reads "via \<flow\> · inferred" | Out of the element's totals |
+
+**Labels.** Every reachability result that uses a hidden edge says so, with what
+the edge records:
+
+| Text | Built by | Example |
+|---|---|---|
+| One edge | `inferredEdgeName(edge)` | `inferred edge (high, grants admin)`; `inferred edge` when it records nothing |
+| The edges a route, jewel or radius uses | `inferredEdgeText(edges)` | `via inferred edge (high, grants admin)`; several edges list their distinct details, `via inferred edges (high, grants admin; medium, grants user)` |
+
+**Reachability fields.**
+
+- `buildProjection` keeps hidden-edge flows, each edge carrying `inferred`.
+- `annotateRoute`: each hop carries `inferred`, `inferredEdge` and `inferredLabel`;
+  the route carries `viaInferredEdge`, `inferredEdges` and `inferredLabel`.
+  `modeBRoutes` adds `viaInferredEdge` over all routes.
+- `modeAReachability`: each jewel carries `viaInferredEdge` (some route to it rides
+  one), `onlyViaInferredEdge` (no modeled flow route reaches it at all),
+  `shortestViaInferredEdge`, `inferredEdges` and `inferredLabel`; the rollup adds
+  `inferredOnlyCount`. Beside `routeElementToJewels`, the in-memory
+  `routeElementToJewelsViaInferredOnly` maps each element to the jewels it leads to
+  only through an inferred edge.
+- `chokePoints`: the choke points are computed over every edge, and again over
+  modeled flows alone. A declared choke point that an inferred edge goes around is
+  returned in `bypassedChokePoints` (`{ id, name, bypassedBy, text }`, the text
+  reading "declared choke point \<name\> is bypassed by inferred edge (…) \<flow\>")
+  instead of silently vanishing. `hasDirectFlow` is true for a **modeled** direct
+  flow only; a direct inferred edge is `directInferredEdge`. `viaInferredEdge`,
+  `inferredEdges` and `inferredLabel` describe the inferred edges on any route
+  between the two. The view then reads "Every route (incl. inferred edges) passes
+  through" instead of "Every modeled route passes through".
+- `blastRadius`: each node carries `viaInferredEdge` (in the radius only through an
+  inferred edge) and the `inferredLabel` of the edges its shortest route rides; the
+  radius carries `viaInferredEdge`, `inferredEdges`, `inferredLabel` and
+  `inferredOnlyCount`.
+
+The Reachability view's caveat says so too: these flow routes do not model
+credential reuse or token theft, **except as an inferred edge an operator
+accepted**, which every route using one names.
+
+**In the exports.** See [What every format shares](#what-every-format-shares).
 
 ---
 
@@ -725,7 +801,17 @@ boundary crossings when the model has no boundaries or flows). The
 boundary-crossings payload carries the per-flow declared-zone verdicts
 (violation / warning / advisory, allowed staying silent), the conduit-error and
 dead-conduit surfaces, and the same honesty caveat the view shows — a verdict is
-declared intent as drawn, never verified enforcement. Every format also states
+declared intent as drawn, never verified enforcement. Every format applies the
+[hidden-edge rules](#hidden-edges-in-the-report) as the live views do:
+
+| Format | Hidden-edge lines |
+|---|---|
+| JSON | `provenance.totals.inferredPathSetApart`; the coverage view's `offGrid.inferredPathSetApart`; in `reachability`, `inferredOnlyCount` and, per jewel, `viaInferredEdge`, `onlyViaInferredEdge`, `inferredEdgeLabel` and `inferredEdges`; in `boundaryCrossings`, `setApartFlows` and `totals.hiddenEdgeFlowsSetApart` (or `hiddenEdgeFlowsSetApart` beside the no-crossings note) |
+| HTML (both forms) | "N inferred-path finding(s) set apart" under the summary; "N inferred-path exposure(s) set apart" among the coverage off-grid lines; a reachable jewel reads "reachable · via inferred edge (…)", or "reachable · only via inferred edge (…)"; Boundary Crossings names "N hidden-edge flow(s) set apart: \<flow\> (\<kind\>), …" |
+
+The reachability caveat in every format adds that an inferred edge an operator
+accepted is the one exception to "does not model credential reuse or token
+theft". Every format also states
 plainly what the artifact is: a point-in-time snapshot of the *modeled* posture —
 not a live or deployed-state scan — with findings deliberately not rolled into a
 single risk score and no coverage percentage implied. The JSON carries this in

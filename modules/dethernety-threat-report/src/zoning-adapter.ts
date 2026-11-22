@@ -78,6 +78,8 @@ export interface ZoningGraphFlow {
   name: string;
   sourceId: string | null;
   targetId: string | null;
+  /** Set on an inferred attack path an operator accepted: not a declared flow, so zoning leaves it out. */
+  hiddenEdge?: object | boolean | null;
 }
 
 export interface ZoningGraphDataNode {
@@ -112,6 +114,8 @@ export interface ZoningResult {
   /** Per-boundary DECLARED effective zone (declared/inherited/default) — authoritative, never the
    *  topological `determineZoneTier` proposal. Keyed by boundary id; the synthetic root is excluded. */
   effectiveZones: Record<string, EffectiveZone>;
+  /** Hidden-edge flows left out of the engine's input. */
+  hiddenEdgeFlowsSetApart: number;
 }
 
 // ── Pure graph → ModelStructure adapter ────────────────────────────────────────────────────────
@@ -126,6 +130,7 @@ export function graphToZoningStructure(graph: ZoningGraphInput): {
   structure: ModelStructure;
   flows: DataFlow[];
   dataItems: DataItem[];
+  hiddenEdgeFlowsSetApart: number;
 } {
   const boundaries = graph.boundaries ?? [];
   const components = graph.components ?? [];
@@ -216,8 +221,15 @@ export function graphToZoningStructure(graph: ZoningGraphInput): {
   const structure: ModelStructure = { defaultBoundary: root };
 
   // 5. Flows: component→component edges the engine projects to boundary→boundary. Drop null endpoints.
+  //    A hidden-edge flow is an inferred attack path, not a declared channel: zoning judges the model as
+  //    drawn, so it is set apart (and counted) rather than read as a crossing.
   const flows: DataFlow[] = [];
+  let hiddenEdgeFlowsSetApart = 0;
   for (const f of graph.flows ?? []) {
+    if (f.hiddenEdge) {
+      hiddenEdgeFlowsSetApart++;
+      continue;
+    }
     if (f.sourceId == null || f.targetId == null) continue;
     flows.push({ id: f.id, name: f.name || '', source: { id: f.sourceId }, target: { id: f.targetId } });
   }
@@ -232,7 +244,7 @@ export function graphToZoningStructure(graph: ZoningGraphInput): {
     regulatory_flags: d.regulatoryFlags ?? [],
   }));
 
-  return { structure, flows, dataItems };
+  return { structure, flows, dataItems, hiddenEdgeFlowsSetApart };
 }
 
 /**
@@ -241,7 +253,7 @@ export function graphToZoningStructure(graph: ZoningGraphInput): {
  * excluded from the effective-zone map (never a real boundary).
  */
 export function computeZoning(graph: ZoningGraphInput, engine: ZoningEngine): ZoningResult {
-  const { structure, flows, dataItems } = graphToZoningStructure(graph);
+  const { structure, flows, dataItems, hiddenEdgeFlowsSetApart } = graphToZoningStructure(graph);
   const ctx = engine.buildZoningContext(structure, flows, dataItems);
   const findings = engine.computeZoningFindings(ctx);
   // Declared effective zone per boundary (declared/inherited/default). `buildZoningContext` has
@@ -254,7 +266,7 @@ export function computeZoning(graph: ZoningGraphInput, engine: ZoningEngine): Zo
     if (id === ZONING_ROOT_ID) continue;
     effectiveZones[id] = engine.resolveEffectiveZone(id, ctx.boundariesById, ctx.defaultBoundaryId);
   }
-  return { findings, effectiveZones };
+  return { findings, effectiveZones, hiddenEdgeFlowsSetApart };
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────────────────────

@@ -32,13 +32,13 @@ Triage the platform's computed exposures for one model: group them, build eviden
 - Warnings: a `warnings` list in a tool's answer is shown once, as returned; one from the `list_model` partition before the first scratch write.
 - **A cut answer is never read back.** A tool answer the harness cut or saved to a file, instead of showing it whole, is not read: not with the shell, a file read, a search or an agent. Call the tool again with what it offers to narrow or page (a view, a filter, `next_offset`). If nothing fits, say what could not be read and stop that step. A page's own `truncated: true` is not such a cut: it says more pages follow.
 - **Model-wide numbers come from the server.** A model-wide total, partition or count a tool returns is shown as returned. Never count, add or subtract exposures across the model by hand, and never have an agent do it.
-- Degradation: one line naming the next step; when the run cannot go on, say so and stop. Never fake output; a failed read before the proposals stops the run before any proposal — except a knowledge-graph read, which the evidence file handles.
+- Degradation: one line naming the next step; when the run cannot go on, say so and stop. Never fake output; a failed read before the proposals stops the run — except a knowledge-graph read, which the evidence file handles.
 
 {{include shared/model-resolution.md}}
 
 ## 1. Sign-in and the model
 
-1. Call {{tool:auth_status}} with `verify: true` — the run's first call that reaches the platform. Not signed in → the core rules' sign-in question; on `skip`, stop. A later call refused for lack of a session asks the same question, then makes that call again: a closed review is still held while the operator signs in.
+1. Call {{tool:auth_status}} with `verify: true`, the run's first platform call. Not signed in → the core rules' sign-in question; on `skip`, stop. A later call refused for lack of a session asks the same question, then makes that call again: a closed review is still held while the operator signs in.
 2. `<model-dir>`: with no directory in the arguments, the working directory when it holds `manifest.json` and `.dethereal/sync.json`; otherwise the Model Resolution Protocol above.
 3. {{tool:query_exposures}} `list_model` — the partition view, the default — with `directory_path`, and `element_id` with `--element`. A refusal (the model not synced, another platform, `element_not_found` for an `--element` naming no element) is shown as returned, and the run stops. Then:
    - No rows in the model, `exposures` 0: "No exposures found — the platform analysis has not run for this model. Run an analysis on the platform, then retry." Stop.
@@ -97,7 +97,7 @@ The run's last message names the task list's path, when one was written, so the 
 
 ```
 [done] Triage: <a> affirmed, <d> disposed, <s> superseded, <k> skipped, <h> needs-human left.
-[next] When you're ready: {{cmd:triage}} (to continue with what is still pending)
+[next] When you're ready: {{cmd:triage}} (what is still pending), or {{cmd:hidden-edges}} (inferred attack paths)
 ```
 
 With `--stale`: `[done] Stale sweep: <r> reaffirmed, <c> cleared, <k> skipped.` and `[next] When you're ready: {{cmd:triage --stale}} (to continue with what is still stale)`.

@@ -710,6 +710,12 @@ docs/architecture/
 │   ├── architecture.md                # Graded-bridge design & query mechanics
 │   └── coverage-facts.md              # Output contract (gradedCoverage)
 │
+├── dethernety-hidden-edges/           # Hidden Edges module (inferred attack paths)
+│   ├── README.md                      # Module overview + doc index
+│   ├── architecture.md                # Candidate generation: table, tiers, merge, KG regime, bounds
+│   ├── query-contract.md              # Output contract (hiddenEdgeCandidates)
+│   └── analysis-contract.md           # What analyses see of an accepted hidden edge
+│
 └── byodt/                             # The BYODt deployment (self-hosted stack)
     ├── README.md                      # What it is, its shape, and when it fits
     ├── ARCHITECTURE.md                # Services, ports, storage, request path
@@ -729,6 +735,7 @@ docs/architecture/
 | **MCP Server (Dethereal)** | [dethereal/](./dethereal/README.md) |
 | **Threat Report Module** | [dethernety-threat-report/](./dethernety-threat-report/README.md) |
 | **Coverage Tools Module** | [dethernety-coverage-tools/](./dethernety-coverage-tools/README.md) |
+| **Hidden Edges Module** | [dethernety-hidden-edges/](./dethernety-hidden-edges/README.md) |
 
 ---
 

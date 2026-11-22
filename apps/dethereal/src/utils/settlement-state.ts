@@ -64,7 +64,7 @@ export interface SettlementState {
   logBytes: Buffer | null
 }
 
-type Payload = Pick<GateInput, 'structure' | 'dataFlows' | 'dataItems' | 'attributes'> & { pending?: GateInput['pending']; manifest?: GateInput['manifest'] }
+type Payload = Pick<GateInput, 'structure' | 'dataFlows' | 'dataItems' | 'attributes'> & { pending?: GateInput['pending']; manifest?: GateInput['manifest']; hiddenEdgeFlows?: GateInput['hiddenEdgeFlows'] }
 
 /**
  * The registered values that count, from a verified baseline. Every operator
@@ -131,6 +131,7 @@ export async function settlementState(dir: string, input: GateInput, options: { 
   const drift = computeDrift({
     refs, values, attributeFields, pending: input.pending?.all ?? input.pending?.entries ?? [], baseline: counted.values, pendingRecordFields: RECORD_FIELDS,
     controlsRegistered: counted.controls,
+    excluded: input.hiddenEdgeFlows,
     // The rule settle holds a value to, so a row no decision could register shows why.
     unregistrable: (v, ref) => (v.kind === 'record'
       ? recordRefusal(v.group, v.field, v.value)
@@ -184,6 +185,7 @@ export async function payloadDrift(dir: string | null, payload: Payload, modelId
       return { baseline: counted?.values ?? {}, controlsRegistered: counted?.controls ?? {} }
     })(),
     pendingRecordFields: RECORD_FIELDS,
+    excluded: payload.hiddenEdgeFlows,
   })
   return { drift, baseline }
 }

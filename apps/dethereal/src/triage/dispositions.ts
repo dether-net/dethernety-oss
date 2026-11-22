@@ -208,7 +208,7 @@ export function planOperations(input: PrepareInput): PlannedOperation[] {
       const body = (o.reason ?? '').trim()
       if (!body) return reject({ ...base, kind: o.kind }, 'reason_empty')
       // The operator-edited marker only on a reason the operator wrote: a proposed reason stays approved.
-      const reason = `${body}${o.operator_reason ? MARKER_EDITED : MARKER_APPROVED}`
+      const reason = `${body}${o.marker ?? (o.operator_reason ? MARKER_EDITED : MARKER_APPROVED)}`
       if (reason.length > REASON_MAX) return reject({ ...base, kind: o.kind }, 'reason_too_long', `the reason is ${reason.length} characters with its marker; at most ${REASON_MAX}`)
       const replacing = s.disposition_kind ? { replacing: { kind: s.disposition_kind, reason: s.full_reason } } : {}
       return { ...base, kind: o.kind, reason, ...replacing, status: 'ready' }

@@ -514,6 +514,8 @@ export interface DriftInput {
   controlsRegistered?: Record<string, unknown>
   /** Why an unregistered value could not be registered as it stands (the settle rule), or undefined when it could */
   unregistrable?: (v: DriftValue, ref: ElementRef) => RowCode | undefined
+  /** Flows whose values are never drift (the hidden edges this machine accepted): present, but neither unregistered nor gone */
+  excluded?: ReadonlySet<string> | ReadonlyMap<string, unknown>
 }
 
 const FIELD_SHOWN = /^[A-Za-z0-9_-]{1,128}$/
@@ -600,6 +602,7 @@ export const NOT_RECORDED = 'not_recorded'
  */
 export function computeDrift(input: DriftInput): Drift {
   const pending = new Set(input.pending.map((e) => tripleOf(e.group, e.element_id, e.field)))
+  const isExcluded = (group: SettleGroup, id: string) => group === 'dataFlows' && !!input.excluded?.has(id)
   // A pending row names a record field only when the element's attribute bag does not hold that field.
   const isPending = (v: Pick<DriftValue, 'group' | 'id' | 'field' | 'kind'>) => {
     const t = tripleOf(v.group, v.id, v.field)
@@ -615,6 +618,7 @@ export function computeDrift(input: DriftInput): Drift {
     const ref = input.refs[v.group].get(v.id)
     // A coded value is still there: its registration is not a removal, though the value cannot be registered as it is.
     if (ref) present.add(entryKey(ref, v.kind, v.field))
+    if (isExcluded(v.group, v.id)) continue
     const key = ref && !v.code ? entryKey(ref, v.kind, v.field) : undefined
     if (!v.code && isPending(v)) continue
     const hash = hashOf(v)
@@ -674,6 +678,7 @@ export function computeDrift(input: DriftInput): Drift {
       continue
     }
     for (const ref of refs) {
+      if (isExcluded(ref.group, ref.id)) continue
       if (isPending({ group: ref.group, id: ref.id, field, kind })) continue
       if (input.baseline[key] === ABSENT) {
         if (kind === 'attr' && ref.group !== 'model') declined.push({ group: ref.group, element_id: ref.id, ...(ref.name ? { name: ref.name } : {}), field: shownField(field) })

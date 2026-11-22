@@ -1,0 +1,9 @@
+{
+  "id": "5dd61304-76ae-4439-893f-2eba21c6c77a",
+  "name": "Hidden Edge: Host Escape",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "An inferred attack path reviewed by the operator, not a declared flow: an attacker in a container breaks out to its host and reaches what runs there outside the container (ATT&CK T1611): a path the model does not declare as a flow. Dethereal writes a flow of this class when the operator accepts a hidden-edge candidate; it is never the class of an ordinary data flow.",
+  "category": "Hidden Edge",
+  "status": "draft"
+}

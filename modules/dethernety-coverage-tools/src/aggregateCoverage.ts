@@ -16,7 +16,18 @@
  *     (prevent/detect), and which countermeasures + their parent controls.
  * It carries NO disposition filter, NO bucketing, NO percentage, NO single
  * "Covered: N", and NO detect-only reduction — those are the report's job.
+ *
+ * One exception to "every exposure": an exposure in the inferred-path category
+ * on a flow whose class is in the hidden-edge category (emitted on an accepted
+ * hidden edge, one per path technique) is not a declared finding to cover. It is
+ * set apart — out of `exposures`, `techniques` and every `meta` count — and
+ * counted once in `meta.inferredPathSetApart`. Both categories must hold: an
+ * inferred-path exposure on any other element counts as usual.
  */
+
+/** The class category of a hidden-edge flow, and the category of the exposures its class emits, as the model's data holds them. */
+export const HIDDEN_EDGE_CATEGORY = 'Hidden Edge';
+export const INFERRED_PATH_CATEGORY = 'Inferred Path';
 
 export type CoverageTier =
   | 'DIRECT'
@@ -32,7 +43,9 @@ export type CoverageFunction = 'PREVENT' | 'DETECT';
 export interface BaseRow {
   elementId: string;
   elementKind: string | null; // Component | DataFlow | SecurityBoundary | Data
+  elementClassCategory?: string | null; // the category of the element's class
   exposureId: string;
+  exposureCategory?: string | null; // the exposure's category
   techniqueId: string | null; // EXPLOITED_BY attack_id (e.g. "T1190"); null ⇒ soft
   techniqueName?: string | null; // human-readable ATT&CK name (e.g. "Data from Local System")
   techniqueDescription?: string | null; // full ATT&CK description
@@ -128,6 +141,8 @@ export interface CoverageResult {
     coveredPairsByTier: Record<CoverageTier, number>;
     /** distinct countermeasures contributing a covering edge at each tier */
     countermeasuresByTier: Record<CoverageTier, number>;
+    /** distinct inferred-path exposures left out of everything above */
+    inferredPathSetApart: number;
   };
 }
 
@@ -163,8 +178,22 @@ function directFunction(relType: string): CoverageFunction {
   return /_DETECTS$/.test(relType) ? 'DETECT' : 'PREVENT';
 }
 
+/** An inferred-path exposure on a flow whose class is a hidden edge: both categories, exactly. */
+export function isSetApart(row: BaseRow): boolean {
+  return (
+    row.exposureCategory === INFERRED_PATH_CATEGORY &&
+    row.elementKind === 'DataFlow' &&
+    row.elementClassCategory === HIDDEN_EDGE_CATEGORY
+  );
+}
+
 export function aggregateCoverage(input: AggregateInput): CoverageResult {
-  const { modelId, generatedAt, baseRows, directRows, mitigationRows, d3fendRows } = input;
+  const { modelId, generatedAt, directRows, mitigationRows, d3fendRows } = input;
+
+  // Inferred-path exposures on hidden-edge flows are set apart before anything is counted; their tier rows go
+  // with them.
+  const setApart = new Set(input.baseRows.filter(isSetApart).map((r) => r.exposureId));
+  const baseRows = input.baseRows.filter((r) => !setApart.has(r.exposureId));
 
   // (exposure, technique) -> tier -> function -> { cms, controls }
   type Contrib = { cms: Set<string>; controls: Set<string> };
@@ -180,7 +209,7 @@ export function aggregateCoverage(input: AggregateInput): CoverageResult {
     cmId: string,
     controlId: string | null | undefined,
   ) => {
-    if (!exposureId || !techniqueId || !cmId) return;
+    if (!exposureId || !techniqueId || !cmId || setApart.has(exposureId)) return;
     const k = KEY(exposureId, techniqueId);
     let tm = cells.get(k);
     if (!tm) cells.set(k, (tm = new Map()));
@@ -291,6 +320,7 @@ export function aggregateCoverage(input: AggregateInput): CoverageResult {
         INDIRECT_MITIGATION: cmSets.INDIRECT_MITIGATION.size,
         INDIRECT_D3FEND: cmSets.INDIRECT_D3FEND.size,
       },
+      inferredPathSetApart: setApart.size,
     },
   };
 }

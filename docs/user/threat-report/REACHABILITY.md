@@ -199,6 +199,10 @@ The trace is purely structural. It does **not** account for:
 
 The threat dots on a route tell you which *modeled findings* sit on those elements; they do not turn the route into an exploitability estimate.
 
+### Inferred edges
+
+A model can also hold **hidden edges**: attack paths, such as credential reuse, that someone reviewed and accepted with Dethereal and recorded as flows. The tab traces them like any flow but never passes one off as modeled: a route, jewel or radius that uses one says `via inferred edge (<tier>, grants <privilege>)`, and a declared choke point that an inferred edge goes around is named as bypassed. Their own findings, in category `Inferred Path`, are set apart from the report's totals and counted on their own, and **Boundary Crossings** leaves hidden-edge flows out and names them. See [Reviewing Hidden Edges](../dethereal/HIDDEN_EDGES.md).
+
 ### "No modeled flow route" is not "safe"
 
 This is the easiest claim to get wrong. An unreachable crown jewel means the *model* contains no directed flow chain to it — most often because the model is incomplete, not because the asset is isolated. Always check the report's scope banner alongside it. Never report an unreachable jewel as "segmented" or "protected."

@@ -26,7 +26,7 @@
 // engine and is NOT here.
 
 import { whoRunsItView } from './whoRunsIt.js'
-import { aggregateLedger } from './aggregateLedger.js'
+import { aggregateLedger, isHiddenEdgeFlow, markSetApart } from './aggregateLedger.js'
 import {
   makeStackResolver,
   postureOf,
@@ -80,7 +80,7 @@ export function computeComponentProfile(elementId, { ledger, modelGraph, zoning,
   const boundaries = Array.isArray(mg.boundaries) ? mg.boundaries : []
   const flows = Array.isArray(mg.flows) ? mg.flows : []
   const dataNodes = Array.isArray(mg.dataNodes) ? mg.dataNodes : []
-  const ledgerArr = Array.isArray(ledger) ? ledger : []
+  const ledgerArr = markSetApart(ledger, mg)
   const ledgerById = new Map(ledgerArr.map((e) => [e.id, e]))
 
   // Declared effective zone per boundary (the authoritative declared/inherited/default
@@ -281,6 +281,7 @@ export function computeComponentProfile(elementId, { ledger, modelGraph, zoning,
         neighbourId,
         neighbourName: nb.name,
         neighbourResolved: nb.resolved,
+        inferred: isHiddenEdgeFlow(f), // an inferred edge an operator accepted, not a modeled flow
         sensitivities: Array.isArray(f.sensitivities) ? f.sensitivities : [],
         maxSensitivity: maxSensitivity(f.sensitivities),
         sensitivityLabel: sensitivityLabel(maxSensitivity(f.sensitivities)),
@@ -300,6 +301,7 @@ export function computeComponentProfile(elementId, { ledger, modelGraph, zoning,
         neighbourId: nid,
         neighbourName: nb.name,
         neighbourResolved: nb.resolved,
+        inferred: isHiddenEdgeFlow(flow),
         sensitivities: Array.isArray(flow.sensitivities) ? flow.sensitivities : [],
         maxSensitivity: maxSensitivity(flow.sensitivities),
         sensitivityLabel: sensitivityLabel(maxSensitivity(flow.sensitivities)),

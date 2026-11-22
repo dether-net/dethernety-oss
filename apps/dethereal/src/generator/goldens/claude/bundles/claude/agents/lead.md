@@ -8,6 +8,7 @@ memory: project
 color: cyan
 disallowedTools:
   - mcp__plugin_dethereal_dethereal__triage_review
+  - mcp__plugin_dethereal_dethereal__hidden_edges
 tools:
   - Read
   - Glob

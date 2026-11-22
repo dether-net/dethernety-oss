@@ -74,5 +74,16 @@ describe('equivalence fixture (shared cross-implementation contract)', () => {
     // Element scoping: the countermeasure whose control supports a DIFFERENT
     // element is credited nowhere.
     expect(allFacts.some((f) => f.countermeasureIds.includes('cm-other'))).toBe(false);
+    // An inferred-path exposure on a hidden-edge flow, with covering rows at two tiers, is set apart and counted.
+    const hiddenRow = rows.baseRows.find((r) => r.exposureId === 'exp-hidden-path');
+    expect(hiddenRow).toMatchObject({ exposureCategory: 'Inferred Path', elementKind: 'DataFlow', elementClassCategory: 'Hidden Edge' });
+    expect(rows.directRows.some((r) => r.exposureId === 'exp-hidden-path')).toBe(true);
+    expect(byId['exp-hidden-path']).toBeUndefined();
+    expect(expected.meta.inferredPathSetApart).toBe(1);
+    // An inferred-path exposure on an ordinary component counts as usual.
+    expect(rows.baseRows.find((r) => r.exposureId === 'exp-db-inferred')).toMatchObject({ exposureCategory: 'Inferred Path', elementKind: 'Component' });
+    expect(byId['exp-db-inferred']).toBeDefined();
+    // An ordinary flow's class is read too, and changes nothing.
+    expect(rows.baseRows.find((r) => r.exposureId === 'exp-flow-intercept')?.elementClassCategory).toBe('Data Flow');
   });
 });

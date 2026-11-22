@@ -14,7 +14,7 @@
 // crossing counts, defense-in-depth, and top residuals; it does not emit a
 // coverage block or a crown-jewel reachability tile.
 
-import { aggregateLedger, isLive, BAND_RANK } from './aggregateLedger.js'
+import { aggregateLedger, hiddenEdgeFlowIds, isLive, isSetApart, markSetApart, BAND_RANK } from './aggregateLedger.js'
 
 const TOP_RESIDUALS_LIMIT = 6
 
@@ -28,13 +28,16 @@ function emptyBands() {
  * @param {Array} ledger  the raw snapshot `ledger` (LedgerElement[])
  * @param {object} [opts]
  * @param {object} [opts.crossings]  the computeCrossings(...) result (reused, not recomputed)
+ * @param {object} [opts.modelGraph]  the snapshot's modelGraph, to tell hidden-edge flows
  * @returns {{
  *   liveBands, liveTotal, disposition, boundaryCrossings, defenseInDepth,
- *   topResiduals, hasElements, hasLiveFindings, hasAnyFindings
- * }}
+ *   topResiduals, hasElements, hasLiveFindings, hasAnyFindings, inferredPathSetApart
+ * }}  The findings set apart (an Inferred Path finding on a hidden-edge flow) are in
+ *   none of it; `inferredPathSetApart` counts them.
  */
 export function computePostureSummary(ledger, opts = {}) {
-  const els = Array.isArray(ledger) ? ledger : []
+  const els = markSetApart(ledger, opts.modelGraph)
+  const hiddenEdgeIds = hiddenEdgeFlowIds(opts.modelGraph)
   const { totals, groups } = aggregateLedger(els)
   const crossings = opts.crossings ?? null
 
@@ -65,12 +68,13 @@ export function computePostureSummary(ledger, opts = {}) {
   // these elements are typically finding-free (aggregateLedger's groups drop
   // finding-free elements). NEVER folded into a coverage number. Data elements are left
   // out, as the coverage view leaves them out: Data is off the grid, and its own controls
-  // are listed with it in Coverage & Gaps.
+  // are listed with it in Coverage & Gaps. So are hidden-edge flows, whose controls the
+  // coverage view never grades either.
   const didControls = new Set()
   let didElements = 0
   for (const el of els) {
-    if (el?.type === 'Data') continue
-    const live = (el.findings ?? []).filter(isLive)
+    if (el?.type === 'Data' || hiddenEdgeIds.has(el?.id)) continue
+    const live = (el.findings ?? []).filter((f) => isLive(f) && !isSetApart(f))
     if (live.length > 0) continue
     const controls = el.supportingControls ?? []
     if (controls.length === 0) continue
@@ -136,5 +140,6 @@ export function computePostureSummary(ledger, opts = {}) {
     hasElements: els.length > 0,
     hasAnyFindings: totals.findings > 0,
     hasLiveFindings: totals.live > 0,
+    inferredPathSetApart: totals.inferredPathSetApart,
   }
 }

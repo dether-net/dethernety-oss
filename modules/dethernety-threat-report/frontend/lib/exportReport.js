@@ -23,7 +23,7 @@ import { MODULE_NAME, MODULE_VERSION } from './moduleInfo.js'
 // joined to the snapshot ledger — the same honesty layer the UI uses.
 function coverageForExport(doc, coverage) {
   if (!coverage) return null
-  const v = buildCoverageView(coverage, doc?.ledger ?? [])
+  const v = buildCoverageView(coverage, doc?.ledger ?? [], doc?.modelGraph)
   return v.available ? v : null
 }
 
@@ -74,6 +74,8 @@ function provenanceFooter(doc, totals) {
       dispositioned: totals.dispositioned,
       stale: totals.stale,
       byProvenance: totals.byProvenance,
+      // Inferred Path findings (the techniques of an accepted inferred edge), in none of the counts above.
+      inferredPathSetApart: totals.inferredPathSetApart,
     },
   }
 }
@@ -125,6 +127,7 @@ function reachabilityExport(doc) {
     jewelCount: a.jewelCount,
     reachableCount: a.reachableCount,
     unreachableCount: a.unreachableCount,
+    inferredOnlyCount: a.inferredOnlyCount, // reachable only via an inferred edge an operator accepted
     flowRoutes: a.jewels.map((j) => ({
       jewel: j.jewelName,
       reachable: j.reachable,
@@ -132,10 +135,15 @@ function reachabilityExport(doc) {
       worstOnRoute: j.reachable ? (j.worstOnRoute.band ?? null) : null,
       riskAcceptedOnRoute: j.riskAccepted,
       staleRiskAcceptedOnRoute: j.staleRiskAccepted,
+      viaInferredEdge: j.viaInferredEdge,
+      onlyViaInferredEdge: j.onlyViaInferredEdge,
+      // "via inferred edge (<tier>, grants <privilege>)" — what the inferred edges on its routes record.
+      inferredEdgeLabel: j.inferredLabel || null,
+      inferredEdges: j.inferredEdges,
     })),
     caveat:
       'Flow routes and the threats on them — NOT attack paths. Topological (does not model credential reuse or ' +
-      'token theft). Unreachable = no modeled flow route (a modeling gap), never "segmented/safe". From external ' +
+      'token theft, except as an inferred edge an operator accepted, which every route using one names). Unreachable = no modeled flow route (a modeling gap), never "segmented/safe". From external ' +
       'entry-points (structural; trustLevel is dormant, never a trust comparison).',
   }
 }
@@ -191,6 +199,8 @@ function boundaryCrossingsExport(doc) {
   if (r.totals.crossingFlows === 0 && r.conduitErrors.length === 0 && r.deadConduits.length === 0) {
     return {
       crossingFlows: 0,
+      hiddenEdgeFlowsSetApart: r.totals.hiddenEdgeFlowsSetApart,
+      setApartFlows: r.setApartFlows,
       note: 'No modeled flow crosses a boundary membrane as drawn. This reflects the model’s current topology, not a segmentation assessment.',
       flags: r.flags,
       caveat,
@@ -230,6 +240,8 @@ function boundaryCrossingsExport(doc) {
     // conduit error — the model-level pass/advisory framing.
     policy: r.policy,
     totals: r.totals,
+    // Hidden-edge flows set apart (inferred attack paths, never crossings), named.
+    setApartFlows: r.setApartFlows,
     // Signal- or verdict-bearing crossings, verdict-severity-first ranked.
     worklist: r.crossings.map(mapFlow),
     // Zero-signal, allowed/no-verdict crossings (the muted tail) — present, never dropped.
@@ -259,7 +271,7 @@ function boundaryCrossingsExport(doc) {
 // coverage facts + the Reachability rollup + the Boundary-Crossings / data-flow
 // policy (each when available).
 export function buildJsonExport(doc, coverage = null) {
-  const { totals } = aggregateLedger(doc?.ledger ?? [])
+  const { totals } = aggregateLedger(doc?.ledger ?? [], doc?.modelGraph)
   const cov = coverageExport(coverageForExport(doc, coverage))
   const reach = reachabilityExport(doc)
   const boundaryCrossings = boundaryCrossingsExport(doc)
@@ -381,6 +393,8 @@ export function coverageBody(view) {
   if (view.offGrid.softCount) offgrid.push(`${view.offGrid.softCount} soft/unmapped (no ATT&CK mapping)`)
   if (view.offGrid.dataMappedCount) offgrid.push(`${view.offGrid.dataMappedCount} Data exposures (off-grid — not charted)`)
   if (view.offGrid.dispositionedExcluded) offgrid.push(`${view.offGrid.dispositionedExcluded} dispositioned (excluded from live grid)`)
+  const inferred = view.offGrid.inferredPathSetApart
+  if (inferred) offgrid.push(`${inferred} inferred-path exposure${inferred === 1 ? '' : 's'} set apart`)
   for (const cls of view.structuralGaps) offgrid.push(`structural gap: no control supports any ${cls}`)
   return `<div class="summary">
     <p>Tier-segregated (never a % or a single “covered”): <strong>${s.directPrevent}</strong> DIRECT-prevent ·
@@ -413,7 +427,7 @@ function reachabilityBody(doc) {
     .map(
       (fr) => `<tr>
         <td>${esc(fr.jewel)}</td>
-        <td>${fr.reachable ? 'reachable' : 'no modeled flow route'}</td>
+        <td>${fr.reachable ? `reachable${fr.viaInferredEdge ? ` · ${fr.onlyViaInferredEdge ? 'only ' : ''}${esc(fr.inferredEdgeLabel)}` : ''}` : 'no modeled flow route'}</td>
         <td class="score">${fr.reachable ? fr.route.minHops : '—'}</td>
         <td class="score">${fr.reachable ? fr.route.crossings : '—'}</td>
         <td>${fr.worstOnRoute ? esc(fr.worstOnRoute) : '—'}</td>
@@ -502,8 +516,16 @@ function boundaryCrossingsBody(doc) {
   const x = boundaryCrossingsExport(doc)
   if (!x) return ''
   const flags = (x.flags ?? []).map(flagHtml).join('')
+  // The hidden-edge flows set apart, named (an inferred attack path is never a crossing).
+  const setApartFlows = x.setApartFlows ?? []
+  const setApartText = setApartFlows.length
+    ? `${setApartFlows.length} hidden-edge flow${setApartFlows.length === 1 ? '' : 's'} set apart: ${setApartFlows
+        .map((f) => esc(f.flowName || '(unnamed flow)') + (f.kind ? ` (${esc(f.kind)})` : ''))
+        .join(', ')}`
+    : ''
   if (x.crossingFlows === 0) {
     return `${flags}<p class="none">${esc(x.note)}</p>
+      ${setApartText ? `<p class="none">${setApartText}</p>` : ''}
       <p class="none">${esc(x.caveat)}</p>`
   }
   const p = x.policy
@@ -512,6 +534,7 @@ function boundaryCrossingsBody(doc) {
   if (p.warnings) counts.push(`<span style="color:#8a5a00">${p.warnings} warning${p.warnings === 1 ? '' : 's'}</span>`)
   if (p.advisories) counts.push(`${p.advisories} advisor${p.advisories === 1 ? 'y' : 'ies'}`)
   counts.push(`<span class="none">${x.totals.underModeledFlows} under-modeled</span>`)
+  if (setApartText) counts.push(`<span class="none">${setApartText}</span>`)
   const conduitErrs = x.conduitErrors.length
     ? `<h3 class="cerr-h">${x.conduitErrors.length} declared conduit${x.conduitErrors.length === 1 ? '' : 's'} authorize an illegal crossing — a conduit does not legalize a policy violation</h3>
        ${x.conduitErrors
@@ -638,12 +661,13 @@ function summaryHtml(totals, outlined) {
     <p><strong>${totals.findings}</strong> findings · <strong>${totals.live}</strong> open · <strong>${totals.dispositioned}</strong> dispositioned${totals.stale ? ` · <span class="stale">${totals.stale} stale</span>` : ''}</p>
     <p>${bandSummary || '<span class="none">No findings.</span>'}</p>
     <p class="prov">Provenance — USER: ${totals.byProvenance.USER} · SYSTEM: ${totals.byProvenance.SYSTEM}</p>
+    ${totals.inferredPathSetApart ? `<p class="none">${totals.inferredPathSetApart} inferred-path finding${totals.inferredPathSetApart === 1 ? '' : 's'} set apart</p>` : ''}
   </div>`
 }
 
 // Self-contained printable HTML. Pure: (doc, coverage) → string.
 export function buildHtmlExport(doc, coverage = null) {
-  const { totals, groups } = aggregateLedger(doc?.ledger ?? [])
+  const { totals, groups } = aggregateLedger(doc?.ledger ?? [], doc?.modelGraph)
   const footer = provenanceFooter(doc, totals)
   const covSection = coverageHtml(coverageForExport(doc, coverage))
   const reachSection = reachabilityHtml(doc)
@@ -759,7 +783,7 @@ export function buildKitReport(
   coverage = null,
   { brand = null, clientName, exportedAt, exportedBy, reportDetails, stale } = {},
 ) {
-  const { totals, groups } = aggregateLedger(doc?.ledger ?? [])
+  const { totals, groups } = aggregateLedger(doc?.ledger ?? [], doc?.modelGraph)
   const footer = provenanceFooter(doc, totals)
   const coverageView = coverageForExport(doc, coverage)
   const reachability = reachabilityBody(doc)
