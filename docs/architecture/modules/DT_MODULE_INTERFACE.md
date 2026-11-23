@@ -1529,6 +1529,16 @@ To print them, pass what `kit.reportDetails.get()` returned to `buildReport` as 
 
 The members, the rules for a module's report, and an example are in [Dynamic Module System → Report Kit](../frontend/LLD/MODULE_SYSTEM.md#report-kit).
 
+### Linking to an element
+
+A module view can send the user to one element of a model in the editor, optionally on a settings tab, with the host's router (`useHostContext().router`):
+
+```javascript
+router.push({ path: '/dataflow', query: { id: modelId, element: elementId, tab: 'exposures' } })
+```
+
+The editor reads the link when its page opens, so a link followed while the editor is already open is not applied. A tab the element does not show only selects, silently; an element that is not in that model selects nothing, and the editor shows a short warning ("The linked element is not in this model."). The parameters and rules are in [Frontend Architecture → Linking to an element](../frontend/FRONTEND_ARCHITECTURE.md#linking-to-an-element).
+
 ### Validation API
 
 `@dethernety/dt-module` exports:

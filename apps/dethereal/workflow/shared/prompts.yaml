@@ -773,6 +773,22 @@ prompts:
     decides: the operator's next stale-review command, passed verbatim to the review parser
     free_text: true
     requires: ["Your command?"]
+  - id: triage-review-where
+    skill: triage
+    mandatory: true
+    when: a default-mode or stale review was opened, the Triage workspace is available, and the review has no reply yet; once per run, and again after a cancelled publish
+    after: the proposals as shown and the Triage workspace line
+    decides: whether the operator decides here (dispositions written after the apply question) or the proposals are published to the Triage workspace for a person to decide there (no disposition written)
+    options: [here, publish]
+    requires: ["Triage workspace", "no disposition is written", "(here / publish)"]
+  - id: triage-publish
+    skill: triage
+    mandatory: true
+    when: prepare_publish returned at least one group to send
+    after: the plan's lines, verbatim
+    decides: whether the proposals are sent to the Triage workspace; the reply goes to publish as typed, so it is the word yes or the word cancel
+    free_text: true
+    requires: ["Publish", "Triage workspace?", "Type yes or cancel."]
   - id: triage-apply
     skill: triage
     mandatory: true

@@ -11,6 +11,7 @@
     VueFlow,
   } from '@vue-flow/core'
   import { getId, getNewName, nodeTypes, useDragAndDrop } from '@/utils/dataFlowUtils'
+  import { resolveEditorLink, type SettingsTab } from '@/utils/editorLink'
   import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 
   import { useFlowStore, crownJewelClass } from '@/stores/flowStore'
@@ -58,6 +59,9 @@
     onEdgeDoubleClick,
     applyEdgeChanges,
     getNodes,
+    getEdges,
+    addSelectedNodes,
+    addSelectedEdges,
     screenToFlowCoordinate,
     fitView,
   } = useVueFlow()
@@ -72,6 +76,12 @@
 
   const route = useRoute()
   const modelId = ref<string | null>(route.query.id as string | null)
+  // An editor link: `&element=<id>` selects and centres that element once the model has loaded, `&tab=<name>` also opens
+  // its settings on that tab. Read once, like the model id, and applied to the first load of that model only.
+  const pendingLink = { element: route.query.element, tab: route.query.tab }
+  const linkedModelId = modelId.value
+  let linkApplied = false
+  const requestedTab = ref<SettingsTab | null>(null)
   const showModelDialog = ref(false)
   const router = useRouter()
   const flowStore = useFlowStore()
@@ -91,14 +101,50 @@
   // fitView centers on real dimensions rather than zero-sized placeholders.
   const loadAndFrame = async (model: string) => {
     isCanvasLoading.value = true
+    let loaded = false
     try {
-      await flowStore.fetchData({ model })
+      // null when a newer load overtook this one
+      loaded = (await flowStore.fetchData({ model })) != null
     } finally {
       await nextTick()
       setTimeout(() => {
         fitView()
+        // One attempt, on the first load of the linked model: a failed or overtaken load does not leave it for later.
+        if (!linkApplied && model === linkedModelId) {
+          linkApplied = true
+          if (loaded) applyEditorLink()
+        }
         isCanvasLoading.value = false
       }, 100)
+    }
+  }
+
+  // Runs in loadAndFrame's settle timer, after the whole-model frame and before the overlay lifts, so the frame never
+  // visibly jumps. Only against what that load of the linked model put in the store.
+  const applyEditorLink = () => {
+    if (flowStore.modelId !== linkedModelId) return
+    const link = resolveEditorLink(pendingLink, {
+      nodes: flowStore.nodes,
+      edges: flowStore.edges,
+      defaultBoundary: flowStore.defaultBoundary,
+      defaultBoundaryId: flowStore.defaultBoundaryId,
+    })
+    if (!link) {
+      // A link to an element the model no longer has (deleted, or re-created under a new id) says so, rather than
+      // looking like a link that did nothing.
+      if (typeof pendingLink.element === 'string' && pendingLink.element) {
+        snackBar.value = { show: true, message: 'The linked element is not in this model.', color: 'warning' }
+      }
+      return
+    }
+    flowStore.setSelectedItem({ item: link.item })
+    // The canvas shows a selection through vue-flow's own flag; the default boundary is no canvas node (as a pane click).
+    if (link.kind === 'node') addSelectedNodes(getNodes.value.filter(n => n.id === link.item.id))
+    if (link.kind === 'edge') addSelectedEdges(getEdges.value.filter(e => e.id === link.item.id))
+    if (link.focusNodeIds.length) fitView({ nodes: link.focusNodeIds, padding: 0.4, maxZoom: 1.5 })
+    if (link.tab) {
+      requestedTab.value = link.tab
+      openSettings.value = true
     }
   }
 
@@ -648,6 +694,7 @@
       <DataFlowBackground
         :freshlyCreatedId="freshlyCreatedId"
         :modelId="modelId"
+        :requestedTab="requestedTab"
         :modelName="modelName"
         :openSettings="openSettings"
         :style="{
@@ -661,6 +708,7 @@
         @edit-model="editModel"
         @open-model="openModel"
         @redirect:issue="redirectToIssue"
+        @requested-tab-applied="requestedTab = null"
         @update:open-settings="openSettings = $event"
         @update:snackBar="snackBar = $event"
       >

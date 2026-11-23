@@ -163,3 +163,19 @@ describe('trimLog', () => {
     expect(kept.map((r) => r.review_id)).toEqual(['rev1'])
   })
 })
+
+describe('the trim keeps what left this machine', () => {
+  const entry = (id: string, published = false) => ({ review_id: id, mode: 'review', opened_at: 't', groups: 1, replies: [], applies: [], ...(published ? { published: [{ at: 't', plan_id: 'p', analysis_id: 'a', exposure_ids: ['e'], not_stored: [], results: {}, fingerprints: 'open' as const }] } : {}) })
+
+  it('drops a review never published, never one that was', () => {
+    const reviews = [entry('old-published', true), ...Array.from({ length: LOG_LIMITS.reviews }, (_, i) => entry(`r${i}`))]
+    const kept = trimLog(reviews, 'r0')
+    expect(kept.map((r) => r.review_id)).toContain('old-published')
+    expect(kept).toHaveLength(LOG_LIMITS.reviews)
+  })
+
+  it('a record of published reviews only, past its limit, refuses rather than lose one', () => {
+    const reviews = [...Array.from({ length: LOG_LIMITS.reviews }, (_, i) => entry(`p${i}`, true)), entry('active')]
+    expect(() => trimLog(reviews, 'active')).toThrow(/holds only published reviews/)
+  })
+})

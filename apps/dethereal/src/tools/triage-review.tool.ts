@@ -41,6 +41,38 @@ import { checkRunDir, hiddenCharacters, quotableFields, RUN_NAME, TASKS_TEXT_MAX
 import { readModelDirectory } from '../utils/directory-utils.js'
 import { Turns } from '../triage/turns.js'
 import { reviewAsk } from '../triage/asks.js'
+import { workspaceAt, workspaceView } from '../review-module/workspace.js'
+import { citedPath, discoveredSources } from '../review-module/citations.js'
+import { probe } from '../review-module/platform.js'
+import { publishesOf, readBack } from '../review-module/readback.js'
+import { readFile, stat } from 'node:fs/promises'
+import { join } from 'node:path'
+
+/** The most a local record or discovery file is read: the record's own bound, rounded up. */
+const LOCAL_READ_MAX = 1024 * 1024
+
+/** A local JSON file, or null when it is absent, too large or no JSON. */
+async function readLocalJson(file: string): Promise<unknown> {
+  try {
+    if ((await stat(file)).size > LOCAL_READ_MAX) return null
+    return JSON.parse(await readFile(file, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+/** The reviews this machine's triage record holds for the directory; none when there is no record. */
+async function readLoggedReviews(dir: string): Promise<LoggedReview[]> {
+  try {
+    const doc = ((await readLocalJson(join(dir, '.dethereal', 'triage-log.json'))) ?? {}) as { reviews?: unknown }
+    return (Array.isArray(doc.reviews) ? doc.reviews : []).filter((r): r is LoggedReview => !!r && typeof r === 'object' && typeof (r as LoggedReview).review_id === 'string')
+  } catch {
+    return []
+  }
+}
+
+/** The model's discovery record, or null when there is none to read. */
+const readDiscovery = (dir: string): Promise<unknown> => readLocalJson(join(dir, '.dethereal', 'discovery.json'))
 
 
 const Modifications = z.object({
@@ -61,6 +93,9 @@ const Proposal = z.object({
   reason: z.string().max(4000).optional().describe(`For 'dispose': the reason, one line of at most ${REVIEW_LIMITS.textChars} characters`),
   modifications: Modifications.optional().describe("For 'supersede': what the copy changes; at least one field or technique"),
   verified_technique_ids: z.array(PLATFORM_ID).max(100).optional().describe("For 'supersede': the node ids search_mitre_attack 'lookup' confirmed; every added technique must be one"),
+  confidence: z.enum(['high', 'medium', 'low']).optional().describe("The analyst's estimate; a dispose with 'low' is marked needs_human, a supersede is never 'low'"),
+  citations: z.array(z.string().max(300)).max(50).optional().describe('What the proposal rests on, as locators only: platform:<field>, kg:<id>, attributes:<path>, source:<path>:<line>[-<line>]'),
+  objection: z.string().max(4000).optional().describe("The cross-examiner's objection, one line; a dispose with one is marked needs_human, a supersede per_row_only"),
 }).strict()
 
 const Group = z.object({
@@ -70,6 +105,7 @@ const Group = z.object({
   needs_human: z.boolean().optional().describe("Review only: the operator decides with an edit naming a kind; 'accept' is refused"),
   per_row_only: z.boolean().optional().describe("Review only: 'accept-all' skips the group; 'accept <n>' still takes it"),
   stale_superseded: z.boolean().optional().describe('Stale only, and derived from the model: a superseded exposure is cleared or skipped, never reaffirmed'),
+  ambiguity: z.string().max(4000).optional().describe("What a person must weigh, one line: the analyst's ambiguity"),
 }).strict()
 
 const Guide = z.object({
@@ -79,11 +115,11 @@ const Guide = z.object({
 }).strict()
 
 const InputSchema = z.object({
-  action: z.enum(['open', 'reply', 'get', 'tasks']).describe("'open' a review of proposals; 'reply' with one of the operator's replies; 'get' the decisions so far; 'tasks' check and write the remediation task list"),
-  directory_path: z.string().max(4096).optional().describe("For 'open' and 'tasks': the model directory"),
+  action: z.enum(['open', 'reply', 'get', 'tasks', 'published']).describe("'open' a review of proposals; 'reply' with one of the operator's replies; 'get' the decisions so far; 'tasks' check and write the remediation task list; 'published' read what became of the proposals published to the Triage workspace"),
+  directory_path: z.string().max(4096).optional().describe("For 'open', 'tasks' and 'published': the model directory"),
   mode: z.enum(['review', 'stale']).optional().describe("For 'open': 'review' for new proposals, 'stale' for dispositions the model's changes made stale"),
   groups: z.array(Group).min(1).max(200).optional().describe("For 'open': the proposals, one per group of exposures, numbered as the operator sees them"),
-  review_id: REVIEW_ID.optional().describe("For 'reply' and 'get': the review 'open' returned"),
+  review_id: REVIEW_ID.optional().describe("For 'reply' and 'get': the review 'open' returned; for 'published', optional: one review's publishes only"),
   reply: z.string().max(REPLY_INPUT_MAX).optional().describe("For 'reply': the operator's reply, exactly as given"),
   run: z.string().regex(RUN_NAME, 'a run is its scratch directory name, run-YYYYMMDD-HHMMSS').optional().describe("For 'tasks': the run's scratch directory name, run-YYYYMMDD-HHMMSS"),
   text: z.string().max(TASKS_TEXT_MAX).optional().describe("For 'tasks': the composed task list"),
@@ -97,13 +133,14 @@ const InputSchema = z.object({
     need(ctx, !!d.directory_path, 'directory_path', 'tasks')
     need(ctx, !!d.run, 'run', 'tasks')
     need(ctx, d.text !== undefined, 'text', 'tasks')
-  } else need(ctx, !!d.review_id, 'review_id', d.action)
+  } else if (d.action === 'published') need(ctx, !!d.directory_path, 'directory_path', 'published')
+  else need(ctx, !!d.review_id, 'review_id', d.action)
   only(ctx, d.action !== 'tasks' && (d.text !== undefined || d.run !== undefined || d.guides !== undefined), 'text, run and guides', "'tasks'")
-  only(ctx, d.action === 'tasks' && d.review_id !== undefined, 'review_id', "'reply' and 'get'")
+  only(ctx, d.action === 'tasks' && d.review_id !== undefined, 'review_id', "'reply', 'get' and 'published'")
   if (d.action === 'reply') need(ctx, d.reply !== undefined, 'reply', 'reply')
   only(ctx, d.action !== 'open' && (d.mode !== undefined || d.groups !== undefined), 'mode and groups', "'open'")
-  only(ctx, d.action !== 'open' && d.action !== 'tasks' && d.directory_path !== undefined, 'directory_path', "'open' and 'tasks'")
-  only(ctx, d.action === 'open' && d.review_id !== undefined, 'review_id', "'reply' and 'get'")
+  only(ctx, d.action !== 'open' && d.action !== 'tasks' && d.action !== 'published' && d.directory_path !== undefined, 'directory_path', "'open', 'tasks' and 'published'")
+  only(ctx, d.action === 'open' && d.review_id !== undefined, 'review_id', "'reply', 'get' and 'published'")
   only(ctx, d.action !== 'reply' && d.reply !== undefined, 'reply', "'reply'")
 })
 type Input = z.infer<typeof InputSchema>
@@ -157,7 +194,10 @@ export class TriageReviewTool extends ClientFreeTool<Input, Record<string, unkno
     'returns {written, path, chars, quotes_exempted, existing?, warnings?} (existing: the file already there holds ' +
     'exactly this text), or refuses with claims_found {hits, written: false}, or tasks_exist when any other file is ' +
     'at the path. A line that quotes, whole, a field of a class guide ' +
-    'named in guides (a class of this model) is not checked as the list\'s own words. Nothing here changes the platform.'
+    'named in guides (a class of this model) is not checked as the list\'s own words. With the platform\'s Triage workspace ' +
+    "installed, 'open' also returns review_workspace {status, module_version?, analysis_id?, fingerprints, pending?}; " +
+    "'published' (directory_path, review_id?) reads what became of the proposals this machine published there: per " +
+    'finding its status in plain words, sorted by what needs action, at most 200 rows. Nothing here changes the platform.'
   readonly inputSchema = InputSchema
   private readonly turns = new Turns()
 
@@ -169,6 +209,7 @@ export class TriageReviewTool extends ClientFreeTool<Input, Record<string, unkno
         return await this.turns.run(`open:${dir}`, () => this.open(dir, input, context))
       }
       if (input.action === 'tasks') return await this.tasks(await validatePathConfinement(input.directory_path!), input, context)
+      if (input.action === 'published') return await this.published(await validatePathConfinement(input.directory_path!), input.review_id, context)
       return await this.turns.run(input.review_id!, async () => {
         const review = reviewStore.get(input.review_id!)
         if (!review) return coded('review_not_found', 'no such review in this session (a restart forgets reviews; one unused for two hours expires): open it again')
@@ -184,6 +225,24 @@ export class TriageReviewTool extends ClientFreeTool<Input, Record<string, unkno
       if (err instanceof TasksError) return coded(err.code, err.message, err.code === 'tasks_exist' ? { written: false } : {})
       return { success: false, error: err instanceof Error ? err.message : 'triage_review failed' }
     }
+  }
+
+  /** What became of the proposals this machine published for this model: read only, from the review workspace. */
+  private async published(dir: string, reviewId: string | undefined, context: ToolContext): Promise<ToolResult<Record<string, unknown>>> {
+    const client = context.apolloClient
+    if (!client) return { success: false, error: context.clientUnavailableReason ?? AUTHENTICATION_REQUIRED }
+    const p = await probe(client)
+    if (p.status !== 'present') return coded(p.status === 'module_not_loaded' ? 'module_not_loaded' : 'workspace_unavailable', `the Triage workspace is not available: ${p.detail}`)
+    const modelId = await platformModelOf(dir)
+    const reviews = (await readLoggedReviews(dir)).filter((r) => (reviewId ? r.review_id === reviewId : true) && publishesOf(r).length)
+    if (!reviews.length) return { success: true, data: { publishes: 0, counts: {}, rows: [], more: 0, note: 'this model directory has published nothing from this machine' } }
+    const read = await readModelExposures(client, modelId)
+    const names = new Map(read.rows.map((r) => [r.exposure_id, `${r.name} on ${r.element_name}`]))
+    const r = await readBack(client, modelId, p.triageClassId, reviews, names)
+    if (r.status === 'refused') return coded('workspace_refused', `the Triage workspace refused the read (${r.reason})`)
+    if (r.status !== 'answer') return coded(r.status === 'module_not_loaded' ? 'module_not_loaded' : 'workspace_unavailable', r.detail)
+    const { status: _status, ...data } = r
+    return { success: true, data }
   }
 
   /**
@@ -239,6 +298,16 @@ export class TriageReviewTool extends ClientFreeTool<Input, Record<string, unkno
     const groups = input.groups as ReviewGroup[]
     // What the groups say on their own is refused before anything is read.
     checkGroups(input.mode!, groups)
+    // A source citation names a file discovery read, when discovery lists them.
+    const sources = discoveredSources(await readDiscovery(dir))
+    if (sources.size) {
+      for (const g of groups) {
+        for (const c of g.proposal?.citations ?? []) {
+          const file = c.startsWith('source:') ? citedPath(c) : null
+          if (file !== null && !sources.has(file)) return coded('citation_invalid', `group ${g.group}: '${c.slice(0, 80)}' is not a file discovery read: cite only the sources the model was built from`)
+        }
+      }
+    }
     const modelId = await platformModelOf(dir)
     const read = await readModelExposures(client, modelId)
     const seen = new Map(read.rows.map((r) => [r.exposure_id, r]))
@@ -265,9 +334,11 @@ export class TriageReviewTool extends ClientFreeTool<Input, Record<string, unkno
     if (bound > ECHO_BUDGET) {
       return coded('echo_too_large', `this review's plan could take ${bound} characters, over the ${ECHO_BUDGET} that can be shown at once: open it in parts`)
     }
+    // The review module, read only: whether it is there, the model's Triage analysis, the findings' fingerprints.
+    review.workspace = await workspaceAt(client, review.model_id, [...review.groups.values()].flatMap((g) => g.exposure_ids))
     const { warnings } = await recordReview(dir, review.id, freshEntry(review), () => {})
     reviewStore.put(review)
-    return { success: true, data: { review_id: review.id, mode: review.mode, groups: review.groups.size, grammar: grammarOf(review.mode), ask: reviewAsk(review.mode), ...(warnings.length ? { warnings } : {}) } }
+    return { success: true, data: { review_id: review.id, mode: review.mode, groups: review.groups.size, grammar: grammarOf(review.mode), ask: reviewAsk(review.mode), review_workspace: workspaceView(review.workspace), ...(warnings.length ? { warnings } : {}) } }
   }
 
   private async reply(review: Review, reply: string): Promise<ToolResult<Record<string, unknown>>> {

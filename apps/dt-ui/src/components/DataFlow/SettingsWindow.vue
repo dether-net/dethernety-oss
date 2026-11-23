@@ -7,6 +7,7 @@
   import type { ChangeElementBindingResult, Zone, Plane, Conduit } from '@dethernety/dt-core'
   import { getPageDisplayName, flattenProperties, unflattenProperties, withClearedAttributes } from '@/utils/dataFlowUtils'
   import { emitBindingChangeFeedback } from '@/utils/bindingChangeFeedback'
+  import { isSettingsTabShown, type SettingsTab } from '@/utils/editorLink'
   import type { UISchemaElement } from '@jsonforms/core'
   import SettingsGeneralTab from '@/components/DataFlow/SettingsTabs/SettingsGeneralTab.vue'
   import SettingsZoningTab from '@/components/DataFlow/SettingsTabs/SettingsZoningTab.vue'
@@ -43,7 +44,7 @@
   // Data
   const itemClass = ref<Class | null>(null)
   const representedModel = ref<Model | null>(null)
-  const tab = ref<'general' | 'zoning' | 'attributes' | 'data' | 'controls' | 'exposures'>('general')
+  const tab = ref<SettingsTab>('general')
   const controls = ref<Control[]>([])
   const exposures = ref<Exposure[]>([])
   // Stale-disposition count emitted by SettingsExposuresTab; drives the
@@ -90,8 +91,9 @@
   // Crown-jewel flag for the selected component (boundaries never set it). Seeded
   // from the node on selection; persisted immediately on toggle via saveItem.
   const crownJewel = ref(false)
-  const props = defineProps<{ freshlyCreatedId?: string | null }>()
-  const emit = defineEmits(['openModel', 'update:open-settings', 'delete:node', 'delete:edge', 'redirect:issue', 'clear-freshly-created', 'update:snackBar'])
+  // requestedTab: the tab an editor link asks for (DataFlow passes it once; it is cleared on requested-tab-applied).
+  const props = defineProps<{ freshlyCreatedId?: string | null, requestedTab?: SettingsTab | null }>()
+  const emit = defineEmits(['openModel', 'update:open-settings', 'delete:node', 'delete:edge', 'redirect:issue', 'clear-freshly-created', 'update:snackBar', 'requested-tab-applied'])
 
   // Snackbar messages flow up to the canvas-level v-snackbar via update:snackBar — no local snackbar in this component.
   const showSnackbar = (message: string, color: 'success' | 'error' | 'warning' | 'info') => {
@@ -141,6 +143,16 @@
     if (id && !isDirty.value) tab.value = 'general'
   })
 
+  // An editor link opens the panel on a tab. Immediate, because the panel mounts lazily and may mount with the request
+  // already set; keyed to the selection too, since the link selects the element in the same tick. Applied only when the
+  // element shows that tab (the link resolver has checked it already; this keeps the two from disagreeing). The request
+  // is consumed either way, so it never lands on a later selection.
+  watch(() => [props.requestedTab, selectedItem.value?.id] as const, ([requested]) => {
+    if (!requested) return
+    if (isSettingsTabShown(requested, selectedItem.value, flowStore.defaultBoundaryId)) tab.value = requested
+    emit('requested-tab-applied')
+  }, { immediate: true })
+
   // Type guards
   const isNode = (item: Node | Edge | null): item is Node => {
     return item !== null && typeof item === 'object' && 'type' in item && 'position' in item
@@ -161,9 +173,7 @@
   // The Zoning tab is gated off the default/root boundary: the model dump reads only its zone, not its planes, domains
   // or conduits, and a save doesn't re-pin it to server truth, so an edit there would be lost on reload. Real boundaries
   // inherit from it, and it has no editable zone.
-  const showZoningTab = computed(
-    () => isBoundary.value && isNode(selectedItem.value) && selectedItem.value.id !== flowStore.defaultBoundaryId,
-  )
+  const showZoningTab = computed(() => isSettingsTabShown('zoning', selectedItem.value, flowStore.defaultBoundaryId))
   // Pending zoning buffer — the Zoning tab binds to this; saveZoning commits it via the store path.
   const pendingZoning = ref<ZoningBuffer>({ zone: null, domains: [], planes: [], conduits: [] })
 

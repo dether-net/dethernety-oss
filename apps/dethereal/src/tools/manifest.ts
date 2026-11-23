@@ -235,10 +235,10 @@ export const TOOL_MANIFEST: readonly ManifestTool[] = Object.freeze<ManifestTool
   { name: 'query_countermeasures', approval: 'auto', status: 'conformant', actions: ['list', 'get'], inputs: names('action', 'control_id', 'countermeasure_id', 'limit') },
 
   // Triage of the platform's exposures
-  { name: 'triage_review', approval: 'auto', status: 'conformant', actions: ['open', 'reply', 'get', 'tasks'], inputs: names('action', 'directory_path', 'mode', 'groups', 'review_id', 'reply', 'run', 'text', 'guides') },
+  { name: 'triage_review', approval: 'auto', status: 'conformant', actions: ['open', 'reply', 'get', 'tasks', 'published'], inputs: names('action', 'directory_path', 'mode', 'groups', 'review_id', 'reply', 'run', 'text', 'guides') },
   {
     name: 'manage_dispositions', approval: 'prompt', status: 'conformant', requiresUser: true,
-    actions: ['prepare', 'commit'],
+    actions: ['prepare', 'commit', 'prepare_publish', 'publish'],
     inputs: names('action', 'directory_path', 'review_id', 'plan_id', 'lines', 'reply'),
   },
   { name: 'get_kg_chain', approval: 'auto', status: 'conformant', actions: ['probe', 'chain', 'evaluate'], inputs: names('action', 'class_id', 'rule_name', 'attributes') },

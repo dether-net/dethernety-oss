@@ -12,12 +12,16 @@
 import { replyProblem } from '../utils/settlement.js'
 import type { ExposureEvidence, ExposureState } from './exposures.js'
 import type { KnownTechniques } from './dispositions.js'
+import { citationProblem } from '../review-module/citations.js'
 
 /** Disposition kinds a proposal or an edit may name (the platform's pickable set without SUPERSEDED). */
 export const PICKABLE_KINDS = ['AFFIRMED', 'NOT_APPLICABLE', 'FALSE_POSITIVE', 'COMPENSATING_CONTROL', 'RISK_ACCEPTED'] as const
 export type PickableKind = (typeof PICKABLE_KINDS)[number]
 /** Kinds only the operator may choose, in an `edit`, with a rationale. */
 export const OPERATOR_ONLY_KINDS: ReadonlySet<string> = new Set(['COMPENSATING_CONTROL', 'RISK_ACCEPTED'])
+
+/** The most text one group's proposal may hold, as the review workspace stores it. */
+export const GROUP_TEXT_MAX = 12 * 1024
 
 /** At most this many exposures across one review's groups, and this many characters in one text. */
 export const REVIEW_LIMITS = { operations: 200, textChars: 1800 } as const
@@ -35,12 +39,20 @@ export interface Modifications {
   techniques?: { add: string[]; remove: string[] }
 }
 
+export type Confidence = 'high' | 'medium' | 'low'
+
 export interface Proposal {
   op: ProposalOp
   kind?: string
   reason?: string
   modifications?: Modifications
   verified_technique_ids?: string[]
+  /** The analyst's own estimate */
+  confidence?: Confidence
+  /** Locators only: what the proposal rests on, never quoted text */
+  citations?: string[]
+  /** The cross-examiner's objection, kept beside the proposal */
+  objection?: string
 }
 
 export interface ReviewGroup {
@@ -50,6 +62,8 @@ export interface ReviewGroup {
   needs_human?: boolean
   per_row_only?: boolean
   stale_superseded?: boolean
+  /** What a person must weigh: the analyst's ambiguity */
+  ambiguity?: string
 }
 
 export type DecisionKind = 'pending' | 'accept' | 'skip' | 'edit' | 'reaffirm' | 'clear'
@@ -71,6 +85,24 @@ export interface ModelView {
   techniques: KnownTechniques
 }
 
+/**
+ * What the review module held for the review's findings when it was opened, with the module present: the model's
+ * Triage analysis, if one existed, and the findings' fingerprints read from it. A publish carries them, so the
+ * workspace can tell a finding whose facts moved since the review.
+ */
+export interface ReviewWorkspace {
+  status: 'present' | 'module_not_loaded' | 'session_refused' | 'failed'
+  detail?: string
+  module_version?: string
+  triage_class_id?: string
+  analysis_id?: string
+  fingerprints: 'read' | 'none' | 'failed'
+  states?: Map<string, { fingerprint: string; fpVersion: number }>
+  /** Proposals already waiting on these findings, from an earlier publish */
+  pending?: number
+  opened_at_ms: number
+}
+
 export interface Review {
   id: string
   dir: string
@@ -85,6 +117,10 @@ export interface Review {
   decisions: Map<number, Decision>
   closed: boolean
   replies: number
+  /** The review module at open; absent when no session could ask */
+  workspace?: ReviewWorkspace
+  /** Set by a publish: the review is then decided in the workspace, never committed here */
+  published?: { at: string; analysis_id: string; unconfirmed?: true }
 }
 
 /** A refusal of an open or a reply: a code and a message; nothing changed. */
@@ -144,6 +180,22 @@ export function checkGroups(mode: ReviewMode, groups: ReviewGroup[]): { byNumber
       if (g.needs_human || g.per_row_only) refuse('argument_invalid', `group ${g.group}: needs_human and per_row_only belong to a review`)
     }
     checkText(p?.reason, `group ${g.group}'s reason`)
+    checkText(p?.objection, `group ${g.group}'s objection`)
+    checkText(g.ambiguity, `group ${g.group}'s ambiguity`)
+    for (const c of p?.citations ?? []) {
+      const problem = citationProblem(c)
+      if (problem) refuse('citation_invalid', `group ${g.group}: ${problem}`)
+    }
+    // A low estimate or an objection is a person's to decide; on an edited copy, which is accepted or not, an
+    // objection keeps the proposal and asks for it one group at a time, and a low estimate is no proposal at all.
+    if (p?.op === 'dispose' && (p.confidence === 'low' || p.objection !== undefined) && !g.needs_human) {
+      refuse('argument_invalid', `group ${g.group}: a dispose with a low confidence or an objection is marked needs_human`)
+    }
+    if (p?.op === 'supersede' && p.confidence === 'low') refuse('argument_invalid', `group ${g.group}: a supersede with a low confidence is not proposed: mark the group needs_human without a proposal`)
+    if (p?.op === 'supersede' && p.objection !== undefined && !g.per_row_only) refuse('argument_invalid', `group ${g.group}: a supersede with an objection is marked per_row_only`)
+    // The workspace holds at most this much text for one group's proposal.
+    const text = (p?.reason?.length ?? 0) + (p?.objection?.length ?? 0) + (g.ambiguity?.length ?? 0) + JSON.stringify(p?.citations ?? []).length + (p?.modifications ? JSON.stringify(p.modifications).length : 0)
+    if (text > GROUP_TEXT_MAX) refuse('text_invalid', `group ${g.group}'s text (reason, objection, ambiguity, citations, edits) is ${text} characters; at most ${GROUP_TEXT_MAX}`)
     const m = p?.modifications
     if (m) for (const key of ['name', 'description', 'attackVector', 'category'] as const) checkText(m[key], `group ${g.group}'s ${key}`)
     // The platform finds a copy's source by the copy's name in single quotes: the name cannot hold one.

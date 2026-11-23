@@ -8,7 +8,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { GOLDEN_HARNESSES, PACKAGE_GOLDENS, WORKFLOW } from '../cli.js'
-import { APPLY_ASK, applyAsk, REVIEW_ASK, reviewAsk, STALE_REVIEW_ASK } from '../../triage/asks.js'
+import { APPLY_ASK, applyAsk, REVIEW_ASK, reviewAsk, STALE_REVIEW_ASK, PUBLISH_ASK, publishAsk } from '../../triage/asks.js'
 import { KG_ABSENT_MARKER, KG_LOSS_NOTICE, KG_NO_DATA_NOTICE, KG_NOT_AVAILABLE_NOTICE, kgProbeFailureNotice } from '../../triage/notices.js'
 import { applyReply, checkGroups, grammarOf, openReview, OPERATOR_ONLY_KINDS, PICKABLE_KINDS, ReviewRefusal, type ReviewGroup } from '../../triage/review.js'
 import { linesOf, type PlannedOperation } from '../../triage/dispositions.js'
@@ -132,7 +132,7 @@ describe.each(GOLDEN_HARNESSES)('the triage workflow, %s', (harness) => {
   })
 
   it('opens a needs-human group with only a proposal the review tool takes', () => {
-    expect(review).toContain('a needs-human group → needs_human: true, with a proposal only when the analyst\'s surviving one is a dispose of AFFIRMED, NOT_APPLICABLE or FALSE_POSITIVE. A supersede, a COMPENSATING_CONTROL, RISK_ACCEPTED or SUPERSEDED proposal is never passed')
+    expect(review).toContain('a needs-human group → needs_human: true, with a proposal only when the analyst\'s surviving one is a dispose of AFFIRMED, NOT_APPLICABLE or FALSE_POSITIVE, and its ambiguity when the analyst gave one. A supersede (but one with an objection, below), a COMPENSATING_CONTROL, RISK_ACCEPTED or SUPERSEDED proposal is never passed')
     const group = (proposal?: ReviewGroup['proposal']): ReviewGroup => ({ group: 1, exposure_ids: ['e1'], needs_human: true, ...(proposal ? { proposal } : {}) })
     const passed = PICKABLE_KINDS.filter((k) => !OPERATOR_ONLY_KINDS.has(k))
     expect([...passed]).toEqual(['AFFIRMED', 'NOT_APPLICABLE', 'FALSE_POSITIVE'])
@@ -349,20 +349,21 @@ describe('the triage workflow and the review server', () => {
   const review = plain(skillFile('claude', 'triage-review.md'))
 
   it('registers exactly the questions the tools return as ask', () => {
-    const source = ['skills/triage/SKILL.md', 'shared/triage-stale.md'].map((f) => readFileSync(path.join(WORKFLOW, f), 'utf8')).join('\n')
+    const source = ['skills/triage/SKILL.md', 'shared/triage-stale.md', 'shared/triage-review.md'].map((f) => readFileSync(path.join(WORKFLOW, f), 'utf8')).join('\n')
     const asked = (id: string) => {
       const m = source.match(new RegExp(`\\{\\{#ask id=${id}(?: [a-z]+)*\\}\\}([\\s\\S]*?)\\{\\{/ask\\}\\}`))
       expect(m, id).not.toBeNull()
       return m![1]!
     }
     const registry = parseYaml(readFileSync(path.join(WORKFLOW, 'shared', 'prompts.yaml'), 'utf8')) as { prompts: Array<{ id: string; requires?: string[] }> }
-    for (const [id, text] of [['triage-review', REVIEW_ASK], ['triage-stale-review', STALE_REVIEW_ASK], ['triage-apply', APPLY_ASK]] as const) {
+    for (const [id, text] of [['triage-review', REVIEW_ASK], ['triage-stale-review', STALE_REVIEW_ASK], ['triage-apply', APPLY_ASK], ['triage-publish', PUBLISH_ASK]] as const) {
       expect(asked(id)).toBe(text)
       for (const required of registry.prompts.find((p) => p.id === id)?.requires ?? []) expect(text).toContain(required)
     }
     expect(reviewAsk('review')).toBe(`[prompt: triage-review] ${REVIEW_ASK}`)
     expect(reviewAsk('stale')).toBe(`[prompt: triage-stale-review] ${STALE_REVIEW_ASK}`)
     expect(applyAsk(7)).toBe('[prompt: triage-apply] Apply 7 dispositions? Type yes or cancel.')
+    expect(publishAsk(3, 12)).toBe('[prompt: triage-publish] Publish 3 groups (12 findings) to the Triage workspace? Type yes or cancel.')
   })
 
   it('asks for the operator’s own rationale when a needs-human group’s kind is edited, as the parser does', () => {

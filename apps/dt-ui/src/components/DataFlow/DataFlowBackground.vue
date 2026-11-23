@@ -6,6 +6,7 @@
   import { useAnalysisStore } from '@/stores/analysisStore'
   import { badgePhaseForElement, PHASE_COLOR } from '@/utils/analysisPhase'
   import { nodeTypes } from '@/utils/dataFlowUtils'
+  import type { SettingsTab } from '@/utils/editorLink'
   import PaletteWindow from '@/components/DataFlow/PaletteWindow.vue'
   import SettingsWindow from '@/components/DataFlow/SettingsWindow.vue'
   import BoundaryZoningOverview from '@/components/DataFlow/BoundaryZoning/BoundaryZoningOverview.vue'
@@ -16,6 +17,8 @@
     modelName: string | null
     modelId: string | null
     freshlyCreatedId?: string | null
+    // The settings tab an editor link asks for; passed through to the settings window.
+    requestedTab?: SettingsTab | null
   }
 
   const itemName = ref('Select an item')
@@ -23,7 +26,7 @@
   const showZoningOverview = ref(false)
   const showAnalyses = ref(false)
   const props = defineProps<Props>()
-  const emits = defineEmits(['update:openSettings', 'update:snackBar', 'update:analysisResults', 'openModel', 'editModel', 'delete:node', 'delete:edge', 'redirect:issue', 'clear-freshly-created'])
+  const emits = defineEmits(['update:openSettings', 'update:snackBar', 'update:analysisResults', 'openModel', 'editModel', 'delete:node', 'delete:edge', 'redirect:issue', 'clear-freshly-created', 'requested-tab-applied'])
   const openSettings = ref(props.openSettings)
   const modelName = ref(props.modelName)
   const modelId = ref(props.modelId)
@@ -223,11 +226,13 @@
             <v-expansion-panel-text class="settings-panel-content">
               <SettingsWindow
                 :freshly-created-id="props.freshlyCreatedId ?? null"
+                :requested-tab="props.requestedTab ?? null"
                 @clear-freshly-created="emits('clear-freshly-created')"
                 @delete:edge="emits('delete:edge')"
                 @delete:node="emits('delete:node')"
                 @open-model="openModel"
                 @redirect:issue="emits('redirect:issue')"
+                @requested-tab-applied="emits('requested-tab-applied')"
                 @update:open-settings="emits('update:openSettings', $event)"
                 @update:snackBar="emits('update:snackBar', $event)"
               />

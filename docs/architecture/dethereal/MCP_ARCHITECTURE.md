@@ -329,6 +329,13 @@ apps/dethereal/src/
 │   ├── notices.ts                  # The fixed texts triage shows about the knowledge graph
 │   ├── model.ts                    # The platform model a model directory names
 │   └── text.ts, turns.ts           # Display cleaning; one call at a time per key
+├── review-module/                  # The platform's dethermine-review module, as triage uses it
+│   ├── contract.ts                 # Its GraphQL documents, the analysis lookup and create, and its bounds
+│   ├── platform.ts                 # Each call, bounded in time and size, its answer checked as untrusted input
+│   ├── workspace.ts                # What open reads: the module, the model's Triage analysis, fingerprints, waiting proposals
+│   ├── payload.ts                  # A review's proposals as the publish takes them, what is left out, and the lines
+│   ├── citations.ts                # A citation's grammar, and the files discovery read
+│   └── readback.ts                 # What became of this machine's publishes, in the operator's words
 ├── hidden-edges/                   # The hidden-edge domain behind the hidden-edge tools
 │   ├── open.ts                     # A run's reads: sync check, decisions, exposures, the module's candidates
 │   ├── platform.ts                 # The module's candidate query, bounded in time and size
@@ -541,7 +548,7 @@ The triage tools' classes:
 | Tool | Approval | `requiresUser` | Why |
 |------|----------|:-:|-----|
 | `triage_review` | `auto` | -- | It reads the model and records the operator's replies in the model's own triage record; `tasks` writes the remediation task list under a fixed name in the run's own scratch directory, which is kept out of git, and never over a file. It never changes the platform. Only the main session holds it (see [PLUGIN_ARCHITECTURE.md → Main-session-only tools](PLUGIN_ARCHITECTURE.md#main-session-only-tools)) |
-| `manage_dispositions` | `prompt` | yes | It writes dispositions and creates supersede copies on the platform; `prepare` and `commit` both ask |
+| `manage_dispositions` | `prompt` | yes | It writes dispositions and creates supersede copies on the platform, or publishes proposals to the platform's Triage workspace; `prepare`, `commit`, `prepare_publish` and `publish` each ask |
 | `get_kg_chain` | `auto` | -- | Read-only knowledge-graph evidence |
 | `get_class_guide` | `auto` | -- | Read-only class guidance |
 
@@ -1607,8 +1614,8 @@ The contract carries no progress or back-off metadata: `status` returns the raw 
 
 Triage reviews the platform's computed exposures for one model. The `triage` skill reads them through `query_exposures` `list_model`, which groups them on the server (see [`query_exposures`](#query_exposures)), has its specialist agents propose a disposition for each group, and puts the proposals to the operator. The tools make the review deterministic and gate every write:
 
-- `triage_review` reads each of the operator's replies as one command, and checks and writes the remediation task list.
-- `manage_dispositions` writes what a closed review decided, only after the operator's answer to the apply question.
+- `triage_review` reads each of the operator's replies as one command, checks and writes the remediation task list, and reads back what became of the proposals published to the platform's Triage workspace.
+- `manage_dispositions` writes what a closed review decided, only after the operator's answer to the apply question; or, for an untouched review, publishes its proposals to the platform's `dethermine-review` Triage workspace for a person to decide there, after the publish question, writing no disposition.
 - `get_kg_chain` and `get_class_guide` supply read-only evidence.
 
 What a disposition is, and what its kinds mean, is the platform's: see [ADR-007: Finding disposition lifecycle](../decisions/007-finding-disposition-lifecycle.md) and the [glossary](../../GLOSSARY.md#finding-disposition). Every triage tool that takes a model directory names its platform model the same way, from the directory's sync record, which must have been made against the platform this server is configured for (`not_synced`, `other_platform` otherwise). The decision to build triage into this server is [ADR-014](../decisions/014-open-source-triage-and-evaluator.md); the operator's view of a run is [Triaging Platform Findings](../../user/dethereal/TRIAGE.md).
@@ -1649,19 +1656,21 @@ The operator's review of triage proposals.
 | Property | Value |
 |----------|-------|
 | **Base class** | `ClientFreeTool` |
-| **Input** | `{ action: 'open' \| 'reply' \| 'get' \| 'tasks', directory_path?, mode?: 'review' \| 'stale', groups?, review_id?, reply?, run?, text?, guides? }` — `open` takes `directory_path`, `mode` and `groups`; `reply` takes `review_id` and `reply`; `get` takes `review_id`; `tasks` takes `directory_path`, `run`, `text` and, optionally, `guides` |
-| **Output** | `open`: `{ review_id, mode, groups (their count), grammar, ask, warnings? }`; `reply`: `{ review_id, command, decisions, closed, show?, ask?, warnings? }`; `get`: `{ review_id, mode, groups (as opened), decisions, closed, ask? }`; `tasks`: `{ written: true, path, chars, quotes_exempted, existing?, warnings? }` |
+| **Input** | `{ action: 'open' \| 'reply' \| 'get' \| 'tasks' \| 'published', directory_path?, mode?: 'review' \| 'stale', groups?, review_id?, reply?, run?, text?, guides? }` — `open` takes `directory_path`, `mode` and `groups`; `reply` takes `review_id` and `reply`; `get` takes `review_id`; `tasks` takes `directory_path`, `run`, `text` and, optionally, `guides`; `published` takes `directory_path` and, optionally, `review_id` |
+| **Output** | `open`: `{ review_id, mode, groups (their count), grammar, ask, review_workspace?, warnings? }`; `reply`: `{ review_id, command, decisions, closed, show?, ask?, warnings? }`; `get`: `{ review_id, mode, groups (as opened), decisions, closed, ask? }`; `tasks`: `{ written: true, path, chars, quotes_exempted, existing?, warnings? }`; `published`: `{ publishes, counts, rows, more, note }` |
 | **dt-core class** | None: the model read is the server's own document |
 | **Approval** | `auto`; held by the main session only |
 
-**`open`** takes the proposals as the operator is shown them, one per numbered group of exposures: `{ group, exposure_ids, proposal?, needs_human?, per_row_only?, stale_superseded? }`, with a proposal `{ op, kind?, reason?, modifications?, verified_technique_ids? }`. A review (`mode: 'review'`) proposes `dispose` or `supersede`; a stale review (`mode: 'stale'`) proposes `reaffirm` or `clear` for dispositions the model's changes made stale.
+**`open`** takes the proposals as the operator is shown them, one per numbered group of exposures: `{ group, exposure_ids, proposal?, needs_human?, per_row_only?, stale_superseded?, ambiguity? }`, with a proposal `{ op, kind?, reason?, modifications?, verified_technique_ids?, confidence?, citations?, objection? }`. A review (`mode: 'review'`) proposes `dispose` or `supersede`; a stale review (`mode: 'stale'`) proposes `reaffirm` or `clear` for dispositions the model's changes made stale.
 
 The groups are checked on their own before anything is read:
 
 - Each exposure is in one group only, and a review holds at most 200 exposures (`review_too_long`: open it in parts).
 - A `dispose` names `AFFIRMED`, `NOT_APPLICABLE` or `FALSE_POSITIVE` and carries its reason. `COMPENSATING_CONTROL` and `RISK_ACCEPTED` are the operator's to choose, in an edit, and are never proposed.
 - A `supersede` carries its `modifications` and is never `needs_human`: it is accepted or skipped.
-- Every text is one line of at most 1,800 characters, with no invisible or control characters (`text_invalid`). A copy's name holds no single quote, because the platform finds a copy's source by the copy's name in single quotes.
+- Every text is one line of at most 1,800 characters, with no invisible or control characters (`text_invalid`). A copy's name holds no single quote, because the platform finds a copy's source by the copy's name in single quotes. A group's reason, objection, ambiguity, citations and edits together hold at most 12 KiB, what the review workspace stores for one proposal.
+- A dispose with a `low` confidence or an `objection` is `needs_human`; a supersede with an objection is `per_row_only`, and one with a `low` confidence is refused (it is not proposed).
+- A citation is a locator only: `platform:<field>`, `kg:<id>`, `attributes:<path>` or `source:<path>:<line>[-<line>]`, at most 300 characters, never to a secret file or outside the project, and a `source:` file only among those `.dethereal/discovery.json` lists, when it lists any (`citation_invalid`).
 
 `open` then reads the model once and keeps what each exposure of the review, and every other exposure on their elements, was at that moment; a plan later writes only exposures still as the review saw them. It refuses:
 
@@ -1672,6 +1681,8 @@ The groups are checked on their own before anything is read:
 - a second `open` of the directory while a review of it is open (`review_open`, with its `review_id`, which `get` resumes).
 
 In a stale review the server marks a group `stale_superseded` when any of its exposures is superseded; such a group is cleared or skipped, never reaffirmed.
+
+**`review_workspace`.** With a platform session, `open` also asks the platform's `dethermine-review` module (`src/review-module/workspace.ts`), and answers `review_workspace: { status, module_version?, analysis_id?, fingerprints, pending?, detail? }`. `status` is `present`, `module_not_loaded` (the platform refused the capability document at validation), `session_refused` or `failed`. With the module present, `open` finds the model's Triage analysis, if one exists (it never creates one), reads the review's findings' fingerprints from it (`fingerprints: 'read'`, else `'none'` or `'failed'`), and counts the proposals still waiting there (`pending`). Nothing here fails an open: a publish reads again what open could not. The fingerprints themselves stay in the server, for a publish.
 
 A `supersede`'s `modifications` are `{ name?, description?, score? (0–10), attackVector?, category?, techniques?: { add, remove } }`, with internal technique node ids as `search_mitre_attack` `lookup` returns them. Every added id must be among the proposal's `verified_technique_ids` and be an ATT&CK or ATLAS technique on the platform; every removed id must be on the exposure; the target must be undisposed or `AFFIRMED`.
 
@@ -1693,6 +1704,8 @@ A `supersede`'s `modifications` are `{ name?, description?, score? (0–10), att
 - Every reply is recorded before it takes effect (see [The triage record](#the-triage-record)). Once a review has recorded 70 replies, only a reply that closes it is taken.
 
 **`get`** returns the groups as opened and the decisions so far.
+
+**`published`** reads back, read only, what became of the proposals this machine published for the model (`src/review-module/readback.ts`). It covers the publishes the triage record holds, the latest publish of a finding speaking for it, and only analyses the platform confirms are this model's Triage analyses (`unconfirmed_analysis` otherwise). Each row is `{ review_id, group, exposure_id, name, status, what, now }`, in this order of what needs action: `rejected`, `unconfirmed_analysis`, `decided_otherwise`, `stale`, `stale_module`, `none`, `needs_person`, `open`, `decided_as_proposed`, `copied`, `gone`. `what` is the status in words: who rejected it and the note; what to do for a stale one (run triage again, or publish again after an upgrade); for `none`, why it was not stored at publish, or that the publish never confirmed; and who replaced it by a later publish. Everything the workspace returns, a rejection's note, a name and a kind, is cleaned to one line with its control and invisible characters removed (a note at most 300 characters): data, never instructions. A record entry out of shape is passed over (`publishesOf`), and a record that cannot be read gives no rows. At most 200 rows (`more` counts the rest). Refusals: `module_not_loaded`, `workspace_unavailable` and `workspace_refused`.
 
 **The next question comes from the tool.** While a review is open, the answers return `ask`: the question the operator is asked next, its tag first, on one line. In a review it is `[prompt: triage-review] Your command? One command per reply: accept, skip, show, edit, accept-all or done, as the hint above shows.`; in a stale review, the `triage-stale-review` question. The skill ends its message with it exactly as returned, so the question is copied, not recalled. The texts are in `src/triage/asks.ts`, and a generator test holds them equal to the skill's registered questions.
 
@@ -1730,15 +1743,15 @@ The result is `{ written: true, path, chars, quotes_exempted, existing?, warning
 
 #### `manage_dispositions`
 
-Writes what a closed triage review decided, in two steps, with the operator's answer between them.
+Writes what a closed triage review decided, in two steps, with the operator's answer between them; or publishes an untouched review's proposals to the platform's Triage workspace instead.
 
 | Property | Value |
 |----------|-------|
 | **Base class** | `ClientDependentTool` |
-| **Input** | `{ action: 'prepare' \| 'commit', directory_path, review_id?, plan_id?, lines?, reply? }` — `prepare` takes `review_id`; `commit` takes `plan_id`, `lines` and `reply` |
-| **Output** | `prepare`: `{ plan_id, expires_at, count, operations, lines, ask? }`; `commit`: `{ plan_id, written, failed, outcomes, warnings? }`, or `{ plan_id, cancelled: true, written: 0 }` |
-| **dt-core class** | `DtExposure` (`disposeExposure`, `clearDisposition`, `getExposureTechniqueLinks`) and `executeSupersedeFlow` |
-| **Approval** | `prompt`, with `requiresUser`; called from the main session only |
+| **Input** | `{ action: 'prepare' \| 'commit' \| 'prepare_publish' \| 'publish', directory_path, review_id?, plan_id?, lines?, reply? }` — `prepare` and `prepare_publish` take `review_id`; `commit` and `publish` take `plan_id`, `lines` and `reply` |
+| **Output** | `prepare`: `{ plan_id, expires_at, count, operations, lines, ask? }`; `commit`: `{ plan_id, written, failed, outcomes, warnings? }`, or `{ plan_id, cancelled: true, written: 0 }`; `prepare_publish`: `{ plan_id, expires_at, groups, findings, not_sent, lines, ask? }`; `publish`: `{ plan_id, analysis_id, created?, groups, findings, results, not_stored, not_sent?, warnings? }`, or `{ plan_id, cancelled: true, sent: 0 }` |
+| **dt-core class** | `DtExposure` (`disposeExposure`, `clearDisposition`, `getExposureTechniqueLinks`) and `executeSupersedeFlow`; for a publish, the `dethermine-review` module's documents (`src/review-module/contract.ts`) and the platform's `createAnalysisIdempotent` |
+| **Approval** | `prompt`, with `requiresUser`; called from the main session only. Each of the four calls asks |
 
 **`prepare`** needs a closed review of the same directory and the same platform model (`review_not_found`, `review_open`, `other_model`). It reads the model once, checks each operation of the review against the platform now and against what the review saw when it was opened, and writes nothing. Each operation is `{ index, group, exposure_id, op, kind?, status: 'ready' | 'rejected', code?, clone? }`; `count` is the number ready. A rejected operation carries one of these codes:
 
@@ -1778,6 +1791,13 @@ Platform and agent text in a line is put on one line, with every invisible or co
 **The apply question.** When `count` is at least 1, `prepare` returns it as `ask`, its tag first, on one line: `[prompt: triage-apply] Apply <count> dispositions? Type yes or cancel.` With no ready operation there is no `ask`, and nothing is asked. The skill shows the lines first, then ends its message with `ask` exactly as returned, as in the review (see [`triage_review`](#triage_review)).
 
 **`commit`** is described under [The two-phase gate](#the-two-phase-gate).
+
+**Publishing to the Triage workspace.** `prepare_publish` and `publish` send an untouched review's proposals to the platform's `dethermine-review` module for a person to decide there; no disposition is written. A plan is of one kind, `dispositions` or `publish`, and is refused across (`plan_kind`).
+
+- **`prepare_publish`** refuses a review with a reply (`review_has_replies`), one already published unless its publish was never confirmed (`review_published`), a platform without the module (`module_not_loaded`), and a workspace that cannot be asked (`workspace_unavailable`). It refuses `nothing_to_publish` when no group is left to send, and `echo_too_large` for lines over the echo budget or over 400 lines. It reads the model once, leaves out each finding that changed since the review, and builds the groups as the module's publish takes them (`src/review-module/payload.ts`): a dispose's kind and reason as drafted, a supersede's edits, the confidence, the citations, the objection, the ambiguity, `needsHuman` and `perRowOnly`, and each finding's base (`baseKind`, `baseAt`) and fingerprint. A group or finding the module would refuse is left out, with why (`not_sent`): a current decision it cannot carry, a reaffirm of a decision no person picked, a clear with nothing to clear, a superseded finding in a stale review. The lines (`publishLines`): a first line with the counts, the model, `under your name, with the reasons as Dethereal's analysts drafted them` and what the findings propose by kind; then, when it replaces proposals still waiting there, that line; then the 30-minute line when it applies; every group with what it proposes, its findings, its reason, an edited copy's values old → new and its technique ids, the analyst's confidence, the objection, what to weigh and the citations; `Not sent (<n> items):` with one line per item; where they go; and a closing line naming what is sent with each, an edited copy's fields included. Every text is double-quoted, with a `"` or `\` inside it escaped. The publish question comes as `ask`: `[prompt: triage-publish] Publish <G> groups (<F> findings) to the Triage workspace? Type yes or cancel.`, with `It replaces <n> proposals still waiting there.` before `Type yes` when it does (`publishAsk`). A record that cannot take one more publish (5 per review) is refused before the question.
+- **The fingerprints** come from `open` when the model had a Triage analysis then; otherwise they are read at `prepare_publish` from an analysis found by then, or at `publish` from the one it creates. Past 30 minutes after open, a plan whose fingerprints were not read at open sends every proposal as `needsHuman` and no supersede (`LATE_FINGERPRINT_MS`), and its lines say so; a plan whose fingerprints are still unread at `publish`, prepared inside the window and published past it, is `plan_stale`, checked before any analysis is created, so its question can say how the proposals go. When the proposals still waiting cannot be counted, the lines say `The proposals still waiting there could not be counted; this publish replaces any that are.`, and the question says it replaces any.
+- **`publish`** takes the plan, the lines and the reply as `commit` does, through the same plan store, the same answer checks and the same record. On `yes` it ends the plan as `plan_stale`, sending nothing, when a finding changed, the review took a reply or another publish since prepare, or the model's Triage analysis is not the one prepare found. It then finds the model's Triage analysis (the deterministic id first, else the oldest bound to this model alone), or creates it with that id (`createAnalysisIdempotent`, so two harnesses meet in one), reads the fingerprints if still needed, and sends one `reviewPublishProposals` call, at most 900 KiB (`payload_too_large`). It answers the module's counts per result (`stored`, `stored_stale`, `already_decided`, `rejected`, `changed_since_review`, `finding_not_found`) and each finding not stored with why. A refusal by the module is `publish_refused`, and nothing was stored; one with a `field` means the module and this Dethereal disagree on the payload's shape, and the field is named only in its plain form (`[A-Za-z0-9_.[\]]`), else `(unnamed field)`. `not_triage` is said in words: the model's Triage analysis is linked to more than one model. **No answer is `write_error`:** the module may hold the proposals, the review is closed and its publish marked unconfirmed, and `prepare_publish` again sends it once more, safely; it is never committed. The skill reads back with `published` first.
+- **A published review is never committed:** `prepare` and `commit` refuse it (`review_published`); for a publish never confirmed, the refusal says `published` shows whether it landed, or to run triage again to decide here.
 
 #### `get_kg_chain`
 
@@ -1863,7 +1883,10 @@ stateDiagram-v2
     review_id, mode, opened_at, groups,          // groups: their count
     replies: [{ at, outcome: { verb } | { refused }, ...text }],
     applies: [{ at, plan_id, ...text,
-                outcome: { answer: 'yes' } | { cancelled: true } | { written, failed } | { write_error: true } | { refused } }]
+                outcome: { answer: 'yes' } | { cancelled: true } | { written, failed } | { published, not_stored }
+                       | { write_error: true } | { refused } }],
+    published?: [{ at, plan_id, analysis_id, exposure_ids, group_of?, not_stored: [{ exposure_id, result }],
+                   results, fingerprints: 'open' | 'prepare' | 'publish', unconfirmed? }]
   }]
 }
 // text: { reply } verbatim, or { reply_start, reply_length, reply_sha256 }
@@ -1871,12 +1894,14 @@ stateDiagram-v2
 
 - **Verbatim or hashed.** A reply or answer of at most 2,000 characters that is clean text is kept verbatim. A longer one, or one holding invisible or control characters, is kept as its first 200 characters, its length and its sha256.
 - **Recorded first.** A reply or an answer takes effect only once it is recorded. A record that cannot be written refuses it, with nothing taken: `record_unwritable` (for a record that cannot be read, the message asks the operator to move it aside and try again), `not_model_dir` (the directory has no `manifest.json`), or one of the caps below.
+- **Publishes.** A published review keeps one `published` entry per publish: where it went, its findings and their groups, the module's answer, and when the fingerprints were read; one whose answer never came is `unconfirmed`. `triage_review` `published` reads it.
 - **Two refusal codes for the caps.** `record_full` is a count reached; some replies or answers are still taken after it, as the table says. `record_too_large` is the record's size: after it nothing is taken, a closing `done` included.
 
 | Cap | Value | When it is reached |
 |-----|-------|--------------------|
-| Reviews in the record | 20 | The oldest review is dropped; the active review never is |
-| Size of the record | 896 KiB | The oldest reviews are dropped; a reply or answer that would take the active review alone past it is refused `record_too_large` |
+| Reviews in the record | 20 | The oldest unpublished review is dropped; the active review never is, and a published review never is (`trimLog`): it is the record of what left this machine. A record that could drop only published reviews refuses `record_full`, asking to move `.dethereal/triage-log.json` aside to keep it |
+| Size of the record | 896 KiB | The oldest unpublished reviews are dropped, as above; a reply or answer that would take the active review alone past it is refused `record_too_large` |
+| Publishes per review | 5 | `prepare_publish` is refused `record_full` before its question: open a new review |
 | Replies per review | 70 | A reply that does not close the review is refused `record_full`, with the review question as `ask`; `done` and `accept-all` are still taken, and a refused reply is answered unrecorded (`recorded: false`) |
 | Refused answers per review | 20 | A further refused answer is `record_full`, with the apply question as `ask`; `yes` and `cancel` can still be given |
 | Answers per review | 40 | Any further answer is `record_full`: open a new review |
