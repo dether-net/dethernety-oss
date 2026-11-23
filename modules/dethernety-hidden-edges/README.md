@@ -118,7 +118,7 @@ suite.
 
 ## Packaging
 
-`manifest.json` declares the module (`compatibility.dtModule: ^0.17.0`). The
+`manifest.json` declares the module (`compatibility.dtModule: ^0.18.0`). The
 package holds the compiled module and its `data/` directory, so the classes
 travel with it, and the module ships in the platform release beside
 `dethernety-general`, `dethernety-coverage-tools` and

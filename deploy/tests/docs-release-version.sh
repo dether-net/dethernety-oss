@@ -16,6 +16,7 @@ files=(
   docs/user/byodt/INSTALLATION.md
   docs/user/byodt/README.md
   deploy/installer/npm/README.md
+  deploy/compose/README.md
 )
 
 # A prerelease's dot-separated parts after the first are numeric (rc.1), so the .tar.gz after a version in a bundle
