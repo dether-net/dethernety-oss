@@ -4,6 +4,7 @@ import { jwtDecode } from 'jwt-decode'
 import { AuthConfig, AuthStoreConfig, User, UserInfo, TokenResponse } from '@dethernety/dt-core'
 import { getConfig, type OidcEndpoints } from '@/config/environment'
 import { userDisplayName } from '@/utils/userDisplayName'
+import { forgetReturnPath, takeReturnPath } from '@/router/returnPath'
 
 // Extended AuthConfig with OIDC endpoints
 interface ExtendedAuthConfig extends AuthConfig {
@@ -532,8 +533,8 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
       
       debugLog(authConfig, 'Authentication successful', { roles: userRoles.length, permissions: userPermissions.length })
 
-      // Redirect to home page
-      safeRedirect(ROUTES.HOME)
+      // Back to the address the tab asked for before it signed in, when there is one; otherwise home
+      safeRedirect(takeReturnPath(BASE, window.location.origin) ?? ROUTES.HOME)
     } catch (err) {
       cleanupStoredAuthData()
       const error = err as Error
@@ -636,6 +637,9 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
       refreshTimeoutId = null
     }
     
+    // a signed-out tab's return address goes with the session
+    forgetReturnPath()
+
     debugLog(authConfig, 'Auth state cleared')
   }
 

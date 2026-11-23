@@ -6,6 +6,8 @@
 
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
+import { createAuthGuard } from './guard'
+import { setRouteResolver } from './returnPath'
 
 // Layout wrapper — wraps page components in the default layout
 import DefaultLayout from '@/layouts/default.vue'
@@ -35,34 +37,12 @@ const router = createRouter({
   ],
 })
 
-// Ensure auth mode is resolved once before the first navigation.
-let authInitialized = false
+// The address a signed-out tab asked for is kept only when this router resolves it to one of its pages.
+setRouteResolver((to) => router.resolve(to))
 
-router.beforeEach(async (to) => {
-  const authStore = useAuthStore()
-
-  // One-time check: detect whether authentication is required
-  if (!authInitialized) {
-    await authStore.initializeAuthMode()
-    authInitialized = true
-  }
-
-  // When auth is disabled (no-auth) allow all routes
-  if (authStore.authDisabled) {
-    return true
-  }
-
-  // Allow access to auth-related routes
-  if (to.path === '/login' || to.path.startsWith('/auth/')) {
-    return true
-  }
-
-  if (!authStore.isAuthenticated) {
-    return '/login'
-  }
-
-  return true
-})
+// The sign-in guard (guard.ts): the auth mode is resolved once, before the first navigation.
+const authGuard = createAuthGuard()
+router.beforeEach((to) => authGuard(to, useAuthStore()))
 
 
 if (import.meta.env.DEV) {

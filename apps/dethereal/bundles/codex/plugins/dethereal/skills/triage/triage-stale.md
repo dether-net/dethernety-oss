@@ -7,7 +7,7 @@ The sweep replaces the proposals and the review of a default run; the apply gate
    - **Stale dispositions** — every row whose kind is not `SUPERSEDED`.
    - **SUPERSEDED-stale** — its own section, never mixed in. Open it with: the copy that replaced these originals was deleted, and the platform marked each original stale. These rows take only `clear` or `skip` — re-affirming a superseded original makes no sense — and every row carries, verbatim: *clearing un-mutes the original that your deleted copy replaced*.
 3. Say once that no analyst runs in the sweep: each row is for human review against the current evidence; there is no bulk re-affirmation.
-4. **Open** with `mcp__dethereal__triage_review` `open`, `mode: 'stale'`, each group with its `group`, its `exposure_ids` and `proposal: {op: reaffirm}` — a SUPERSEDED-stale row `proposal: {op: clear}` — and nothing more: the server reads which rows were superseded from the model, and keeps each disposition's kind. The reaffirm's reason is composed by the server at prepare. Parts and refusals at open as the review file says.
+4. **Open** with `mcp__dethereal__triage_review` `open`, `mode: 'stale'`, each group with its `group`, its `exposure_ids` and `proposal: {op: reaffirm}` — a SUPERSEDED-stale row `proposal: {op: clear}` — and nothing more: the server reads which rows were superseded from the model, and keeps each disposition's kind. The reaffirm's reason is composed by the server at prepare. Parts, refusals and the Triage workspace at open as the review file says.
 5. Show this hint, then the question — the `ask` each answer returns, as the review file says:
 
    ```

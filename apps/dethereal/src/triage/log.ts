@@ -31,8 +31,25 @@ export type LoggedReply = { at: string; outcome: { verb: string } | { refused: s
 export type LoggedApply = {
   at: string
   plan_id: string
-  outcome: { answer: 'yes' } | { cancelled: true } | { written: number; failed: number } | { write_error: true } | { refused: string }
+  outcome: { answer: 'yes' } | { cancelled: true } | { written: number; failed: number } | { published: number; not_stored: number } | { write_error: true } | { refused: string }
 } & RecordedText
+
+/** A publish to the review workspace: where it went, which findings, and what the workspace answered. */
+export interface LoggedPublish {
+  at: string
+  plan_id: string
+  analysis_id: string
+  exposure_ids: string[]
+  /** Each finding's group, as the operator saw it numbered */
+  group_of?: Record<string, number>
+  /** The findings the workspace did not store, by its answer */
+  not_stored: Array<{ exposure_id: string; result: string }>
+  results: Record<string, number>
+  /** When the fingerprints sent were read: at open, at prepare, or at the publish */
+  fingerprints: 'open' | 'prepare' | 'publish'
+  /** A publish whose answer never came: the workspace may hold it */
+  unconfirmed?: true
+}
 
 export interface LoggedReview {
   review_id: string
@@ -41,6 +58,8 @@ export interface LoggedReview {
   groups: number
   replies: LoggedReply[]
   applies: LoggedApply[]
+  /** The review's publishes to the review workspace; absent for a review never published */
+  published?: LoggedPublish[]
 }
 
 /** The text as the record keeps it. */
@@ -52,12 +71,19 @@ export function recordedText(text: string): RecordedText {
 /** The record's size as the store writes it. */
 const sizeOf = (reviews: LoggedReview[]) => Buffer.byteLength(JSON.stringify({ reviews }, null, 2), 'utf8')
 
-/** Keep the latest reviews: at most LOG_LIMITS.reviews, under LOG_LIMITS.bytes; the active review is never dropped. */
+/**
+ * Keep the latest reviews: at most LOG_LIMITS.reviews, under LOG_LIMITS.bytes. The active review is never dropped,
+ * and a published one never: it is the record of what left this machine. A record of published reviews only, past
+ * its limits, refuses (record_full) rather than lose one.
+ */
 export function trimLog(reviews: LoggedReview[], active: string): LoggedReview[] {
   const out = [...reviews]
   const drop = () => {
-    const i = out.findIndex((r) => r.review_id !== active)
-    if (i < 0) return false
+    const i = out.findIndex((r) => r.review_id !== active && !r.published?.length)
+    if (i < 0) {
+      if (out.some((r) => r.review_id !== active)) throw new RecordError('record_full', 'the triage record holds only published reviews, the record of what left this machine: move .dethereal/triage-log.json aside to keep it, then try again', 'published reviews')
+      return false
+    }
     out.splice(i, 1)
     return true
   }

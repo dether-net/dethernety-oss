@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
   "harness": "claude",
-  "version": "0.7.0",
-  "generatedFrom": "60e26c85ff0c52e3432d839567047d6cf1b7479101cdcd5a1faf0f1bec612b53",
-  "contentHash": "c1d1532270190ab54a73bee9bf974ac10f5eee7b4fa602f4a3d413de89e99325",
+  "version": "0.8.0-dev.0",
+  "generatedFrom": "aceadd0a66a91b69e7ed8cb2d7ad25aed08cadecddf0a7eba85392de8a722eff",
+  "contentHash": "9c6259afca8f20a478fecc63b2473ac96f88d795cca6c2ec79ae0ad08b8a3f7c",
   "files": [
     {
       "path": ".claude-plugin/plugin.json",
-      "sha256": "eb233858db41549c9534d81050098cef2a1f89672996dc7327f72d746784d4bd"
+      "sha256": "c3db014a6600eeede8491d34a19c8e6ea9ccf58021e5d040e397ded5de86ab23"
     },
     {
       "path": "bundles/claude/.mcp.json",
@@ -315,7 +315,7 @@
     },
     {
       "path": "bundles/claude/skills/triage/SKILL.md",
-      "sha256": "d941a4539d08ad3d4b8e4d725a47dbe08b2c7e465e22084ab0b42f223b6e1cba"
+      "sha256": "ff79d6a7a10f2722ce37d395118c03b7b55302b1ad1df354cd9d55ae31785a14"
     },
     {
       "path": "bundles/claude/skills/triage/secret-files.md",
@@ -323,15 +323,15 @@
     },
     {
       "path": "bundles/claude/skills/triage/triage-evidence.md",
-      "sha256": "3c6dda2fa58f028f3794e5ca2f82bd2db70bdf2bd1bd5b8f2187d42b392f4052"
+      "sha256": "12a7a044a0bc9ccc4593653e995fec7a22733603a99a1f06822573c02c637d4f"
     },
     {
       "path": "bundles/claude/skills/triage/triage-review.md",
-      "sha256": "cd04ab04d1bd85ac6b57d432bde78adbf01120308b6d417fcf4506ba2ecb6be0"
+      "sha256": "af774f7f28624d41404f421a2eaa8718653f24fe22a650475999473908c73779"
     },
     {
       "path": "bundles/claude/skills/triage/triage-stale.md",
-      "sha256": "15cbcadc78477b96c44b8eff18e676f289debf2f5b72de95c3c8f3561b7d367a"
+      "sha256": "06349e367ea48d30846cc5f9b72caa42b22f690e7887cfaf2bea9daf5786279a"
     },
     {
       "path": "bundles/claude/skills/triage/triage-tasks.md",

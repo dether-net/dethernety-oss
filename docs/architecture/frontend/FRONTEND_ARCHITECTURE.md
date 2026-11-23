@@ -602,7 +602,7 @@ Routes auto-generated from `pages/` directory:
 | File | Route | Auth Required |
 |------|-------|---------------|
 | `pages/index.vue` | `/` | Yes |
-| `pages/dataflow.vue` | `/dataflow` | Yes |
+| `pages/dataflow.vue` | `/dataflow?id=<model>&element=<id>&tab=<name>`: `id` opens the model; `element` and `tab` are optional, see [Linking to an element](#linking-to-an-element) | Yes |
 | `pages/browser.vue` | `/browser` | Yes |
 | `pages/issues.vue` | `/issues` | Yes |
 | `pages/modules.vue` | `/modules` | Yes |
@@ -611,22 +611,59 @@ Routes auto-generated from `pages/` directory:
 | `pages/auth/logout.vue` | `/auth/logout` | No |
 | `pages/auth/not-admitted.vue` | `/auth/not-admitted` | No — reached *while* signed in, when the deployment refuses a freshly issued token (see [Error Handling](#2-graphql-client-apollo)); under `/auth/` so the guard lets a signed-in person reach it without a loop through the identity provider |
 
+### Linking to an element
+
+`/dataflow?id=<model>&element=<id>` selects that component, boundary or data flow once the model has loaded, and centres it on the canvas. A data flow is framed on its two endpoints. The model's default (root) boundary is selected as a click on the empty canvas selects it.
+
+`&tab=<name>` also opens the element's settings window on that tab. The names are the settings window's own: `general`, `zoning`, `attributes`, `data`, `controls`, `exposures`. Zoning shows only for a boundary other than the default one.
+
+- An unknown tab, or a tab the element does not show, only selects, without a message.
+- An id that is not one of the loaded model's components, boundaries or data flows (another model's element, a data item, a deleted one) selects nothing and shows a short warning: "The linked element is not in this model."
+- Each parameter must appear once, as a plain string; a repeated parameter is ignored. An `element` that is missing, repeated, empty or not a plain string shows no warning.
+- The link is read when the editor page opens, as `id` is, and is one attempt, on the first load of the linked model. If that load fails or is overtaken by another, the link is dropped, and a later load of the model does not apply it.
+
+**Source:** `apps/dt-ui/src/utils/editorLink.ts` (`resolveEditorLink`, `isSettingsTabShown`), applied in `components/DataFlow/DataFlow.vue`.
+
+**A link survives the sign-in.** A link opened in a tab that is not signed in goes to `/login`, and once the tab is signed in it returns to the linked address, not the home page:
+
+- **What qualifies is the router's call.** The address must be one the router resolves to one of the app's pages: never a sign-in route (`login`, `auth-callback`, `auth-logout`, `auth-not-admitted`) and never the catch-all. It must be a plain path under this origin (no `//`, no backslash or control character, at most 2,048 characters).
+- **Anything else goes home**, as does an address kept more than ten minutes, or one kept when storage is not available.
+- **Per tab, taken once.** The address is kept in the tab's `sessionStorage`, as the sign-in is per tab, and a later signed-out request replaces it. The callback takes it once the sign-in succeeds, checks it again (anything in the origin can write that storage), and redirects to the parsed address, never the stored string. A failed sign-in does not take it, so a retry still returns there. Clearing the session (`clearState`) clears it.
+
+**Not covered yet:** a session that ends in an open tab, an expired session or a refused token, still returns home after signing in again.
+
+**Source:** `apps/dt-ui/src/router/returnPath.ts` (`rememberReturnPath`, `takeReturnPath`, `isReturnPath`), `router/guard.ts` (`createAuthGuard`), and `stores/authStore.ts` (`handleCallback`).
+
 ### Navigation Guard
+
+The guard is `createAuthGuard` in `router/guard.ts`, registered in `router/index.ts`:
 
 ```typescript
 // router/index.ts
-router.beforeEach((to, from, next) => {
-  const authStore = useAuthStore();
+setRouteResolver((to) => router.resolve(to))   // what returnPath.ts asks
+const authGuard = createAuthGuard()
+router.beforeEach((to) => authGuard(to, useAuthStore()))
 
-  if (to.path.startsWith('/auth') || to.path === '/login') {
-    next();
-  } else if (!authStore.isAuthenticated) {
-    next('/login');
-  } else {
-    next();
+// router/guard.ts
+export function createAuthGuard() {
+  let authInitialized = false
+  return async function authGuard(to, authStore): Promise<true | string> {
+    if (!authInitialized) {
+      await authStore.initializeAuthMode()   // once, before the first navigation
+      authInitialized = true
+    }
+    if (authStore.authDisabled) return true  // no-auth: every route opens
+    if (to.path === '/login' || to.path.startsWith('/auth/')) return true
+    if (!authStore.isAuthenticated) {
+      rememberReturnPath(to.fullPath)        // the address the sign-in returns to
+      return '/login'
+    }
+    return true
   }
-});
+}
 ```
+
+After a successful callback, `handleCallback` redirects to `takeReturnPath(BASE, window.location.origin) ?? ROUTES.HOME`.
 
 ---
 

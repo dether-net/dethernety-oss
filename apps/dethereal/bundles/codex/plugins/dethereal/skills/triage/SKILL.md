@@ -103,7 +103,7 @@ Follow the evidence file: the triage set and its groups, the probe for custom co
 
 ## 4. The review
 
-Follow the review file: the proposals table, then `open`, then this question — the `ask` each answer returns, until the review closes (review file):
+Follow the review file: the proposals table, `open`, the workspace question, then this question — the `ask` each answer returns, until the review closes (review file):
 
 `[prompt: triage-review]` Your command? One command per reply: accept, skip, show, edit, accept-all or done, as the hint above shows. — a plain message; end your turn.
 

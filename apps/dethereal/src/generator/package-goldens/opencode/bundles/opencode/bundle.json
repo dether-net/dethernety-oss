@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "harness": "opencode",
   "version": "<VERSION>",
-  "generatedFrom": "60e26c85ff0c52e3432d839567047d6cf1b7479101cdcd5a1faf0f1bec612b53",
-  "contentHash": "697a577e6aad1b8b586723785daaecd63ba5e946807ab0c3272d2097a7649690",
+  "generatedFrom": "aceadd0a66a91b69e7ed8cb2d7ad25aed08cadecddf0a7eba85392de8a722eff",
+  "contentHash": "141f10e0336601b71c74205b153908c5ef4650f58704d426e306c6598c2ba889",
   "files": [
     {
       "path": "bundles/opencode/agents/dethereal-enrichment-applier.md",
@@ -327,7 +327,7 @@
     },
     {
       "path": "bundles/opencode/skills/dethereal-triage/SKILL.md",
-      "sha256": "555a39adc25a15565e6c9f9b17226ad7bf24422e36cdda2670db2678d5d60af2"
+      "sha256": "16b745b2dfe73a5eae35635efc25db510da0220e2adcb68bae340801195548d3"
     },
     {
       "path": "bundles/opencode/skills/dethereal-triage/secret-files.md",
@@ -335,15 +335,15 @@
     },
     {
       "path": "bundles/opencode/skills/dethereal-triage/triage-evidence.md",
-      "sha256": "3863098c8b6abf4e01d895280f11fcf14d52597099eff6d9d8a1cf3dfcacf926"
+      "sha256": "e027c684acac517afdea81271343247724926b2ff4ba2f731cc2827dfeb8fe50"
     },
     {
       "path": "bundles/opencode/skills/dethereal-triage/triage-review.md",
-      "sha256": "878ca8c4422960ad131bef8474d04bf54736b3ff9835fadae6c14b2b4845e3c5"
+      "sha256": "8b02b901cb2714d126c86eee05182f121788cd21a7eb79b0f147a69c4034c391"
     },
     {
       "path": "bundles/opencode/skills/dethereal-triage/triage-stale.md",
-      "sha256": "1161c048afd6cc7fd0028573c6d2d4e5ecdf7a43e346c9bbf36a896f571174fb"
+      "sha256": "926e47b573ef7ffa19f8166ffdc0765a7cd25e80fa8f2efc171643a3d620cd20"
     },
     {
       "path": "bundles/opencode/skills/dethereal-triage/triage-tasks.md",

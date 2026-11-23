@@ -48,7 +48,7 @@ Collect every return; the proposals table is shown only after every batch has re
    - a mute of any kind on a member scoring 7.0 or more, or a supersede that takes a score from 7.0 or more to below it → capped at medium and listed among the high-severity mutes, `per_row_only` (`accept-all` skips it; it is accepted only by its own number); give such a member its own group when its group's other members are below 7.0;
    - a supersede whose changes are cosmetic only (no technique change, no score change across a severity band, no attack-vector change, no change of what the finding claims) → an affirm, its rationale folded into the reason, noted `group <id>: supersede downgraded to affirm (cosmetic-only modifications)`.
 4. **Refused sources**: every `refusedSources` entry is shown on its group's row as "`<file>`: secret file, not read"; nothing in the proposal may rest on that file's content.
-5. **Credential material**: every analyst and cross-examiner text goes through the run constants' data rule. When it redacts a key prefix or a token-shaped string in a group's draft reason or modifications, that group becomes needs-human without a proposal, noted `agent return contained credential-shaped material — redacted`.
+5. **Credential material**: every analyst and cross-examiner text goes through the run constants' data rule. When it redacts a key prefix or a token-shaped string in a group's draft reason, modifications, ambiguity, objection or citations, that group becomes needs-human without a proposal, noted `agent return contained credential-shaped material — redacted`.
 6. **One line, at most 1800 characters**: every reason and modification text goes to the review as one line, cleaned as the data rule says; so is every name, ambiguity, control, basis and file an agent returns before it is shown. A longer reason becomes `needs-human`, noted `draft reason too long`.
 7. **A copy's name**: a supersede whose copy name — `modifications.name`, or else the exposure's name — holds a single quote becomes `needs-human`, noted `the copy's name cannot hold a single quote`.
 
@@ -62,7 +62,7 @@ Use the `spawn_agent` tool with `agent_type: "dethereal-kg-cross-examiner"`, `fo
 
 Fold each return:
 
-- `object` → the group becomes `needs-human`, and **both views** are kept for the table, each attributed: the analyst's proposal, and the objection with its `kg:` citations. Never merged, never dropped.
+- `object` → a dispose becomes `needs-human`; a supersede keeps its proposal, per-row only. **Both views** are kept for the table, each attributed: the analyst's proposal, and the objection with its `kg:` citations. Never merged, never dropped.
 - `concur` → no change; concurrence never raises confidence.
 - A proposal missing from the return → treated as concur, noted `cross-examiner returned no verdict for group <id>`.
 - A cross-examiner that cannot be started, or a return that cannot be parsed → every group of that batch becomes `needs-human`, noted `cross-examination unavailable for group <id>`, and the run goes on: this replaces the core rules' stop. Never auto-object; never silent.

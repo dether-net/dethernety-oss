@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "harness": "codex",
   "version": "<VERSION>",
-  "generatedFrom": "60e26c85ff0c52e3432d839567047d6cf1b7479101cdcd5a1faf0f1bec612b53",
-  "contentHash": "58e89c07e1fce99b5e52eef78cbc8f3ea56eea17267bd9339392e12a5cda032f",
+  "generatedFrom": "aceadd0a66a91b69e7ed8cb2d7ad25aed08cadecddf0a7eba85392de8a722eff",
+  "contentHash": "015fecc3e07cab7f11eef1d896cb74114af32b62c83165d815cfa573b626954c",
   "files": [
     {
       "path": "bundles/codex/.agents/plugins/marketplace.json",
@@ -355,7 +355,7 @@
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/triage/SKILL.md",
-      "sha256": "d096cccfe477ab444f50dd3b3883981ea0cfdbab824681cc70cb817e50e0fbb3"
+      "sha256": "8b217ec98c2bb29b0ac8def6703634a07a3e96e1c1ebd74586276d49b13cdafa"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/triage/secret-files.md",
@@ -363,15 +363,15 @@
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/triage/triage-evidence.md",
-      "sha256": "5bdc39ae8ee4ea05ed70cf1ca3a9c2547b06922864ecd27bbda86e9df05c3ed1"
+      "sha256": "ad5cec41b574437addd562f91686568f34e34fd4c6e8d54951649e760d56dc60"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/triage/triage-review.md",
-      "sha256": "432a7d49f9e3f0c5bd4d89ae9fdc71b641ce692d576fc15a767ee83063b5ca12"
+      "sha256": "65520c1fefbe42a95f517aac21020cdef83f02ae4eec397c5094f881c9e98894"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/triage/triage-stale.md",
-      "sha256": "65192eeb73ffd9501632c0757a552ae01dbb614c8618fb3050712d5cef51b9b7"
+      "sha256": "ffe63c8e82d6b11d3c1fabd0ccc1553860ba8fc71f9760f5016f3adfe6806513"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/triage/triage-tasks.md",

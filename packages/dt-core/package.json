@@ -38,7 +38,7 @@
     "js-yaml": "5.5.0"
   },
   "devDependencies": {
-    "@types/node": "^25.9.9",
+    "@types/node": "^26.6.6",
     "vitest": "^4.1.12"
   }
 }

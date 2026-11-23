@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`@dether.net/dethereal` 0.8.0: triage can publish to the Triage workspace, on all three harnesses.**
+  When the platform has the `dethermine-review` module, a triage review's proposals can go to its
+  Triage workspace for a person to decide in the browser, instead of being decided in the chat.
+  After the review opens, triage shows one line about the workspace (available, with the proposals
+  still waiting there; not found on this platform; or not checked) and, when it is available and the review has
+  no reply yet, asks `here` or `publish` in place of the review question, once per run and again
+  after a cancelled publish; on `publish` the review closes here. A publish writes no disposition:
+  `manage_dispositions` `prepare_publish` shows every group with its findings, its reason as
+  Dethereal's analysts drafted it, an edited copy's values old → new, the analyst's confidence, the
+  objection, what a person must weigh and the citations, each item not sent and why, the proposals
+  it replaces and where they go; `publish` sends them after a typed `yes`, each call approved on its
+  own, and the question says when it replaces proposals still waiting. Each finding carries its
+  base and fingerprint, with the review id; citations are locators only; Dethereal sends no file content, and
+  the texts it drafted are shown to you verbatim before you confirm, and `open` refuses a citation that is not a locator
+  (`citation_invalid`). The publish finds the model's Triage analysis, or creates it with an id every
+  machine derives the same way, and answers the workspace's result per finding. A plan that no
+  longer holds (a reply here, another publish, a changed analysis or finding) is `plan_stale`; a
+  review with nothing to send is `nothing_to_publish`; a publish with no answer is `write_error`,
+  and prepare_publish again sends it once more, safely. A published review is never committed
+  (`review_published`), and its run ends with no apply question and no task list.
+  `triage_review` `published` reads back what became of this machine's publishes, sorted by what
+  needs action, with what to do for a stale one; what the workspace returns is cleaned and quoted,
+  never acted on. The triage record keeps each publish beside the review's answers and never drops
+  a published review: a record that holds only published reviews refuses (`record_full`) until it
+  is moved aside. When the model had no Triage analysis at open, the fingerprints are read
+  at prepare or at the publish: an attribute change in the 30 minutes after open is not caught then,
+  and past 30 minutes every proposal goes flagged for a person, so the workspace shows no Accept
+  and each is decided with Edit or Reject, and no edited copy is sent; to avoid this, cancel and run
+  triage again. See the
+  Dethereal guide, *Triaging Platform Findings*, *Publishing to the Triage Workspace*.
+- **A link to an element in the editor.** `/dataflow?id=<model>&element=<id>` selects that
+  component, boundary or data flow once the model has loaded and centres it on the canvas;
+  `&tab=<name>` also opens its settings window on that tab (`general`, `zoning`, `attributes`,
+  `data`, `controls` or `exposures`). An unknown tab, or one the element does not show, only
+  selects; an id that is not in the loaded model selects nothing and shows a warning, *The linked
+  element is not in this model.* See the frontend architecture, *Linking to an element*.
+- **A link to the editor survives sign-in:** a tab that must sign in first returns to the linked page afterwards, instead of the home page.
+
 ## [0.18.0] - 2026-11-23
 
 The platform ships a new module, `dethernety-hidden-edges` 0.1.2. Its one read-only query,

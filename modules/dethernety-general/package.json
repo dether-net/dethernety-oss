@@ -19,6 +19,6 @@
     "@nestjs/common": "^11.2.10"
   },
   "devDependencies": {
-    "@types/node": "^25.9.9"
+    "@types/node": "^26.6.6"
   }
 }
