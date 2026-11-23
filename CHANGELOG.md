@@ -7,10 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-**Dethereal users:** Dethereal 0.7.0 reviews hidden edges, and needs the next platform release:
-`/dethereal:hidden-edges` reads the platform's `dethernety-hidden-edges` module, its query and its
-classes; a platform without it answers `module_not_loaded`. Dethereal is published separately from
-this release.
+## [0.18.0] - 2026-11-23
+
+The platform ships a new module, `dethernety-hidden-edges` 0.1.2. Its one read-only query,
+`hiddenEdgeCandidates`, proposes a model's hidden edges: attack paths between two of its components
+that no declared flow shows, inferred from the model's exposures and their ATT&CK techniques. An
+accepted edge is recorded as a data flow of one of the module's four classes. The threat report
+2.4.0 labels every route that uses such a flow, and the threat report and coverage-tools set its
+Inferred Path findings apart from their counts. An analysis's report details also carry an author,
+a project and custom fields, and the threat report's export prints them. The security policy says
+where to report each part, and that security fixes go into the latest minor release only. See
+*Added* and *Changed*.
+
+**Upgrading:** from 0.14.0, 0.15.0, 0.16.0 or 0.17.0, `./byodt upgrade` does it (see the operator
+guide's Operations, *Upgrade with `./byodt upgrade`*). A 0.13.0 or 0.12.x deployment upgrades once
+with this release's installer, naming the deployment's folder (see Operations, *Upgrading from
+0.13.0* and *Upgrading from 0.12.x*):
+
+```sh
+curl --proto '=https' --tlsv1.2 -fsSL https://github.com/dether-net/dethernety-oss/releases/download/v0.18.0/get-byodt.sh \
+  | sh -s -- --upgrade --dir /path/to/your/deployment
+```
+
+A deployment that skips releases reads the notes at the head of each skipped release in this
+changelog, so 0.16.0 to 0.18.0 also reads 0.17.0's, and 0.12.x to 0.18.0 those of every release
+from 0.13.0 to 0.17.0. The upgrade brings the new module with it, and asks nothing for it (see
+*Operators*).
+
+**Operators:** `dethernety-hidden-edges` arrives with the upgrade. On start, `console-init`
+fetches, verifies and installs every module in the release's signed module index, and the bundle's
+`compose.yaml` allows every module. A platform run outside the BYODt bundle with `ALLOWED_MODULES`
+set loads it only when the list names it: by name, with a pattern such as `dethernety-*`, or with
+`*`. Security fixes go into the latest minor release only, so keep the deployment on the latest
+release (see *Changed*).
+
+**Module authors:** `@dethernety/dt-module` is 0.18.0. A module whose manifest declares
+`compatibility.dtModule` must move it to `^0.18.0` to be packaged against it: a caret on a 0.x
+version pins the minor, so `scripts/package-module.js` refuses `^0.17.0`. dt-module and dt-core add
+no export in this release. The report kit stays at version 1: `reportDetails.get` returns the new
+keys, and the frame prints what a module passes as `meta.reportDetails` (see *Added*). The threat
+report and coverage-tools tell a hidden edge by its class's category, `Hidden Edge`, and its
+findings by theirs, `Inferred Path`. A module that counts a model's findings counts these unless
+it does the same.
+
+**API callers:** new are the `hiddenEdgeCandidates(modelId: ID!, options: String)` query, which the
+hidden-edges module adds and which answers a JSON string, and the `author`, `project` and
+`customFields` fields on `ReportDetails` and `ReportDetailsInput` (`customFields` is a
+`[ReportDetailField!]` on the first and a `[ReportDetailFieldInput!]` on the second).
+`setReportDetails` has nine new refusal codes, and `suggestReportDetails` suggests the newest
+details that hold anything, not only a client (see *Added*). The `gradedCoverage` answer of
+coverage-tools leaves an Inferred Path finding on a hidden-edge flow out of its exposures and
+counts, and counts it in `meta.inferredPathSetApart`.
+
+**Dethereal users:** Dethereal 0.7.0 reviews hidden edges, and needs platform 0.18.0:
+`/dethereal:hidden-edges` reads this release's `dethernety-hidden-edges` module, its query and its
+classes; a platform without it answers `module_not_loaded`. Dethereal is published separately: 0.7.0
+goes to npm right after this release, not before it, so update the platform to 0.18.0 first.
 
 ### Added
 
@@ -82,7 +134,7 @@ this release.
   Inferred Path finding on a hidden edge is set apart from every total, posture and coverage count,
   with one count of its own; the same category on any other element counts as usual. Zoning and
   boundary crossings leave hidden edges out, and name them.
-- **Coverage-tools sets inferred-path findings apart.** `dethernety-coverage-tools` leaves an
+- **Coverage-tools sets inferred-path findings apart.** `dethernety-coverage-tools` 2.1.0 leaves an
   Inferred Path finding on a hidden-edge flow out of its totals and counts it on its own.
 - **`@dether.net/dethereal` 0.7.0 leaves hidden edges out of its checks.** Dethereal recognises a
   hidden edge's flow by its class's module, `dethernety-hidden-edges`. On the machine that
@@ -91,6 +143,14 @@ this release.
   (`hidden_edge_flows`); the structure checks still read it. Adding or removing one is no
   structural change, so a REVIEWED model stays REVIEWED. `match_classes` drops the hidden-edges
   module's classes, and `get_classes` lists them only when asked for by a module or a class id.
+- **The security policy says where to report and which releases get fixes.** A vulnerability in
+  this repository's open-source components is reported through GitHub Security Advisories. One in
+  the BYODt cloud service or the paid modules, or a report from anyone who cannot use GitHub, goes
+  to security@dether.net. A critical fix is targeted within 7 days, a high one ships in the next
+  release and no later than 30 days, and a medium or low one in the next scheduled release. Security
+  fixes go into the latest minor release only: older release lines receive none, so upgrade to the
+  latest release. The scope adds the open-source modules published as signed release assets, the
+  installer, Dethereal and the hosted services. See `SECURITY.md`.
 
 ### Fixed
 
@@ -4475,6 +4535,8 @@ greenfield ID rebinding, and append-only audit log (#104).
 - GraphQL API with real-time subscriptions
 - OIDC/JWT authentication support
 
+[0.18.0]: https://github.com/dether-net/dethernety-oss/compare/v0.17.0...v0.18.0
+[0.17.0]: https://github.com/dether-net/dethernety-oss/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/dether-net/dethernety-oss/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/dether-net/dethernety-oss/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/dether-net/dethernety-oss/compare/v0.13.0...v0.14.0

@@ -213,6 +213,13 @@ function spawnOpa(args, stdin) {
       if (err.code === 'ENOENT') reject(new OpaUnavailableError('`opa` was not found on PATH'));
       else reject(err);
     });
+    // A child that exits without reading its input (`opa version` never reads stdin)
+    // can close the pipe before the write lands, which fails with EPIPE. That is not a
+    // failure of the run: its exit code and output stay the result. Any other error on
+    // stdin still fails it.
+    child.stdin.on('error', (err) => {
+      if (err.code !== 'EPIPE') reject(err);
+    });
     child.stdin.end(stdin);
   });
 }

@@ -37,7 +37,7 @@ From the first release that ships it, each release also publishes an installer,
 its signature), unpacks it and runs `./byodt setup`:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsSL https://github.com/dether-net/dethernety-oss/releases/download/v0.17.0/get-byodt.sh | sh
+curl --proto '=https' --tlsv1.2 -fsSL https://github.com/dether-net/dethernety-oss/releases/download/v0.18.0/get-byodt.sh | sh
 ```
 
 `sh get-byodt.sh --help` lists its options. `./byodt setup --help` lists setup's

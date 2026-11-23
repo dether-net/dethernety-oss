@@ -78,7 +78,7 @@ class DethernetyCoverageToolsModule implements DTModule {
       name: 'dethernety-coverage-tools',
       description:
         'Graded, element-scoped, disposition-agnostic MITRE coverage facts (a reusable query primitive).',
-      version: '2.0.0',
+      version: '2.1.0',
       author: 'Dethernety',
     };
   }

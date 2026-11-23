@@ -30,7 +30,7 @@ The following open-source components are in scope (report through GitHub Securit
 - **dt-ui** (frontend) — XSS, CSRF, authentication bypass, sensitive data exposure
 - **dt-core** — Data access layer, input validation
 - **dt-module** — Module loading, the module allow-list, code execution
-- **Open-source modules** — The modules published as signed release assets (`dethernety-general`, `dethernety-coverage-tools`, `dethernety-threat-report`), their signatures and the signed module index
+- **Open-source modules** — The modules published as signed release assets (`dethernety-general`, `dethernety-coverage-tools`, `dethernety-threat-report`, `dethernety-hidden-edges`), their signatures and the signed module index
 - **BYODt deployment** — The deployment bundle and its control script: secret generation and handling, exposure defaults, the mode layer written by the console
 - **Installer** — `get-byodt.sh`: download, SHA-256 and signature verification, unpack
 - **byodt-console** — The operator console: session handling, the module fetch/verify/extract path, and the shared Go packages under `pkg/`

@@ -4,7 +4,7 @@
   "displayName": "Dethernety Hidden Edges",
   "description": "Inferred attack paths a threat model does not show, proposed from its exposures as one read-only query.",
   "tags": ["hidden-edges", "attack-paths", "mitre"],
-  "compatibility": { "dtModule": "^0.17.0" },
+  "compatibility": { "dtModule": "^0.18.0" },
   "dependencies": [],
   "restarts": ["dethernety.service"]
 }

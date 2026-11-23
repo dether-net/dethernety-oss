@@ -15,13 +15,14 @@ files=(
   docs/user/byodt/INSTALLATION.md
   docs/user/byodt/README.md
   deploy/installer/npm/README.md
+  deploy/compose/README.md
 )
 release=$(jq -r .version "$root/package.json")
 work=$(mktemp -d "${TMPDIR:-/tmp}/docs-release-version.XXXXXX")
 trap 'rm -rf "${work:?}"' EXIT
 passed=0
 
-# A scratch copy of the six files, at $work/<name>.
+# A scratch copy of the seven files, at $work/<name>.
 fresh() {
   local t="$work/$1" f
   for f in "${files[@]}"; do
