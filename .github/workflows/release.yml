@@ -48,7 +48,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # A tag name is caller-supplied and reaches a filename, a JSON document and a
       # certificate SAN. Constrain it once, here, before anything reads it — the same
@@ -138,7 +138,7 @@ jobs:
 
       # The same line the platform image is built and run on (docker.yml, Dockerfile.production).
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 26
           cache: pnpm
@@ -208,7 +208,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # This job runs the bundle's own code: no credential is left in the checkout for it to find.
           persist-credentials: false
@@ -355,7 +355,7 @@ jobs:
       # Nothing in this job pushes: gh and the release action authenticate with their own token, so no credential is
       # left in the checkout.
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -594,7 +594,7 @@ jobs:
       # reads as "no release at this version" rather than a half-populated release with
       # a valid-looking but partial asset list.
       - name: Create the release as a draft
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           draft: true
           # Any pre-release suffix (-rc.1, -beta.1, …): such a release is never "latest", which installers follow.
@@ -712,7 +712,7 @@ jobs:
     steps:
       # Read as data only: nothing from this checkout runs.
       - name: Checkout the tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: src
           persist-credentials: false
@@ -725,7 +725,7 @@ jobs:
 
       # Trusted publishing needs npm 11.5.1 or later; Node 24 ships it, so no npm is installed here.
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org

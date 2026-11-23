@@ -23,6 +23,18 @@ updates:
       # breaks JSONForms-rendered UI. Lift when upstream ships Vuetify 4 support.
       - dependency-name: "vuetify"
         update-types: ["version-update:semver-major"]
+      # graphql 17: @neo4j/graphql 7.2.0, @nestjs/graphql, @apollo/server,
+      # @apollo/client and graphql-ws all peer-require graphql ^16.
+      - dependency-name: "graphql"
+        update-types: ["version-update:semver-major"]
+      # neo4j-driver 6: @neo4j/graphql 7.2.0 peer-requires ^5.8, and dt-ws
+      # shares one driver with it. Lift with the @neo4j/graphql ignore.
+      - dependency-name: "neo4j-driver"
+        update-types: ["version-update:semver-major"]
+      # typescript 7: typescript-eslint caps at <6.1.0 and vue-tsc needs the
+      # programmatic API the native compiler lacks. 6.x may still be proposed.
+      - dependency-name: "typescript"
+        versions: [">=7.0.0"]
     open-pull-requests-limit: 10
 
   # The operator console's SPA is a self-contained package with its OWN lockfile
@@ -43,6 +55,10 @@ updates:
       - "dependencies"
     commit-message:
       prefix: "deps"
+    ignore:
+      # typescript 7: vue-tsc needs the programmatic API the native compiler lacks.
+      - dependency-name: "typescript"
+        versions: [">=7.0.0"]
     open-pull-requests-limit: 10
 
   - package-ecosystem: "github-actions"
