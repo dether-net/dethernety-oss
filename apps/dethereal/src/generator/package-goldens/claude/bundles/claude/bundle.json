@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "harness": "claude",
   "version": "<VERSION>",
-  "generatedFrom": "aceadd0a66a91b69e7ed8cb2d7ad25aed08cadecddf0a7eba85392de8a722eff",
-  "contentHash": "9c6259afca8f20a478fecc63b2473ac96f88d795cca6c2ec79ae0ad08b8a3f7c",
+  "generatedFrom": "6bc2934bbd9352d826cefdd65ddc966544dae8394fbe7a87581674475f3fe49b",
+  "contentHash": "0d19815f557e8098cfe119e148a9d4f6afac26cc5db831444494a44e88dfa0b3",
   "files": [
     {
       "path": ".claude-plugin/plugin.json",
@@ -19,7 +19,7 @@
     },
     {
       "path": "bundles/claude/agents/hidden-edge-analyst.md",
-      "sha256": "49bb56460632c1c318f5b5dc4fe2026c38bae40f7fe752021b68f6dc520d1edf"
+      "sha256": "d47fcbbf26bbe84aec00638d7598fcc82655466648708afa52cff8523ae01152"
     },
     {
       "path": "bundles/claude/agents/infrastructure-scout-scoped.md",
@@ -199,7 +199,11 @@
     },
     {
       "path": "bundles/claude/skills/hidden-edges/SKILL.md",
-      "sha256": "08d18968ff71ba07131f87e4fc3404e8941e2f617504969041c95cee4a22a40a"
+      "sha256": "f741a67a891380875de93cd4c8ebe2e5426e17af66fc65671fa52a7d6fbaf2ce"
+    },
+    {
+      "path": "bundles/claude/skills/hidden-edges/hidden-edges-publish.md",
+      "sha256": "3f5d8d03f67766ba1d2cc7dc4519f3ee06584d07ca5d53152199b32139ed8d5b"
     },
     {
       "path": "bundles/claude/skills/login/SKILL.md",
@@ -207,7 +211,7 @@
     },
     {
       "path": "bundles/claude/skills/remove/SKILL.md",
-      "sha256": "fa38f3107d7b497d4fa984eeb23c9f1da2bec600a6f1f02b8412442a98943274"
+      "sha256": "9ab5d669740fbe23e4226c3988360f696171650873bc9daac6d0dfd61b605fca"
     },
     {
       "path": "bundles/claude/skills/remove/git-undo.md",

@@ -1,0 +1,118 @@
+{
+ "contract": 1,
+ "module": "dethernety-hidden-edges",
+ "version": "0.2.0",
+ "table_hash": "c1861b0035e871422084cabdcd65c684d86757434586fca92db6067e10e7019a",
+ "regime": {
+  "kg": "kg_absent",
+  "reason": "unavailable"
+ },
+ "candidates": [
+  {
+   "id": "he:bdc9f7099475b9d5",
+   "kind": "remote-service",
+   "source": "B",
+   "target": "A",
+   "technique_ids": [
+    "T1021"
+   ],
+   "cited_techniques": [
+    "T1021"
+   ],
+   "exposure_ids": [
+    "x"
+   ],
+   "totals": {
+    "exposure_ids": 1,
+    "facts": 0,
+    "cited_techniques": 1
+   },
+   "rows": [
+    "remote-service/rs-1"
+   ],
+   "tier": "medium",
+   "defaults": {
+    "required_capability": "opportunistic",
+    "required_privilege": "user",
+    "granted_privilege": "user"
+   },
+   "fields": {},
+   "facts": [],
+   "class": {
+    "id": "06d06f99-2d0f-41d0-8e73-346223071c86",
+    "name": "Hidden Edge: Remote Service"
+   }
+  },
+  {
+   "id": "he:d63dd562230726c1",
+   "kind": "remote-service",
+   "source": "A",
+   "target": "B",
+   "technique_ids": [
+    "T1021"
+   ],
+   "cited_techniques": [
+    "T1021"
+   ],
+   "exposure_ids": [
+    "x"
+   ],
+   "totals": {
+    "exposure_ids": 1,
+    "facts": 0,
+    "cited_techniques": 1
+   },
+   "rows": [
+    "remote-service/rs-1"
+   ],
+   "tier": "medium",
+   "defaults": {
+    "required_capability": "opportunistic",
+    "required_privilege": "user",
+    "granted_privilege": "user"
+   },
+   "fields": {},
+   "facts": [],
+   "class": {
+    "id": "06d06f99-2d0f-41d0-8e73-346223071c86",
+    "name": "Hidden Edge: Remote Service"
+   }
+  }
+ ],
+ "counts": {
+  "elementsWithoutClass": 0,
+  "elementsWithSeveralClasses": 0,
+  "boundariesWithSeveralParents": 0,
+  "boundaryDepthCut": false,
+  "flowsWithSeveralEnds": 0,
+  "exposuresOnSeveralElements": 0,
+  "danglingReferences": 0,
+  "attributeKeysDropped": 0,
+  "exposures_read": 1,
+  "exposures_feeding": 1,
+  "exposures_without_row": 0,
+  "hidden_edge_anchors_skipped": 0,
+  "anchors_without_segment": 0,
+  "anchors_without_host": 0,
+  "containers_without_host": 0,
+  "landings_without_segment": 0,
+  "flows_not_credential_bearing": 0,
+  "items_not_credential": 0,
+  "pairs_over_anchor_budget": 0,
+  "excluded_external_pair": 0,
+  "excluded_declared_flow": 0,
+  "excluded_reached_type": 0,
+  "excluded_by_breaker": 0,
+  "excluded_by_decision": 0,
+  "peers_capped": 0,
+  "kind_budget_dropped": 0,
+  "excluded_foothold_type": 0,
+  "kg_classes_capped": 0,
+  "boundaries": 2,
+  "components": 2,
+  "flows": 0,
+  "dataItems": 0,
+  "exposures": 1,
+  "controls": 0
+ }
+}

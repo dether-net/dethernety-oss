@@ -311,7 +311,7 @@ After the removal, the plugin deletes the removed elements' attribute files thro
 
 If removing a boundary, child components are relocated to the parent boundary — they're never silently deleted.
 
-**Hidden edges.** Removing the flow of a hidden edge you accepted takes the edge back: before the flow is removed, the plugin shows what it records (the edge as rejected, and the findings the edge affirmed, to clear in `/dethereal:triage`) and asks `Apply N hidden-edge change(s)? Type yes or cancel.` The flow is removed either way; on `cancel` the edge stays accepted and is not proposed again. See [Taking an Edge Back](HIDDEN_EDGES.md#taking-an-edge-back).
+**Hidden edges.** Removing the flow of a hidden edge you accepted takes the edge back: before anything is removed, the plugin shows the plan (the edge, and the findings its accept affirmed, to clear in `/dethereal:triage`) and asks `Take back this hidden edge? Type reject (it was never real), release (it was fixed, or is no longer wanted) or cancel (the flow stays).` `reject` keeps the edge out, so it is not proposed again; `release` drops the accept, so the edge is proposed again while its grounds hold. Either is written before the flow is removed. On `cancel` nothing is recorded and the flow stays, accepted. See [Taking an Edge Back](HIDDEN_EDGES.md#taking-an-edge-back).
 
 **State behavior:** Same as `/dethereal:add` — backward transition at ENRICHING or later. Removing only hidden edges calls no transition.
 
@@ -509,7 +509,7 @@ Review the hidden edges the platform's hidden-edges module proposes for a synced
 |----------|--------|
 | `directory-path` | The model directory; without it, the working directory when it holds a synced model, else the usual model resolution |
 
-**Review commands**, one per reply: `accept <n> [<n> …]`, `skip <n> [<n> …]`, `reject <n> [<n> …]`, `show <n>`, `show rejected`, `edit <n> capability: <v>`, `edit <n> required: <v>`, `edit <n> granted: <v>`, `edit <n> <field>: <v>`, `edit <n> rationale: <text>`, `accept-all` and `done`. `accept <n>` also affirms the pending findings with no disposition that the candidate rests on; `accept-all` takes only the candidates marked for it and affirms none. A `reject` writes only the decision.
+**Review commands**, one per reply: `accept <n> [<n> …]`, `accept <n> affirm <k>[,<k>…] [note: <text>]`, `skip <n> [<n> …]`, `reject <n> [<n> …]`, `show <n>`, `show rejected`, `edit <n> capability: <v>`, `edit <n> required: <v>`, `edit <n> granted: <v>`, `edit <n> <field>: <v>`, `edit <n> rationale: <text>`, `accept-all` and `done`. `show <n>` numbers the findings the candidate rests on and marks those that can be affirmed (pending, with no disposition). Only `accept <n> affirm <k>…` affirms, and only the findings it names, each by one accept only; the optional note, one line of at most 1,900 characters with none of this session's credentials, is their reason. A plain `accept <n>` affirms nothing; `accept-all` takes only the candidates marked for it and affirms none. A `reject` writes only the decision. See [Reviewing Hidden Edges](HIDDEN_EDGES.md#affirming-the-findings-an-edge-rests-on).
 
 **The apply question** is `Apply N hidden-edge change(s)? Type yes or cancel.` Approve the harness prompts for prepare and commit each on its own, never with an "always" choice.
 

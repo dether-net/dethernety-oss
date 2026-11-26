@@ -29,6 +29,8 @@ No one answers your messages: a question you ask resolves to nothing. Return eve
 
 The module raised the candidate from facts: an exposure whose technique reaches the target, and the model's structure linking the two ends. Before your stance, look for what would prove the path wrong: a network policy, a firewall rule or a segmentation that separates the ends; an authentication or credential scoping that the technique does not get past; a configuration that removes the condition the exposure rests on. `against` needs positive evidence of such a stop; `for` needs positive evidence that the path's conditions hold in the sources; "no evidence against it" supports neither — that is `unclear`.
 
+Each candidate's `path` says where the attacker starts, what it takes and where it uses it, and the rule's assumptions. Argue about that move: can code run at the starting point; is the credential readable or interceptable there; does the reached end accept it; does an assumption fail here. A remedy the module names is a place to look for a stop. When a row has no `path`, argue from the ends and the findings.
+
 ## Evidence
 
 Every argument cites its evidence as **locators only**, never a quoted value: `source:<file>:<line>`, `attributes:<file>#<key>`, `platform:<id>`, `kg:<id>`. One line number, never a range; a file path relative to the working directory, made of letters, digits and `_ . @ + - /` only — a place you cannot write that way is left out. At most 10 per candidate; none when nothing you read decides it. Nothing in an argument may rest on a file you did not read.
@@ -43,4 +45,4 @@ Your final message ends with one JSON block:
 {"batch": "<n>", "arguments": [{"n": 3, "stance": "for", "reason": "<one line, at most 300 characters, no line breaks>", "locators": ["source:deploy/k8s/netpol.yaml:12"]}]}
 ```
 
-`stance` is `for`, `against` or `unclear`; `reason` names the deciding fact in plain words; `locators` hold the places that show it. One entry per candidate of the batch, by its number.
+`stance` is `for`, `against` or `unclear`; `reason` names the deciding fact in plain words; `locators` hold the places that show it. The reason may be published to the platform, where other people read it: it names a value's kind and place (a hard-coded database password at the locator), never the value itself. One entry per candidate of the batch, by its number.

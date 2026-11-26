@@ -27,9 +27,11 @@ function remoteServiceModel(segment: Record<string, unknown>) {
 }
 
 describe('remote-service', () => {
-  it('proposes the flat-tier pairs into services, never into the store', async () => {
+  it('proposes the flat-tier pairs into services, never into the store nor from it', async () => {
     const r = await run(remoteServiceModel({ segment_boundary_enforced: true, east_west_within_segment_restricted: false }).exposure('x', 'SEG', FLAT, ['T1021']));
-    expect(pairs(r)).toEqual(['A->B', 'B->A', 'D->A', 'D->B']);
+    // the database cannot run the attacker's code: it is no starting point for a remote-service row, and is counted
+    expect(pairs(r)).toEqual(['A->B', 'B->A']);
+    expect(r.counts.excluded_foothold_type).toBe(2);
     for (const c of r.candidates) {
       expect(c.kind).toBe('remote-service');
       expect(c.technique_ids).toEqual(['T1021']);
@@ -70,13 +72,13 @@ describe('remote-service', () => {
   it('removes every pair when east-west traffic in the segment is restricted, and counts them', async () => {
     const r = await run(remoteServiceModel({ segment_boundary_enforced: false, east_west_within_segment_restricted: true }).exposure('x', 'SEG', SEGMENT_DRAWN, ['T1021']));
     expect(r.candidates).toEqual([]);
-    expect(r.counts.excluded_by_breaker).toBe(4);
+    expect(r.counts.excluded_by_breaker).toBe(2);
   });
 
   it('cannot remove with the finding’s own condition: the flat-tier finding exists only while the attribute is not true', async () => {
     // the attribute true and the finding still present (a stale finding): it gates, it does not remove
     const r = await run(remoteServiceModel({ east_west_within_segment_restricted: true }).exposure('x', 'SEG', FLAT, ['T1021']));
-    expect(pairs(r)).toEqual(['A->B', 'B->A', 'D->A', 'D->B']);
+    expect(pairs(r)).toEqual(['A->B', 'B->A']);
   });
 });
 
@@ -238,6 +240,198 @@ describe('host-escape', () => {
   it('counts a container with no host above it', async () => {
     const r = await run(model().boundary('C1', 'Container').component('A', 'Application Service', 'PROCESS', 'C1').exposure('x', 'C1', 'Privileged mode / excessive capabilities', ['T1611']));
     expect(r.counts.containers_without_host).toBe(1);
+  });
+});
+
+/** A holder sending one credential on a hundred flows, and one more acceptor of it: 10,100 draws of 101 pairs. */
+export function manyFlows() {
+  const b = model().boundary('SEG', 'Network Segment').component('H', 'Application Service', 'PROCESS', 'SEG').component('X', 'Application Service', 'PROCESS', 'SEG').component('Y', 'Application Service', 'PROCESS', 'SEG').data('K', 'User Credentials', true);
+  for (let i = 0; i < 100; i++) b.component(`T${String(i).padStart(2, '0')}`, 'Application Service', 'PROCESS', 'SEG').flow(`f${i}`, 'API Call', 'H', `T${String(i).padStart(2, '0')}`, {}, ['K']);
+  return b.flow('xy', 'API Call', 'X', 'Y', {}, ['K']).exposure('x', 'H', 'Hardcoded / leaked secrets & over-privileged service identity', ['T1078', 'T1552', 'T1552.001']);
+}
+
+describe('starting points', () => {
+  /** A segment with a cleartext bind between two processes, and a store, an outside device and a process as peers. */
+  const peers = () =>
+    model()
+      .boundary('SEG', 'Network Segment', null, { east_west_within_segment_restricted: false })
+      .component('A', 'Application Service', 'PROCESS', 'SEG')
+      .component('I', 'Identity Provider', 'PROCESS', 'SEG')
+      .component('W', 'Web Server', 'PROCESS', 'SEG')
+      .component('O', 'Object Storage', 'STORE', 'SEG')
+      .component('U', 'End User', 'EXTERNAL_ENTITY', 'SEG')
+      .flow('f', 'LDAP / Directory Access', 'A', 'I', { encryption_in_transit_enabled: false })
+      .exposure('x', 'f', 'Cleartext LDAP bind credential exposure / StartTLS downgrade', ['T1040', 'T1557']);
+
+  it('a capture needs code running at the starting point: a store or an outside device never captures, and is counted', async () => {
+    const r = await run(peers());
+    expect(pairs(r)).toEqual(['W->I']);
+    expect(r.counts.excluded_foothold_type).toBeGreaterThan(0);
+  });
+
+  it('a store is no starting point for an escape, an instance-role fetch or a dump', async () => {
+    const escape = await run(
+      model()
+        .boundary('H', 'Operating System / Host')
+        .boundary('C1', 'Container', 'H', { container_privileged_mode_disabled: false })
+        .component('A', 'Application Service', 'PROCESS', 'C1')
+        .component('L', 'Object Storage', 'STORE', 'C1')
+        .component('D', 'Relational Database', 'STORE', 'H')
+        .exposure('x', 'C1', 'Privileged mode / excessive capabilities', ['T1611']),
+    );
+    expect(pairs(escape)).toEqual(['A->D']);
+    const role = await run(
+      model()
+        .boundary('SEG', 'Network Segment')
+        .boundary('H', 'Operating System / Host', 'SEG')
+        .component('A', 'Application Service', 'PROCESS', 'H')
+        .component('S', 'Relational Database', 'STORE', 'H')
+        .component('B', 'Application Service', 'PROCESS', 'H')
+        .component('O', 'Object Storage', 'STORE', 'SEG')
+        .flow('f', 'API Call', 'B', 'O')
+        .exposure('x', 'H', 'Cloud instance-credential theft via IMDS', ['T1552.005', 'T1552']),
+    );
+    expect(pairs(role)).toEqual(['A->O']);
+    const dump = await run(
+      model()
+        .boundary('SEG', 'Network Segment')
+        .component('W', 'User Workstation / Endpoint', 'PROCESS', 'SEG')
+        .component('J', 'Relational Database', 'STORE', 'SEG')
+        .component('X', 'Application Service', 'PROCESS', 'SEG')
+        .data('K', 'User Credentials', true)
+        .flow('f1', 'Secure Remote Access', 'W', 'J', {}, ['K'])
+        .flow('f2', 'Secure Remote Access', 'W', 'X', {}, ['K'])
+        .exposure('x', 'J', 'Credential dumping from memory', ['T1003.001']),
+    );
+    expect(dump.candidates).toEqual([]);
+    expect(dump.counts.excluded_foothold_type).toBe(1);
+  });
+
+  it('a starting point that is not a component is dropped, not counted as one of the wrong type', async () => {
+    // the realm's members are the Kerberos flows' initiators; with V no longer a component, V→U has no starting point
+    const m = model()
+      .boundary('SEG', 'Network Segment')
+      .component('K', 'Identity Provider', 'PROCESS', 'SEG')
+      .component('U', 'Application Service', 'PROCESS', 'SEG')
+      .component('V', 'Application Service', 'PROCESS', 'SEG')
+      .flow('k1', 'Kerberos Authentication', 'U', 'K')
+      .flow('k2', 'Kerberos Authentication', 'V', 'K')
+      .exposure('x', 'k1', 'Missing pre-authentication (AS-REP roasting)', ['T1558.004'])
+      .fold();
+    m.components.delete('V');
+    const r = await generateCandidates(m, table);
+    expect(r.candidates).toEqual([]);
+    expect(r.counts.excluded_foothold_type).toBe(0);
+  });
+
+  it('an outside device stays a starting point for a target row', async () => {
+    const r = await run(
+      model()
+        .boundary('SEG', 'Network Segment', null, { east_west_within_segment_restricted: false })
+        .component('A', 'Application Service', 'PROCESS', 'SEG')
+        .component('U', 'End User', 'EXTERNAL_ENTITY', 'SEG')
+        .exposure('x', 'SEG', FLAT, ['T1021']),
+    );
+    expect(pairs(r)).toEqual(['U->A']);
+  });
+
+  it('a store that holds a credential stays a starting point for its reuse', async () => {
+    const r = await run(
+      model()
+        .boundary('SEG', 'Network Segment')
+        .component('A', 'Application Service', 'PROCESS', 'SEG')
+        .component('S', 'Object Storage', 'STORE', 'SEG')
+        .component('D', 'Relational Database', 'STORE', 'SEG')
+        .data('K', 'User Credentials', true)
+        .flow('f1', 'Database Query', 'A', 'D', {}, ['K'])
+        .flow('f2', 'API Call', 'S', 'A', {}, ['K'])
+        .exposure('x', 'S', 'Hardcoded / leaked secrets & over-privileged service identity', ['T1552']),
+    );
+    expect(pairs(r)).toContain('S->D');
+  });
+
+  it('starting points the row cannot act from never spend the anchor’s budget', async () => {
+    const b = model().boundary('SEG', 'Network Segment', null, { east_west_within_segment_restricted: false });
+    // a thousand stores sort before the one process that can start the edge
+    for (let i = 0; i < 1_000; i++) b.component(`a${String(i).padStart(4, '0')}`, 'Relational Database', 'STORE', 'SEG');
+    b.component('B', 'Web Server', 'PROCESS', 'SEG').component('z', 'Application Service', 'PROCESS', 'SEG').exposure('x', 'SEG', FLAT, ['T1021']);
+    const r = await run(b);
+    expect(pairs(r)).toContain('z->B');
+    expect(r.counts.pairs_over_anchor_budget).toBe(0);
+  });
+
+  it('a managed starting point caps capture, dumping and escape at low, and leaves other rows alone', async () => {
+    const managed = (cls: string) =>
+      model()
+        .boundary('SEG', 'Network Segment', null, { east_west_within_segment_restricted: false })
+        .boundary('MR', 'Managed Runtime', 'SEG')
+        .component('A', 'Application Service', 'PROCESS', 'SEG')
+        .component('I', 'Identity Provider', 'PROCESS', 'SEG')
+        .component('F', cls, 'PROCESS', 'MR')
+        .flow('f', 'LDAP / Directory Access', 'A', 'I', { encryption_in_transit_enabled: false })
+        .exposure('x', 'f', 'Cleartext LDAP bind credential exposure / StartTLS downgrade', ['T1040', 'T1557'])
+        .exposure('y', 'SEG', FLAT, ['T1021']);
+    const r = await run(managed('Application Service'));
+    const capture = r.candidates.find((c) => c.kind === 'credential-capture' && c.source === 'F')!;
+    expect(capture.tier).toBe('low');
+    // a compromised function attacking a peer in its segment is a real path: the remote-service row keeps its tier
+    const remote = r.candidates.find((c) => c.kind === 'remote-service' && c.source === 'F')!;
+    expect(remote.tier).not.toBe('low');
+    const dump = await run(
+      model()
+        .boundary('SEG', 'Network Segment')
+        .boundary('MR', 'Managed Runtime', 'SEG')
+        .component('W', 'User Workstation / Endpoint', 'PROCESS', 'SEG')
+        .component('J', 'Application Service', 'PROCESS', 'MR')
+        .component('X', 'Application Service', 'PROCESS', 'SEG')
+        .data('K', 'User Credentials', true)
+        .flow('f1', 'Secure Remote Access', 'W', 'J', {}, ['K'])
+        .flow('f2', 'Secure Remote Access', 'W', 'X', {}, ['K'])
+        .exposure('x', 'J', 'Credential dumping from memory', ['T1003.001']),
+    );
+    expect(dump.candidates.map((c) => [c.source, c.target, c.tier])).toEqual([['J', 'X', 'low']]);
+  });
+
+  it('caps an escape at low when the container’s host sits on a managed runtime', async () => {
+    const r = await run(
+      model()
+        .boundary('M', 'Managed Runtime')
+        .boundary('H', 'Operating System / Host', 'M')
+        .boundary('C1', 'Container', 'H', { container_privileged_mode_disabled: false })
+        .component('A', 'Application Service', 'PROCESS', 'C1')
+        .component('D', 'Relational Database', 'STORE', 'H')
+        .exposure('x', 'C1', 'Privileged mode / excessive capabilities', ['T1611']),
+    );
+    expect(r.candidates.map((c) => [c.source, c.target, c.tier])).toEqual([['A', 'D', 'low']]);
+  });
+
+  it('bounds the walk where a relation offers mostly starting points it skips', async () => {
+    const b = model().boundary('H', 'Operating System / Host').boundary('C1', 'Container', 'H', { container_privileged_mode_disabled: false });
+    for (let i = 0; i < 120; i++) b.component(`s${String(i).padStart(3, '0')}`, 'Object Storage', 'STORE', 'C1');
+    for (let i = 0; i < 120; i++) b.component(`d${String(i).padStart(3, '0')}`, 'Relational Database', 'STORE', 'H');
+    const r = await run(b.exposure('x', 'C1', 'Privileged mode / excessive capabilities', ['T1611']));
+    expect(r.candidates).toEqual([]);
+    expect([r.counts.excluded_foothold_type, r.counts.pairs_over_anchor_budget]).toEqual([10_000, 1]);
+  });
+
+  it('counts distinct pairs toward the walk’s bound: a pair offered once per flow is drawn many times, counted once', async () => {
+    const r = await run(manyFlows());
+    expect(pairs(r)).toContain('H->Y');
+    expect(r.counts.pairs_over_anchor_budget).toBe(0);
+  });
+
+  it('keeps the instance-role reach’s own cap on a managed host', async () => {
+    const r = await run(
+      model()
+        .boundary('SEG', 'Network Segment')
+        .boundary('H', 'Managed Runtime', 'SEG')
+        .component('A', 'Application Service', 'PROCESS', 'H')
+        .component('B', 'Application Service', 'PROCESS', 'H')
+        .component('O', 'Object Storage', 'STORE', 'SEG')
+        .flow('f', 'API Call', 'B', 'O')
+        .exposure('x', 'A', 'Cloud instance-credential theft via IMDS', ['T1552.005', 'T1552']),
+    );
+    expect(r.candidates.map((c) => [c.source, c.target, c.tier])).toEqual([['A', 'O', 'low']]);
   });
 });
 

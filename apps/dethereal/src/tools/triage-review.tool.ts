@@ -32,7 +32,7 @@ import {
   type ReviewGroup,
 } from '../triage/review.js'
 import { copyOf, reviewStore } from '../triage/store.js'
-import { keepTriageFilesOut, LOG_LIMITS, recordedText, recordReview, RecordError, refuseWhenFull, type LoggedReview } from '../triage/log.js'
+import { keepTriageFilesOut, LOG_FILE, LOG_LIMITS, readLocalJson, readLoggedReviewsIn, recordedText, recordReview, RecordError, refuseWhenFull, type LoggedReview } from '../triage/log.js'
 import { platformModelOf, TriageModelError } from '../triage/model.js'
 import { ModelReadError, readExposureEvidence, readModelExposures, type ExposureEvidence } from '../triage/exposures.js'
 import { ECHO_BUDGET, planOperations, readTechniques, reviewEchoBound, todayIso } from '../triage/dispositions.js'
@@ -45,31 +45,7 @@ import { workspaceAt, workspaceView } from '../review-module/workspace.js'
 import { citedPath, discoveredSources } from '../review-module/citations.js'
 import { probe } from '../review-module/platform.js'
 import { publishesOf, readBack } from '../review-module/readback.js'
-import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-
-/** The most a local record or discovery file is read: the record's own bound, rounded up. */
-const LOCAL_READ_MAX = 1024 * 1024
-
-/** A local JSON file, or null when it is absent, too large or no JSON. */
-async function readLocalJson(file: string): Promise<unknown> {
-  try {
-    if ((await stat(file)).size > LOCAL_READ_MAX) return null
-    return JSON.parse(await readFile(file, 'utf8'))
-  } catch {
-    return null
-  }
-}
-
-/** The reviews this machine's triage record holds for the directory; none when there is no record. */
-async function readLoggedReviews(dir: string): Promise<LoggedReview[]> {
-  try {
-    const doc = ((await readLocalJson(join(dir, '.dethereal', 'triage-log.json'))) ?? {}) as { reviews?: unknown }
-    return (Array.isArray(doc.reviews) ? doc.reviews : []).filter((r): r is LoggedReview => !!r && typeof r === 'object' && typeof (r as LoggedReview).review_id === 'string')
-  } catch {
-    return []
-  }
-}
 
 /** The model's discovery record, or null when there is none to read. */
 const readDiscovery = (dir: string): Promise<unknown> => readLocalJson(join(dir, '.dethereal', 'discovery.json'))
@@ -234,7 +210,7 @@ export class TriageReviewTool extends ClientFreeTool<Input, Record<string, unkno
     const p = await probe(client)
     if (p.status !== 'present') return coded(p.status === 'module_not_loaded' ? 'module_not_loaded' : 'workspace_unavailable', `the Triage workspace is not available: ${p.detail}`)
     const modelId = await platformModelOf(dir)
-    const reviews = (await readLoggedReviews(dir)).filter((r) => (reviewId ? r.review_id === reviewId : true) && publishesOf(r).length)
+    const reviews = (await readLoggedReviewsIn(dir, LOG_FILE)).filter((r) => (reviewId ? r.review_id === reviewId : true) && publishesOf(r).length)
     if (!reviews.length) return { success: true, data: { publishes: 0, counts: {}, rows: [], more: 0, note: 'this model directory has published nothing from this machine' } }
     const read = await readModelExposures(client, modelId)
     const names = new Map(read.rows.map((r) => [r.exposure_id, `${r.name} on ${r.element_name}`]))

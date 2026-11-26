@@ -7,10 +7,10 @@ import { derivedTierCap, EDGE_KINDS, rowFor, selectRows, tableTechniques, TableE
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v));
 const rowById = (id: string) => clone(shipped.rows.find((r) => r.id === id)) as any;
 const baseRow = () => rowById('remote-service/rs-1');
-const tableWith = (rows: unknown[], extra: Record<string, unknown> = {}) => ({ version: 2, status: 'draft', kinds: clone(shipped.kinds), rows, ...extra });
+const tableWith = (rows: unknown[], extra: Record<string, unknown> = {}) => ({ version: 3, status: 'draft', kinds: clone(shipped.kinds), rows, ...extra });
 const refuses = (raw: unknown, message: RegExp) => expect(() => validateTable(raw)).toThrow(message);
 const breaker = (over: Record<string, unknown> = {}) => ({
-  attributes: ['x'], read_from: 'reached_end', classes: [], polarity: 'true_breaks', strength: 'lowers', high_when: 'all_false', own_condition: [], techniques: [], ...over,
+  attributes: ['x'], read_from: 'reached_end', classes: [], polarity: 'true_breaks', strength: 'lowers', high_when: 'all_false', own_condition: [], clears: [], techniques: [], ...over,
 });
 
 describe('the shipped table', () => {
@@ -129,6 +129,16 @@ describe('validateTable refuses', () => {
     refuses(tableWith([{ ...rowById('credential-capture/cc-1'), reached_types: ['PROCESS'] }]), /only for target and source rows/);
   });
 
+  it('a row without its starting-point types or managed rule, or with a value outside them', () => {
+    const { foothold_types: _t, ...noTypes } = baseRow();
+    refuses(tableWith([noTypes]), /missing key "foothold_types"|foothold_types/);
+    const { managed_foothold: _m, ...noManaged } = baseRow();
+    refuses(tableWith([noManaged]), /managed_foothold/);
+    refuses(tableWith([{ ...baseRow(), foothold_types: ['HOST'] }]), /invalid entry/);
+    refuses(tableWith([{ ...baseRow(), foothold_types: ['PROCESS', 'PROCESS'] }]), /repeats PROCESS/);
+    refuses(tableWith([{ ...baseRow(), managed_foothold: 'cap' }]), /managed_foothold/);
+  });
+
   it('a settled row without emitters, and a malformed emitter locator', () => {
     refuses(tableWith([{ ...baseRow(), emitters: [] }], { status: 'settled' }), /names its emitters/);
     refuses(tableWith([{ ...baseRow(), emitters: ['../x/policies.rego'] }]), /invalid entry/);
@@ -143,7 +153,9 @@ describe('validateTable refuses', () => {
   });
 
   it('an unknown version or status, or no rows', () => {
-    refuses(tableWith([baseRow()], { version: 1 }), /version must be 2/);
+    refuses(tableWith([baseRow()], { version: 1 }), /version must be 3/);
+    // a table of the previous format has no starting-point types: it is refused, never read with none
+    refuses(tableWith([baseRow()], { version: 2 }), /version must be 3/);
     refuses(tableWith([baseRow()], { status: 'final' }), /status must be one of/);
     refuses(tableWith([]), /rows must hold/);
   });
@@ -216,6 +228,24 @@ describe('the tier cap a row supports', () => {
     const cred = rowById('credential-reuse/cr-1');
     cred.attribute_breakers = cred.attribute_breakers.filter((b: any) => b.high_when === 'ignored');
     refuses(tableWith([cred]), /above what its breakers support \(medium\)/);
+  });
+
+  it('refuses a pre-filtering relation without reached types, and a zone-egress row claiming non-process starting points', () => {
+    refuses(tableWith([{ ...rowById('remote-service/rs-5'), reached_types: [] }]), /names its reached_types/);
+    refuses(tableWith([{ ...rowById('remote-service/rs-5'), foothold_types: ['PROCESS', 'STORE'] }]), /zone-egress row's starting points are processes/);
+  });
+
+  it('refuses a cleared finding that is not an own condition', () => {
+    const r = baseRow();
+    r.attribute_breakers = [breaker({ own_condition: [{ class: 'Network Segment', exposure: 'a' }], clears: [{ class: 'Network Segment', exposure: 'b' }] })];
+    refuses(tableWith([r]), /clears names a finding its own_condition does not/);
+  });
+
+  it('refuses a removing control breaker after a lowering one that shares a class with it', () => {
+    const r = baseRow();
+    const ctl = (classes: string[], strength: string) => ({ control_classes: classes, attributes_true: [], credential_item_classes: [], supports: 'reached_end', strength, techniques: [] });
+    r.control_breakers = [ctl(['Firewall Policy', 'Network Access Control'], 'lowers'), ctl(['Firewall Policy'], 'removes')];
+    refuses(tableWith([r]), /a removing breaker comes before a lowering one/);
   });
 
   it('refuses a lowering control breaker listed before a removing one for the same classes', () => {

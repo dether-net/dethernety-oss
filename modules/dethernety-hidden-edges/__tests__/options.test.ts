@@ -35,6 +35,13 @@ describe('parseOptions', () => {
     }
   });
 
+  it('reads the contract asked for: 1 by default, 1 or 2 when asked, anything else refused', () => {
+    expect(parseOptions(null)).toMatchObject({ ok: true, contract: 1 });
+    expect(parseOptions(JSON.stringify({ contract: 1, include_pending: true }))).toMatchObject({ ok: true, contract: 1, options: { include_pending: true } });
+    expect(parseOptions(JSON.stringify({ contract: 2 }))).toMatchObject({ ok: true, contract: 2 });
+    for (const c of [3, 0, '2', null, 1.5]) expect(refused(JSON.stringify({ contract: c }))).toEqual(['options_invalid', 'contract']);
+  });
+
   it('refuses malformed or oversized exclusions, and a pending flag that is no boolean', () => {
     expect(refused(JSON.stringify({ excluded: ['he:XYZ'] }))).toEqual(['options_invalid', 'excluded']);
     expect(refused(JSON.stringify({ excluded: Array.from({ length: MAX_EXCLUDED + 1 }, (_, i) => `he:${i.toString(16).padStart(16, '0')}`) }))).toEqual(['options_invalid', 'excluded']);

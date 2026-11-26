@@ -4,9 +4,11 @@ import * as path from 'path';
 import { createKgClient, DtFileOpaModule, KgClient, ModuleResolverContext, ResolverMap } from '@dethernety/dt-module';
 import { Deadline, DeadlineExceeded, MODEL_ID_MAX, ReadOverCap } from './bounds';
 import { KindClass, readKindClasses } from './classes';
-import { CONTRACT_VERSION, MODULE_NAME, MODULE_VERSION, refusal, tableHash } from './contract';
+import { MODULE_NAME, refusal, tableHash } from './contract';
+import { answerOf, recheckAnswerOf } from './answer';
+import { verdictOf } from './recheck';
 import { foldModel } from './fold';
-import { boundCandidates, matchCandidates, MatchingOverBudget, orderCandidates } from './generate';
+import { boundCandidates, candidateId, matchCandidates, MatchingOverBudget, orderCandidates, RecheckEntry, recheckWalk } from './generate';
 import { absentFacts, applyKg, classInventory, kgClassModules, readKg } from './kg';
 import { OptionsResult, parseOptions } from './options';
 import { READS, readModel, Row, Run } from './reads';
@@ -98,16 +100,27 @@ class DethernetyHiddenEdgesModule extends DtFileOpaModule {
     this.kg ??= createKgClient({ driver: context.driver ?? this.driver, logger: context.logger ?? this.log, databaseName: context.databaseName });
     return {
       Query: {
-        hiddenEdgeCandidates: async (_parent: unknown, args: { modelId?: unknown; options?: unknown }, requestContext: unknown) =>
-          JSON.stringify(await this.candidates(args, { caller: callerKey(requestContext), token: callerToken(requestContext) })),
+        hiddenEdgeCandidates: async (_parent: unknown, args: { modelId?: unknown; options?: unknown }, requestContext: unknown) => {
+          const phases: Record<string, number> = {};
+          const answer = await this.candidates(args, { caller: callerKey(requestContext), token: callerToken(requestContext), phases });
+          const started = Date.now();
+          const text = JSON.stringify(answer);
+          phases.stringify = Date.now() - started;
+          // durations only: no ids, no counts, nothing of the model
+          this.log.debug?.(`${MODULE_NAME}: phases (ms) ${Object.entries(phases).map(([k, v]) => `${k}=${v}`).join(' ')}`);
+          return text;
+        },
       },
     };
   }
 
-  /** The answer for one call: a refusal, or the contract with what the call read. */
+  /**
+   * The answer for one call: a refusal, or the contract with what the call read. `phases` receives each phase's
+   * duration in milliseconds, for the debug log.
+   */
   async candidates(
     args: { modelId?: unknown; options?: unknown },
-    { caller = 'anonymous', deadline = new Deadline(), token }: { caller?: string; deadline?: Deadline; token?: string } = {},
+    { caller = 'anonymous', deadline = new Deadline(), token, phases = {} }: { caller?: string; deadline?: Deadline; token?: string; phases?: Record<string, number> } = {},
   ): Promise<object> {
     const modelId = args.modelId;
     if (typeof modelId !== 'string' || modelId.length === 0 || modelId.length > MODEL_ID_MAX) return refusal('model_not_found');
@@ -117,9 +130,15 @@ class DethernetyHiddenEdgesModule extends DtFileOpaModule {
       const refused = parsed as Extract<OptionsResult, { ok: false }>;
       return refusal(refused.code, refused.detail);
     }
-    const options = (parsed as Extract<OptionsResult, { ok: true }>).options;
+    const { options, contract } = parsed as Extract<OptionsResult, { ok: true }>;
+    let mark = Date.now();
+    const phase = (name: string) => {
+      const now = Date.now();
+      phases[name] = now - mark;
+      mark = now;
+    };
 
-    if (this.inFlight.has(caller)) return refusal('busy');
+    if (this.inFlight.has(caller)) return refusal('busy', undefined, contract);
     this.inFlight.add(caller);
     let session: any;
     try {
@@ -138,41 +157,54 @@ class DethernetyHiddenEdgesModule extends DtFileOpaModule {
         },
         { timeout: Math.max(1, deadline.remaining()) },
       );
-      if (rows === null) return refusal('model_not_found');
+      phase('read');
+      if (rows === null) return refusal('model_not_found', undefined, contract);
       const model = foldModel(rows);
-      const matched = await matchCandidates(model, this.table, options, deadline);
+      phase('fold');
+      if (options.recheck) {
+        const { parts, topology } = await recheckWalk(model, this.table, options.recheck, deadline);
+        phase('recheck');
+        // one verdict per edge, in the order first asked; an edge asked twice is judged on every finding given for it
+        const asked = new Map<string, RecheckEntry>();
+        for (const x of options.recheck) {
+          const id = candidateId(x.kind, x.source, x.target);
+          const prior = asked.get(id);
+          if (prior) prior.exposure_ids = [...new Set([...prior.exposure_ids, ...x.exposure_ids])];
+          else asked.set(id, { ...x, exposure_ids: [...x.exposure_ids] });
+        }
+        const verdicts = [...asked].map(([id, x]) => verdictOf(model, (s, t) => topology.hasDeclaredFlow(s, t), x, parts.get(id) ?? []));
+        return recheckAnswerOf(this.tableHash, verdicts);
+      }
+      const matched = await matchCandidates(model, this.table, { ...options, explain: contract === 2 }, deadline);
+      phase('match');
       // the answer's candidates are chosen before the knowledge graph runs, so it can lower a tier but never
       // push a candidate out of a budget
       const chosen = boundCandidates(matched.candidates, model, matched.counts);
+      phase('bound');
       const facts = this.kg ? await readKg(this.kg, token, classInventory(model, kgClassModules()), deadline) : absentFacts('unavailable');
-      // each candidate names the class an accepted edge of its kind is written with
-      const candidates = orderCandidates(applyKg(model, this.table, chosen, matched.anchors, facts), model).map((c) => ({
-        ...c,
-        class: this.classes[c.kind as EdgeKind],
-      }));
-      const counts: Record<string, unknown> = { ...matched.counts, kg_classes_capped: facts.classesCapped };
-      return {
-        contract: CONTRACT_VERSION,
-        module: MODULE_NAME,
-        version: MODULE_VERSION,
-        table_hash: this.tableHash,
-        regime: facts.regime,
+      phase('kg');
+      // each candidate names the class an accepted edge of its kind is written with (answerOf adds it)
+      const kgEvidence = new Map<string, string[]>();
+      const candidates = orderCandidates(applyKg(model, this.table, chosen, matched.anchors, facts, kgEvidence), model);
+      const answer = await answerOf({
+        contract,
+        model,
+        table: this.table,
+        tableHash: this.tableHash,
+        classes: this.classes,
+        matched,
         candidates,
-        counts: {
-          ...model.counts,
-          ...counts,
-          boundaries: model.boundaries.size,
-          components: model.components.size,
-          flows: model.flows.size,
-          dataItems: model.dataItems.size,
-          exposures: model.exposures.size,
-          controls: model.controls.size,
-        },
-      };
+        kgEvidence,
+        deadline,
+        regime: facts.regime,
+        classesCapped: facts.classesCapped,
+      });
+      phase('explain');
+      return answer;
     } catch (err) {
-      if (err instanceof ReadOverCap) return refusal('model_too_large', err.read);
-      if (err instanceof MatchingOverBudget) return refusal('model_too_large', 'matching');
-      if (err instanceof DeadlineExceeded || isTransactionTimeout(err)) return refusal('deadline');
+      if (err instanceof ReadOverCap) return refusal('model_too_large', err.read, contract);
+      if (err instanceof MatchingOverBudget) return refusal('model_too_large', 'matching', contract);
+      if (err instanceof DeadlineExceeded || isTransactionTimeout(err)) return refusal('deadline', undefined, contract);
       // A fault: logged without the query, its parameters or its message, and thrown with a generic one.
       this.log.error(`${MODULE_NAME}: the read failed (${err instanceof Error ? err.name : typeof err})`);
       throw new Error('hidden-edge candidates could not be read');

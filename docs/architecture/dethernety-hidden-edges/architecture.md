@@ -2,7 +2,7 @@
 
 Dethernety Hidden Edges turns a model's exposures into proposed attack paths. Its design has three parts: a fixed set of read-only Cypher reads that return flat rows, a pure fold that builds an in-memory model from them, and a pure matching core that applies the **edge-kind table** to that model. An optional knowledge-graph step can then lower a candidate's tier. This document explains how a candidate comes to exist, what decides its tier, what bounds the work, and why each step is shaped the way it is.
 
-**What this document covers:** the module's shape; one call end to end; the reads and the fold; the edge-kind table; which exposures feed the matching; anchors, roles and peer relations; the exclusions; breakers; tiers; the merge; the budgets and the order; the knowledge-graph regime; the bounds; determinism and read-only discipline. For the answer's field-level shape, see [query-contract.md](./query-contract.md); for what analyses see once an edge is accepted, see [analysis-contract.md](./analysis-contract.md).
+**What this document covers:** the module's shape; one call end to end; the reads and the fold; the edge-kind table, with the footholds each row acts from; which exposures feed the matching; anchors, roles and peer relations; the exclusions; breakers; tiers; the merge; the budgets and the order; the knowledge-graph regime; the bounds; determinism and read-only discipline; and contract 2's explanations, remedies and recheck. For the answer's field-level shape, see [query-contract.md](./query-contract.md); for what analyses see once an edge is accepted, see [analysis-contract.md](./analysis-contract.md).
 
 ---
 
@@ -33,8 +33,13 @@ flowchart TD
     G --> H["boundCandidates: 50 per kind, unused share passed on"]
     H --> I["readKg + applyKg: lower a tier by one step, or not"]
     I --> J["orderCandidates; each names its kind's class"]
-    J --> K["answer: contract, module, version, table_hash,<br/>regime, candidates, counts"]
+    J --> L{"contract 2?"}
+    L -- no --> K["answer: contract, module, version, table_hash,<br/>regime, candidates, counts"]
+    L -- yes --> M["answerOf: explain each listed candidate,<br/>its remedies within their budget;<br/>rationale and limits; the size trim"]
+    F -- "options.recheck" --> N["recheckWalk + verdictOf:<br/>one verdict per rechecked edge"]
 ```
+
+A contract-2 call takes the same path to the listed candidates, so its candidates are contract 1's, each with an explanation (see [Explanations](#14-explanations-contract-2)). A call with `recheck` leaves the path after the fold (see [The recheck](#16-the-recheck-contract-2)).
 
 A read over its cap answers `model_too_large`; a deadline passed between reads or while matching answers `deadline`. Any other failure is a fault: it is logged without the query, its parameters or its message, and thrown with a generic message, which the platform reports as a module error.
 
@@ -88,11 +93,13 @@ The table (`src/edge-kinds.json`, compiled into the build) says which exposure t
 | `anchors` | The element kinds it anchors on (`component`, `securityBoundary`, `dataFlow`, `data`), optionally limited to named classes; a flow anchor of a target or source row names the anchored end (`initiator` or `responder`) |
 | `exposed_role`, `peer_relation` | How the anchor becomes pairs (below) |
 | `reached_types` | For target and source rows: the component types a reached end may have (`PROCESS`, `STORE`, `EXTERNAL_ENTITY`) |
+| `foothold_types`, `managed_foothold` | The component types a foothold may have, and whether a foothold under a Managed Runtime holds the pair at low (see [Footholds](#footholds-the-types-a-row-acts-from-and-managed-footholds)) |
 | `credential_flows` | For credential rows: how a component anchor uses the credential items on its flows (`outbound`, `both`, `received`) |
 | `path` | The technique the accepted flow will carry: the cited technique when it is in `from_cited`'s families, else the technique named for the credential item's class, else `default` |
 | `attribute_breakers`, `control_breakers` | What breaks or weakens the path (see [Breakers](#7-breakers)) |
 | `defaults` | The base-field defaults: `required_capability`, `required_privilege`, `granted_privilege` |
 | `tier_cap` | The highest tier the row may give |
+| `provenance` | Why the row exists, 1 to 500 printable ASCII characters: the ATT&CK technique and the mitigations it rests on. A contract-2 answer passes it on as the row's `rationale` |
 | `emitters` | The policy locators of the open-source classes that emit the row's techniques; the table lint checks each against the repository |
 
 ### Selection
@@ -108,7 +115,7 @@ For each technique an exposure cites, a row is chosen by the technique, the elem
 | `credential-capture` | 4 | T1040, T1557 | Flows, components, boundaries, data items |
 | `host-escape` | 1 | T1611 | Containers |
 
-`edge-kinds.json` is the source of truth for the exact rows; the table lint test pins each against the open-source catalogue, and a committed snapshot records the row every catalogue finding selects.
+`edge-kinds.json` (table format version 3) is the source of truth for the exact rows; the table lint test pins each against the open-source catalogue, and a committed snapshot records the row every catalogue finding selects.
 
 ### Roles and peer relations
 
@@ -134,6 +141,22 @@ A row's **role** says which end the anchor is, and its **peer relation** how the
 | `capture-footholds` | Footholds: the same-segment peers of either end of a credential-bearing flow, apart from both ends. Reached: the flow's responder |
 | `shared-credential` | Holder → acceptor pairs of the same credential item, from the declared flows that carry it |
 
+### Footholds: the types a row acts from, and managed footholds
+
+The **foothold** is the pair's source, the component an attacker starts from. Sniffing a flow, escaping a container, fetching an instance-role credential or dumping credentials needs code running there, so a row names the component types its foothold may have (`foothold_types`); a row whose foothold is the anchor itself, or the holder of a credential item, names none. A pair whose foothold is of another type is skipped before it spends the anchor's pair budget, and counted in `excluded_foothold_type`.
+
+| Rows | `foothold_types` | `managed_foothold` |
+|---|---|---|
+| The `remote-service` target rows (`rs-1`, `rs-1f`, `rs-2`, `rs-3`, `rs-3f`, `rs-3b`); `credential-reuse/cr-2`, `cr-2f`, `cr-4` | `PROCESS`, `EXTERNAL_ENTITY`: an outside device stays a foothold | `keep` |
+| `credential-reuse/cr-3`, `cr-3f` (instance-role reach) | `PROCESS` | `keep` (the relation holds a managed host at low itself) |
+| `credential-reuse/cr-1d`, `cr-1db` (credential dumping) | `PROCESS` | `low` |
+| Every `credential-capture` row; `host-escape/he-1` | `PROCESS` | `low` |
+| `remote-service/rs-4v`, `rs-4a`, `rs-5`; `credential-reuse/cr-1`, `cr-1b`, `cr-1s`, `cr-1f`, `cr-4b`, `cr-4c` | none (`rs-5`'s `zone-egress` relation offers processes only) | `keep` |
+
+**Managed footholds.** Where a foothold sits under a **Managed Runtime** boundary, host-level access is the platform vendor's, not the workload's: code there cannot sniff the network, dump the host's credentials or escape to a host. A row with `managed_foothold: low` holds such a pair at low, with the low reason `managed_runtime`; a row with `keep` judges it as any other.
+
+The validator refuses a `zone-egress` row that names a foothold type other than `PROCESS`, and a row whose relation offers only reached ends of named types without naming its `reached_types`.
+
 A **credential item** is a data item whose `isCredential` answer is true; when the author has not answered, its class decides (User Credentials, Authentication Tokens). A **credential-bearing flow** carries a credential item, or its class is in the category Identity & Access. For a flow whose credential travels in the response (Secret Retrieval, Certificate Enrollment, Authentication Exchange), a capture also reaches the item's other acceptors. A credential item carried by more than five flows is generic and caps its pairs at low.
 
 ---
@@ -152,9 +175,9 @@ A component anchor of a target row must itself be a type the row reaches: an adm
 
 ## 6. Pairs and exclusions
 
-For each (exposure, row), the relation generates **pairs** (foothold → reached end), round-robin over the reached ends, so a budget is shared fairly. Work is bounded: at most **1,000 pairs** are considered per (exposure, row) (`pairs_over_anchor_budget`), and at most **200,000** are judged per call, over which the call is refused as `model_too_large`, never answered in part. The matching yields to the event loop every 2,000 pairs and checks the deadline.
+For each (exposure, row), the relation generates **pairs** (foothold → reached end), round-robin over the reached ends, so a budget is shared fairly. A pair whose foothold is not a component of the folded model is dropped at once, with no count; one whose foothold is of a type the row cannot act from is skipped (`excluded_foothold_type`, see [Footholds](#footholds-the-types-a-row-acts-from-and-managed-footholds)). Neither spends the budget. One rule (`footholdOk` in `src/generate.ts`) decides which types a row acts from, the processes-only rule of `zone-egress` included, for the matching and the recheck alike. Work is bounded: at most **1,000 pairs** are considered per (exposure, row), and at most **10,000 distinct pairs** drawn, skipped ones included, so a walk where most of what a relation offers is skipped still ends (either is counted in `pairs_over_anchor_budget`); and at most **200,000** are judged per call, over which the call is refused as `model_too_large`, never answered in part. The matching yields to the event loop every 2,000 pairs and checks the deadline.
 
-Each pair is then dropped, and counted, by the first exclusion that applies, in this order:
+Each pair is then dropped, and counted, by the first exclusion that applies, in this order. Exclusions 1 to 4, and the tier of a pair that passes them, are one step, `judgePair`, which the [recheck](#16-the-recheck-contract-2) shares, so the two cannot drift apart:
 
 | Order | Exclusion | Count |
 |---|---|---|
@@ -172,12 +195,14 @@ A pair whose end is not a component of the folded model, or whose two ends are t
 
 A **breaker** is a fact that breaks or weakens the path. It applies to all of a row's techniques or only to those it names.
 
+The breakers' facts drive contract 2's explanation as well: each gating breaker is one of the conditions high needs, and its attributes are reported as meeting it, leaving it unanswered or contradicting it (see [Explanations](#14-explanations-contract-2)).
+
 **Attribute breakers** read one attribute, or a group, on a named element of the pair: the shared boundary, the nearest common ancestor of named classes, the reached end or its ancestor, the foothold or its ancestor, the anchor or its ancestor, the flow, the flow's responder, or the credential item. An attribute breaker reads only on the classes it lists, so "absent" never means "this class has no such attribute". Each has a polarity:
 
 - **`true_breaks`**, with a strength: **`removes`** (all its attributes `true` drops the pair) or **`lowers`** (lowers the tier by one). It also says how it gates the high tier, through `high_when`: `all_false` (every attribute explicitly `false`), `any_false` (a group any member of which is enough on its own, so one explicit `false` counts) or `ignored` (it only lowers).
 - **`true_enables`**: all its attributes `true` raises the tier by one, up to the cap; `false` or absent never counts toward high.
 
-A breaker lists as `own_condition` the findings that fire on its own attribute being absent or false. When the cited exposure is one of them and the attribute is read on the element it sits on, the attribute cannot be true there, so the breaker gates the tier but never removes.
+A breaker lists as `own_condition` the findings that fire on its own attribute being absent or false. When the cited exposure is one of them and the attribute is read on the element it sits on, the attribute cannot be true there, so the breaker gates the tier but never removes. Of those, it lists as `clears` the findings that fire **only** on its attributes (every rule body of the finding tests one of them as false or absent): stating the attributes true clears such a finding, which a [remedy](#15-remedies-contract-2) reports. The validator refuses a `clears` entry its `own_condition` does not name.
 
 **Control breakers** count a control of named control classes that `SUPPORTS` the reached end (or an ancestor), the flow or the anchor, optionally only when one of named attributes is `true` on the control, and optionally only for named credential item classes (MFA protects a person's password, not a machine credential). They remove or lower. One control class set counts once, and one control counts once.
 
@@ -203,7 +228,7 @@ The **cap** is the lowest of:
 - the row's `tier_cap`;
 - the cap the row's breakers support for the cited techniques that selected it (the highest among them): high needs a breaker that gates high, medium any breaker that breaks the path, and a technique with neither is held at low;
 - **medium** when the exposure is pending;
-- **low** when the relation alone is weak: a segment that is only a network perimeter, a managed runtime instead of a host, a generic credential item;
+- **low** when the relation alone is weak: a segment that is only a network perimeter, a managed runtime instead of a host, a foothold under a managed runtime for a row with `managed_foothold: low`, a generic credential item;
 - **medium** for a zone anchor (a target row in `in-zone` anchored on a boundary) unless the reached component has its own confirmed exposure of the technique's family, which is then cited with the candidate as an `exposure:<id>` fact.
 
 So a confirmed exposure with an applicable breaker attribute left unstated is medium; with every gating attribute explicitly `false`, high; a pending exposure is never above medium; and a gating breaker that is `true` has already failed the gate and lowers no further. An explicit `false` is a recorded answer: nothing in the platform writes a schema default into a model's attributes.
@@ -271,6 +296,7 @@ The platform's resolver timeout (30 s) cancels nothing, and Memgraph ignores the
 | Class-relation attribute data | 32 MiB | `model_too_large` (`attributeBytes`) |
 | Boundary nesting followed | 50 levels | Deeper boundaries left out; `boundaryDepthCut: true` |
 | Pairs considered per (exposure, row) | 1,000 | The rest not considered; `pairs_over_anchor_budget` |
+| Distinct pairs drawn per (exposure, row), skipped footholds included | 10,000 | The rest not drawn; `pairs_over_anchor_budget` |
 | Pairs judged per call | 200,000 | `model_too_large` (`matching`) |
 | Pairs kept per (exposure, row) | 20 | `peers_capped` |
 | Candidates per answer | 50 per kind, 200 in all | `kind_budget_dropped` |
@@ -278,7 +304,11 @@ The platform's resolver timeout (30 s) cancels nothing, and Memgraph ignores the
 | The module's deadline | 25 s, checked between reads and as matching yields | `deadline` |
 | Knowledge-graph reads | 15 s in all | `kg_absent`, `failed` |
 | Calls in flight | One per caller (the verified user's subject; one shared key when authentication is off), per process | `busy` |
-| `options` | 128 KiB; `excluded` at most 2,000 ids | `options_invalid` |
+| `options` | 128 KiB; `excluded` at most 2,000 ids; `recheck` at most 200 edges of at most 50 findings each | `options_invalid` |
+| Parts explained per candidate (contract 2) | 3, each with at most 12 facts | `parts_total`, `facts_total` give the full counts |
+| Remedies (contract 2) | 100,000 pairs judged again per call; none once less than 5 s of the deadline is left; 5 kept per candidate | `remedies: null`; `limits.remedies_skipped`; `remedies_total` |
+| A contract-2 answer's size | 900 KiB (UTF-16 units) | Explanations cut to the primary part, then left out; `limits.explain_trimmed` |
+| Ways in and facts per rechecked edge | 10 ways in, 12 removing facts | The rest not listed |
 
 ---
 
@@ -289,6 +319,47 @@ The platform's resolver timeout (30 s) cancels nothing, and Memgraph ignores the
 - **Portable.** No read aggregates a map, no list comprehension builds a map literal, attribute values are never `collect()`ed (it drops nulls), and every `LIMIT` is an integer literal (a Bolt parameter arrives as a float, which Memgraph refuses in `LIMIT`).
 - **No error echoes.** Errors never carry Cypher, parameters or attribute values.
 - **No authorization of its own.** The platform has no per-model authorization: any verified user can read any model through the platform's own queries, and can learn here whether a model id exists and its counts.
+
+---
+
+## 14. Explanations (contract 2)
+
+A contract-2 answer (`answerOf` in `src/answer.ts`, asynchronous) explains each listed candidate after the matching and the knowledge graph have run, so contract 1 does no more work than it did. It gives the event loop a turn between candidates, so a long explanation never holds the process. With `explain` set, `matchCandidates` keeps each candidate's parts and the topology; `explainPart` in `src/generate.ts` judges a part again, recording each fact it weighs and the reasons beside its tier (`basis`), and gives the same tier the matching gave.
+
+- **Which parts.** The parts at the candidate's tier before the knowledge graph (the parts the merge kept), confirmed findings first, then by exposure, row and credential item; at most 3. The first is the **primary part**.
+- **What a part says.** Its row, role and relation, the exposure and element it anchors on, the techniques that selected the row, the path technique, the boundary the relation was computed under, the flow and the credential item, its low reason, its tier, its `basis` (confirmed or pending; how many conditions high needs and how many are stated; what raised or lowered it; what caps it, and whether high is reachable at all) and its facts, each with the stated value and its effect.
+- **The knowledge graph's step** is the candidate's: its evidence is said once, on the primary part, after the model's facts, at most two of them.
+- **The rationale** of each row a listed candidate uses is the row's `provenance`.
+- **The limits** say where the caps left the answer short: per kind, the candidates listed and not listed for the budget, the pairs past the peer cap and the selections past their pair budget.
+
+**The size trim.** A contract-2 answer is held under 900 KiB (UTF-16 units). Each explanation is measured once in each form it can take; over the limit, every candidate keeps only its primary part, and then explanations are replaced by `{ "omitted": "size" }` from the lowest-ordered candidate up. The answer is never refused for its size.
+
+The field-by-field shape is in [query-contract.md](./query-contract.md#explain-contract-2).
+
+---
+
+## 15. Remedies (contract 2)
+
+A remedy answers: what one statement in the model would remove or lower this edge (`src/remedies.ts`)? A candidate is the merge of several parts, and a breaker on one part says nothing about the edge, so a remedy is judged over the whole edge:
+
+1. **The changes.** Each `true_breaks` attribute breaker of a part, on an element the pair has, whose attributes are not all stated `true` yet, suggests stating them `true` there; each control breaker the part's own judging finds unmet suggests a control of its class on the element it reads its controls on. The same change suggested by several parts is judged once.
+2. **The judging.** Each change is applied to a copy of the topology that states that one thing more (and, for an attribute change, drops the findings the breaker `clears`, which then anchor nothing). Every part of the edge is judged again on it, the parts the peer cap set aside included.
+3. **The outcome.** `removes` when no part survives; `lowers_to:low` or `lowers_to:medium` when the best surviving part is lower than the candidate's tier as its kept parts give it (before the knowledge graph); `this_path_only` when some parts close but the tier stays. A change that does neither is not a remedy.
+4. **One flow is not every flow.** A part names one flow carrying the credential. When another credential-bearing flow carries the same credential to the reached end (for a capture, one beside the foothold's segment that the model does not state encrypted), a change on the named flow closes that way in only.
+
+At most 5 remedies are kept per candidate, the strongest first; `remedies_total` counts all. The work has its own budget: 100,000 pairs judged again per call, and it stops when less than 5 seconds of the call's deadline is left. Reading a candidate's ways in for their changes is part of that work: it, too, stops when the deadline leaves no room. Past either, the candidates left get `remedies: null`, counted in `limits.remedies_skipped`, and the answer still arrives. The remedies give the event loop a turn every 2,000 steps (a way in read for its changes, or a pair judged again).
+
+---
+
+## 16. The recheck (contract 2)
+
+A recheck (`options.recheck`, contract 2 only) judges edges a person already decided, accepted, rejected or took back, instead of proposing candidates. A missing candidate does not tell whether an edge still holds: an accepted edge's own flow is never a declared flow, so the edge is still generated, but a budget, a cap or an exclusion may each leave it out of an answer. So `recheckWalk` in `src/generate.ts` walks again:
+
+- only the rows of the rechecked edges' kinds, over every exposure that is not disposed, pending included, with no peer cap, no kind budget, no exclusions and no knowledge graph;
+- only the pairs of the rechecked edges: each relation is offered the rechecked footholds and reached ends, and a pair of another edge is passed over;
+- each pair with why it was or was not kept, judged by the same per-pair step as the matching (`judgePair`, with `footholdOk` for the foothold): `kept` (with its tier from the model's facts, and whether its finding is pending), `removed` (with the facts that removed it), `end_type` (the reached end, the foothold, or a target row's anchor of a type the row does not take; unlike the matching, the recheck draws footholds of every type, so it can name one the row cannot act from) or `declared_flow`.
+
+Every pair drawn counts against the call's 200,000-pair budget and yields to the deadline, as the matching does. `verdictOf` in `src/recheck.ts` then gives each edge the first verdict that matches: `end_gone`, `declared_flow`, `holds`, `removed`, `end_type`, `mixed`, `grounds_disposed` or `not_derived`. A verdict that is not `holds` carries a positive reason, so a client can tell an edge whose grounds a person disposed (`grounds_disposed`) from one whose findings stopped firing (`not_derived`). The answer's shape and each verdict's condition are in [query-contract.md](./query-contract.md#the-recheck-contract-2).
 
 ---
 

@@ -7,6 +7,8 @@ import { createHash } from 'node:crypto'
 import type { ApolloClient } from '@apollo/client'
 import { DtModule } from '@dethernety/dt-core'
 import { canonicalJson } from '../utils/canonical-json.js'
+import { checkPlatformChanges, exportPlatformPrints, MODEL_PUSH_FIELDS } from '../utils/platform-baseline.js'
+import { waiverKeyState } from '../utils/gates.js'
 import { computeContentHash, localChangeStatus, readSyncJson } from '../utils/sync-utils.js'
 import { platformModelOf } from '../triage/model.js'
 import { readModelExposures, type ExposureState } from '../triage/exposures.js'
@@ -17,9 +19,47 @@ import { callModule } from './platform.js'
 import { decisionsHash, isSigner, readDecisions, signerFor, standing, type ReadDecision } from './records.js'
 
 export class OpenRefusal extends Error {
-  constructor(readonly code: string, message: string) {
+  constructor(readonly code: string, message: string, readonly details: Record<string, unknown> = {}) {
     super(message)
   }
+}
+
+/** Why this machine keeps no record of the platform model, in the operator's words. */
+const BASELINE_REFUSED: Record<string, string> = {
+  home_not_absolute: 'the home directory is not an absolute path',
+  no_project_root: 'no project root was found',
+  key_in_project: "this machine's key folder, in the home directory, lies inside the project",
+  key_in_model: "this machine's key folder, in the home directory, lies inside the model directory",
+  key_symlink: "this machine's key file, in the home directory, is a symbolic link",
+  key_mode: "this machine's key file, in the home directory, can be read by others",
+  key_malformed: "this machine's key file, in the home directory, is not a key",
+}
+
+/**
+ * The push's own check, with the elements added on the platform: a change made in the editor, or a flow a person
+ * accepted in the review workspace, is one the files lack, so the module would propose against a model they do not
+ * hold and an accept here would plan a second flow. Pull first.
+ */
+export async function platformChangeRefusal(dir: string, modelId: string, client: ApolloClient): Promise<OpenRefusal | null> {
+  const live = await exportPlatformPrints(client, modelId)
+  if (!live) return new OpenRefusal('platform_unread', 'the platform model could not be read to check it for changes since your last pull or push: try again')
+  const check = await checkPlatformChanges(dir, modelId, live, { includeAdded: true, scope: { fields: MODEL_PUSH_FIELDS } })
+  if (!check.refusal) return null
+  const data = check.refusal.data as { baseline?: string; changes_total?: number; changes?: unknown[] }
+  const n = data.changes_total ?? 0
+  // A machine whose key cannot be used keeps no record, whatever a pull does: say why instead. No key yet is not
+  // that: a pull makes one.
+  if (data.baseline !== 'verified') {
+    const key = await waiverKeyState(false, dir)
+    const reason = key.key ? null : key.code
+    if (reason && reason !== 'key_absent') {
+      return new OpenRefusal('baseline_unavailable', `this machine cannot keep a record of the platform model (${reason}: ${BASELINE_REFUSED[reason] ?? 'see the reason'}), so hidden edges cannot tell whether the platform changed since your last pull or push, and a pull does not change that: fix the cause, then pull`)
+    }
+  }
+  const why = data.baseline === 'verified'
+    ? `the platform model changed since your last pull or push (${n} element(s)), in the editor or the review workspace`
+    : `there is no usable record of the platform model from your last pull or push, so every element counts as changed (${n})`
+  return new OpenRefusal('pull_first', `${why}: pull first (/dethereal:sync pull), then run hidden edges`, { changes_total: n, changes: (data.changes ?? []).slice(0, 20) })
 }
 
 /** The four counts the operator sees. */
@@ -50,7 +90,7 @@ export interface Seen {
   fingerprint: string
   local_hash: string
   decisions_hash: string
-  /** The cited exposures, as read */
+  /** The exposures the review shows, as read: those cited, and those an explanation names */
   exposures: Map<string, ExposureState>
 }
 
@@ -75,6 +115,8 @@ export async function openRun(dir: string, client: ApolloClient): Promise<OpenRu
   const status = await localChangeStatus(dir)
   if (status.status === 'local_changes') throw new OpenRefusal('push_first', 'the model has local changes the platform does not have: push first (/dethereal:sync push), then run hidden edges')
   if (status.status !== 'no_local_changes') throw new OpenRefusal('sync_first', 'the model is not in sync with the platform: sync first (/dethereal:sync)')
+  const platform = await platformChangeRefusal(dir, modelId, client)
+  if (platform) throw platform
   const local = await readLocalModel(dir)
   const components = new Set<string>((await readSyncJson(dir))?.baseline_element_ids?.components ?? [])
   const signer = await signerFor(dir, false)
@@ -85,19 +127,28 @@ export async function openRun(dir: string, client: ApolloClient): Promise<OpenRu
 
   // Every standing decision keeps its candidate out: a verified accept, or any reject.
   const excluded = [...standing(read.decisions).keys()]
-  const call = await callModule(client, modelId, JSON.stringify({ excluded: excluded.slice(0, 2000), include_pending: true }))
-  if (call.status === 'session_refused') throw new OpenRefusal('session_refused', call.detail)
+  const options = (contract: 1 | 2) => JSON.stringify({ excluded: excluded.slice(0, 2000), include_pending: true, ...(contract === 2 ? { contract: 2 } : {}) })
   let module: OpenRun['module']
   let header: AnswerHeader | null = null
   let candidates: Candidate[] = []
   const counts: RunCounts = { candidates: 0, dropped_by_caps: 0, excluded_by_decision: 0, dropped_by_validation: 0 }
   let answerHash = ''
+  // Ask for the extended answer; a module that does not read the option refuses it, and is asked once more without.
+  let classes: Map<string, HiddenEdgeClass> | null = null
+  const ask = async (contract: 1 | 2) => {
+    const call = await callModule(client, modelId, options(contract))
+    if (call.status === 'session_refused') throw new OpenRefusal('session_refused', call.detail)
+    if (call.status !== 'answer') return { call, v: null }
+    // Without the module's classes no candidate can be checked: the module counts as failed, not its candidates as invalid.
+    classes ??= await platformClasses(client).catch(() => new Map<string, HiddenEdgeClass>())
+    return { call, v: classes.size > 0 ? validateAnswer(call.raw, { local, components, exposures, excluded: new Set(excluded), classes }, contract) : null }
+  }
+  let asked = await ask(2)
+  if (asked.v?.status === 'refused' && asked.v.code === 'module_options_invalid') asked = await ask(1)
+  const { call, v } = asked
   if (call.status !== 'answer') module = { status: call.status, detail: call.detail }
   else {
     answerHash = sha(call.raw)
-    // Without the module's classes no candidate can be checked: the module counts as failed, not its candidates as invalid.
-    const classes = await platformClasses(client).catch(() => new Map<string, HiddenEdgeClass>())
-    const v = classes.size > 0 ? validateAnswer(call.raw, { local, components, exposures, excluded: new Set(excluded), classes }) : null
     if (!v) module = { status: 'module_failed', detail: 'the hidden-edge classes could not be read from the platform' }
     else if (v.status === 'refused') module = { status: v.code, detail: v.detail }
     else {
@@ -111,7 +162,15 @@ export async function openRun(dir: string, client: ApolloClient): Promise<OpenRu
     }
   }
 
-  const cited = new Set(candidates.flatMap((c) => c.exposure_ids))
+  // the findings the review shows: those cited, and those an explanation names (a part's, a cleared one, a fact's)
+  const explained = (c: Candidate) =>
+    c.explain && 'parts' in c.explain
+      ? [
+          ...c.explain.parts.flatMap((p) => [p.exposure, ...p.facts.flatMap((f) => f.at.filter((l) => l.startsWith('exposure:')).map((l) => l.slice('exposure:'.length)))]),
+          ...(c.explain.remedies ?? []).flatMap((r) => ('clears_finding' in r && r.clears_finding ? [r.clears_finding] : [])),
+        ]
+      : []
+  const cited = new Set(candidates.flatMap((c) => [...c.exposure_ids, ...explained(c)]))
   const seenExposures = new Map([...exposures].filter(([id]) => cited.has(id)))
   const localHash = await computeContentHash(dir)
   const decisions = await decisionsHash(dir)

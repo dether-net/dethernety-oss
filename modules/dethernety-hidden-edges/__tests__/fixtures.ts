@@ -3,7 +3,7 @@ import path from 'node:path';
 import { READS, type ModelRows, type Row } from '../src/reads';
 import { EDGE_KINDS } from '../src/table';
 
-/** A small model's read rows: a segment with a host inside, two components on the host, one flow carrying a credential. */
+/** A small model's read rows: a segment with a host inside, three components on the host, one flow carrying a credential. */
 export function smallModelRows(over: Partial<ModelRows> = {}): ModelRows {
   const inst = (kind: string, elementId: string, classId: string, className: string, classCategory: string, attributes: Row = {}): Row => ({
     elementId, kind, classId, className, classCategory, attributes,
@@ -15,6 +15,8 @@ export function smallModelRows(over: Partial<ModelRows> = {}): ModelRows {
     componentEdges: [
       { id: 'web', parentId: 'host', type: 'PROCESS', crownJewel: null },
       { id: 'db', parentId: 'host', type: 'STORE', crownJewel: true },
+      // a second process, so the flat segment has a starting point besides the web server
+      { id: 'app', parentId: 'host', type: 'PROCESS', crownJewel: null },
     ],
     flows: [{ id: 'f1', sourceId: 'web', targetId: 'db' }],
     flowData: [{ flowId: 'f1', dataId: 'cred' }],
@@ -24,6 +26,7 @@ export function smallModelRows(over: Partial<ModelRows> = {}): ModelRows {
       inst('securityBoundary', 'host', 'c-host', 'Operating System Host', 'Compute', {}),
       inst('component', 'web', 'c-web', 'Web Server', 'Application', { 'tls.enabled': true }),
       inst('component', 'db', 'c-db', 'Relational Database', 'Data'),
+      inst('component', 'app', 'c-app', 'Application Service', 'Application'),
       inst('dataFlow', 'f1', 'c-q', 'Database Query', 'Data'),
       inst('data', 'cred', 'c-cred', 'User Credentials', 'Identity'),
     ],

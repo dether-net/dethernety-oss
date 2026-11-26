@@ -79,7 +79,7 @@ describe('the module’s answer, as Dethereal checks it', () => {
   })
 
   it('writes into each class only fields its template declares, with values its template allows', async () => {
-    const { BASE_FIELDS, CAPABILITIES, DETHEREAL_FIELDS, KINDS, PRIVILEGES, TIERS } = await import('../contract.js')
+    const { BASE_FIELDS, CAPABILITIES, DETHEREAL_FIELDS, KIND_FIELDS, KINDS, PRIVILEGES, RESERVED_FIELDS, TIERS } = await import('../contract.js')
     expect(fs.readdirSync(path.join(MODULE, 'data', 'dethernety-hidden-edges', 'dataFlow')).sort()).toEqual([...KINDS].sort())
     for (const kind of KINDS) {
       const dir = path.join(MODULE, 'data', 'dethernety-hidden-edges', 'dataFlow', kind)
@@ -91,6 +91,11 @@ describe('the module’s answer, as Dethereal checks it', () => {
       expect(props.tier.enum).toEqual([...TIERS])
       expect(props.proposed_by.enum).toEqual(['rule', 'operator'])
       expect(props.hidden_edge_kind.enum).toEqual([kind])
+      // the fields a flow of this class counts as declared without its template: exactly its schema's
+      expect(new Set(Object.keys(props))).toEqual(new Set([...RESERVED_FIELDS, ...Object.keys(KIND_FIELDS[kind]!)]))
+      for (const [f, allowed] of Object.entries(KIND_FIELDS[kind]!)) expect(props[f].enum, `${kind} ${f}`).toEqual([...allowed])
+      expect(props.technique_ids.maxItems).toBe(10)
+      expect(props.rationale.maxLength).toBe(1000)
     }
   })
 })

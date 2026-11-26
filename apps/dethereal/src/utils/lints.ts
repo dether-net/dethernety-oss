@@ -12,6 +12,7 @@
 import { flattenStructure } from '@dethernety/dt-core'
 import type { ElementAttributes, StructureBoundary } from '@dethernety/dt-core'
 import type { ClassTemplate, GateInput } from './gates.js'
+import { classFieldsHeld, HIDDEN_EDGES_MODULE, isHiddenEdgeClass } from '../hidden-edges/contract.js'
 
 // =============================================================================
 // Values
@@ -419,7 +420,22 @@ export function computeLints(input: GateInput): LintFinding[] {
 
   const classOf = new Map<string, string | undefined>()
   for (const e of [...boundaries, ...components, ...input.dataFlows, ...input.dataItems]) if (e?.id) classOf.set(e.id, e.classData?.id ?? undefined)
-  const declared = (id: string): ReadonlySet<string> => new Set(templates.get(classOf.get(id) ?? '')?.fields ?? [])
+  // A flow of a hidden-edge class carries that class's fields (the path's techniques among them) wherever it was
+  // accepted: they are declared even when its template is not cached, each only while its value is one its class
+  // allows. Its class is the cache's word when the cache holds it or any of the module's classes; only with none
+  // cached (after a pull) its module's name in the files. Every other check still treats it as an ordinary flow
+  // unless this machine accepted it.
+  const cachedModules = input.classTemplates.modules ?? new Map<string, { name: string }>()
+  const moduleCached = [...cachedModules.values()].some((m) => m?.name === HIDDEN_EDGES_MODULE)
+  const ofHiddenEdgeClass = (f: (typeof input.dataFlows)[number]) => {
+    const cls = f.classData?.id
+    const cached = typeof cls === 'string' ? cachedModules.get(cls) : undefined
+    if (cached) return cached.name === HIDDEN_EDGES_MODULE
+    return !moduleCached && isHiddenEdgeClass(f.classData)
+  }
+  const hiddenClass = new Set(input.dataFlows.filter((f) => f?.id && ofHiddenEdgeClass(f)).map((f) => f.id))
+  const declared = (group: string, id: string, values: Record<string, unknown>): ReadonlySet<string> =>
+    new Set([...(templates.get(classOf.get(id) ?? '')?.fields ?? []), ...(group === 'dataFlows' && hiddenClass.has(id) ? classFieldsHeld(values) : [])])
   // A hidden edge this machine accepted records the path's techniques by design; its attributes are not checked here.
   const hidden = input.hiddenEdgeFlows
 
@@ -428,7 +444,7 @@ export function computeLints(input: GateInput): LintFinding[] {
     for (const [id, entry] of Object.entries((bag ?? {}) as Record<string, ElementAttributes>)) {
       if (group === 'dataFlows' && hidden?.has(id)) continue
       const values = (entry?.attributes ?? {}) as Record<string, unknown>
-      const fields = declared(id)
+      const fields = declared(group, id, values)
       const file = `attributes/${group}/${id}.json`
       const mitreKeys = new Set<string>()
       let techniqueKey = false

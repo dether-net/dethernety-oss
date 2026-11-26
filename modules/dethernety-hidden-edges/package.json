@@ -1,7 +1,7 @@
 {
   "name": "dethernety-hidden-edges",
   "type": "module",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "main": "dist/dethernety/dethernety-hidden-edges/DethernetyHiddenEdgesModule.js",
   "types": "dist/dethernety/dethernety-hidden-edges/DethernetyHiddenEdgesModule.d.ts",
   "scripts": {

@@ -2,8 +2,9 @@
  * What a closed hidden-edge review writes, planned and written.
  *
  * An accept becomes a data flow of its kind's class in the local files (the push carries it to the platform), a
- * signed `accepted` decision, and, for an accept the operator gave one by one, AFFIRMED on the platform for each
- * pending exposure it cites (an accept-all affirms nothing). A reject becomes a `rejected` decision.
+ * signed `accepted` decision, and AFFIRMED on the platform for each cited finding the operator named in
+ * `accept <n> affirm <k>`, still pending with no disposition (any other accept affirms nothing). A reject becomes a
+ * `rejected` decision.
  *
  * The local writes run under the model's state lock: the flows' attribute files, then `dataflows.json`, then the
  * decisions, each replaced only while its bytes are still what was read. A flow without its decision counts as an
@@ -20,15 +21,13 @@ import { deleteDetherealFile, HIDDEN_EDGE_TARGET, withSettlementLock } from '../
 import { planOperations, todayIso, type PlannedOperation } from '../triage/dispositions.js'
 import type { ExposureState } from '../triage/exposures.js'
 import type { ReviewOperation } from '../triage/review.js'
-import { shown } from '../triage/text.js'
 import { kindLabel } from './contract.js'
-import { decided, type HiddenEdgeReview, type ReviewCandidate } from './review.js'
+import { said } from './story.js'
+import { AFFIRM_MARKER, affirmReason, affirmSuffix, decided, type HiddenEdgeReview, type ReviewCandidate } from './review.js'
 import { DECISIONS_FILE, DECISION_LIMITS, signDecision, standing, type Decision, type ReadDecision, type Signer } from './records.js'
 
 export const APPLY_LIMITS = { echoChars: 24_000, nameChars: 200, descriptionChars: 2000 } as const
-const AFFIRM_REASON = 'Affirmed by the accepted hidden edge'
-/** The marker an affirmation's reason ends with: the operator accepted the edge it rests on. */
-export const AFFIRM_MARKER = ' — hidden edge accepted by the operator'
+export { AFFIRM_MARKER }
 
 export interface PlannedFlow {
   n: number
@@ -43,7 +42,7 @@ export interface ApplyPlan {
   flows: PlannedFlow[]
   /** The decisions to add, unsigned */
   decisions: Array<Omit<Decision, 'mac'>>
-  /** AFFIRMED for the pending exposures the one-by-one accepts cite */
+  /** AFFIRMED for the pending exposures the accepts name to affirm */
   affirmations: PlannedOperation[]
   lines: string[]
 }
@@ -54,7 +53,7 @@ const sha = (b: string | Buffer) => createHash('sha256').update(b).digest('hex')
 export const flowIdOf = (candidateId: string) => `he-${candidateId.slice(3)}`
 
 function description(r: HiddenEdgeReview, c: ReviewCandidate): string {
-  const names = c.exposure_ids.map((id) => r.exposures.get(id)?.name).filter((x): x is string => !!x).map((x) => shown(x, 80))
+  const names = c.exposure_ids.map((id) => r.exposures.get(id)?.name).filter((x): x is string => !!x).map((x) => said(x, 80))
   return [
     `Inferred ${c.kind.replace(/-/g, ' ')} edge, reviewed by the operator in Dethereal.`,
     `Techniques: ${c.technique_ids.join(', ')}.`,
@@ -68,9 +67,10 @@ function description(r: HiddenEdgeReview, c: ReviewCandidate): string {
 export function planApply(r: HiddenEdgeReview, now: Map<string, ExposureState>, at: string): ApplyPlan {
   const flows: PlannedFlow[] = []
   const decisions: Array<Omit<Decision, 'mac'>> = []
-  const owed = new Map<string, string[]>()
+  const owed = new Map<string, ReviewCandidate>()
+  const gone: string[] = []
   const lines: string[] = []
-  const nameOf = (id: string) => shown(r.local.components.get(id)?.name ?? id, 60)
+  const nameOf = (id: string) => said(r.local.components.get(id)?.name ?? id, 60)
   for (const c of decided(r)) {
     const label = `${kindLabel(c.kind)}: ${nameOf(c.source)} → ${nameOf(c.target)}`
     if (c.choice === 'reject') {
@@ -99,31 +99,42 @@ export function planApply(r: HiddenEdgeReview, now: Map<string, ExposureState>, 
       attributes: { elementId: flowId, elementType: 'dataFlow', elementName: name, classData: { id: cls.id, name: cls.name }, attributes },
     })
     decisions.push({ id: c.id, kind: c.kind, source: c.source, target: c.target, verb: 'accepted', flow_id: flowId, technique_ids: [...c.technique_ids], exposure_ids: [...c.exposure_ids], at })
-    // A pending exposure is affirmed only by its own accept, never through accept-all.
-    const affirms = c.bulk ? [] : c.exposure_ids.filter((e) => now.get(e)?.lifecycle === 'pending' && now.get(e)?.disposition_kind === null)
-    for (const e of affirms) owed.set(e, [...new Set([...(owed.get(e) ?? []), c.id])])
+    // Only the findings the operator named, and only while still pending with no disposition.
+    for (const e of c.bulk ? [] : c.affirm) {
+      if (now.get(e)?.lifecycle === 'pending' && now.get(e)?.disposition_kind === null) {
+        if (!owed.has(e)) owed.set(e, c)
+      } else gone.push(e)
+    }
     const shownFields = Object.entries(c.fields).map(([k, v]) => `${k}=${v}`).join(', ')
     lines.push(
-      `+ [${c.n}] ${label} (${c.tier}, ${c.technique_ids.join(', ')}; class ${shown(cls.name, 60)})${exists ? `: the flow ${flowId} is in the files already; its attributes are written as shown` : ` as flow ${flowId}`}`,
+      `+ [${c.n}] ${label} (${c.tier}, ${c.technique_ids.join(', ')}; class ${said(cls.name, 60)})${exists ? `: the flow ${flowId} is in the files already; its attributes are written as shown` : ` as flow ${flowId}`}`,
       `    capability ${c.base.required_capability}, requires ${c.base.required_privilege}, grants ${c.base.granted_privilege}${shownFields ? `; ${shownFields}` : ''}${c.evidence.length ? `; ${c.evidence.length} evidence locator(s)` : ''}`,
-      ...(c.rationale ? [`    rationale: ${shown(c.rationale, 120)}`] : []),
+      ...(c.rationale ? [`    rationale: ${said(c.rationale, 120)}`] : []),
     )
   }
-  const ops: ReviewOperation[] = [...owed].map(([exposure_id, ids], i) => ({
-    group: i + 1, exposure_id, op: 'dispose', kind: 'AFFIRMED', reason: `${AFFIRM_REASON}${ids.length > 1 ? 's' : ''} ${ids.slice(0, 5).join(', ')}`, edited: false, marker: AFFIRM_MARKER,
+  const ops: ReviewOperation[] = [...owed].map(([exposure_id, c], i) => ({
+    group: i + 1, exposure_id, op: 'dispose', kind: 'AFFIRMED', reason: affirmReason(c.note, c.id), edited: false, marker: AFFIRM_MARKER,
   }))
   const affirmations = ops.length ? planOperations({ operations: ops, state: now, evidence: new Map(), techniques: { attack: new Map(), atlas: new Map() }, date: todayIso() }) : []
-  for (const o of affirmations) {
+  // by accept: the reason its findings are written with, in full, once, as the operator answers yes to it; then each
+  const told = new Set<string>()
+  for (const o of [...affirmations].sort((a, b) => owed.get(a.exposure_id)!.n - owed.get(b.exposure_id)!.n)) {
+    const c = owed.get(o.exposure_id)!
+    if (!told.has(c.id)) {
+      told.add(c.id)
+      lines.push(`  Affirmed with [${c.n}], reason: ${said(`${affirmReason(c.note, c.id)}${AFFIRM_MARKER}`)}`)
+    }
     const e = now.get(o.exposure_id)
-    lines.push(o.status === 'ready' ? `  AFFIRMED on the platform: "${shown(e?.name ?? o.exposure_id, 80)}" (${shown(e?.element_name ?? '', 60)})` : `  Not affirmed (${o.code}): "${shown(e?.name ?? o.exposure_id, 80)}"`)
+    lines.push(o.status === 'ready' ? `  AFFIRMED on the platform: "${said(e?.name ?? o.exposure_id, 80)}" (${said(e?.element_name ?? '', 60)})` : `  Not affirmed (${o.code}): "${said(e?.name ?? o.exposure_id, 80)}"`)
   }
+  for (const id of new Set(gone)) lines.push(`  Not affirmed (no longer pending with no disposition): "${said(now.get(id)?.name ?? r.exposures.get(id)?.name ?? id, 80)}"`)
   const added = flows.filter((f) => !f.exists).length
   const rejected = decisions.filter((d) => d.verb === 'rejected').length
   const ready = affirmations.filter((o) => o.status === 'ready').length
   return {
     flows, decisions, affirmations,
     lines: [
-      `Platform model "${shown(r.model_name, 120)}" (${r.model_id})`,
+      `Platform model "${said(r.model_name, 120)}" (${r.model_id})`,
       `${added} hidden edge(s) to add to the local files, ${rejected} to reject${ready ? `, ${ready} exposure(s) to affirm on the platform` : ''}`,
       ...lines,
       ...(added ? ['The new flows reach the platform with the next push (/dethereal:sync push).'] : []),
@@ -132,25 +143,53 @@ export function planApply(r: HiddenEdgeReview, now: Map<string, ExposureState>, 
 }
 
 export interface RecordPlan {
-  decision: Omit<Decision, 'mac'>
+  /** The decision the take-back writes, its verb the operator's answer: rejected or released */
+  decision: Omit<Decision, 'mac' | 'verb'>
   lines: string[]
 }
+
+/** The answers a take-back takes, and what each records. */
+export const TAKE_BACK_VERBS = { reject: 'rejected', release: 'released' } as const
+export type TakeBack = keyof typeof TAKE_BACK_VERBS
 
 /** The standing accepted decision of a flow, or null: the flow is then an ordinary one. */
 export function decisionOfFlow(decisions: ReadDecision[], flowId: string): ReadDecision | null {
   return [...standing(decisions).values()].find((d) => d.verb === 'accepted' && d.flow_id === flowId) ?? null
 }
 
-/** Plan taking back the accepted edge of a flow being removed; its affirmed exposures are listed for triage. */
-export function planRecord(accepted: ReadDecision, now: Map<string, ExposureState>, model: { id: string; name: string }, at: string): RecordPlan {
-  const affirmed = accepted.exposure_ids.map((id) => now.get(id)).filter((e): e is ExposureState => e?.disposition_kind === 'AFFIRMED')
+/**
+ * Whether a finding's reason is an affirmation by the accept of edge `id`: the generated reason, its marker last,
+ * naming that edge in its own place. A note the operator wrote before it may name any edge: it does not count.
+ * The reasons 0.7.0 wrote ("Affirmed by the accepted hidden edge(s) <id>, …") count too.
+ */
+export function affirmedByEdge(reason: string | null | undefined, id: string): boolean {
+  if (!reason?.endsWith(AFFIRM_MARKER)) return false
+  const body = reason.slice(0, -AFFIRM_MARKER.length)
+  if (body === affirmReason(null, id) || body.endsWith(affirmSuffix(id))) return true
+  const old = /^Affirmed by the accepted hidden edges? (he:[0-9a-f]{16}(?:, he:[0-9a-f]{16})*)$/.exec(body)
+  return !!old && old[1]!.split(', ').includes(id)
+}
+
+/**
+ * Plan taking back the accepted edge of a flow being removed: as a reject (the edge was never real) or a release (it
+ * was fixed, or is no longer wanted), the operator's answer deciding which. The exposures this edge's accept
+ * affirmed are listed for triage (an exposure affirmed otherwise, in triage, is not this edge's to mention); when the
+ * platform could not be read (`unread` says why), the lines say they could not be listed.
+ */
+export function planRecord(accepted: ReadDecision, now: Map<string, ExposureState>, model: { id: string; name: string | null }, at: string, unread?: string): RecordPlan {
+  const affirmed = accepted.exposure_ids.map((id) => now.get(id)).filter((e): e is ExposureState => !!e && e.disposition_kind === 'AFFIRMED' && affirmedByEdge(e.full_reason, accepted.id))
   return {
-    decision: { id: accepted.id, kind: accepted.kind, source: accepted.source, target: accepted.target, verb: 'rejected', flow_id: null, technique_ids: [...accepted.technique_ids], exposure_ids: [...accepted.exposure_ids], at },
+    decision: { id: accepted.id, kind: accepted.kind, source: accepted.source, target: accepted.target, flow_id: null, technique_ids: [...accepted.technique_ids], exposure_ids: [...accepted.exposure_ids], at },
     lines: [
-      `Platform model "${shown(model.name, 120)}" (${model.id})`,
-      `The hidden edge ${kindLabel(accepted.kind)} ${accepted.id} is recorded as rejected: it is not proposed again`,
-      ...(affirmed.length
-        ? [`${affirmed.length} exposure(s) it cites are affirmed; if the edge was their only ground, clear them in /dethereal:triage:`, ...affirmed.map((e) => `  "${shown(e.name, 80)}" (${shown(e.element_name, 60)})`)]
+      model.name === null ? `Platform model ${model.id}` : `Platform model "${said(model.name, 120)}" (${model.id})`,
+      `Taking back the hidden edge ${kindLabel(accepted.kind)} ${accepted.id}, flow ${accepted.flow_id}: the flow is removed only after a reject or a release is recorded`,
+      '  reject: the edge was never real; it is kept as a reject, and is not proposed again',
+      '  release: it was fixed, or is no longer wanted; it is not kept out, and if its grounds return the module proposes it again',
+      '  cancel: nothing is recorded, and the flow stays, accepted',
+      ...(unread !== undefined
+        ? [`The findings this edge affirmed could not be listed (${unread}); check them in /dethereal:triage`]
+        : affirmed.length
+        ? [`${affirmed.length} exposure(s) it cites are affirmed; if the edge was their only ground, clear them in /dethereal:triage:`, ...affirmed.map((e) => `  "${said(e.name, 80)}" (${said(e.element_name, 60)})`)]
         : []),
     ],
   }

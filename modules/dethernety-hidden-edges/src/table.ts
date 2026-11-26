@@ -121,6 +121,12 @@ export interface AttributeBreaker {
    * the breaker can only gate the tier there, never remove.
    */
   own_condition: Array<{ class: string; exposure: string }>;
+  /**
+   * Of the own conditions, the findings that fire only on these attributes: every rule body of the finding tests
+   * one of them as false or absent, so stating the group true clears the finding. A finding with any other body
+   * may keep firing, and is not listed.
+   */
+  clears: Array<{ class: string; exposure: string }>;
   /** The row techniques it applies to; empty means all. */
   techniques: string[];
 }
@@ -151,6 +157,16 @@ export interface EdgeKindRow {
   credential_flows?: 'outbound' | 'both' | 'received';
   /** For target and source rows: the component types a reached end (and a component anchor of a target row) may have. */
   reached_types: ComponentType[];
+  /**
+   * The component types a starting point (the pair's source) may have; empty when the row needs none (the starting
+   * point is the anchor itself or the item's holder). Sniffing, escaping or fetching needs code running there.
+   */
+  foothold_types: ComponentType[];
+  /**
+   * `low`: a starting point under a Managed Runtime caps the pair at low, where host-level access is the vendor's
+   * (capture, dumping, escape); `keep`: such a starting point is judged as any other.
+   */
+  managed_foothold: 'low' | 'keep';
   /**
    * The technique written to the flow's `technique_ids`: the cited one when it is in `from_cited`'s families; else the
    * technique named for the credential item's class; else `default`.
@@ -189,6 +205,10 @@ const CLASS_NAME = /^[A-Za-z0-9][A-Za-z0-9 &/.()-]{0,63}$/;
 const EMITTER = /^dethernety-general\/(component|securityBoundary|dataFlow|data)\/[a-z0-9-]{1,64}\/policies\.rego(:\d{1,5})?$/;
 const PROVENANCE = /^[\x20-\x7E]+$/;
 export const PROVENANCE_MAX = 500;
+/** The relations that offer only reached ends of the row's reached types. */
+const PREFILTERED: readonly string[] = ['same-segment', 'in-zone', 'segment-outside-anchor', 'landing-segment', 'zone-egress', 'instance-role-reach', 'kerberos-realm', 'same-host-outside-container'];
+/** The table format this module reads. */
+export const TABLE_VERSION = 3;
 export const MAX_ROWS = 200;
 
 export class TableError extends Error {
@@ -277,7 +297,7 @@ function ownConditions(v: unknown, where: string): Array<{ class: string; exposu
 }
 
 function attributeBreaker(v: unknown, where: string, techniques: string[], role: Role): AttributeBreaker {
-  const o = obj(v, where, ['attributes', 'read_from', 'classes', 'polarity', 'high_when', 'own_condition', 'techniques'], ['strength']);
+  const o = obj(v, where, ['attributes', 'read_from', 'classes', 'polarity', 'high_when', 'own_condition', 'clears', 'techniques'], ['strength']);
   if (role !== 'credential' && role !== 'capture' && o.read_from === 'credential_item') throw new TableError(`${where}: only credential and capture rows read a credential item`);
   const b: AttributeBreaker = {
     attributes: strings(o.attributes, `${where}.attributes`, NAME, { min: 1, max: 8 }),
@@ -286,6 +306,7 @@ function attributeBreaker(v: unknown, where: string, techniques: string[], role:
     polarity: oneOf(o.polarity, ['true_breaks', 'true_enables'] as const, `${where}.polarity`),
     high_when: oneOf(o.high_when, ['all_false', 'any_false', 'ignored'] as const, `${where}.high_when`),
     own_condition: ownConditions(o.own_condition, `${where}.own_condition`),
+    clears: ownConditions(o.clears, `${where}.clears`),
     techniques: subsetOf(strings(o.techniques, `${where}.techniques`, ATTACK_ID, { max: 32 }), techniques, where),
   };
   if (b.polarity === 'true_breaks') {
@@ -296,6 +317,8 @@ function attributeBreaker(v: unknown, where: string, techniques: string[], role:
   }
   if (ANCESTOR_READS.includes(b.read_from) && b.classes.length === 0) throw new TableError(`${where}: ${b.read_from} names the boundary classes it looks for`);
   if (b.high_when === 'any_false' && b.attributes.length < 2) throw new TableError(`${where}: any_false is for a group of two or more attributes`);
+  const own = new Set(b.own_condition.map((x) => `${x.class}\u0000${x.exposure}`));
+  if (!b.clears.every((x) => own.has(`${x.class}\u0000${x.exposure}`))) throw new TableError(`${where}.clears names a finding its own_condition does not`);
   return b;
 }
 
@@ -328,7 +351,7 @@ function row(v: unknown, i: number): EdgeKindRow {
   const o = obj(
     v,
     where,
-    ['id', 'edge_kind', 'techniques', 'anchors', 'exposed_role', 'peer_relation', 'reached_types', 'path', 'attribute_breakers', 'control_breakers', 'defaults', 'tier_cap', 'provenance', 'emitters'],
+    ['id', 'edge_kind', 'techniques', 'anchors', 'exposed_role', 'peer_relation', 'reached_types', 'foothold_types', 'managed_foothold', 'path', 'attribute_breakers', 'control_breakers', 'defaults', 'tier_cap', 'provenance', 'emitters'],
     ['credential_flows'],
   );
   if (typeof o.id !== 'string' || !ROW_ID.test(o.id)) throw new TableError(`${where}.id is invalid`);
@@ -354,6 +377,8 @@ function row(v: unknown, i: number): EdgeKindRow {
     exposed_role: role,
     peer_relation: oneOf(o.peer_relation, PEER_RELATIONS, `${where}.peer_relation`),
     reached_types: strings(o.reached_types, `${where}.reached_types`, /^(PROCESS|STORE|EXTERNAL_ENTITY)$/, { max: 3 }) as ComponentType[],
+    foothold_types: strings(o.foothold_types, `${where}.foothold_types`, /^(PROCESS|STORE|EXTERNAL_ENTITY)$/, { max: 3 }) as ComponentType[],
+    managed_foothold: oneOf(o.managed_foothold, ['low', 'keep'] as const, `${where}.managed_foothold`),
     path: {
       default: p.default,
       from_cited: strings(p.from_cited, `${where}.path.from_cited`, ATTACK_ID, { max: 8 }),
@@ -383,6 +408,10 @@ function row(v: unknown, i: number): EdgeKindRow {
   const peerReached = r.exposed_role === 'target' || r.exposed_role === 'source';
   if (peerReached && r.reached_types.length === 0) throw new TableError(`${where}: a ${r.exposed_role} row names its reached_types`);
   if (!peerReached && r.reached_types.length !== 0) throw new TableError(`${where}: reached_types is only for target and source rows`);
+  // the relations that offer only reached ends of the row's types need them named, or the recheck would type nothing
+  if (PREFILTERED.includes(r.peer_relation) && r.reached_types.length === 0) throw new TableError(`${where}: a ${r.peer_relation} row names its reached_types`);
+  // zone egress keeps processes as its starting points in code; a row may not claim more
+  if (r.peer_relation === 'zone-egress' && !r.foothold_types.every((x) => x === 'PROCESS')) throw new TableError(`${where}: a zone-egress row's starting points are processes`);
   if (r.exposed_role === 'credential') {
     r.credential_flows = oneOf(o.credential_flows, ['outbound', 'both', 'received'] as const, `${where}.credential_flows`);
   } else if (o.credential_flows !== undefined) {
@@ -391,13 +420,13 @@ function row(v: unknown, i: number): EdgeKindRow {
   // The row's cap must be reachable for some technique; each technique is held to its own at run time.
   const best = derivedTierCap(r);
   if (TIER_RANK[r.tier_cap] > TIER_RANK[best]) throw new TableError(`${where}: tier_cap ${r.tier_cap} is above what its breakers support (${best})`);
-  const firstOf = new Map<string, number>();
+  // a control counts for the first breaker it meets: a removing breaker after a lowering one that shares a class
+  // would never be reached by a control of that class
   r.control_breakers.forEach((b, j) => {
-    const key = [...b.control_classes].sort().join('|');
-    if (b.strength === 'removes' && firstOf.has(key) && r.control_breakers[firstOf.get(key)!].strength === 'lowers') {
+    const prior = r.control_breakers.slice(0, j).find((x) => x.strength === 'lowers' && x.control_classes.some((c) => b.control_classes.includes(c)));
+    if (b.strength === 'removes' && prior) {
       throw new TableError(`${where}.control_breakers[${j}]: a removing breaker comes before a lowering one for the same control classes`);
     }
-    if (!firstOf.has(key)) firstOf.set(key, j);
   });
   return r;
 }
@@ -425,7 +454,7 @@ const selector = (technique: string, kind: ElementKind, cls: string) => `${techn
 /** Validate a parsed table. Throws `TableError` on the first defect; returns the typed table otherwise. */
 export function validateTable(raw: unknown): EdgeKindTable {
   const o = obj(raw, 'the table', ['version', 'status', 'kinds', 'rows']);
-  if (o.version !== 2) throw new TableError('version must be 2');
+  if (o.version !== TABLE_VERSION) throw new TableError(`version must be ${TABLE_VERSION}`);
   const status = oneOf(o.status, ['draft', 'settled'] as const, 'status');
   if (!Array.isArray(o.kinds) || o.kinds.length !== EDGE_KINDS.length) throw new TableError('kinds must list every edge kind once');
   const kinds = o.kinds.map(kindFields);
@@ -450,7 +479,7 @@ export function validateTable(raw: unknown): EdgeKindTable {
     }
     if (status === 'settled' && r.emitters.length === 0) throw new TableError(`${r.id}: a settled row names its emitters`);
   }
-  return deepFreeze({ version: 2, status, kinds, rows });
+  return deepFreeze({ version: TABLE_VERSION, status, kinds, rows });
 }
 
 function deepFreeze<T>(v: T): T {

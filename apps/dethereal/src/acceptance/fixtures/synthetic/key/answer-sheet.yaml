@@ -449,7 +449,7 @@ not_on_fixture:
   remove-select: "reached only through the remove skill's handover, which Step 8 does not use: its removals are asked as remove-confirm"
   remove-crown-jewel: "reached only through the remove skill's handover, which Step 8 does not use; the store F5 removes is no crown jewel"
   remove-simple: "reached only through the remove skill's handover, which Step 8 does not use: it removes an element with no dependencies with no confirm"
-  hidden-edges-apply: "the model holds no hidden-edge flow, so the remove skill records none"
+  hidden-edges-take-back: "the model holds no hidden-edge flow, so the remove skill takes none back"
   push-empty-model: "the model is not empty when it is pushed"
   push-conflict: "the first push of a new model has nothing on the platform to conflict with"
   stale-controls: "no control is recorded, so none can go stale"

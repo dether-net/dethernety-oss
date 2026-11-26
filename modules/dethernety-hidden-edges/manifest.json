@@ -1,6 +1,6 @@
 {
   "name": "dethernety-hidden-edges",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "displayName": "Dethernety Hidden Edges",
   "description": "Inferred attack paths a threat model does not show, proposed from its exposures as one read-only query.",
   "tags": ["hidden-edges", "attack-paths", "mitre"],

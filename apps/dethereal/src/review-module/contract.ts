@@ -37,7 +37,20 @@ export const REVIEW_PUBLISH = gql`
   mutation ReviewPublishProposals($analysisId: String!, $payload: String!) { reviewPublishProposals(analysisId: $analysisId, payload: $payload) }
 `
 
-/** The model's analyses of the Triage class, with when each was made and the models each is bound to. */
+/** The Hidden edges workspace: each named edge's fingerprint, whether the model holds it and whether it is rejected. */
+export const REVIEW_EDGE_STATES = gql`
+  query ReviewEdgeStates($analysisId: String!, $edges: String!) { reviewEdgeStates(analysisId: $analysisId, edges: $edges) }
+`
+
+export const REVIEW_EDGE_PROPOSALS = gql`
+  query ReviewEdgeProposals($analysisId: String!, $candidateIds: [String!]!) { reviewEdgeProposals(analysisId: $analysisId, candidateIds: $candidateIds) }
+`
+
+export const REVIEW_PUBLISH_EDGES = gql`
+  mutation ReviewPublishEdgeProposals($analysisId: String!, $payload: String!) { reviewPublishEdgeProposals(analysisId: $analysisId, payload: $payload) }
+`
+
+/** The model's analyses of one class (Triage, Hidden edges), with when each was made and the models each is bound to. */
 export const TRIAGE_REVIEW_ANALYSES = gql`
   query TriageReviewAnalyses($classId: ID!, $modelId: ID!) {
     analyses(where: { analysisClass: { single: { id: { eq: $classId } } }, model: { some: { id: { eq: $modelId } } } }) {

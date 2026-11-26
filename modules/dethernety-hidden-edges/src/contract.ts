@@ -5,8 +5,12 @@
 import { createHash } from 'node:crypto';
 
 export const MODULE_NAME = 'dethernety-hidden-edges';
-export const MODULE_VERSION = '0.1.2';
+export const MODULE_VERSION = '0.2.0';
+/** The contract an answer is in when the caller asks for none. */
 export const CONTRACT_VERSION = 1;
+/** The contracts this module answers in, by the caller's `options.contract`. */
+export const CONTRACTS = [1, 2] as const;
+export type Contract = (typeof CONTRACTS)[number];
 
 /** sha256 of the edge-kind table as compiled in, so an answer says which table produced it. */
 export function tableHash(raw: unknown): string {
@@ -34,6 +38,10 @@ export interface Refusal {
   refusal: { code: RefusalCode; detail?: string };
 }
 
-export function refusal(code: RefusalCode, detail?: string): Refusal {
-  return { contract: CONTRACT_VERSION, module: MODULE_NAME, version: MODULE_VERSION, refusal: detail ? { code, detail } : { code } };
+/**
+ * A refusal, stamped with the contract the caller asked for once its options parse, and with contract 1 before
+ * (so `options_invalid` always arrives as contract 1, which every client reads).
+ */
+export function refusal(code: RefusalCode, detail?: string, contract: Contract = CONTRACT_VERSION): Refusal {
+  return { contract, module: MODULE_NAME, version: MODULE_VERSION, refusal: detail ? { code, detail } : { code } };
 }

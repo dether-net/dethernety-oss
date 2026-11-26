@@ -13,6 +13,7 @@ import {
   ATTACK_ID, BASE_FIELDS, CANDIDATE_ID, CAPABILITIES, CONTRACT, KG_ABSENT_REASONS, KINDS, PLATFORM_ID, PRIVILEGES, REFUSAL_CODES, RESERVED_FIELDS, ROW_ID, SHA256_HEX,
   TIERS, VERSION, candidateId, type BaseValues, type Regime, type Tier,
 } from './contract.js'
+import { explainOf, limitsOf, rationaleOf, type Explain, type Limits } from './explain.js'
 import type { LocalModel } from './local.js'
 
 /**
@@ -52,12 +53,19 @@ export interface Candidate {
   kg_lowered: boolean
   /** Every cited exposure is pending: never in accept-all */
   pending_only: boolean
+  /** Contract 2's explanation, checked */
+  explain?: Explain
 }
 
 export interface AnswerHeader {
   version: string
   table_hash: string
   regime: Regime
+  /** The contract the answer is in */
+  contract: 1 | 2
+  /** Contract 2: the rules' rationale, row by row, and the limits the caps set */
+  rationale?: Record<string, string>
+  limits?: Limits
 }
 
 export type AnswerResult =
@@ -97,14 +105,19 @@ function baseOf(v: unknown): BaseValues | null {
 }
 
 const ANSWER_KEYS = ['contract', 'module', 'version', 'table_hash', 'regime', 'candidates', 'counts'] as const
+const ANSWER_KEYS_2 = ['contract', 'module', 'version', 'table_hash', 'regime', 'mode', 'candidates', 'counts', 'rationale', 'limits'] as const
 const CANDIDATE_KEYS = ['id', 'kind', 'class', 'source', 'target', 'technique_ids', 'cited_techniques', 'exposure_ids', 'rows', 'tier', 'defaults', 'fields', 'facts', 'totals'] as const
 /** The module's fact locators: an attribute of an element, a control, an exposure, a knowledge-graph rule or class. */
 export const FACT = /^(attributes:[A-Za-z0-9_-]{1,128}#[A-Za-z0-9_.-]{1,128}|control:[A-Za-z0-9_-]{1,128}|exposure:[A-Za-z0-9_-]{1,128}|kg:[\w:.-]{1,128}|kg-class:[\w:.-]{1,128})$/
 const FIELD_NAME = /^[a-z][a-z0-9_]{0,63}$/
 const FIELD_VALUE = /^[a-z0-9_-]{1,64}$/
 
-/** Parse and check the module's answer against the run's context. */
-export function validateAnswer(raw: string, ctx: ValidationContext): AnswerResult {
+/**
+ * Parse and check the module's answer against the run's context, in the contract asked for. A refusal is read
+ * first, when it is in contract 1 or the contract asked (a module that cannot parse the options refuses in 1);
+ * any other answer must be in the contract asked.
+ */
+export function validateAnswer(raw: string, ctx: ValidationContext, asked: 1 | 2 = CONTRACT): AnswerResult {
   const refuse = (code: string, detail: string): AnswerResult => ({ status: 'refused', code, detail })
   let parsed: unknown
   try {
@@ -114,12 +127,20 @@ export function validateAnswer(raw: string, ctx: ValidationContext): AnswerResul
   }
   const a = obj(parsed)
   if (!a) return refuse('answer_invalid', 'the answer is no object')
-  if (a.contract !== CONTRACT) return refuse('contract_mismatch', `the answer is not contract ${CONTRACT}: update Dethereal or the platform`)
-  if (own(a, 'refusal')) {
+  if (own(a, 'refusal') && (a.contract === 1 || a.contract === asked)) {
     const r = obj(a.refusal)
     return r && oneOf(REFUSAL_CODES, r.code) ? refuse(`module_${r.code as string}`, 'the module refused the call') : refuse('answer_invalid', 'the refusal is malformed')
   }
-  if (!exactKeys(a, ANSWER_KEYS)) return refuse('answer_invalid', 'the answer has missing or unknown keys')
+  if (a.contract !== asked) return refuse('contract_mismatch', `the answer is not contract ${asked}: update Dethereal or the platform`)
+  if (!exactKeys(a, asked === 2 ? ANSWER_KEYS_2 : ANSWER_KEYS)) return refuse('answer_invalid', 'the answer has missing or unknown keys')
+  let extended: Pick<AnswerHeader, 'rationale' | 'limits'> = {}
+  if (asked === 2) {
+    // the envelope's additions: a malformed one refuses the answer; a bad rationale entry is only dropped
+    const limits = limitsOf(a.limits)
+    const rationale = rationaleOf(a.rationale)
+    if (a.mode !== 'candidates' || !limits || !rationale) return refuse('answer_invalid', 'the mode, the limits or the rationale is malformed')
+    extended = { rationale, limits }
+  }
   if (typeof a.version !== 'string' || !VERSION.test(a.version) || typeof a.table_hash !== 'string' || !SHA256_HEX.test(a.table_hash)) return refuse('answer_invalid', 'the version or table hash is malformed')
   const regime = regimeOf(a.regime)
   const counts = obj(a.counts)
@@ -136,13 +157,15 @@ export function validateAnswer(raw: string, ctx: ValidationContext): AnswerResul
   for (const c of a.candidates) {
     const { kind, class: named } = obj(c)!
     const id = obj(named)?.id
-    if (typeof kind !== 'string' || typeof id !== 'string') continue
+    // a candidate of a kind this Dethereal does not know is dropped below, whatever class it names
+    if (typeof kind !== 'string' || !KINDS.has(kind) || typeof id !== 'string') continue
     if ((classOfKind.get(kind) ?? id) !== id || (kindOfClass.get(id) ?? kind) !== kind) return refuse('answer_invalid', 'the answer names one class for two kinds, or two classes for one kind')
     classOfKind.set(kind, id)
     kindOfClass.set(id, kind)
   }
 
   const candidates: Candidate[] = []
+  const usedRows = new Set<string>()
   const seen = new Set<string>()
   let dropped = 0
   let excluded = 0
@@ -151,19 +174,22 @@ export function validateAnswer(raw: string, ctx: ValidationContext): AnswerResul
       excluded++
       continue
     }
-    const v = checkCandidate(obj(c)!, ctx)
+    const v = checkCandidate(obj(c)!, ctx, asked)
     if (!v || seen.has(v.id)) dropped++
     else {
       seen.add(v.id)
       candidates.push(v)
+      for (const row of obj(c)!.rows as string[]) usedRows.add(row)
     }
   }
-  return { status: 'ok', header: { version: a.version, table_hash: a.table_hash, regime }, candidates, dropped, excluded, counts: numbers }
+  // the rationale of the rules the kept candidates use, and no other
+  if (extended.rationale) extended.rationale = Object.fromEntries(Object.entries(extended.rationale).filter(([row]) => usedRows.has(row)))
+  return { status: 'ok', header: { version: a.version, table_hash: a.table_hash, regime, contract: asked, ...extended }, candidates, dropped, excluded, counts: numbers }
 }
 
 /** One candidate checked, or null when it is dropped. */
-function checkCandidate(c: Record<string, unknown>, ctx: ValidationContext): Candidate | null {
-  if (!exactKeys(c, CANDIDATE_KEYS, ['kg'])) return null
+function checkCandidate(c: Record<string, unknown>, ctx: ValidationContext, asked: 1 | 2): Candidate | null {
+  if (!exactKeys(c, asked === 2 ? [...CANDIDATE_KEYS, 'explain'] : CANDIDATE_KEYS, ['kg'])) return null
   const { id, kind, source, target } = c
   if (typeof id !== 'string' || !CANDIDATE_ID.test(id) || typeof kind !== 'string' || !KINDS.has(kind)) return null
   if (typeof source !== 'string' || !PLATFORM_ID.test(source) || typeof target !== 'string' || !PLATFORM_ID.test(target)) return null
@@ -174,9 +200,13 @@ function checkCandidate(c: Record<string, unknown>, ctx: ValidationContext): Can
   if (!cls) return null
   if (!strList(c.technique_ids, ATTACK_ID, ANSWER_LIMITS.techniques) || c.technique_ids.length === 0 || !strList(c.cited_techniques, ATTACK_ID, ANSWER_LIMITS.listEntries)) return null
   if (!strList(c.exposure_ids, PLATFORM_ID, ANSWER_LIMITS.listEntries) || c.exposure_ids.length === 0 || !strList(c.rows, ROW_ID, ANSWER_LIMITS.rows)) return null
+  // the module lists each cited finding once: a repeat would pad the list past what it counts
+  if (new Set(c.exposure_ids).size !== c.exposure_ids.length) return null
   if (!oneOf(TIERS, c.tier) || !strList(c.facts, FACT, ANSWER_LIMITS.listEntries) || (own(c, 'kg') && c.kg !== 'lowered')) return null
   const totals = obj(c.totals)
   if (!totals || !exactKeys(totals, ['exposure_ids', 'facts', 'cited_techniques']) || !Object.values(totals).every((x) => isInt(x, 0, 1e6))) return null
+  // a total counts the list it stands beside: never fewer, and past the list's cap only when the list is full
+  if ((totals.exposure_ids as number) < c.exposure_ids.length || ((totals.exposure_ids as number) > ANSWER_LIMITS.listEntries && c.exposure_ids.length !== ANSWER_LIMITS.listEntries)) return null
   const defaults = baseOf(c.defaults)
   const fields = obj(c.fields)
   if (!defaults || !fields || Object.keys(fields).length > ANSWER_LIMITS.fields) return null
@@ -194,10 +224,25 @@ function checkCandidate(c: Record<string, unknown>, ctx: ValidationContext): Can
   // The cited exposures: in this run's read, not disposed for hidden edges, never on a hidden-edge flow (an inferred edge anchors nothing).
   const exposures = c.exposure_ids.map((e) => ctx.exposures.get(e))
   if (exposures.some((e) => !e || edgeLifecycle(e) === 'disposed')) return null
-  if (exposures.some((e) => e!.element_kind === 'dataFlow' && ctx.classes.has(ctx.local.flows.get(e!.element_id)?.classId ?? e!.element_class?.id ?? ''))) return null
+  const onHiddenEdgeFlow = (flowId: string, e?: ExposureState) => ctx.classes.has(ctx.local.flows.get(flowId)?.classId ?? e?.element_class?.id ?? '')
+  if (exposures.some((e) => e!.element_kind === 'dataFlow' && onHiddenEdgeFlow(e!.element_id, e))) return null
+  let explain: Explain | undefined
+  if (asked === 2) {
+    const x = explainOf(
+      c.explain,
+      { id, source, target, rows: c.rows, technique_ids: c.technique_ids, exposure_ids: c.exposure_ids, exposure_total: totals.exposure_ids as number, tier: c.tier as Tier, kg_lowered: c.kg === 'lowered' },
+      {
+        local: ctx.local, exposures: ctx.exposures, isHiddenEdgeFlow: (f, e) => onHiddenEdgeFlow(f, e), isDisposed: (e) => edgeLifecycle(e) === 'disposed',
+        isConfirmed: (e) => edgeLifecycle(e) === 'confirmed',
+      },
+    )
+    if (!x) return null
+    explain = x
+  }
   return {
     id, kind, class: cls, source, target, technique_ids: [...new Set(c.technique_ids)], cited_techniques: [...c.cited_techniques], exposure_ids: [...new Set(c.exposure_ids)],
     tier: c.tier as Tier, defaults, fields: { ...(fields as Record<string, string>) }, facts: [...c.facts], kg_lowered: c.kg === 'lowered',
     pending_only: exposures.every((e) => edgeLifecycle(e!) === 'pending'),
+    ...(explain ? { explain } : {}),
   }
 }

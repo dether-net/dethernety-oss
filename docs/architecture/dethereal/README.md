@@ -110,7 +110,7 @@ Skills, agents and hooks are generated from a single workflow source into bundle
 
 ## Key Design Principles
 
-1. **Mapping, not analysis.** The plugin structures data. The platform analyzes it. This boundary is maintained across all 36 MCP tools — the plugin never derives, edits or deletes a platform-computed exposure, because exposures are analysis outputs, not mapping inputs. Triage records only the operator's decisions about them, through the platform's disposition and supersede flows, after the operator's approval. The hidden-edge review writes an accepted edge as a flow in the model files, which the platform evaluates after a push like any flow, and on the platform only affirms the pending findings an edge accepted one by one rests on.
+1. **Mapping, not analysis.** The plugin structures data. The platform analyzes it. This boundary is maintained across all 36 MCP tools — the plugin never derives, edits or deletes a platform-computed exposure, because exposures are analysis outputs, not mapping inputs. Triage records only the operator's decisions about them, through the platform's disposition and supersede flows, after the operator's approval. The hidden-edge review writes an accepted edge as a flow in the model files, which the platform evaluates after a push like any flow, and on the platform only affirms the findings the operator names in `accept <n> affirm <k>`, each still pending with no disposition.
 
 2. **Files as source of truth during modeling.** All model data lives in local JSON files under version control. The plugin reads from and writes to disk. No hidden state, no in-memory-only data.
 
