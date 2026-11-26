@@ -200,7 +200,15 @@ const TIERS = ['low', 'medium', 'high'] as const;
 /**
  * Apply the knowledge graph to the answer's candidates: lower by one step where every part that set the tier fails.
  */
-export function applyKg(m: FoldedModel, table: EdgeKindTable, candidates: Candidate[], anchors: Map<string, AnchorRef[]>, facts: KgFacts): Candidate[] {
+export function applyKg(
+  m: FoldedModel,
+  table: EdgeKindTable,
+  candidates: Candidate[],
+  anchors: Map<string, AnchorRef[]>,
+  facts: KgFacts,
+  /** Receives each lowered candidate's own evidence, whole, by id (contract 2 explains it). */
+  evidenceOut?: Map<string, string[]>,
+): Candidate[] {
   if (facts.regime.kg !== 'kg_present') return candidates;
   const families = kindFamilies(table);
   return candidates.map((c) => {
@@ -213,6 +221,7 @@ export function applyKg(m: FoldedModel, table: EdgeKindTable, candidates: Candid
     const rank = TIERS.indexOf(c.tier);
     if (rank === 0) return c;
     const evidence = [...(anchorFails ? checks.flatMap((x) => x.evidence) : []), ...(peer.verdict === 'fail' ? peer.evidence : [])];
+    evidenceOut?.set(c.id, [...new Set(evidence)].sort());
     const withEvidence = [...new Set([...evidence, ...c.facts])].sort();
     return {
       ...c,

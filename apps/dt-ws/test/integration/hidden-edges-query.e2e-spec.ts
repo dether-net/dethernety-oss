@@ -74,13 +74,14 @@ describe('hidden-edges query (e2e)', () => {
     for (const s of statements) await runWrite(s, { flat: FLAT });
   }
 
-  it('proposes the flat-segment pairs into the services, never into the store', async () => {
+  it('proposes the flat-segment pairs into the services, never into the store nor from it', async () => {
     await seedFlatSegment();
     const answer: any = await mod.candidates({ modelId: 'm1' });
     expect(answer.refusal).toBeUndefined();
     expect(answer.regime).toEqual({ kg: 'kg_absent', reason: 'unavailable' });
     const pairs = answer.candidates.map((c: any) => `${c.source}->${c.target}`).sort();
-    expect(pairs).toEqual(['A->B', 'B->A', 'D->A', 'D->B']);
+    // the database cannot run the attacker's code, so it is no starting point
+    expect(pairs).toEqual(['A->B', 'B->A']);
     for (const c of answer.candidates) {
       // a zone anchor reaches high only where the reached service has its own exposure: medium here
       expect(c).toMatchObject({ kind: 'remote-service', technique_ids: ['T1021'], exposure_ids: ['x1'], tier: 'medium' });
@@ -92,7 +93,7 @@ describe('hidden-edges query (e2e)', () => {
   it('passes the options to the matching: an excluded pair is gone, and counted', async () => {
     await seedFlatSegment();
     const excluded: any = await mod.candidates({ modelId: 'm1', options: JSON.stringify({ excluded: [candidateId('remote-service', 'A', 'B')] }) });
-    expect(excluded.candidates.map((c: any) => `${c.source}->${c.target}`).sort()).toEqual(['B->A', 'D->A', 'D->B']);
+    expect(excluded.candidates.map((c: any) => `${c.source}->${c.target}`).sort()).toEqual(['B->A']);
     expect(excluded.counts.excluded_by_decision).toBe(1);
   });
 

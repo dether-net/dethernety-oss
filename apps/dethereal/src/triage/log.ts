@@ -8,9 +8,12 @@
  * no clean text, by its start, its length and its sha256.
  */
 import { createHash } from 'node:crypto'
+import { readFile, stat } from 'node:fs/promises'
+import { join } from 'node:path'
 import { updateDetherealJson } from '../utils/state-store.js'
 import { keepMachineFilesOut } from '../utils/settlement-writers.js'
 import { replyProblem } from '../utils/settlement.js'
+import { redactSecrets } from '../auth/redact.js'
 
 export const LOG_FILE = 'triage-log.json'
 /**
@@ -31,7 +34,7 @@ export type LoggedReply = { at: string; outcome: { verb: string } | { refused: s
 export type LoggedApply = {
   at: string
   plan_id: string
-  outcome: { answer: 'yes' } | { cancelled: true } | { written: number; failed: number } | { published: number; not_stored: number } | { write_error: true } | { refused: string }
+  outcome: { answer: 'yes' | 'reject' | 'release' } | { cancelled: true } | { written: number; failed: number } | { published: number; not_stored: number } | { write_error: true } | { refused: string }
 } & RecordedText
 
 /** A publish to the review workspace: where it went, which findings, and what the workspace answered. */
@@ -51,6 +54,22 @@ export interface LoggedPublish {
   unconfirmed?: true
 }
 
+/** A publish of hidden-edge proposals to the review workspace: where it went, which edges, and what it answered. */
+export interface LoggedEdgePublish {
+  at: string
+  plan_id: string
+  analysis_id: string
+  /** Each edge sent, by its candidate id: its number in the review, its kind and its ends' ids */
+  edges: Record<string, { n: number; kind: string; source: string; target: string }>
+  /** The edges the workspace did not store, by its answer */
+  not_stored: Array<{ candidate_id: string; result: string }>
+  results: Record<string, number>
+  /** When the fingerprints sent were read: at open, at prepare, or at the publish */
+  fingerprints: 'open' | 'prepare' | 'publish'
+  /** A publish whose answer never came: the workspace may hold it */
+  unconfirmed?: true
+}
+
 export interface LoggedReview {
   review_id: string
   mode: string
@@ -60,35 +79,65 @@ export interface LoggedReview {
   applies: LoggedApply[]
   /** The review's publishes to the review workspace; absent for a review never published */
   published?: LoggedPublish[]
+  /** The review's hidden-edge publishes; absent for a review never published */
+  published_edges?: LoggedEdgePublish[]
 }
 
-/** The text as the record keeps it. */
+/** The text as the record keeps it: one holding this session's credentials only by its hash, its start redacted. */
 export function recordedText(text: string): RecordedText {
-  if (text.length <= VERBATIM_MAX && !replyProblem(text)) return { reply: text }
-  return { reply_start: text.slice(0, START_CHARS), reply_length: text.length, reply_sha256: createHash('sha256').update(text, 'utf8').digest('hex') }
+  const clean = redactSecrets(text) === text
+  if (clean && text.length <= VERBATIM_MAX && !replyProblem(text)) return { reply: text }
+  return { reply_start: redactSecrets(text).slice(0, START_CHARS), reply_length: text.length, reply_sha256: createHash('sha256').update(text, 'utf8').digest('hex') }
 }
 
 /** The record's size as the store writes it. */
 const sizeOf = (reviews: LoggedReview[]) => Buffer.byteLength(JSON.stringify({ reviews }, null, 2), 'utf8')
 
+/** The newest published reviews kept whole when the record is over its bytes; older ones are compacted. */
+export const PUBLISHED_KEPT_WHOLE = 5
+
+const isPublished = (r: LoggedReview) => !!r.published?.length || !!r.published_edges?.length
+
 /**
- * Keep the latest reviews: at most LOG_LIMITS.reviews, under LOG_LIMITS.bytes. The active review is never dropped,
- * and a published one never: it is the record of what left this machine. A record of published reviews only, past
- * its limits, refuses (record_full) rather than lose one.
+ * A published review down to what left this machine: its ids, its stamps, its publishes, and the typed answer
+ * behind each publish (the plan's answer entry); its replies and other answers dropped.
  */
-export function trimLog(reviews: LoggedReview[], active: string): LoggedReview[] {
+function compacted(r: LoggedReview): LoggedReview {
+  const plans = new Set([...(r.published ?? []), ...(r.published_edges ?? [])].map((x) => x.plan_id))
+  return {
+    review_id: r.review_id, mode: r.mode, opened_at: r.opened_at, groups: r.groups, replies: [],
+    applies: (r.applies ?? []).filter((a) => plans.has(a.plan_id) && !('refused' in a.outcome) && !('cancelled' in a.outcome)),
+    ...(r.published ? { published: r.published } : {}), ...(r.published_edges ? { published_edges: r.published_edges } : {}),
+  }
+}
+
+/**
+ * Keep the latest reviews: at most LOG_LIMITS.reviews unpublished ones, all under LOG_LIMITS.bytes. The active review
+ * is never dropped, and a published one never: it is the record of what left this machine, and the count does not
+ * apply to it. Over the bytes with only published reviews left to drop, those older than the newest
+ * PUBLISHED_KEPT_WHOLE are compacted; only a record still over its bytes refuses (record_full).
+ */
+export function trimLog(reviews: LoggedReview[], active: string, record: ReviewRecordFile = TRIAGE_RECORD): LoggedReview[] {
   const out = [...reviews]
+  const overBytes = () => sizeOf(out) > LOG_LIMITS.bytes
   const drop = () => {
-    const i = out.findIndex((r) => r.review_id !== active && !r.published?.length)
-    if (i < 0) {
-      if (out.some((r) => r.review_id !== active)) throw new RecordError('record_full', 'the triage record holds only published reviews, the record of what left this machine: move .dethereal/triage-log.json aside to keep it, then try again', 'published reviews')
-      return false
-    }
+    const i = out.findIndex((r) => r.review_id !== active && !isPublished(r))
+    if (i < 0) return false
     out.splice(i, 1)
     return true
   }
-  while (out.length > LOG_LIMITS.reviews && drop());
-  while (sizeOf(out) > LOG_LIMITS.bytes && drop());
+  while (out.filter((r) => !isPublished(r)).length > LOG_LIMITS.reviews && drop());
+  while (overBytes() && drop());
+  if (!overBytes()) return out
+  const older = out.flatMap((r, i) => (r.review_id !== active && isPublished(r) ? [i] : [])).slice(0, -PUBLISHED_KEPT_WHOLE)
+  for (const i of older) out[i] = compacted(out[i]!)
+  if (overBytes() && out.some((r) => r.review_id !== active)) {
+    throw new RecordError(
+      'record_full',
+      `the ${record.name} is at its size limit with its published reviews, the record of what left this machine, already compacted: copy .dethereal/${record.file} elsewhere to keep it, then move it aside and try again`,
+      'published reviews',
+    )
+  }
   return out
 }
 
@@ -129,8 +178,10 @@ export async function keepTriageFilesOut(dir: string): Promise<string[]> {
  * a RecordError to refuse, writing nothing. The record file is kept out of git before its first write here.
  */
 export async function recordReview(dir: string, reviewId: string, fresh: () => LoggedReview, change: (r: LoggedReview) => void): Promise<{ warnings: string[] }> {
-  return recordReviewIn(dir, { file: LOG_FILE, name: 'triage record' }, reviewId, fresh, change)
+  return recordReviewIn(dir, TRIAGE_RECORD, reviewId, fresh, change)
 }
+
+const TRIAGE_RECORD: ReviewRecordFile = { file: LOG_FILE, name: 'triage record' }
 
 /** A review record of this machine's, under `.dethereal/`, and what its refusals call it. */
 export interface ReviewRecordFile {
@@ -151,7 +202,7 @@ export async function recordReviewIn(dir: string, record: ReviewRecordFile, revi
       }
       if (!Array.isArray(entry.applies)) entry.applies = []
       change(entry)
-      const kept = trimLog(reviews, reviewId)
+      const kept = trimLog(reviews, reviewId, record)
       // Only the reviews are written: nothing else in the file can grow it past what can be read back.
       if (sizeOf(kept) > LOG_LIMITS.bytes) throw new RecordError('record_too_large', "this review's record is too large to write; nothing was taken: open a new review")
       return { reviews: kept }
@@ -168,6 +219,27 @@ export async function recordReviewIn(dir: string, record: ReviewRecordFile, revi
     )
   }
   return { warnings }
+}
+
+/** The most a local record or discovery file is read: the record's own bound, rounded up. */
+const LOCAL_READ_MAX = 1024 * 1024
+
+/** A local JSON file, or null when it is absent, too large or no JSON. */
+export async function readLocalJson(file: string): Promise<unknown> {
+  try {
+    // a regular file only: never a device, a pipe or a directory
+    const s = await stat(file)
+    if (!s.isFile() || s.size > LOCAL_READ_MAX) return null
+    return JSON.parse(await readFile(file, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+/** The reviews a record of this machine's under `.dethereal/` holds; none when there is no record. */
+export async function readLoggedReviewsIn(dir: string, file: string): Promise<LoggedReview[]> {
+  const doc = ((await readLocalJson(join(dir, '.dethereal', file))) ?? {}) as { reviews?: unknown }
+  return (Array.isArray(doc.reviews) ? doc.reviews : []).filter((r): r is LoggedReview => !!r && typeof r === 'object' && typeof (r as LoggedReview).review_id === 'string')
 }
 
 /** Refuse, writing nothing, when the entry already holds `max` items: `then` says what the operator can do. */

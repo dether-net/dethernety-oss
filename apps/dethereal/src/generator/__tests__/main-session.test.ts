@@ -21,7 +21,7 @@ import type { Harness } from '../types.js'
 vi.setConfig({ testTimeout: 60_000 })
 
 /** The prompted review tools, each with its actions. */
-const PROMPTED_REVIEW_TOOLS: ReadonlyArray<readonly [string, string[]]> = [['manage_dispositions', ['prepare', 'commit', 'prepare_publish', 'publish']], ['manage_hidden_edges', ['prepare', 'record', 'commit']]]
+const PROMPTED_REVIEW_TOOLS: ReadonlyArray<readonly [string, string[]]> = [['manage_dispositions', ['prepare', 'commit', 'prepare_publish', 'publish']], ['manage_hidden_edges', ['prepare', 'record', 'commit', 'prepare_publish', 'publish']]]
 const pkg = { name: '@dether.net/dethereal', version: '1.2.3' }
 
 /** The bundles under test: the package's own workflow and the fixture, settlement off and on. */

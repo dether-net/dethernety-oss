@@ -1,7 +1,7 @@
 // Generated from edge-kinds.json by scripts/generate-table.mjs. Do not edit; edit the JSON and regenerate.
 /* eslint-disable */
 export const EDGE_KIND_TABLE: unknown = {
-  "version": 2,
+  "version": 3,
   "status": "settled",
   "kinds": [
     {
@@ -78,6 +78,11 @@ export const EDGE_KIND_TABLE: unknown = {
       "reached_types": [
         "PROCESS"
       ],
+      "foothold_types": [
+        "PROCESS",
+        "EXTERNAL_ENTITY"
+      ],
+      "managed_foothold": "keep",
       "path": {
         "default": "T1021",
         "from_cited": [],
@@ -100,6 +105,12 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Lateral movement on a flat tier"
             }
           ],
+          "clears": [
+            {
+              "class": "Network Segment",
+              "exposure": "Lateral movement on a flat tier"
+            }
+          ],
           "techniques": [],
           "strength": "removes"
         },
@@ -119,6 +130,12 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Lateral movement on a flat tier"
             }
           ],
+          "clears": [
+            {
+              "class": "Network Segment",
+              "exposure": "Lateral movement on a flat tier"
+            }
+          ],
           "techniques": [],
           "strength": "removes"
         },
@@ -133,6 +150,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -147,6 +165,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -161,6 +180,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -180,6 +200,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Direct admin-protocol exposure"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         }
@@ -256,6 +277,11 @@ export const EDGE_KIND_TABLE: unknown = {
       "reached_types": [
         "PROCESS"
       ],
+      "foothold_types": [
+        "PROCESS",
+        "EXTERNAL_ENTITY"
+      ],
+      "managed_foothold": "keep",
       "path": {
         "default": "T1021",
         "from_cited": [],
@@ -273,6 +299,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -287,6 +314,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -301,6 +329,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -315,6 +344,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         }
@@ -390,6 +420,11 @@ export const EDGE_KIND_TABLE: unknown = {
         "PROCESS",
         "STORE"
       ],
+      "foothold_types": [
+        "PROCESS",
+        "EXTERNAL_ENTITY"
+      ],
+      "managed_foothold": "keep",
       "path": {
         "default": "T1021",
         "from_cited": [
@@ -409,6 +444,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -423,6 +459,12 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [
+            {
+              "class": "Operating System / Host",
+              "exposure": "Exposed/weak remote administrative access"
+            }
+          ],
+          "clears": [
             {
               "class": "Operating System / Host",
               "exposure": "Exposed/weak remote administrative access"
@@ -506,6 +548,11 @@ export const EDGE_KIND_TABLE: unknown = {
         "PROCESS",
         "STORE"
       ],
+      "foothold_types": [
+        "PROCESS",
+        "EXTERNAL_ENTITY"
+      ],
+      "managed_foothold": "keep",
       "path": {
         "default": "T1210",
         "from_cited": [],
@@ -523,6 +570,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -537,6 +585,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -551,6 +600,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         }
@@ -605,6 +655,11 @@ export const EDGE_KIND_TABLE: unknown = {
         "PROCESS",
         "STORE"
       ],
+      "foothold_types": [
+        "PROCESS",
+        "EXTERNAL_ENTITY"
+      ],
+      "managed_foothold": "keep",
       "path": {
         "default": "T1210",
         "from_cited": [],
@@ -622,6 +677,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -641,6 +697,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Flat pod network (no default-deny NetworkPolicy)"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -655,6 +712,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         }
@@ -704,6 +762,11 @@ export const EDGE_KIND_TABLE: unknown = {
         "PROCESS",
         "STORE"
       ],
+      "foothold_types": [
+        "PROCESS",
+        "EXTERNAL_ENTITY"
+      ],
+      "managed_foothold": "keep",
       "path": {
         "default": "T1210",
         "from_cited": [],
@@ -726,6 +789,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "East-west lateral movement on flat app-tier trust"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -740,6 +804,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         }
@@ -788,6 +853,8 @@ export const EDGE_KIND_TABLE: unknown = {
       "reached_types": [
         "PROCESS"
       ],
+      "foothold_types": [],
+      "managed_foothold": "keep",
       "path": {
         "default": "T1021",
         "from_cited": [],
@@ -805,6 +872,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -819,6 +887,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_enables",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": []
         },
         {
@@ -837,6 +906,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Flat internal access after admission"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         }
@@ -872,6 +942,8 @@ export const EDGE_KIND_TABLE: unknown = {
       "reached_types": [
         "PROCESS"
       ],
+      "foothold_types": [],
+      "managed_foothold": "keep",
       "path": {
         "default": "T1021",
         "from_cited": [],
@@ -894,6 +966,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Standing / over-broad privilege exploited for lateral movement"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -913,6 +986,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Standing / over-broad privilege exploited for lateral movement"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -932,6 +1006,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Standing / over-broad privilege exploited for lateral movement"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         }
@@ -968,6 +1043,8 @@ export const EDGE_KIND_TABLE: unknown = {
         "PROCESS",
         "STORE"
       ],
+      "foothold_types": [],
+      "managed_foothold": "keep",
       "path": {
         "default": "T1021",
         "from_cited": [],
@@ -990,6 +1067,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Lateral movement from owned endpoint to internal services"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -1009,6 +1087,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Lateral movement from owned endpoint to internal services"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -1023,6 +1102,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -1037,6 +1117,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         }
@@ -1093,6 +1174,8 @@ export const EDGE_KIND_TABLE: unknown = {
       "peer_relation": "shared-credential",
       "credential_flows": "both",
       "reached_types": [],
+      "foothold_types": [],
+      "managed_foothold": "keep",
       "path": {
         "default": "T1078",
         "from_cited": [
@@ -1113,6 +1196,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_enables",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": []
         },
         {
@@ -1126,6 +1210,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_enables",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": []
         },
         {
@@ -1139,6 +1224,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -1153,6 +1239,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -1172,6 +1259,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Local credential theft and reuse"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -1186,6 +1274,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [
             "T1550",
             "T1550.001",
@@ -1205,6 +1294,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [
             "T1550",
             "T1550.001",
@@ -1229,6 +1319,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Missing audience restriction / cross-RP token replay"
             }
           ],
+          "clears": [],
           "techniques": [
             "T1550",
             "T1550.001",
@@ -1247,6 +1338,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [
             "T1550",
             "T1550.001",
@@ -1265,6 +1357,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [
             "T1550",
             "T1550.001",
@@ -1338,6 +1431,8 @@ export const EDGE_KIND_TABLE: unknown = {
       "peer_relation": "shared-credential",
       "credential_flows": "both",
       "reached_types": [],
+      "foothold_types": [],
+      "managed_foothold": "keep",
       "path": {
         "default": "T1078",
         "from_cited": [
@@ -1358,6 +1453,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_enables",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": []
         },
         {
@@ -1371,6 +1467,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_enables",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": []
         },
         {
@@ -1384,6 +1481,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -1398,6 +1496,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -1412,6 +1511,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -1426,6 +1526,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [
             "T1550",
             "T1550.001",
@@ -1445,6 +1546,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [
             "T1550",
             "T1550.001",
@@ -1464,6 +1566,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [
             "T1550",
             "T1550.001",
@@ -1487,6 +1590,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Admin credential theft and session-token replay"
             }
           ],
+          "clears": [],
           "techniques": [
             "T1550",
             "T1550.001",
@@ -1505,6 +1609,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [
             "T1550",
             "T1550.001",
@@ -1567,6 +1672,8 @@ export const EDGE_KIND_TABLE: unknown = {
       "peer_relation": "shared-credential",
       "credential_flows": "received",
       "reached_types": [],
+      "foothold_types": [],
+      "managed_foothold": "keep",
       "path": {
         "default": "T1078",
         "from_cited": [],
@@ -1584,6 +1691,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_enables",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": []
         },
         {
@@ -1597,6 +1705,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_enables",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": []
         },
         {
@@ -1610,6 +1719,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -1624,6 +1734,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -1643,6 +1754,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Local credential theft and reuse"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         }
@@ -1696,6 +1808,10 @@ export const EDGE_KIND_TABLE: unknown = {
       "peer_relation": "shared-credential",
       "credential_flows": "received",
       "reached_types": [],
+      "foothold_types": [
+        "PROCESS"
+      ],
+      "managed_foothold": "low",
       "path": {
         "default": "T1078",
         "from_cited": [],
@@ -1713,6 +1829,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_enables",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": []
         },
         {
@@ -1726,6 +1843,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_enables",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": []
         },
         {
@@ -1739,6 +1857,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -1753,6 +1872,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -1772,6 +1892,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Local credential theft and reuse"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -1786,6 +1907,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -1800,6 +1922,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         }
@@ -1854,6 +1977,10 @@ export const EDGE_KIND_TABLE: unknown = {
       "peer_relation": "shared-credential",
       "credential_flows": "received",
       "reached_types": [],
+      "foothold_types": [
+        "PROCESS"
+      ],
+      "managed_foothold": "low",
       "path": {
         "default": "T1078",
         "from_cited": [],
@@ -1871,6 +1998,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_enables",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": []
         },
         {
@@ -1884,6 +2012,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_enables",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": []
         },
         {
@@ -1897,6 +2026,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -1911,6 +2041,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -1925,6 +2056,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -1944,6 +2076,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "On-host credential / secret exposure"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -1963,6 +2096,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "On-host credential / secret exposure"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         }
@@ -2020,6 +2154,8 @@ export const EDGE_KIND_TABLE: unknown = {
       "peer_relation": "shared-credential",
       "credential_flows": "both",
       "reached_types": [],
+      "foothold_types": [],
+      "managed_foothold": "keep",
       "path": {
         "default": "T1078",
         "from_cited": [
@@ -2040,6 +2176,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_enables",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": []
         },
         {
@@ -2053,6 +2190,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_enables",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": []
         },
         {
@@ -2066,6 +2204,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -2085,6 +2224,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Long-lived shared DB credentials reused indefinitely"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -2099,6 +2239,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -2113,6 +2254,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [
             "T1550",
             "T1550.001",
@@ -2141,6 +2283,12 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Bearer access token theft and replay from a different sender"
             }
           ],
+          "clears": [
+            {
+              "class": "API Call",
+              "exposure": "Stolen-bearer-token replay"
+            }
+          ],
           "techniques": [
             "T1550",
             "T1550.001",
@@ -2160,6 +2308,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [
             "T1550",
             "T1550.001",
@@ -2178,6 +2327,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [
             "T1550",
             "T1550.001",
@@ -2196,6 +2346,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [
             "T1550",
             "T1550.001",
@@ -2256,6 +2407,11 @@ export const EDGE_KIND_TABLE: unknown = {
         "PROCESS",
         "STORE"
       ],
+      "foothold_types": [
+        "PROCESS",
+        "EXTERNAL_ENTITY"
+      ],
+      "managed_foothold": "keep",
       "path": {
         "default": "T1078.001",
         "from_cited": [],
@@ -2301,6 +2457,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Internet-exposed management interface / default credentials"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -2315,6 +2472,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         }
@@ -2367,6 +2525,11 @@ export const EDGE_KIND_TABLE: unknown = {
         "PROCESS",
         "STORE"
       ],
+      "foothold_types": [
+        "PROCESS",
+        "EXTERNAL_ENTITY"
+      ],
+      "managed_foothold": "keep",
       "path": {
         "default": "T1078.001",
         "from_cited": [],
@@ -2384,6 +2547,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         }
@@ -2427,6 +2591,10 @@ export const EDGE_KIND_TABLE: unknown = {
         "STORE",
         "EXTERNAL_ENTITY"
       ],
+      "foothold_types": [
+        "PROCESS"
+      ],
+      "managed_foothold": "keep",
       "path": {
         "default": "T1078.004",
         "from_cited": [],
@@ -2444,6 +2612,12 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [
+            {
+              "class": "Operating System / Host",
+              "exposure": "Cloud instance-credential theft via IMDS"
+            }
+          ],
+          "clears": [
             {
               "class": "Operating System / Host",
               "exposure": "Cloud instance-credential theft via IMDS"
@@ -2468,6 +2642,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Server-side request forgery (SSRF)"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -2482,6 +2657,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         }
@@ -2523,6 +2699,10 @@ export const EDGE_KIND_TABLE: unknown = {
         "STORE",
         "EXTERNAL_ENTITY"
       ],
+      "foothold_types": [
+        "PROCESS"
+      ],
+      "managed_foothold": "keep",
       "path": {
         "default": "T1078.004",
         "from_cited": [],
@@ -2540,6 +2720,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -2554,6 +2735,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -2568,6 +2750,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         }
@@ -2607,6 +2790,11 @@ export const EDGE_KIND_TABLE: unknown = {
         "PROCESS",
         "STORE"
       ],
+      "foothold_types": [
+        "PROCESS",
+        "EXTERNAL_ENTITY"
+      ],
+      "managed_foothold": "keep",
       "path": {
         "default": "T1078.002",
         "from_cited": [],
@@ -2629,6 +2817,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Missing pre-authentication (AS-REP roasting)"
             }
           ],
+          "clears": [],
           "techniques": [
             "T1558.004"
           ],
@@ -2650,6 +2839,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Weak service-account keys (Kerberoasting)"
             }
           ],
+          "clears": [],
           "techniques": [
             "T1558.003"
           ],
@@ -2691,6 +2881,8 @@ export const EDGE_KIND_TABLE: unknown = {
         "PROCESS",
         "STORE"
       ],
+      "foothold_types": [],
+      "managed_foothold": "keep",
       "path": {
         "default": "T1550.003",
         "from_cited": [],
@@ -2708,6 +2900,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -2722,6 +2915,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         }
@@ -2759,6 +2953,8 @@ export const EDGE_KIND_TABLE: unknown = {
         "PROCESS",
         "STORE"
       ],
+      "foothold_types": [],
+      "managed_foothold": "keep",
       "path": {
         "default": "T1550.003",
         "from_cited": [],
@@ -2792,6 +2988,10 @@ export const EDGE_KIND_TABLE: unknown = {
       "exposed_role": "capture",
       "peer_relation": "capture-footholds",
       "reached_types": [],
+      "foothold_types": [
+        "PROCESS"
+      ],
+      "managed_foothold": "low",
       "path": {
         "default": "T1078",
         "from_cited": [],
@@ -2825,6 +3025,12 @@ export const EDGE_KIND_TABLE: unknown = {
               "class": "Database Query",
               "exposure": "Cleartext DB transport sniffing"
             },
+            {
+              "class": "Log & Telemetry Collection",
+              "exposure": "Cleartext log transport (sniffing and disclosure)"
+            }
+          ],
+          "clears": [
             {
               "class": "Log & Telemetry Collection",
               "exposure": "Cleartext log transport (sniffing and disclosure)"
@@ -2870,6 +3076,12 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Plaintext scrape transport"
             }
           ],
+          "clears": [
+            {
+              "class": "Inter-Broker Replication",
+              "exposure": "Cleartext inter-broker / replication channel"
+            }
+          ],
           "techniques": [],
           "strength": "removes"
         },
@@ -2884,6 +3096,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -2903,6 +3116,12 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Plaintext east-west traffic (no mTLS)"
             }
           ],
+          "clears": [
+            {
+              "class": "Internal Service Communication",
+              "exposure": "Plaintext east-west traffic (no mTLS)"
+            }
+          ],
           "techniques": [],
           "strength": "removes"
         },
@@ -2917,6 +3136,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -2940,6 +3160,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -2954,6 +3175,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -2968,6 +3190,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -2982,6 +3205,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         }
@@ -3038,6 +3262,10 @@ export const EDGE_KIND_TABLE: unknown = {
       "exposed_role": "capture",
       "peer_relation": "capture-footholds",
       "reached_types": [],
+      "foothold_types": [
+        "PROCESS"
+      ],
+      "managed_foothold": "low",
       "path": {
         "default": "T1078",
         "from_cited": [],
@@ -3072,6 +3300,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Cleartext or downgraded TLS on registry/apiserver channel"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -3104,6 +3333,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Unverified TLS to secrets manager (MITM)"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -3123,6 +3353,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Cleartext HTTP downgrade / missing HSTS"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -3137,6 +3368,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -3151,6 +3383,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -3190,6 +3423,12 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "MITM modification of events in transit"
             }
           ],
+          "clears": [
+            {
+              "class": "Deployment & Update Flow",
+              "exposure": "Cleartext or downgraded TLS on registry/apiserver channel"
+            }
+          ],
           "techniques": [],
           "strength": "removes"
         },
@@ -3213,6 +3452,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -3227,6 +3467,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -3241,6 +3482,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -3255,6 +3497,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         }
@@ -3323,6 +3566,10 @@ export const EDGE_KIND_TABLE: unknown = {
       "exposed_role": "capture",
       "peer_relation": "capture-footholds",
       "reached_types": [],
+      "foothold_types": [
+        "PROCESS"
+      ],
+      "managed_foothold": "low",
       "path": {
         "default": "T1078",
         "from_cited": [],
@@ -3348,6 +3595,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -3367,6 +3615,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -3381,6 +3630,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -3395,6 +3645,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -3409,6 +3660,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -3461,6 +3713,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Missing encryption in transit / MITM"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -3535,6 +3788,12 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Credentials transmitted in cleartext"
             }
           ],
+          "clears": [
+            {
+              "class": "Managed Runtime",
+              "exposure": "Plaintext HTTP accepted on a public endpoint"
+            }
+          ],
           "techniques": [],
           "strength": "removes"
         },
@@ -3569,6 +3828,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Cleartext transport interception / MITM"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -3588,6 +3848,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Credentials transmitted in cleartext"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -3602,6 +3863,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -3616,6 +3878,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         }
@@ -3677,6 +3940,10 @@ export const EDGE_KIND_TABLE: unknown = {
       "exposed_role": "capture",
       "peer_relation": "capture-footholds",
       "reached_types": [],
+      "foothold_types": [
+        "PROCESS"
+      ],
+      "managed_foothold": "low",
       "path": {
         "default": "T1078",
         "from_cited": [],
@@ -3702,6 +3969,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -3721,6 +3989,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -3735,6 +4004,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -3749,6 +4019,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "all_false",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -3763,6 +4034,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -3781,6 +4053,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -3829,6 +4102,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Missing encryption in transit / MITM"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -3890,6 +4164,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Credentials transmitted in cleartext"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -3916,6 +4191,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Connectivity over the public internet instead of private link"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -3935,6 +4211,7 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Credentials transmitted in cleartext"
             }
           ],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         },
@@ -3949,6 +4226,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "removes"
         },
@@ -3963,6 +4241,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         }
@@ -4024,6 +4303,10 @@ export const EDGE_KIND_TABLE: unknown = {
         "PROCESS",
         "STORE"
       ],
+      "foothold_types": [
+        "PROCESS"
+      ],
+      "managed_foothold": "low",
       "path": {
         "default": "T1611",
         "from_cited": [],
@@ -4053,6 +4336,16 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Privileged mode / excessive capabilities"
             }
           ],
+          "clears": [
+            {
+              "class": "Container",
+              "exposure": "Host namespace sharing & sensitive host bind-mounts"
+            },
+            {
+              "class": "Container",
+              "exposure": "Privileged mode / excessive capabilities"
+            }
+          ],
           "techniques": [],
           "strength": "lowers"
         },
@@ -4068,6 +4361,12 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [
+            {
+              "class": "Container",
+              "exposure": "Weak kernel-sharing confinement"
+            }
+          ],
+          "clears": [
             {
               "class": "Container",
               "exposure": "Weak kernel-sharing confinement"
@@ -4092,6 +4391,12 @@ export const EDGE_KIND_TABLE: unknown = {
               "exposure": "Unpatched container runtime"
             }
           ],
+          "clears": [
+            {
+              "class": "Container",
+              "exposure": "Unpatched container runtime"
+            }
+          ],
           "techniques": [],
           "strength": "lowers"
         },
@@ -4108,6 +4413,7 @@ export const EDGE_KIND_TABLE: unknown = {
           "polarity": "true_breaks",
           "high_when": "ignored",
           "own_condition": [],
+          "clears": [],
           "techniques": [],
           "strength": "lowers"
         }

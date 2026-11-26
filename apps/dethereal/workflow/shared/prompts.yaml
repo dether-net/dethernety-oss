@@ -820,9 +820,33 @@ prompts:
     mandatory: true
     when: prepare returned a plan
     after: the plan's lines, verbatim
-    decides: whether the accepted edges are written to the local files and their findings affirmed; the reply goes to commit as typed, so it is the word yes or the word cancel, never a number
+    decides: whether the accepted edges are written to the local files and the findings the accepts named affirmed; the reply goes to commit as typed, so it is the word yes or the word cancel, never a number
     free_text: true
     requires: ["Apply", "hidden-edge change(s)?", "Type yes or cancel."]
+  - id: hidden-edges-take-back
+    skill: remove
+    mandatory: true
+    when: record returned a plan for a hidden-edge flow to remove, before anything is removed
+    after: the plan's lines, verbatim
+    decides: what taking back the accepted edge records before its flow is removed (a reject, or a release), or that nothing is recorded and the flow stays; the reply goes to commit as typed, so it is the word reject, release or cancel
+    free_text: true
+    requires: ["Take back this hidden edge?", "Type reject", "release", "or cancel"]
+  - id: hidden-edges-where
+    skill: hidden-edges
+    mandatory: true
+    when: open returned where_ask (the platform's Hidden edges workspace can take the edges), the analyst's arguments are passed, and the review has no reply yet; once per run, and again after a cancelled publish
+    after: the candidates with the analyst's arguments as shown, and the Hidden edges workspace line
+    decides: whether the operator decides here (flows written to the local files after the apply question) or the edges are published to the Hidden edges workspace for a person to decide there (nothing written here)
+    options: [here, publish]
+    requires: ["Hidden edges workspace", "nothing is written here", "(here / publish)"]
+  - id: hidden-edges-publish
+    skill: hidden-edges
+    mandatory: true
+    when: prepare_publish returned a plan
+    after: the plan's lines, verbatim
+    decides: whether the edges and the analyst's arguments are sent to the Hidden edges workspace; the reply goes to publish as typed, so it is the word yes or the word cancel
+    free_text: true
+    requires: ["Publish", "Hidden edges workspace?", "Type yes or cancel."]
 
 # Questions a phase asks together, in one dialog (the phase files name each group where it is asked). A question
 # that ratifies trust or crown jewels — boundary-trust, approved-channels, crown-jewel-confirm,

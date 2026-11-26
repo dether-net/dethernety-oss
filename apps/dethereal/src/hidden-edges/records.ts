@@ -1,11 +1,14 @@
 /**
  * The hidden-edge records of a model directory:
  *
- * - `.dethereal/hidden-edges-decisions.json` (committed with the model): the operator's accepted and rejected
- *   candidates. An accepted entry is signed with this machine's key; it counts only where that key verifies it, so
- *   a teammate's entry or a hand edit counts as absent until re-accepted here. A rejected entry is unsigned: it
- *   only keeps a candidate out of this machine's reviews, and every run counts what it excludes. The file is
- *   untrusted input: schema-checked and size-capped.
+ * - `.dethereal/hidden-edges-decisions.json` (committed with the model): the operator's accepted, rejected and
+ *   released candidates. An accepted entry is signed with this machine's key; it counts only where that key
+ *   verifies it, so a teammate's entry or a hand edit counts as absent until re-accepted here. A rejected entry is
+ *   unsigned: it only keeps a candidate out of this machine's reviews, and every run counts what it excludes. A
+ *   released entry is unsigned too: it only clears an accept taken back because the edge was fixed or is no longer
+ *   wanted, so the candidate is proposed again while its grounds hold. The file is untrusted input:
+ *   schema-checked and size-capped. A reader that predates `released` counts such an entry as malformed and reads
+ *   the rest.
  * - `.dethereal/hidden-edges-log.json` (this machine's): each review's replies and apply answers, as triage's
  *   record keeps them.
  */
@@ -49,7 +52,7 @@ export const isSigner = (s: Signer | { code: WaiverKeyCode }): s is Signer => 'k
 // Decisions
 // =============================================================================
 
-export type Verb = 'accepted' | 'rejected'
+export type Verb = 'accepted' | 'rejected' | 'released'
 
 export interface Decision {
   id: string
@@ -57,18 +60,18 @@ export interface Decision {
   source: string
   target: string
   verb: Verb
-  /** The flow an accept wrote (a local id until the push re-keys it); null for a reject */
+  /** The flow an accept wrote (a local id until the push re-keys it); null for a reject or a release */
   flow_id: string | null
   /** The path techniques written to the flow */
   technique_ids: string[]
   /** The exposures the candidate cited */
   exposure_ids: string[]
   at: string
-  /** An accepted entry's MAC; null for a reject */
+  /** An accepted entry's MAC; null for a reject or a release */
   mac: string | null
 }
 
-/** A decision as read, with whether this machine's key verifies it (a reject never needs to). */
+/** A decision as read, with whether this machine's key verifies it (a reject or a release never needs to). */
 export interface ReadDecision extends Decision {
   verified: boolean
 }
@@ -83,7 +86,7 @@ function decisionPayload(modelHash: string, d: Omit<Decision, 'mac'>): string {
   })}`
 }
 
-/** An accepted decision, signed; a rejected one as it is. */
+/** An accepted decision, signed; a rejected or released one as it is. */
 export function signDecision(signer: Signer, d: Omit<Decision, 'mac'>): Decision {
   return { ...d, mac: d.verb === 'accepted' ? macHex(decisionKey(signer.key), decisionPayload(signer.modelHash, d)) : null }
 }
@@ -104,7 +107,7 @@ export function decisionOf(raw: unknown): Decision | null {
   if (typeof o.id !== 'string' || !CANDIDATE_ID.test(o.id) || typeof o.kind !== 'string' || !KINDS.has(o.kind)) return null
   if (typeof o.source !== 'string' || !PLATFORM_ID.test(o.source) || typeof o.target !== 'string' || !PLATFORM_ID.test(o.target) || o.source === o.target) return null
   if (candidateId(o.kind, o.source, o.target) !== o.id) return null
-  if (o.verb === 'accepted' ? !(typeof o.flow_id === 'string' && PLATFORM_ID.test(o.flow_id) && typeof o.mac === 'string' && o.mac.length <= 64) : !(o.verb === 'rejected' && o.flow_id === null && o.mac === null)) return null
+  if (o.verb === 'accepted' ? !(typeof o.flow_id === 'string' && PLATFORM_ID.test(o.flow_id) && typeof o.mac === 'string' && o.mac.length <= 64) : !((o.verb === 'rejected' || o.verb === 'released') && o.flow_id === null && o.mac === null)) return null
   if (!Array.isArray(o.technique_ids) || o.technique_ids.length > DECISION_LIMITS.techniques || !o.technique_ids.every((t) => typeof t === 'string' && ATTACK_ID.test(t))) return null
   if (!idList(o.exposure_ids, DECISION_LIMITS.exposures) || typeof o.at !== 'string' || o.at.length > 40) return null
   return {
@@ -135,17 +138,19 @@ export async function readDecisions(dir: string, signer: Signer | null): Promise
 }
 
 /**
- * The decision that stands for each candidate id: the latest, by its time, of the verified accepts and the
- * rejects (the later in the file on a tie). An unverified accept never stands. A reject's time is not signed: a
- * hand edit can only take an edge back, which makes its flow count as an ordinary one again.
+ * The decision that stands for each candidate id: the latest, by its time, of the verified accepts, the rejects and
+ * the releases (the later in the file on a tie), unless that latest is a release: then none stands. An unverified
+ * accept never counts. A reject's or a release's time is not signed: a hand edit can only take an edge back, which
+ * makes its flow count as an ordinary one again.
  */
 export function standing(decisions: ReadDecision[]): Map<string, ReadDecision> {
   const out = new Map<string, ReadDecision>()
   for (const d of decisions) {
-    if (d.verb !== 'rejected' && !d.verified) continue
+    if (d.verb === 'accepted' && !d.verified) continue
     const prev = out.get(d.id)
     if (!prev || d.at >= prev.at) out.set(d.id, d)
   }
+  for (const [id, d] of out) if (d.verb === 'released') out.delete(id)
   return out
 }
 

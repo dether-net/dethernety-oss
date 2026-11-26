@@ -195,6 +195,7 @@ export const clientFreeTools: BaseTool[] = [
   detectDriftTool,
   triageReviewTool,
   hiddenEdgesTool,
+  manageHiddenEdgesTool,
 ]
 
 /**
@@ -247,8 +248,6 @@ export const clientDependentTools: BaseTool[] = [
   manageDispositionsTool,
   getKgChainTool,
   getClassGuideTool,
-  // Hidden edges
-  manageHiddenEdgesTool,
 ]
 
 export { WorkspaceStatusTool, workspaceStatusTool } from './workspace-status.tool.js'

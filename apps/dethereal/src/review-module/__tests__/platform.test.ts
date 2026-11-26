@@ -36,7 +36,11 @@ const capability = () => ({ reviewCapability: JSON.stringify({ ok: true, moduleV
 
 describe('detection', () => {
   it('present, with the Triage class; absent by validation; a refused session; any other failure by name', async () => {
-    expect(await probe(client({ ReviewCapability: capability }))).toEqual({ status: 'present', moduleVersion: '0.1.0', triageClassId: CLASS })
+    expect(await probe(client({ ReviewCapability: capability }))).toEqual({ status: 'present', moduleVersion: '0.1.0', triageClassId: CLASS, hiddenEdgesClassId: null })
+    // a version with the Hidden edges workspace names its class; an id out of form is none
+    const withEdges = (id: unknown) => () => ({ reviewCapability: JSON.stringify({ ok: true, moduleVersion: '0.2.0', triageClassId: CLASS, hiddenEdgesClassId: id }) })
+    expect(await probe(client({ ReviewCapability: withEdges('he-class') }))).toMatchObject({ status: 'present', hiddenEdgesClassId: 'he-class' })
+    expect(await probe(client({ ReviewCapability: withEdges('bad id!') }))).toMatchObject({ status: 'present', hiddenEdgesClassId: null })
     expect((await probe(client({ ReviewCapability: missing }))).status).toBe('module_not_loaded')
     expect((await probe(client({ ReviewCapability: unauthenticated }))).status).toBe('session_refused')
     expect(await probe(client({ ReviewCapability: () => ({ reviewCapability: 'not json' }) }))).toEqual({ status: 'failed', detail: 'the review module answer is not JSON' })
@@ -53,6 +57,9 @@ describe("the model's Triage analysis", () => {
     expect(det).toBe(deterministicAnalysisId(MODEL, CLASS))
     expect(det).not.toBe(deterministicAnalysisId('model-2', CLASS))
     expect(det).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+    // Triage's id is the one it always was; another kind of analysis derives its own
+    expect(deterministicAnalysisId(MODEL, CLASS, 'dethereal-triage')).toBe(det)
+    expect(deterministicAnalysisId(MODEL, CLASS, 'dethereal-hidden-edges')).not.toBe(det)
   })
 
   it('the deterministic one first; else the oldest, an empty time last, ties by id; one bound to two models passed over', async () => {

@@ -6,7 +6,7 @@ import { canonicalFlag, isPlaceholderToken, regulatoryFlagFloor, type LintFindin
 import { validateModelTool } from '../../tools/validate-model.tool.js'
 import { modelStateTool } from '../../tools/model-state.tool.js'
 import { gateModel, writeGateModel, type GateModel } from './fixtures/gate-model.js'
-import { acceptHiddenEdge, addHiddenEdge } from './fixtures/hidden-edge.js'
+import { acceptHiddenEdge, addHiddenEdge, REMOTE } from './fixtures/hidden-edge.js'
 
 let root: string
 let seq = 0
@@ -110,7 +110,7 @@ describe('MITRE technique annotations', () => {
     expect(of(lints, 'mitre_technique_field')).toEqual(['c-web'])
   })
 
-  it('leaves the path techniques of a hidden edge this machine accepted alone, and still catches them on an ordinary flow', async () => {
+  it('leaves the path techniques of a hidden-edge flow alone, accepted here or not, and still catches them on an ordinary flow', async () => {
     const edge = { id: 'he-1', source: 'x-customer', target: 'c-db' }
     const withEdge = (m: GateModel) => {
       addHiddenEdge(m, edge)
@@ -118,8 +118,42 @@ describe('MITRE technique annotations', () => {
     }
     const accepted = computeGates(await loadGateInput(await dirOf(withEdge, (dir) => acceptHiddenEdge(dir, edge))))
     expect(of(accepted.lints, 'mitre_technique_field')).toEqual(['f-submit'])
+    // accepted elsewhere (the workspace, another machine), pulled with no cached template: its class declares the field
     const unaccepted = await lintsOf(withEdge)
-    expect(of(unaccepted, 'mitre_technique_field')).toEqual(['f-submit', 'he-1'])
+    expect(of(unaccepted, 'mitre_technique_field')).toEqual(['f-submit'])
+    // a field its class does not declare is still caught on it
+    const extra = await lintsOf((m) => {
+      withEdge(m)
+      fAttrs(m, 'he-1').mitre_notes = 'T1021 seen'
+    })
+    expect(of(extra, 'mitre_technique_field')).toEqual(['f-submit', 'he-1'])
+  })
+
+  const entryOf = (id: string, module: string) => ({ classId: id, className: 'Hidden Edge: Remote Service', classType: 'dataflow', module: { id: `mod-${module}`, name: module }, template: { schema: { type: 'object', properties: {} } } })
+  const edgeLints = async (mutate: (m: GateModel) => void) => of(await lintsOf((m) => { addHiddenEdge(m, { id: 'he-1', source: 'x-customer', target: 'c-db' }); mutate(m) }), 'mitre_technique_field')
+
+  it('takes the class from the cache when it holds the module’s classes, and from the files’ module name only when it holds none', async () => {
+    // cached, and the flow's class is one of the module's: its fields are its own
+    expect(await edgeLints((m) => { m.classCache[REMOTE.id] = entryOf(REMOTE.id, 'dethernety-hidden-edges') })).toEqual([])
+    // cached, and the flow's class is not among them: the module name in the files is a hand edit, and counts for nothing
+    expect(await edgeLints((m) => { m.classCache['cls-he-other'] = entryOf('cls-he-other', 'dethernety-hidden-edges') })).toEqual(['he-1'])
+    expect(await edgeLints((m) => { m.classCache[REMOTE.id] = entryOf(REMOTE.id, 'dethernety-general') })).toEqual(['he-1'])
+    // nothing of the module cached (after a pull): by its module name
+    expect(await edgeLints(() => {})).toEqual([])
+  })
+
+  it('takes as the class’s own only the shared fields and its kind’s, each while its value is one the class allows', async () => {
+    const attrs = (m: GateModel) => fAttrs(m, 'he-1')
+    expect(await edgeLints((m) => { attrs(m).technique_ids = ['T1021', 'see T1190'] })).toEqual(['he-1'])
+    expect(await edgeLints((m) => { attrs(m).rationale = 'as in T1190' })).toEqual(['he-1'])
+    expect(await edgeLints((m) => { attrs(m).rationale = 'the jump host reaches it' })).toEqual([])
+    // another kind's field is no field of this one
+    expect(await edgeLints((m) => { attrs(m).escape_vector = { via: 'T1611' } })).toEqual(['he-1'])
+    // its own kind's field: only its enum
+    const capture = (m: GateModel, v: unknown) => Object.assign(attrs(m), { hidden_edge_kind: 'credential-capture', technique_ids: ['T1040'], transport_state: v })
+    expect(await edgeLints((m) => capture(m, 'cleartext'))).toEqual([])
+    expect(await edgeLints((m) => capture(m, { note: 'T1040' }))).toEqual(['he-1'])
+    expect(await edgeLints((m) => capture(m, 'T1557'))).toEqual(['he-1'])
   })
 })
 

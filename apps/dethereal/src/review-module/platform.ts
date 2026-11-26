@@ -8,11 +8,14 @@ import { graphQLErrorCode, isValidationFailure, LOGIN_SENTENCE } from '../triage
 import {
   CREATE_TRIAGE_ANALYSIS,
   REVIEW_CAPABILITY,
+  REVIEW_EDGE_PROPOSALS,
+  REVIEW_EDGE_STATES,
   REVIEW_FINDING_STATES,
   REVIEW_LIMITS,
   REVIEW_MODULE,
   REVIEW_PROPOSALS,
   REVIEW_PUBLISH,
+  REVIEW_PUBLISH_EDGES,
   TRIAGE_REVIEW_ANALYSES,
 } from './contract.js'
 
@@ -21,7 +24,8 @@ export type CallFailure = { status: 'module_not_loaded' | 'session_refused' | 'f
 /** The module's own refusal envelope: a fixed reason code and, for a payload, the field's path. */
 export type ModuleRefusal = { status: 'refused'; reason: string; field?: string }
 
-export type Probe = { status: 'present'; moduleVersion: string; triageClassId: string } | CallFailure
+/** The module answered: its version, its Triage class, and its Hidden edges class when its version has one. */
+export type Probe = { status: 'present'; moduleVersion: string; triageClassId: string; hiddenEdgesClassId: string | null } | CallFailure
 
 const TOKEN = /^[A-Za-z0-9._:-]{1,128}$/
 const isToken = (v: unknown): v is string => typeof v === 'string' && TOKEN.test(v)
@@ -70,15 +74,24 @@ function refusalOf(value: unknown): ModuleRefusal | null {
 export async function probe(client: ApolloClient): Promise<Probe> {
   const r = await call(client, 'query', REVIEW_CAPABILITY, {}, 'reviewCapability')
   if (r.status !== 'answer') return r
-  const v = r.value as { ok?: unknown; moduleVersion?: unknown; triageClassId?: unknown } | null
+  const v = r.value as { ok?: unknown; moduleVersion?: unknown; triageClassId?: unknown; hiddenEdgesClassId?: unknown } | null
   if (v?.ok !== true || !isToken(v.triageClassId)) return { status: 'failed', detail: 'the review module answered no Triage class' }
   const version = typeof v.moduleVersion === 'string' && /^[0-9A-Za-z.+-]{1,40}$/.test(v.moduleVersion) ? v.moduleVersion : 'unknown'
-  return { status: 'present', moduleVersion: version, triageClassId: v.triageClassId }
+  return { status: 'present', moduleVersion: version, triageClassId: v.triageClassId, hiddenEdgesClassId: isToken(v.hiddenEdgesClassId) ? v.hiddenEdgesClassId : null }
 }
 
-/** The id two harnesses, or two runs, agree on for a model's Triage analysis: public, derived, never secret. */
-export function deterministicAnalysisId(modelId: string, triageClassId: string): string {
-  const h = createHash('sha256').update(`dethereal-triage\0${modelId}\0${triageClassId}`).digest('hex')
+/** Where an analysis of a class is found and created: the prefix of its derived id, and the name and description it is made with. */
+export interface AnalysisKind {
+  prefix: string
+  name: string
+  description: string
+}
+export const TRIAGE_ANALYSIS: AnalysisKind = { prefix: 'dethereal-triage', name: 'Triage', description: "Dethereal's triage proposals, for a person to decide" }
+export const HIDDEN_EDGES_ANALYSIS: AnalysisKind = { prefix: 'dethereal-hidden-edges', name: 'Hidden edges', description: "Dethereal's hidden-edge proposals, for a person to decide" }
+
+/** The id two harnesses, or two runs, agree on for a model's analysis of a class: public, derived, never secret. */
+export function deterministicAnalysisId(modelId: string, classId: string, prefix: string = TRIAGE_ANALYSIS.prefix): string {
+  const h = createHash('sha256').update(`${prefix}\0${modelId}\0${classId}`).digest('hex')
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`
 }
 
@@ -118,10 +131,15 @@ export async function triageAnalysesOf(client: ApolloClient, modelId: string, tr
  * refuses it.
  */
 export async function findTriageAnalysis(client: ApolloClient, modelId: string, triageClassId: string): Promise<AnalysisLookup> {
-  const listed = await triageAnalysesOf(client, modelId, triageClassId)
+  return findAnalysis(client, modelId, triageClassId, TRIAGE_ANALYSIS)
+}
+
+/** The model's analysis of a class, by the same rule as findTriageAnalysis. */
+export async function findAnalysis(client: ApolloClient, modelId: string, classId: string, kind: AnalysisKind): Promise<AnalysisLookup> {
+  const listed = await triageAnalysesOf(client, modelId, classId)
   if (listed.status !== 'answer') return listed
   const candidates = listed.analyses
-  const preferred = deterministicAnalysisId(modelId, triageClassId)
+  const preferred = deterministicAnalysisId(modelId, classId, kind.prefix)
   if (candidates.some((a) => a.id === preferred)) return { status: 'found', id: preferred }
   if (!candidates.length) return { status: 'none' }
   const at = (a: { createdAt?: unknown }) => (typeof a.createdAt === 'string' && !Number.isNaN(Date.parse(a.createdAt)) ? Date.parse(a.createdAt) : Number.POSITIVE_INFINITY)
@@ -131,18 +149,23 @@ export async function findTriageAnalysis(client: ApolloClient, modelId: string, 
 
 /** Create the model's Triage analysis with the deterministic id: a MERGE, so a second create meets the first. */
 export async function createTriageAnalysis(client: ApolloClient, modelId: string, triageClassId: string): Promise<{ status: 'created'; id: string } | CallFailure> {
-  const id = deterministicAnalysisId(modelId, triageClassId)
+  return createAnalysis(client, modelId, triageClassId, TRIAGE_ANALYSIS)
+}
+
+/** Create the model's analysis of a class with its derived id: a MERGE, so a second create meets the first. */
+export async function createAnalysis(client: ApolloClient, modelId: string, classId: string, kind: AnalysisKind): Promise<{ status: 'created'; id: string } | CallFailure> {
+  const id = deterministicAnalysisId(modelId, classId, kind.prefix)
   try {
     const r = (await client.mutate({
       mutation: CREATE_TRIAGE_ANALYSIS,
-      variables: { id, name: 'Triage', description: "Dethereal's triage proposals, for a person to decide", elementId: modelId, analysisClassId: triageClassId },
+      variables: { id, name: kind.name, description: kind.description, elementId: modelId, analysisClassId: classId },
     })) as { data?: { createAnalysisIdempotent?: { id?: unknown } } }
-    if (r.data?.createAnalysisIdempotent?.id !== id) return { status: 'failed', detail: 'the platform did not confirm the Triage analysis' }
+    if (r.data?.createAnalysisIdempotent?.id !== id) return { status: 'failed', detail: `the platform did not confirm the ${kind.name} analysis` }
     return { status: 'created', id }
   } catch (err) {
     if (graphQLErrorCode(err) === 'UNAUTHENTICATED') return { status: 'session_refused', detail: LOGIN_SENTENCE }
     const code = graphQLErrorCode(err)
-    return { status: 'failed', detail: `creating the Triage analysis failed${code ? ` (${code})` : ''}` }
+    return { status: 'failed', detail: `creating the ${kind.name} analysis failed${code ? ` (${code})` : ''}` }
   }
 }
 
@@ -222,5 +245,102 @@ export async function publishProposals(client: ApolloClient, analysisId: string,
   const results = (rows as Array<Record<string, unknown>>)
     .filter((x) => x && isToken(x.exposureId) && (PUBLISH_RESULTS as readonly unknown[]).includes(x.result))
     .map((x) => ({ exposureId: x.exposureId as string, result: x.result as PublishResult }))
+  return { status: 'answer', results }
+}
+
+// =============================================================================
+// The Hidden edges workspace
+// =============================================================================
+
+const CANDIDATE_ID = /^he:[0-9a-f]{16}$/
+const FINGERPRINT = /^sha256:[0-9a-f]{64}$/
+
+/** An edge as a states read names it. */
+export interface EdgeRef {
+  candidateId: string
+  kind: string
+  source: string
+  target: string
+  exposureIds: string[]
+}
+export type EdgeState = { fingerprint: string; fpVersion: number; inModel: boolean; rejected: boolean } | { gone: true }
+
+/** The named edges' fingerprints, as the module computes them for this analysis's model, and whether it holds or rejects each. */
+export async function readEdgeStates(client: ApolloClient, analysisId: string, edges: EdgeRef[]): Promise<{ status: 'answer'; states: Map<string, EdgeState> } | ModuleRefusal | CallFailure> {
+  const states = new Map<string, EdgeState>()
+  for (let i = 0; i < edges.length; i += REVIEW_LIMITS.idsPerCall) {
+    const r = await call(client, 'query', REVIEW_EDGE_STATES, { analysisId, edges: JSON.stringify({ edges: edges.slice(i, i + REVIEW_LIMITS.idsPerCall) }) }, 'reviewEdgeStates')
+    if (r.status !== 'answer') return r
+    const refused = refusalOf(r.value)
+    if (refused) return refused
+    const rows = (r.value as { states?: unknown })?.states
+    if (!Array.isArray(rows)) return { status: 'failed', detail: 'the edge states read returned no list' }
+    for (const s of rows as Array<Record<string, unknown>>) {
+      if (!s || typeof s.candidateId !== 'string' || !CANDIDATE_ID.test(s.candidateId)) continue
+      if (s.gone === true) states.set(s.candidateId, { gone: true })
+      else if (typeof s.fingerprint === 'string' && FINGERPRINT.test(s.fingerprint) && typeof s.fpVersion === 'number') {
+        states.set(s.candidateId, { fingerprint: s.fingerprint, fpVersion: s.fpVersion, inModel: s.inModel === true, rejected: s.rejected === true })
+      }
+    }
+  }
+  return { status: 'answer', states }
+}
+
+/** A stored edge entry as the read-back uses it: its status and who did what, nothing else. */
+export type StoredEdge =
+  | {
+      status: string; reviewId: string | null; verb: string | null; proposedBy: string | null; rejectedBy: string | null; rejectedAt: string | null; rejectedNote: string | null
+      /** A person's accept in the workspace, and the take-back of an accepted edge: what a `recorded` entry says */
+      acceptedBy: string | null; acceptedAt: string | null; retiredBy: string | null; retiredAt: string | null
+    }
+  | { none: true }
+
+export async function readEdgeProposals(client: ApolloClient, analysisId: string, ids: string[]): Promise<{ status: 'answer'; entries: Map<string, StoredEdge> } | ModuleRefusal | CallFailure> {
+  const entries = new Map<string, StoredEdge>()
+  const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : null)
+  for (let i = 0; i < ids.length; i += REVIEW_LIMITS.idsPerCall) {
+    const r = await call(client, 'query', REVIEW_EDGE_PROPOSALS, { analysisId, candidateIds: ids.slice(i, i + REVIEW_LIMITS.idsPerCall) }, 'reviewEdgeProposals')
+    if (r.status !== 'answer') return r
+    const refused = refusalOf(r.value)
+    if (refused) return refused
+    const rows = (r.value as { entries?: unknown })?.entries
+    if (!Array.isArray(rows)) return { status: 'failed', detail: 'the edge proposals read returned no list' }
+    for (const e of rows as Array<Record<string, unknown>>) {
+      if (!e || typeof e.candidateId !== 'string' || !CANDIDATE_ID.test(e.candidateId)) continue
+      if (e.none === true) entries.set(e.candidateId, { none: true })
+      else if (isReason(e.status)) {
+        entries.set(e.candidateId, {
+          status: e.status,
+          reviewId: str(e.reviewId, 128),
+          verb: e.verb === 'accept' || e.verb === 'reject' ? e.verb : null,
+          proposedBy: str(e.proposedBy, 200),
+          rejectedBy: str(e.rejectedBy, 200),
+          rejectedAt: str(e.rejectedAt, 40),
+          rejectedNote: str(e.rejectedNote, 2000),
+          acceptedBy: str(e.acceptedBy, 200),
+          acceptedAt: str(e.acceptedAt, 40),
+          retiredBy: str(e.retiredBy, 200),
+          retiredAt: str(e.retiredAt, 40),
+        })
+      }
+    }
+  }
+  return { status: 'answer', entries }
+}
+
+export const EDGE_PUBLISH_RESULTS = ['stored', 'stored_stale', 'rejected', 'in_model', 'not_found'] as const
+export type EdgePublishResult = (typeof EDGE_PUBLISH_RESULTS)[number]
+
+/** One edge publish: the module's answer per edge, or its refusal. */
+export async function publishEdges(client: ApolloClient, analysisId: string, payload: string): Promise<{ status: 'answer'; results: Array<{ candidateId: string; result: EdgePublishResult }> } | ModuleRefusal | CallFailure> {
+  const r = await call(client, 'mutation', REVIEW_PUBLISH_EDGES, { analysisId, payload }, 'reviewPublishEdgeProposals')
+  if (r.status !== 'answer') return r
+  const refused = refusalOf(r.value)
+  if (refused) return refused
+  const rows = (r.value as { results?: unknown })?.results
+  if (!Array.isArray(rows)) return { status: 'failed', detail: 'the publish returned no results' }
+  const results = (rows as Array<Record<string, unknown>>)
+    .filter((x) => x && typeof x.candidateId === 'string' && CANDIDATE_ID.test(x.candidateId) && (EDGE_PUBLISH_RESULTS as readonly unknown[]).includes(x.result))
+    .map((x) => ({ candidateId: x.candidateId as string, result: x.result as EdgePublishResult }))
   return { status: 'answer', results }
 }

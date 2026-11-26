@@ -245,10 +245,10 @@ export const TOOL_MANIFEST: readonly ManifestTool[] = Object.freeze<ManifestTool
   { name: 'get_class_guide', approval: 'auto', status: 'conformant', inputs: names('class_id', 'element_kind', 'attribute_keys') },
 
   // Hidden edges: inferred attack paths the platform's hidden-edges module proposes
-  { name: 'hidden_edges', approval: 'auto', status: 'conformant', actions: ['open', 'evidence', 'reply', 'get'], inputs: names('action', 'directory_path', 'review_id', 'reply', 'offset', 'evidence') },
+  { name: 'hidden_edges', approval: 'auto', status: 'conformant', actions: ['open', 'evidence', 'reply', 'get', 'published'], inputs: names('action', 'directory_path', 'review_id', 'reply', 'offset', 'evidence') },
   {
     name: 'manage_hidden_edges', approval: 'prompt', status: 'conformant', requiresUser: true,
-    actions: ['prepare', 'record', 'commit'],
+    actions: ['prepare', 'record', 'commit', 'prepare_publish', 'publish'],
     inputs: names('action', 'directory_path', 'review_id', 'flow_id', 'plan_id', 'lines', 'reply'),
   },
 ])

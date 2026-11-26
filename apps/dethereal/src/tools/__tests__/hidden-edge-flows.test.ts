@@ -131,20 +131,30 @@ describe('prune and push', () => {
     expect(existsSync(path.join(dir, 'attributes', 'dataFlows', 'he-1.json'))).toBe(true)
   })
 
-  it('a push of the directory is not refused for an accepted edge, and is for the same flow unaccepted', async () => {
+  it('a push of the directory is not refused for an accepted edge', async () => {
     const accepted = await modelDir(true, true)
     await registerAll(accepted)
     expect(await directoryPushRefusal(accepted)).toBeNull()
-    const unaccepted = await modelDir(true, false)
-    expect(await directoryPushRefusal(unaccepted, undefined, { settlement: 'off' })).toMatch(/Gate 2 fails \(lint_errors: 1\)/)
   })
 
-  it('a payload pushed with no directory has no accepts to read: its hidden-edge flows count as ordinary', async () => {
+  it('a pull of an edge accepted in the workspace passes Gate 2 with no stubs step: its class declares its fields, and it is an ordinary flow otherwise', async () => {
+    // as a pull writes it: the flow and its attribute file, no decision here, no cached template of its class
+    const pulled = await modelDir(true, false)
+    expect(await directoryPushRefusal(pulled, undefined, { settlement: 'off' })).toBeNull()
+    expect((await run('quality', pulled)).element_counts).toMatchObject({ data_flows: 9, hidden_edge_flows: 0 })
+    // a technique in a field its class does not declare is still refused
+    const marked = await modelDir(true, false, (m) => {
+      m.attributes.dataFlows['he-1']!.attributes.mitre_notes = 'T1021'
+    })
+    expect(await directoryPushRefusal(marked, undefined, { settlement: 'off' })).toMatch(/Gate 2 fails \(lint_errors: 1\)/)
+  })
+
+  it('a payload pushed with no directory has no accepts to read: its hidden-edge flows count as ordinary, their class fields declared', async () => {
     const m = gateModel()
     addHiddenEdge(m, EDGE)
     const dir = await modelDir(true, true)
     const payload = { manifest: m.manifest, structure: m.structure, dataFlows: m.dataFlows, dataItems: m.dataItems, attributes: m.attributes } as never
     expect(await directoryPushRefusal(dir, payload, { settlement: 'off' })).toBeNull()
-    expect(await payloadPushRefusal(null, payload, { settlement: 'off' })).toMatch(/Gate 2 fails \(lint_errors: 1\)/)
+    expect(await payloadPushRefusal(null, payload, { settlement: 'off' })).toBeNull()
   })
 })

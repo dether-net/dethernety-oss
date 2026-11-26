@@ -32,8 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `triage_review` `published` reads back what became of this machine's publishes, sorted by what
   needs action, with what to do for a stale one; what the workspace returns is cleaned and quoted,
   never acted on. The triage record keeps each publish beside the review's answers and never drops
-  a published review: a record that holds only published reviews refuses (`record_full`) until it
-  is moved aside. When the model had no Triage analysis at open, the fingerprints are read
+  a published review, nor counts it toward its 20: over its size, it keeps the newest 5 published
+  reviews whole and compacts older ones to their ids, stamps, publishes and the answers behind them,
+  and refuses (`record_full`) only when still over its size. When the model had no Triage analysis at open, the fingerprints are read
   at prepare or at the publish: an attribute change in the 30 minutes after open is not caught then,
   and past 30 minutes every proposal goes flagged for a person, so the workspace shows no Accept
   and each is decided with Edit or Reject, and no edited copy is sent; to avoid this, cancel and run
@@ -46,6 +47,105 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   selects; an id that is not in the loaded model selects nothing and shows a warning, *The linked
   element is not in this model.* See the frontend architecture, *Linking to an element*.
 - **A link to the editor survives sign-in:** a tab that must sign in first returns to the linked page afterwards, instead of the home page.
+- **Dethereal: hidden edges can publish to the Hidden edges workspace, on all three harnesses.**
+  When the platform has the `dethermine-review` module with its Hidden edges workspace, a hidden-edge
+  review can go there for a person to decide in the browser, instead of being decided in the chat.
+  The run header shows one line about the workspace (available, with how many of the candidates the
+  platform model already holds and how many were rejected there; not found; or not checked) and, after
+  the review table, asks `here` or `publish`, once per run and again after a cancelled publish. A
+  publish writes nothing locally: `manage_hidden_edges` `prepare_publish` shows every edge with the
+  analyst's stance, reason and locators, the locators left out (a secret file, or a source file
+  discovery did not read, never leaves the machine), each edge not sent and why, and whether it
+  creates the model's Hidden edges analysis; `publish` sends them after a typed `yes`, each call
+  approved on its own, and answers per edge (`stored`, `stored_stale`, `rejected`, `in_model`,
+  `not_found`). Each edge carries the stance, the reason as drafted, locators only, the cited
+  findings' ids and its fingerprint; no file content is sent. A publish with no answer is
+  `write_error`, and prepare_publish again sends it once more, safely. A published review is never
+  applied here. `hidden_edges` `published` reads back what became of this machine's publishes,
+  what needs action first; what the workspace returns is quoted, never acted on. The analyst's
+  arguments are now held by the server, so the review table shows them again after a compaction; a
+  reason holding the session's credentials is refused (`reason_invalid`). An edge accepted in the
+  workspace reaches the local files with a pull, as an ordinary flow; accepting the same candidate
+  again after the pull adopts it. See the Dethereal guide, *Reviewing Hidden Edges*, *Publishing to
+  the Hidden Edges Workspace*.
+- **`dethernety-hidden-edges` 0.2.0: explained candidates, remedies and a recheck (contract 2).**
+  `hiddenEdgeCandidates` reads a new option, `contract`. A caller that asks for none gets contract 1,
+  the 0.1.2 answer shape unchanged. With `"contract": 2`, each candidate also carries `explain`: up
+  to three ways into the edge that give it its tier (the row, the anchoring finding, the foothold
+  and the reached end, the flow and credential item), the facts the module weighed and what each
+  did, the reasons beside the tier (`basis`), whether either end is a crown jewel, and up to five
+  remedies: one change in the model (an attribute stated true, or a control added), judged over
+  every way into the edge, that removes it, lowers it, or closes one way in only. The envelope adds
+  `mode`, the `rationale` of each rule the candidates use, and `limits`, which say where the per-kind
+  budget, the peer cap, the size cap or the remedies' time budget left something out. A
+  contract-2 answer is held under 900 KiB by trimming explanations, never refused for its size.
+  With `recheck` (contract 2 only, up to 200 edges), the module judges edges already decided
+  instead of proposing candidates, with no caps, exclusions or knowledge graph, and answers one
+  verdict per edge: `holds`, `removed`, `end_type`, `end_gone`, `mixed`, `declared_flow`,
+  `grounds_disposed` or `not_derived`. Each edge-kind row now names the component types its
+  foothold may have: a data store is no longer proposed as a foothold, and a capture, an escape, an
+  instance-role fetch or a credential dump starts only at a process (others are counted as
+  `excluded_foothold_type`); a foothold under a Managed Runtime caps capture, dumping and escape at
+  low; a pair whose foothold is not a component is dropped, not counted. The candidate walk and the
+  recheck judge a pair in one shared step, and the explanation and its remedies give the event loop
+  a turn as they go. A module before 0.2.0 refuses `contract` as an unknown option
+  (`options_invalid`). See the hidden-edges module's architecture and query contract.
+- **Dethereal: hidden edges explained, and an accept affirms only the findings it names.** With
+  `dethernety-hidden-edges` 0.2.0, `hidden_edges` `open` asks for the module's contract 2 and checks
+  it as untrusted input; against an older module it falls back to contract 1 and the review works
+  as before. Each row adds `path`, how the attacker moves in words, `evidence_why`, why its tier is
+  what it is, and `removes_if` when the module knows a remedy; the run header adds `limits` lines
+  where the module's caps left the list short. `show <n>` numbers the cited findings with their
+  states and marks those that can be affirmed, and adds the other ways in, the facts weighed, the
+  remedies (or that the module left them out for time), the rule's rationale and its defaults. A
+  new reply, `accept <n> affirm <k>[,<k>…] [note: <text>]`, accepts one candidate and affirms the
+  findings named by their `show` numbers, each pending with no disposition and named by no other
+  accept; the note, at most 1,900 characters so the reason with its marker fits the platform's
+  2,000-character limit, is their reason, and is refused when it holds the session's credentials.
+  The apply's lines show each accept's reason before the `yes`. The hidden-edge analyst argues
+  from the row's `path`. `hidden_edges` `published` reads `recorded` in words: taken back because
+  it no longer held, or deleted outside the workspace. See the Dethereal guide, *Reviewing Hidden
+  Edges*, *Showing a Candidate* and *Affirming the Findings an Edge Rests On*.
+
+### Changed
+
+- **Dethereal: `hidden_edges` `open` refuses `pull_first`** when the platform model changed since the
+  last pull or push: an element added, changed or removed in the editor, or an edge a person accepted
+  in the Hidden edges workspace. It is the check a push makes, with elements added on the platform
+  counted. When the platform model cannot be read for the check, `open` refuses `platform_unread`;
+  when this machine cannot keep a record of the platform model at all, so a pull would not help, it
+  refuses `baseline_unavailable`, naming the cause. Pull, then run hidden edges again.
+- **Dethereal: `accept <n>` in a hidden-edge review no longer affirms anything.** Before, a
+  one-by-one accept also affirmed every pending finding with no disposition the candidate rested
+  on. Now only `accept <n> affirm <k>…` affirms, and only the findings it names; `accept-all`
+  still affirms nothing. Taking an edge back lists only the findings its own accept affirmed.
+- **Dethereal: a reply holding the session's credentials is recorded only by its hash**, with its
+  start redacted, in the triage and hidden-edge records, as a long or unclean reply already was.
+- **Dethereal: taking back a hidden edge asks reject, release or cancel.** When `/dethereal:remove`
+  removes an accepted edge's flow, `manage_hidden_edges` `record` asks `Take back this hidden edge?`:
+  `reject` (it was never real) keeps it out, so it is not proposed again; `release` (it was fixed, or
+  is no longer wanted) drops the accept, so the edge is proposed again while its grounds hold;
+  `cancel` records nothing, and the flow stays. The decision is written before the flow is removed,
+  and a take-back needs no sign-in: signed out or offline, the plan says the affirmed findings could
+  not be listed, and the reject or release is still recorded.
+  A release is a new decision, `released`, in the same decisions file (version 1): Dethereal 0.7.0
+  counts it as malformed and keeps the edge accepted until that machine is upgraded. Only an
+  affirmation whose generated reason names the edge counts as the edge's own.
+- **Dethereal: the hidden-edge record no longer refuses for old publishes.** Like the triage record,
+  it counts only unpublished reviews toward its 20; over its size, it keeps the newest 5 published
+  reviews whole and compacts older ones to their ids, stamps, publishes and the answers behind them;
+  it refuses `record_full` only when still over its size.
+- **Dethereal: hidden-edge `prepare` and `commit` check the platform model again**, when the review
+  accepts an edge, for changes since the last pull or push (`pull_first`), so an edge accepted in the Hidden edges workspace after the
+  review opened never gets a second flow. A candidate of a kind Dethereal does not know is dropped
+  and counted rather than the whole answer refused, and its limits are ignored. A publish closes the
+  review in the same step as its last check. Every text is shown with the session's credentials
+  taken out before it is cut, and every story names its rule's assumption.
+- **Dethereal: `hidden_edges` `published` asks the module once, best effort:** a waiting proposal it
+  no longer makes reads `No longer proposed by the module…` (unless its caps left candidates out),
+  and an accepted edge already in the local files reads `In the model and in the files`.
+- **Dethereal: a pulled hidden-edge flow this machine did not accept passes the push's lint** with no
+  stubs step: the fields its hidden-edge class declares count as declared.
 
 ## [0.18.0] - 2026-11-23
 

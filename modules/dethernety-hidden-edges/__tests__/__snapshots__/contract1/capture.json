@@ -1,0 +1,338 @@
+{
+ "contract": 1,
+ "module": "dethernety-hidden-edges",
+ "version": "0.2.0",
+ "table_hash": "c1861b0035e871422084cabdcd65c684d86757434586fca92db6067e10e7019a",
+ "regime": {
+  "kg": "kg_absent",
+  "reason": "unavailable"
+ },
+ "candidates": [
+  {
+   "id": "he:45b197917ff3e009",
+   "kind": "credential-capture",
+   "source": "W",
+   "target": "I",
+   "technique_ids": [
+    "T1078"
+   ],
+   "cited_techniques": [
+    "T1040",
+    "T1557"
+   ],
+   "exposure_ids": [
+    "x"
+   ],
+   "totals": {
+    "exposure_ids": 1,
+    "facts": 1,
+    "cited_techniques": 2
+   },
+   "rows": [
+    "credential-capture/cc-1",
+    "credential-capture/cc-2"
+   ],
+   "tier": "high",
+   "defaults": {
+    "required_capability": "targeted",
+    "required_privilege": "admin",
+    "granted_privilege": "user"
+   },
+   "fields": {
+    "capture_side": "both",
+    "transport_state": "cleartext"
+   },
+   "facts": [
+    "attributes:f#encryption_in_transit_enabled"
+   ],
+   "class": {
+    "id": "6b1564a2-ddec-4b60-a1e8-e4338d9332c8",
+    "name": "Hidden Edge: Credential Capture"
+   }
+  },
+  {
+   "id": "he:c318229aa82077f0",
+   "kind": "credential-capture",
+   "source": "Q",
+   "target": "I",
+   "technique_ids": [
+    "T1078"
+   ],
+   "cited_techniques": [
+    "T1040",
+    "T1557"
+   ],
+   "exposure_ids": [
+    "x"
+   ],
+   "totals": {
+    "exposure_ids": 1,
+    "facts": 1,
+    "cited_techniques": 2
+   },
+   "rows": [
+    "credential-capture/cc-1",
+    "credential-capture/cc-2"
+   ],
+   "tier": "high",
+   "defaults": {
+    "required_capability": "targeted",
+    "required_privilege": "admin",
+    "granted_privilege": "user"
+   },
+   "fields": {
+    "capture_side": "both",
+    "transport_state": "cleartext"
+   },
+   "facts": [
+    "attributes:f#encryption_in_transit_enabled"
+   ],
+   "class": {
+    "id": "6b1564a2-ddec-4b60-a1e8-e4338d9332c8",
+    "name": "Hidden Edge: Credential Capture"
+   }
+  },
+  {
+   "id": "he:0e00a9f27e47efbc",
+   "kind": "credential-capture",
+   "source": "W",
+   "target": "R",
+   "technique_ids": [
+    "T1078"
+   ],
+   "cited_techniques": [
+    "T1557"
+   ],
+   "exposure_ids": [
+    "t"
+   ],
+   "totals": {
+    "exposure_ids": 1,
+    "facts": 2,
+    "cited_techniques": 1
+   },
+   "rows": [
+    "credential-capture/cc-2"
+   ],
+   "tier": "low",
+   "defaults": {
+    "required_capability": "targeted",
+    "required_privilege": "admin",
+    "granted_privilege": "user"
+   },
+   "fields": {
+    "capture_side": "both",
+    "transport_state": "tls_unverified"
+   },
+   "facts": [
+    "attributes:g#flow_tls_encrypted",
+    "control:k"
+   ],
+   "class": {
+    "id": "6b1564a2-ddec-4b60-a1e8-e4338d9332c8",
+    "name": "Hidden Edge: Credential Capture"
+   }
+  },
+  {
+   "id": "he:46f37a350d442d08",
+   "kind": "credential-capture",
+   "source": "F",
+   "target": "I",
+   "technique_ids": [
+    "T1078"
+   ],
+   "cited_techniques": [
+    "T1040",
+    "T1557"
+   ],
+   "exposure_ids": [
+    "x"
+   ],
+   "totals": {
+    "exposure_ids": 1,
+    "facts": 1,
+    "cited_techniques": 2
+   },
+   "rows": [
+    "credential-capture/cc-1",
+    "credential-capture/cc-2"
+   ],
+   "tier": "low",
+   "defaults": {
+    "required_capability": "targeted",
+    "required_privilege": "admin",
+    "granted_privilege": "user"
+   },
+   "fields": {
+    "capture_side": "both",
+    "transport_state": "cleartext"
+   },
+   "facts": [
+    "attributes:f#encryption_in_transit_enabled"
+   ],
+   "class": {
+    "id": "6b1564a2-ddec-4b60-a1e8-e4338d9332c8",
+    "name": "Hidden Edge: Credential Capture"
+   }
+  },
+  {
+   "id": "he:979c75fc7afbb325",
+   "kind": "credential-capture",
+   "source": "I",
+   "target": "R",
+   "technique_ids": [
+    "T1078"
+   ],
+   "cited_techniques": [
+    "T1557"
+   ],
+   "exposure_ids": [
+    "t"
+   ],
+   "totals": {
+    "exposure_ids": 1,
+    "facts": 2,
+    "cited_techniques": 1
+   },
+   "rows": [
+    "credential-capture/cc-2"
+   ],
+   "tier": "low",
+   "defaults": {
+    "required_capability": "targeted",
+    "required_privilege": "admin",
+    "granted_privilege": "user"
+   },
+   "fields": {
+    "capture_side": "both",
+    "transport_state": "tls_unverified"
+   },
+   "facts": [
+    "attributes:g#flow_tls_encrypted",
+    "control:k"
+   ],
+   "class": {
+    "id": "6b1564a2-ddec-4b60-a1e8-e4338d9332c8",
+    "name": "Hidden Edge: Credential Capture"
+   }
+  },
+  {
+   "id": "he:a3c3ef4390d9433c",
+   "kind": "credential-capture",
+   "source": "F",
+   "target": "R",
+   "technique_ids": [
+    "T1078"
+   ],
+   "cited_techniques": [
+    "T1557"
+   ],
+   "exposure_ids": [
+    "t"
+   ],
+   "totals": {
+    "exposure_ids": 1,
+    "facts": 2,
+    "cited_techniques": 1
+   },
+   "rows": [
+    "credential-capture/cc-2"
+   ],
+   "tier": "low",
+   "defaults": {
+    "required_capability": "targeted",
+    "required_privilege": "admin",
+    "granted_privilege": "user"
+   },
+   "fields": {
+    "capture_side": "both",
+    "transport_state": "tls_unverified"
+   },
+   "facts": [
+    "attributes:g#flow_tls_encrypted",
+    "control:k"
+   ],
+   "class": {
+    "id": "6b1564a2-ddec-4b60-a1e8-e4338d9332c8",
+    "name": "Hidden Edge: Credential Capture"
+   }
+  },
+  {
+   "id": "he:c3b7cbf7d4ce3f5a",
+   "kind": "credential-capture",
+   "source": "A",
+   "target": "R",
+   "technique_ids": [
+    "T1078"
+   ],
+   "cited_techniques": [
+    "T1557"
+   ],
+   "exposure_ids": [
+    "t"
+   ],
+   "totals": {
+    "exposure_ids": 1,
+    "facts": 2,
+    "cited_techniques": 1
+   },
+   "rows": [
+    "credential-capture/cc-2"
+   ],
+   "tier": "low",
+   "defaults": {
+    "required_capability": "targeted",
+    "required_privilege": "admin",
+    "granted_privilege": "user"
+   },
+   "fields": {
+    "capture_side": "both",
+    "transport_state": "tls_unverified"
+   },
+   "facts": [
+    "attributes:g#flow_tls_encrypted",
+    "control:k"
+   ],
+   "class": {
+    "id": "6b1564a2-ddec-4b60-a1e8-e4338d9332c8",
+    "name": "Hidden Edge: Credential Capture"
+   }
+  }
+ ],
+ "counts": {
+  "elementsWithoutClass": 0,
+  "elementsWithSeveralClasses": 0,
+  "boundariesWithSeveralParents": 0,
+  "boundaryDepthCut": false,
+  "flowsWithSeveralEnds": 0,
+  "exposuresOnSeveralElements": 0,
+  "danglingReferences": 0,
+  "attributeKeysDropped": 0,
+  "exposures_read": 2,
+  "exposures_feeding": 2,
+  "exposures_without_row": 0,
+  "hidden_edge_anchors_skipped": 0,
+  "anchors_without_segment": 0,
+  "anchors_without_host": 0,
+  "containers_without_host": 0,
+  "landings_without_segment": 0,
+  "flows_not_credential_bearing": 0,
+  "items_not_credential": 0,
+  "pairs_over_anchor_budget": 0,
+  "excluded_external_pair": 0,
+  "excluded_declared_flow": 0,
+  "excluded_reached_type": 0,
+  "excluded_by_breaker": 0,
+  "excluded_by_decision": 0,
+  "peers_capped": 0,
+  "kind_budget_dropped": 0,
+  "excluded_foothold_type": 8,
+  "kg_classes_capped": 0,
+  "boundaries": 2,
+  "components": 8,
+  "flows": 2,
+  "dataItems": 1,
+  "exposures": 2,
+  "controls": 1
+ }
+}

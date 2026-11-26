@@ -215,6 +215,68 @@ describe('the edge-kind table against the repository', () => {
     expect(problems).toEqual([]);
   });
 
+  /** A finding's rule bodies: each block that adds the definition, past the one that only counts the others. */
+  function bodiesOf(text: string, defName: string | null): string[] {
+    const def = /^(_\w+_def)\s*:=\s*\{/m.exec(text)?.[1];
+    if (!def || !defName) return [];
+    const block = new RegExp(`^[^\\n]*\\b(?:\\w+\\[|contains )\\s*${def}\\b[^\\n]*\\bif \\{\\n([\\s\\S]*?)\\n\\}`, 'gm');
+    return [...text.matchAll(block)].map((m) => m[1]).filter((b) => !/^\s*count\(\w+\)\s*>\s*0\s*$/.test(b));
+  }
+
+  /** The rule forms the body reading cannot follow, in the rules of a finding: they would skew what it clears. */
+  function unreadableForms(text: string): string[] {
+    const def = /^(_\w+_def)\s*:=\s*\{/m.exec(text)?.[1];
+    if (!def) return [];
+    const headers = text.split('\n').filter((l) => new RegExp(`\\b${def}\\b`).test(l) && /\bif\b/.test(l));
+    const problems: string[] = [];
+    for (const h of headers) if (!/\bif \{\s*$/.test(h)) problems.push(`a rule not of the form "… if {" on its own line: ${h.trim()}`);
+    for (const b of bodiesOf(text, 'x')) {
+      if (/\belse\b/.test(b)) problems.push('a rule body with else');
+      if (/#/.test(b)) problems.push('a rule body with a comment');
+    }
+    return problems;
+  }
+
+  it('reads every rule of a cleared finding in a form it can follow', () => {
+    const problems: string[] = [];
+    for (const r of table.rows) {
+      for (const b of r.attribute_breakers) {
+        for (const o of b.own_condition) {
+          const f = findings.find((x) => x.cls.name === o.class && x.def.name === o.exposure);
+          if (f) for (const p of unreadableForms(f.def.text)) problems.push(`${o.class}: ${o.exposure}: ${p}`);
+        }
+      }
+    }
+    expect([...new Set(problems)]).toEqual([]);
+    // and it refuses the forms it cannot follow
+    const text = ['_x_def := {', '}', 'x[_x_def] if { not input.a }', 'x[_x_def] if {', '    not input.b # stated', '} else := false', ''].join('\n');
+    expect(unreadableForms(text).length).toBeGreaterThan(0);
+  });
+
+  it('lists as cleared exactly the own conditions every rule body of which tests the attributes', () => {
+    const problems: string[] = [];
+    let bodies = 0;
+    for (const r of table.rows) {
+      for (const b of r.attribute_breakers) {
+        const tests = (body: string) => b.attributes.some((a) => new RegExp(`not\\s+input\\.${a}\\b|input\\.${a}\\s*==\\s*false|input\\.${a}\\s*!=\\s*true`).test(body));
+        const expected = b.own_condition
+          .filter((o) => {
+            const f = findings.find((x) => x.cls.name === o.class && x.def.name === o.exposure);
+            const found = f ? bodiesOf(f.def.text, f.def.name) : [];
+            bodies += found.length;
+            return found.length > 0 && found.every(tests);
+          })
+          .map((o) => `${o.class}: ${o.exposure}`)
+          .sort();
+        const listed = b.clears.map((o) => `${o.class}: ${o.exposure}`).sort();
+        if (JSON.stringify(expected) !== JSON.stringify(listed)) problems.push(`${r.id} ${b.read_from} ${b.attributes.join('+')}: expected ${expected.join(', ') || 'none'}`);
+      }
+    }
+    expect(problems).toEqual([]);
+    // the reading found the rule bodies, so an empty list means none qualifies, not that none was read
+    expect(bodies).toBeGreaterThan(90);
+  });
+
   it('has no technique entry that no finding selects (a dead entry hides a typo)', () => {
     const live = new Set(findings.flatMap((f) => f.rows.flatMap((id) => f.def.techniques.map((t) => `${id}\u0000${t}`))));
     const reach = (id: string, t: string) => live.has(`${id}\u0000${t}`) || [...live].some((k) => k.startsWith(`${id}\u0000${t}.`));

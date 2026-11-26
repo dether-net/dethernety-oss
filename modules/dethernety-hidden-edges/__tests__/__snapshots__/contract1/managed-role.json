@@ -1,0 +1,122 @@
+{
+ "contract": 1,
+ "module": "dethernety-hidden-edges",
+ "version": "0.2.0",
+ "table_hash": "c1861b0035e871422084cabdcd65c684d86757434586fca92db6067e10e7019a",
+ "regime": {
+  "kg": "kg_absent",
+  "reason": "unavailable"
+ },
+ "candidates": [
+  {
+   "id": "he:05fafa308b46a9ed",
+   "kind": "credential-reuse",
+   "source": "C",
+   "target": "O",
+   "technique_ids": [
+    "T1078.004"
+   ],
+   "cited_techniques": [
+    "T1552.005"
+   ],
+   "exposure_ids": [
+    "h"
+   ],
+   "totals": {
+    "exposure_ids": 1,
+    "facts": 0,
+    "cited_techniques": 1
+   },
+   "rows": [
+    "credential-reuse/cr-3"
+   ],
+   "tier": "medium",
+   "defaults": {
+    "required_capability": "opportunistic",
+    "required_privilege": "user",
+    "granted_privilege": "user"
+   },
+   "fields": {
+    "credential_basis": "instance_role"
+   },
+   "facts": [],
+   "class": {
+    "id": "c39671d7-009b-4910-899f-e9b9f7db1fed",
+    "name": "Hidden Edge: Credential Reuse"
+   }
+  },
+  {
+   "id": "he:106fdc85cfc6995f",
+   "kind": "credential-reuse",
+   "source": "A",
+   "target": "O",
+   "technique_ids": [
+    "T1078.004"
+   ],
+   "cited_techniques": [
+    "T1552.005"
+   ],
+   "exposure_ids": [
+    "x"
+   ],
+   "totals": {
+    "exposure_ids": 1,
+    "facts": 0,
+    "cited_techniques": 1
+   },
+   "rows": [
+    "credential-reuse/cr-3"
+   ],
+   "tier": "low",
+   "defaults": {
+    "required_capability": "opportunistic",
+    "required_privilege": "user",
+    "granted_privilege": "user"
+   },
+   "fields": {
+    "credential_basis": "instance_role"
+   },
+   "facts": [],
+   "class": {
+    "id": "c39671d7-009b-4910-899f-e9b9f7db1fed",
+    "name": "Hidden Edge: Credential Reuse"
+   }
+  }
+ ],
+ "counts": {
+  "elementsWithoutClass": 0,
+  "elementsWithSeveralClasses": 0,
+  "boundariesWithSeveralParents": 0,
+  "boundaryDepthCut": false,
+  "flowsWithSeveralEnds": 0,
+  "exposuresOnSeveralElements": 0,
+  "danglingReferences": 0,
+  "attributeKeysDropped": 0,
+  "exposures_read": 2,
+  "exposures_feeding": 2,
+  "exposures_without_row": 0,
+  "hidden_edge_anchors_skipped": 0,
+  "anchors_without_segment": 0,
+  "anchors_without_host": 0,
+  "containers_without_host": 0,
+  "landings_without_segment": 0,
+  "flows_not_credential_bearing": 0,
+  "items_not_credential": 0,
+  "pairs_over_anchor_budget": 0,
+  "excluded_external_pair": 0,
+  "excluded_declared_flow": 0,
+  "excluded_reached_type": 0,
+  "excluded_by_breaker": 0,
+  "excluded_by_decision": 0,
+  "peers_capped": 0,
+  "kind_budget_dropped": 0,
+  "excluded_foothold_type": 1,
+  "kg_classes_capped": 0,
+  "boundaries": 3,
+  "components": 7,
+  "flows": 2,
+  "dataItems": 0,
+  "exposures": 2,
+  "controls": 0
+ }
+}

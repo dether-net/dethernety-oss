@@ -1,6 +1,7 @@
 /**
- * The hidden-edges module's candidate query, called once per run: bounded in time and size. What comes back is
- * untrusted and checked by the caller (answer.ts).
+ * The hidden-edges module's candidate query, called once per run (twice when the module refuses the contract-2
+ * option, which it is then asked without): bounded in time and size. What comes back is untrusted and checked by the
+ * caller (answer.ts).
  */
 import { gql } from '@apollo/client'
 import type { ApolloClient } from '@apollo/client'

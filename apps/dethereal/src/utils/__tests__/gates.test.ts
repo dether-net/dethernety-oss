@@ -612,9 +612,9 @@ describe('hidden-edge flows', () => {
     for (const c of ['C3', 'C4', 'C8'] as const) expect(ids(r.gate3.criteria[c]), c).toContain('he-1')
     expect(ids(r.gate1.checks.unnamed_flows!)).toEqual(['he-1'])
     expect(ids(r.gate1.checks.unprotected_cross_boundary_flows!)).toEqual(['he-1'])
-    // Its path techniques are MITRE annotations on an ordinary flow, which block Gate 2.
-    expect(r.lints.some((l) => l.rule === 'mitre_technique_field' && l.element?.id === 'he-1')).toBe(true)
-    expect(r.gate2.verdict).toBe('FAIL')
+    // Its path techniques are its class's own fields, whoever accepted it: they do not block Gate 2.
+    expect(r.lints.some((l) => l.rule === 'mitre_technique_field' && l.element?.id === 'he-1')).toBe(false)
+    expect(r.gate2.verdict).toBe('PASS')
   })
 
   it('C9 counts no credential that only a hidden edge requires', async () => {

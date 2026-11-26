@@ -14,8 +14,11 @@ import { validateAnswer, type Candidate } from '../answer.js'
 import { candidateId } from '../contract.js'
 import { readLocalModel, type LocalModel } from '../local.js'
 import { decisionOf, readDecisions, remapDecisions, signDecision, signerFor, standing, verifyDecision, isSigner, type Decision, type Signer } from '../records.js'
-import { applyHiddenEdgeReply, bulkAcceptable, ReplyRefusal, type HiddenEdgeReview, type ReviewCandidate } from '../review.js'
-import { filesBound, flowIdOf, planApply, planRecord, writeApply } from '../apply.js'
+import { AFFIRM_MARKER, affirmReason, applyHiddenEdgeReply, bulkAcceptable, NOTE_MAX, ReplyRefusal, type HiddenEdgeReview, type ReviewCandidate } from '../review.js'
+import { affirmedByEdge, filesBound, flowIdOf, planApply, planRecord, writeApply } from '../apply.js'
+import { limitsLines, PATH_CHARS, rowOf, showOf } from '../views.js'
+import { REASON_MAX } from '../../triage/dispositions.js'
+import { registerSecret } from '../../auth/redact.js'
 import { isLocator } from '../analyst.js'
 import { answerOf, candidate, CLASSES, REMOTE, syncedModel } from './fixture.js'
 
@@ -164,6 +167,20 @@ describe('the decisions', () => {
     expect(decisionOf({ ...ok, kind: 'trusted-relationship', id: candidateId('trusted-relationship', 'A', 'B') })).toBeNull()
   })
 
+  it('reads a release as a reject is read, and lets none stand for an edge whose latest decision is one', () => {
+    const at = (t: string) => `2026-11-1${t}T00:00:00.000Z`
+    const accept = { ...signDecision(signer, accepted({ at: at('7') })), verified: true }
+    const release = { ...accept, verb: 'released' as const, flow_id: null, mac: null, at: at('8'), verified: false }
+    const { verified: _v, ...entry } = release
+    expect(decisionOf(entry)).toEqual(entry)
+    expect(decisionOf({ ...entry, flow_id: 'f' })).toBeNull()
+    expect(decisionOf({ ...entry, mac: 'x' })).toBeNull()
+    expect(standing([accept, release]).size).toBe(0)
+    // accepted again after the release: it stands
+    const again = { ...signDecision(signer, accepted({ at: at('9') })), verified: true }
+    expect(standing([accept, release, again]).get(accept.id)!.verb).toBe('accepted')
+  })
+
   it('lets a verified accept or any reject stand, never an unverified accept', () => {
     const verified = { ...signDecision(signer, accepted()), verified: true }
     const foreign = { ...signDecision(signer, accepted({ id: candidateId('remote-service', 'B', 'A'), source: 'B', target: 'A' })), verified: false }
@@ -189,7 +206,7 @@ describe('the decisions', () => {
 function review(local: LocalModel, exposures: Map<string, ExposureState>, candidates: Candidate[], dir = '/x'): HiddenEdgeReview {
   return {
     id: 'r'.repeat(32), dir, model_id: 'model-1', model_name: 'Shop', opened_at: '', local, exposures, decisions: [],
-    candidates: candidates.map((c, i): ReviewCandidate => ({ ...c, n: i + 1, choice: 'open', rationale: null, base: { ...c.defaults }, evidence: [], edited: false, bulk: false })),
+    candidates: candidates.map((c, i): ReviewCandidate => ({ ...c, n: i + 1, choice: 'open', rationale: null, base: { ...c.defaults }, evidence: [], argument: null, edited: false, bulk: false, affirm: [], note: null })),
     seen: { fingerprint: '', local_hash: '', decisions_hash: '', exposures }, header: {}, closed: false, touched: 0,
   }
 }
@@ -234,15 +251,193 @@ describe('the review grammar', () => {
     expect(applyHiddenEdgeReply(r, 'reject 2,3')).toEqual({ verb: 'reject', ns: [2, 3] })
     expect(applyHiddenEdgeReply(r, 'done')).toEqual({ verb: 'done' })
   })
+
+  it('affirms nothing on an accept, unless it names the findings: pending ones, numbered as show numbers them, one accept each', async () => {
+    const { local, exposures, list } = await candidates()
+    const r = review(local, exposures, list)
+    const code = (reply: string) => {
+      try {
+        applyHiddenEdgeReply(r, reply)
+        return null
+      } catch (err) {
+        return (err as ReplyRefusal).code
+      }
+    }
+    expect(applyHiddenEdgeReply(r, 'accept 2')).toEqual({ verb: 'accept', ns: [2] })
+    expect(r.candidates[1]).toMatchObject({ choice: 'accept', affirm: [], note: null })
+    // candidate 2 cites e1, pending: its finding 1
+    expect(applyHiddenEdgeReply(r, 'accept 2 affirm 1')).toEqual({ verb: 'accept', ns: [2], affirm: [1], note: false })
+    expect(r.candidates[1]).toMatchObject({ choice: 'accept', affirm: ['e1'], note: null })
+    // candidate 3 cites e2 (confirmed) and e1 (named by candidate 2's accept already)
+    expect(code('accept 3 affirm 1')).toBe('argument_invalid')
+    expect(code('accept 3 affirm 2')).toBe('argument_invalid')
+    expect(code('accept 3 affirm 9')).toBe('argument_invalid')
+    expect(code('accept 2,3 affirm 1')).toBe('reply_unparsed')
+    expect(code('accept 2 affirm')).toBe('reply_unparsed')
+    expect(code('accept 2 note: seen')).toBe('argument_invalid')
+    // a skip drops what the accept named: the finding is free for another accept
+    applyHiddenEdgeReply(r, 'skip 2')
+    expect(r.candidates[1]).toMatchObject({ choice: 'skip', affirm: [] })
+    expect(applyHiddenEdgeReply(r, 'accept 3 affirm 2 note: seen in the lab')).toEqual({ verb: 'accept', ns: [3], affirm: [2], note: true })
+    expect(r.candidates[2]).toMatchObject({ affirm: ['e1'], note: 'seen in the lab' })
+    // a note may itself say affirm or note: the first note: starts it
+    applyHiddenEdgeReply(r, 'accept 3 affirm 2 note: I affirm it; note: twice')
+    expect(r.candidates[2]).toMatchObject({ affirm: ['e1'], note: 'I affirm it; note: twice' })
+    // a plain accept after it drops what it named
+    applyHiddenEdgeReply(r, 'accept 3')
+    expect(r.candidates[2]).toMatchObject({ affirm: [], note: null })
+    // accept-all affirms nothing, and takes only what is still open (2 was skipped)
+    expect(applyHiddenEdgeReply(r, 'accept-all')).toEqual({ verb: 'accept-all', accepted: [1], held: [] })
+    expect(r.candidates[0]).toMatchObject({ bulk: true, affirm: [] })
+  })
+
+  it('caps the note so that its reason, marker included, fits the platform; refuses one holding this session’s credentials', async () => {
+    const { local, exposures, list } = await candidates()
+    const r = review(local, exposures, list)
+    const id = list[1]!.id
+    expect(`${affirmReason('x'.repeat(NOTE_MAX), id)}${AFFIRM_MARKER}`.length).toBe(REASON_MAX)
+    expect(applyHiddenEdgeReply(r, `accept 2 affirm 1 note: ${'x'.repeat(NOTE_MAX)}`)).toMatchObject({ note: true })
+    expect(() => applyHiddenEdgeReply(r, `accept 2 affirm 1 note: ${'x'.repeat(NOTE_MAX + 1)}`)).toThrow(/at most/)
+    expect(() => applyHiddenEdgeReply(r, 'accept 2 affirm 1 note:   ')).toThrow(/empty/)
+    expect(() => applyHiddenEdgeReply(r, 'accept 2 affirm 1 note: a\nb')).toThrow(/one line/)
+    const secret = `tok-${randomBytes(12).toString('hex')}`
+    registerSecret(secret)
+    let message = ''
+    try {
+      applyHiddenEdgeReply(r, `accept 2 affirm 1 note: see ${secret}`)
+    } catch (err) {
+      message = (err as Error).message
+    }
+    expect(message).toMatch(/credentials/)
+    expect(message).not.toContain(secret)
+  })
+})
+
+describe('the views', () => {
+  // a pending finding caps the evidence at Medium, yet High stays reachable on the pair: the module's basis
+  const basis = { confirmed: false, gates: 1, gates_stated: 0, raises: 0, lowers: 0, high_reachable: true, caps: ['pending'] }
+  const part = (over: Record<string, unknown> = {}) => ({
+    row: 'remote-service/rs-3', role: 'target', relation: 'same-segment', exposure: 'e1', anchor: 'A', matched: ['T1021'], path: 'T1021', foothold: 'B', reached: 'A',
+    anchored_end: null, shared: 'SEG', flow: null, item: null, low: null, tier: 'medium', basis, facts: [{ at: ['attributes:A#tls_enabled'], value: false, effect: 'meets_gate', gate: 0 }], facts_total: 3, ...over,
+  })
+
+  it('reads the names, classes and nesting the stories use from the files', async () => {
+    const { local } = await candidates()
+    expect(local.components.get('B')).toMatchObject({ name: 'web', className: 'Web Server', parent: 'SEG' })
+    expect(local.boundaries.get('SEG')).toMatchObject({ className: 'Network Segment', parent: 'root' })
+    expect(local.flows.get('f1')).toMatchObject({ name: 'query' })
+  })
+
+  it('gives a row its path and evidence line only when the module explained it', async () => {
+    const { local, exposures, list } = await candidates()
+    const plain = review(local, exposures, list)
+    expect(Object.keys(rowOf(plain, plain.candidates[1]!))).not.toContain('path')
+    const explained = review(local, exposures, [{ ...list[1]!, explain: { parts: [part()], parts_total: 1, crown_jewel: { source: false, target: false }, remedies: [], remedies_total: 0 } } as Candidate])
+    const row = rowOf(explained, explained.candidates[0]!)
+    expect(row.path).toBe('From web (Web Server), in the same "Segment" as api, an attacker uses T1021 against api, where "exp e1" was found, with user rights on web (rule assumption).')
+    expect(row.evidence_why).toBe('Evidence: Medium. The finding is pending (Medium at most); 0 of the 1 condition High needs is met.')
+    // a long name: the path is cut
+    const long = review({ ...local, components: new Map([...local.components, ['B', { ...local.components.get('B')!, name: 'w'.repeat(400) }]]) }, exposures, explained.candidates)
+    expect((rowOf(long, long.candidates[0]!).path as string).length).toBeLessThanOrEqual(PATH_CHARS)
+  })
+
+  it('shows a candidate’s findings numbered, the other ways in, the facts, the remedies, the rule and its defaults', async () => {
+    const { local, exposures, list } = await candidates()
+    const x = { parts: [part(), part({ row: 'remote-service/rs-2', shared: null })], parts_total: 4, crown_jewel: { source: false, target: false }, remedies: null, remedies_total: 0 }
+    const r = review(local, exposures, [{ ...list[2]!, explain: x } as Candidate])
+    r.explained = { rationale: { 'remote-service/rs-3': 'a flat tier lets any peer reach a service' }, limits: null }
+    const shown = showOf(r, r.candidates[0]!)
+    // candidate 3 cites e2 (confirmed) then e1 (pending): the numbers accept <n> affirm <k> takes
+    expect(shown.findings).toEqual([
+      { k: 1, finding: 'exp e2', on: 'SEG', state: 'confirmed, affirmed' },
+      { k: 2, finding: 'exp e1', on: 'B', state: 'pending', affirmable: true },
+    ])
+    expect(shown.other_ways).toEqual(['From web (Web Server), an attacker uses T1021 against api, where "exp e1" was found, with user rights on web (rule assumption).'])
+    expect(shown.other_ways_more).toBe(2)
+    expect(shown.facts_weighed).toEqual([{ fact: 'tls_enabled on "api"', value: false, effect: 'meets 1 of the 1 condition High needs' }])
+    expect(shown.facts_more).toBe(2)
+    expect(shown.remedies).toEqual(['The module left out what removes this edge, for time.'])
+    expect(shown.rationale).toBe('a flat tier lets any peer reach a service')
+    expect(shown.rule_defaults).toBe('capability opportunistic, requires user, grants user: rule defaults, not checked for this edge')
+    // left out for size: said, with the findings still numbered
+    const omitted = review(local, exposures, [{ ...list[2]!, explain: { omitted: 'size' } } as Candidate])
+    expect(showOf(omitted, omitted.candidates[0]!)).toMatchObject({ explanation: "the module left out this edge's explanation, for size", findings: [{ k: 1 }, { k: 2 }] })
+  })
+
+  it('says where the module’s caps left the list short, and nothing when they did not', () => {
+    const limits = { per_kind_budget: 50, max_peers: 20, by_kind: { 'remote-service': { listed: 50, not_listed: 7, pairs_capped: 3, anchors_over_budget: 0 } }, explain_trimmed: 2, remedies_skipped: 1 }
+    expect(limitsLines(limits)).toEqual([
+      'The list is incomplete: Remote service 50 listed, 7 not. The module lists at most 50 edges of a kind; decide some, then run hidden edges again, to see the rest.',
+      'The module walked a limited number of starting points (at most 20 peers each): Remote service 3 pair(s) past the cap, 0 finding(s) past their budget. A change that removes the paths it walked may leave others.',
+      'The module left out 2 edge explanation(s), for size.',
+      'The module left out what removes 1 edge(s), for time.',
+    ])
+    expect(limitsLines({ ...limits, by_kind: {}, explain_trimmed: 0, remedies_skipped: 0 })).toEqual([])
+    expect(limitsLines(undefined)).toEqual([])
+  })
+})
+
+describe('what removes it, and this session’s credentials in the views', () => {
+  const basis = { confirmed: true, gates: 0, gates_stated: 0, raises: 0, lowers: 0, high_reachable: false, caps: ['no_gate'] }
+  const part = { row: 'remote-service/rs-3', role: 'target', relation: 'same-segment', exposure: 'e1', anchor: 'A', matched: ['T1021'], path: 'T1021', foothold: 'B', reached: 'A',
+    anchored_end: null, shared: 'SEG', flow: null, item: null, low: null, tier: 'medium', basis, facts: [], facts_total: 0 }
+  const with_ = (list: Candidate[], remedies: unknown) => list.map((c) => ({ ...c, explain: { parts: [part], parts_total: 1, crown_jewel: { source: false, target: false }, remedies, remedies_total: Array.isArray(remedies) ? remedies.length : 0 } }) as Candidate)
+
+  it('gives a row its first remedy in words, cut to 120, and nothing when there is none or it was left out', async () => {
+    const { local, exposures, list } = await candidates()
+    const one = [list[1]!]
+    const r = review(local, exposures, with_(one, [{ set: [{ at: 'attributes:A#hardened' }], outcome: 'removes' }]))
+    expect(rowOf(r, r.candidates[0]!).removes_if).toBe('The edge goes if the model states hardened = true on "api".')
+    const long = review(local, exposures, with_(one, [{ control_classes: ['A'.repeat(64), 'B'.repeat(64)], attributes_true: [], item_classes: [], on: 'A', outcome: 'removes' }]))
+    expect((rowOf(long, long.candidates[0]!).removes_if as string).length).toBe(120)
+    for (const none of [[], null]) {
+      const r2 = review(local, exposures, with_(one, none))
+      expect(Object.keys(rowOf(r2, r2.candidates[0]!))).not.toContain('removes_if')
+    }
+  })
+
+  it('takes this session’s credentials out before a cut, so a cut never leaves part of one', async () => {
+    const { local, list } = await candidates()
+    const secret = `bearer-${'5c'.repeat(12)}`
+    registerSecret(secret)
+    // the credential straddles the 80-character cut of a finding's name
+    const name = `${'n'.repeat(70)}${secret}`
+    const exposures = new Map([['e1', exposure('e1', 'B', 'pending', { name })], ['e2', exposure('e2', 'SEG', 'confirmed')]])
+    const r = review(local, exposures, with_([list[1]!], []))
+    const text = JSON.stringify([rowOf(r, r.candidates[0]!), showOf(r, r.candidates[0]!)])
+    expect(text).not.toContain(secret.slice(0, 12))
+    expect(rowOf(r, r.candidates[0]!).exposures).toEqual([`${'n'.repeat(70)}[redacted]`])
+    expect(rowOf(r, r.candidates[0]!).path).toContain('[redacted]')
+  })
+
+  it('takes them out before the cuts of the apply and take-back lines too', async () => {
+    const { local, exposures, list, dir } = await candidates()
+    const secret = `bearer-${'6d'.repeat(12)}`
+    registerSecret(secret)
+    // the credential straddles the 60-character cut of a component's name, and of a finding's element
+    const named = { ...local, components: new Map([...local.components].map(([id, c]) => [id, id === 'A' ? { ...c, name: `${'a'.repeat(50)}${secret}` } : c])) }
+    const r = review(named, exposures, list, dir)
+    applyHiddenEdgeReply(r, 'accept 1')
+    applyHiddenEdgeReply(r, 'done')
+    const lines = planApply(r, exposures, 'x').lines.join('\n')
+    expect(lines).not.toContain(secret.slice(0, 8))
+    expect(lines).toContain(`${'a'.repeat(50)}[redacted]`)
+    const id = candidateId('remote-service', 'A', 'B')
+    const d = { ...signDecision({ key: randomBytes(32), modelHash: 'm'.repeat(64) }, { id, kind: 'remote-service', source: 'A', target: 'B', verb: 'accepted', flow_id: 'p-1', technique_ids: ['T1021'], exposure_ids: ['e2'], at: '' }), verified: true }
+    const now = new Map([['e2', exposure('e2', 'SEG', 'confirmed', { element_name: `${'s'.repeat(55)}${secret}`, full_reason: `${affirmReason(null, id)}${AFFIRM_MARKER}` })]])
+    const back = planRecord(d, now, { id: 'model-1', name: 'Shop' }, 'x').lines.join('\n')
+    expect(back).not.toContain(secret.slice(0, 4))
+    expect(back).toContain(`${'s'.repeat(55)}[re`)
+  })
 })
 
 describe('the apply', () => {
   const signer = (): Signer => ({ key: randomBytes(32), modelHash: 'm'.repeat(64) })
 
-  it('plans a flow of the class the module named, with its module, and a signed accept per accept, an unsigned reject, and affirms only a one-by-one accept’s pending findings', async () => {
+  it('plans a flow of the class the module named, with its module, and a signed accept per accept, an unsigned reject, and affirms only the findings an accept names', async () => {
     const { local, exposures, list, dir } = await candidates()
     const r = review(local, exposures, list, dir)
-    applyHiddenEdgeReply(r, 'accept 2')
+    applyHiddenEdgeReply(r, 'accept 2 affirm 1')
     applyHiddenEdgeReply(r, 'reject 3')
     applyHiddenEdgeReply(r, 'accept-all')
     const plan = planApply(r, exposures, '2026-11-17T00:00:00.000Z')
@@ -252,9 +447,32 @@ describe('the apply', () => {
     ])
     expect(plan.flows[1]!.attributes).toMatchObject({ attributes: { hidden_edge_kind: 'remote-service', technique_ids: ['T1021'], source_exposure_ids: ['e1'], proposed_by: 'rule', tier: 'medium', required_privilege: 'user' } })
     expect(plan.decisions.map((d) => [d.verb, d.flow_id === null])).toEqual([['accepted', false], ['accepted', false], ['rejected', true]])
-    // accept 2 was one by one: its pending e1 is affirmed; accept-all's candidate 1 cites only confirmed e2 and affirms nothing
+    // accept 2 named its pending e1: affirmed, with the reason that says so; accept-all affirms nothing
     expect(plan.affirmations.map((o) => [o.exposure_id, o.kind, o.status])).toEqual([['e1', 'AFFIRMED', 'ready']])
+    expect(plan.affirmations[0]).toMatchObject({
+      reason: `Affirmed by the operator, who named it in "accept … affirm" for hidden edge ${list[1]!.id}; no note given${AFFIRM_MARKER}`,
+    })
     expect(plan.lines[1]).toBe('2 hidden edge(s) to add to the local files, 1 to reject, 1 exposure(s) to affirm on the platform')
+  })
+
+  it('affirms nothing for a plain accept; a note is the reason; a finding no longer pending is left, and said', async () => {
+    const { local, exposures, list, dir } = await candidates()
+    const plain = review(local, exposures, list, dir)
+    applyHiddenEdgeReply(plain, 'accept 2')
+    applyHiddenEdgeReply(plain, 'done')
+    expect(planApply(plain, exposures, '2026-11-17T00:00:00.000Z').affirmations).toEqual([])
+    const noted = review(local, exposures, list, dir)
+    applyHiddenEdgeReply(noted, 'accept 2 affirm 1 note: seen in the lab')
+    applyHiddenEdgeReply(noted, 'done')
+    const notedPlan = planApply(noted, exposures, 'x')
+    expect(notedPlan.affirmations[0]).toMatchObject({ reason: `seen in the lab (affirmed with the accepted hidden edge ${list[1]!.id})${AFFIRM_MARKER}` })
+    // the operator sees the reason in full, once per accept, before answering yes
+    expect(notedPlan.lines).toContain(`  Affirmed with [2], reason: seen in the lab (affirmed with the accepted hidden edge ${list[1]!.id})${AFFIRM_MARKER}`)
+    // decided on the platform since the reply
+    const now = new Map([...exposures, ['e1', exposure('e1', 'B', 'confirmed', { disposition_kind: 'AFFIRMED', dispositioned_by: 'someone' })]])
+    const plan = planApply(noted, now, 'x')
+    expect(plan.affirmations).toEqual([])
+    expect(plan.lines).toContain('  Not affirmed (no longer pending with no disposition): "exp e1"')
   })
 
   it('writes the attribute files, then dataflows.json, then the decisions; refuses, writing nothing, when the files changed', async () => {
@@ -278,13 +496,35 @@ describe('the apply', () => {
     expect(read.status === 'ok' && read.decisions.map((d) => [d.verb, d.verified, d.flow_id])).toEqual([['accepted', true, id]])
   })
 
-  it('takes back an accepted edge as a reject, listing the affirmed findings it cites for triage', () => {
+  it('counts as this edge’s affirmation only the reason it generated, 0.7.0’s included, never an id in the operator’s note', () => {
+    const id = candidateId('remote-service', 'A', 'B')
+    const other = candidateId('remote-service', 'B', 'A')
+    const ok = (body: string) => affirmedByEdge(`${body}${AFFIRM_MARKER}`, id)
+    expect(ok(affirmReason(null, id))).toBe(true)
+    expect(ok(affirmReason('seen in the lab', id))).toBe(true)
+    expect(ok(`Affirmed by the accepted hidden edge ${id}`)).toBe(true)
+    expect(ok(`Affirmed by the accepted hidden edges ${other}, ${id}`)).toBe(true)
+    // another edge's accept, its note naming this one
+    expect(ok(affirmReason(`as for ${id}`, other))).toBe(false)
+    expect(ok(affirmReason(`${affirmReason(null, id)}`, other))).toBe(false)
+    expect(ok(`Affirmed by the accepted hidden edges ${other}`)).toBe(false)
+    expect(affirmedByEdge(affirmReason(null, id), id)).toBe(false)
+  })
+
+  it('takes back an accepted edge, listing for triage only the findings this edge’s accept affirmed', () => {
     const s = signer()
-    const d = { ...signDecision(s, { id: candidateId('remote-service', 'A', 'B'), kind: 'remote-service', source: 'A', target: 'B', verb: 'accepted', flow_id: 'p-1', technique_ids: ['T1021'], exposure_ids: ['e1', 'e2'], at: '' }), verified: true }
-    const now = new Map([['e1', exposure('e1', 'B', 'pending')], ['e2', exposure('e2', 'SEG', 'confirmed')]])
+    const id = candidateId('remote-service', 'A', 'B')
+    const d = { ...signDecision(s, { id, kind: 'remote-service', source: 'A', target: 'B', verb: 'accepted', flow_id: 'p-1', technique_ids: ['T1021'], exposure_ids: ['e1', 'e2', 'e3'], at: '' }), verified: true }
+    const now = new Map([
+      ['e1', exposure('e1', 'B', 'pending')],
+      ['e2', exposure('e2', 'SEG', 'confirmed', { full_reason: `${affirmReason(null, id)}${AFFIRM_MARKER}` })],
+      // affirmed in triage on its own grounds: not this edge's to mention
+      ['e3', exposure('e3', 'B', 'confirmed', { full_reason: 'Reachable from the internet — AI-assisted triage, operator-approved' })],
+    ])
     const plan = planRecord(d, now, { id: 'model-1', name: 'Shop' }, '2026-11-17T00:00:00.000Z')
-    expect(plan.decision).toMatchObject({ verb: 'rejected', flow_id: null, id: d.id })
-    expect(plan.lines.slice(2)).toEqual(['1 exposure(s) it cites are affirmed; if the edge was their only ground, clear them in /dethereal:triage:', '  "exp e2" (SEG)'])
+    expect(plan.decision).toMatchObject({ flow_id: null, id: d.id })
+    expect(plan.decision).not.toHaveProperty('verb')
+    expect(plan.lines.slice(5)).toEqual(['1 exposure(s) it cites are affirmed; if the edge was their only ground, clear them in /dethereal:triage:', '  "exp e2" (SEG)'])
   })
 })
 
@@ -358,7 +598,7 @@ describe('the review folds', () => {
     const r = review(local, exposures, [{ ...list[1]!, fields: { transport_state: 'cleartext' } }])
     applyHiddenEdgeReply(r, 'edit 1 transport_state: unstated')
     applyHiddenEdgeReply(r, 'edit 1 rationale: the VPN terminates on the web tier')
-    applyHiddenEdgeReply(r, 'accept 1')
+    applyHiddenEdgeReply(r, 'accept 1 affirm 1')
     applyHiddenEdgeReply(r, 'done')
     const plan = planApply(r, exposures, '2026-11-17T00:00:00.000Z')
     expect(plan.lines).toContain('    capability opportunistic, requires user, grants user; transport_state=unstated')
@@ -427,5 +667,21 @@ describe('the inferred mark, at its edges', () => {
     const flow = { id: 'p-1', source: { id: 'A' }, target: { id: 'B' }, classData: { id: REMOTE.id, module: REMOTE.module } }
     expect(isHiddenEdgeFlow(flow, standing([accepted]))).toBe(true)
     expect(isHiddenEdgeFlow(flow, standing([accepted, back]))).toBe(false)
+  })
+})
+
+describe("a publish's lines", () => {
+  it('say each reason for leaving edges out once, with their numbers in ranges; a reason of one edge names it', async () => {
+    const { edgePublishLines, ranges } = await import('../publish.js')
+    expect(ranges([9, 3, 4, 5, 1, 4])).toBe('1, 3–5, 9')
+    const review = { model_name: 'Shop', local: { components: new Map() }, candidates: [] } as unknown as HiddenEdgeReview
+    const none = 'the analyst returned no argument for it: decide it here'
+    const left = [...[4, 5, 6, 7, 9].map((n) => ({ n, candidate_id: `c${n}`, why: none })), { n: 8, candidate_id: 'c8', why: 'it is in the model already as a flow' }]
+    const lines = edgePublishLines(review, { edges: [], left, dropped_locators: 0 }, { analysisId: 'a1' })
+    expect(lines.slice(lines.indexOf('Not sent (6 edges):'), lines.indexOf('Not sent (6 edges):') + 3)).toEqual([
+      'Not sent (6 edges):',
+      `  Edges 4–7, 9 (5), each: ${none}`,
+      '  Edge 8: it is in the model already as a flow',
+    ])
   })
 })

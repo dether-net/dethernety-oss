@@ -5,7 +5,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { LOG_FILE, LOG_LIMITS, recordedText, recordReview, RecordError, refuseWhenFull, trimLog, VERBATIM_MAX, type LoggedReview } from '../log.js'
+import { execFileSync } from 'node:child_process'
+import os from 'node:os'
+import { LOG_FILE, LOG_LIMITS, PUBLISHED_KEPT_WHOLE, readLocalJson, recordedText, recordReview, RecordError, refuseWhenFull, trimLog, VERBATIM_MAX, type LoggedReview } from '../log.js'
 
 const base = process.cwd()
 let root: string
@@ -167,15 +169,66 @@ describe('trimLog', () => {
 describe('the trim keeps what left this machine', () => {
   const entry = (id: string, published = false) => ({ review_id: id, mode: 'review', opened_at: 't', groups: 1, replies: [], applies: [], ...(published ? { published: [{ at: 't', plan_id: 'p', analysis_id: 'a', exposure_ids: ['e'], not_stored: [], results: {}, fingerprints: 'open' as const }] } : {}) })
 
-  it('drops a review never published, never one that was', () => {
-    const reviews = [entry('old-published', true), ...Array.from({ length: LOG_LIMITS.reviews }, (_, i) => entry(`r${i}`))]
-    const kept = trimLog(reviews, 'r0')
+  it('drops a review never published, never one that was: the count applies to unpublished reviews only', () => {
+    const reviews = [entry('old-published', true), ...Array.from({ length: LOG_LIMITS.reviews + 1 }, (_, i) => entry(`r${i}`))]
+    const kept = trimLog(reviews, 'r1')
     expect(kept.map((r) => r.review_id)).toContain('old-published')
-    expect(kept).toHaveLength(LOG_LIMITS.reviews)
+    expect(kept.map((r) => r.review_id)).not.toContain('r0')
+    expect(kept).toHaveLength(LOG_LIMITS.reviews + 1)
   })
 
-  it('a record of published reviews only, past its limit, refuses rather than lose one', () => {
-    const reviews = [...Array.from({ length: LOG_LIMITS.reviews }, (_, i) => entry(`p${i}`, true)), entry('active')]
-    expect(() => trimLog(reviews, 'active')).toThrow(/holds only published reviews/)
+  const withReplies = (id: string, size = 10) => ({
+    ...entry(id, true), replies: [{ at: 't', reply: 'r'.repeat(size), outcome: { verb: 'accept' } }],
+    applies: [{ at: 't1', plan_id: 'p', reply: 'yes', outcome: { published: 1, not_stored: 0 } }, { at: 't0', plan_id: 'p', reply: 'maybe', outcome: { refused: 'reply_not_answer' } }, { at: 't2', plan_id: 'q', reply: 'yes', outcome: { written: 1, failed: 0 } }],
+  })
+
+  it('past its count with published reviews only, keeps every one whole while the bytes are fine', () => {
+    const reviews = [...Array.from({ length: LOG_LIMITS.reviews + 5 }, (_, i) => withReplies(`p${i}`)), entry('active')]
+    expect(trimLog(reviews, 'active')).toEqual(reviews)
+  })
+
+  it('over its bytes, compacts the older published reviews, keeping each publish and the typed answer behind it', () => {
+    const reviews = [...Array.from({ length: 12 }, (_, i) => withReplies(`p${i}`, 80_000)), entry('active')]
+    const kept = trimLog(reviews, 'active')
+    expect(kept.map((r) => r.review_id)).toEqual(reviews.map((r) => r.review_id))
+    expect(Buffer.byteLength(JSON.stringify({ reviews: kept }, null, 2))).toBeLessThanOrEqual(LOG_LIMITS.bytes)
+    const older = kept.slice(0, 12 - PUBLISHED_KEPT_WHOLE)
+    expect(older[0]).toEqual({ review_id: 'p0', mode: 'review', opened_at: 't', groups: 1, replies: [], applies: [reviews[0]!.applies[0]], published: reviews[0]!.published })
+    // the newest published reviews are kept whole
+    expect(kept.slice(12 - PUBLISHED_KEPT_WHOLE, 12)).toEqual(reviews.slice(12 - PUBLISHED_KEPT_WHOLE, 12))
+  })
+
+  it('compacts a hidden-edge record the same way, and refuses only when it is still over its bytes', () => {
+    const he = { file: 'hidden-edges-log.json', name: 'hidden-edge record' }
+    const edges = (id: string, size: number) => ({
+      review_id: id, mode: 'hidden-edges', opened_at: 't', groups: 1, replies: [{ at: 't', reply: 'r'.repeat(size), outcome: { verb: 'skip' } }],
+      applies: [{ at: 't', plan_id: 'p', reply: 'yes', outcome: { published: 1, not_stored: 0 } }],
+      published_edges: [{ at: 't', plan_id: 'p', analysis_id: 'a', edges: {}, not_stored: [], results: {}, fingerprints: 'open' as const }],
+    })
+    const kept = trimLog([...Array.from({ length: 30 }, (_, i) => edges(`he${i}`, 40_000)), entry('active')], 'active', he)
+    expect(kept).toHaveLength(31)
+    expect(kept.filter((r) => r.replies.length).map((r) => r.review_id)).toEqual(['he25', 'he26', 'he27', 'he28', 'he29'])
+    expect(kept.every((r) => r.review_id === 'active' || r.applies.length === 1)).toBe(true)
+    // the newest whole ones alone over the bytes: compaction cannot help
+    const big = [...Array.from({ length: PUBLISHED_KEPT_WHOLE }, (_, i) => edges(`big${i}`, 200_000)), entry('active')]
+    expect(() => trimLog(big, 'active', he)).toThrow(/hidden-edge record is at its size limit/)
+  })
+})
+
+describe('a local record or discovery file, read', () => {
+  it('is a regular file only: a pipe or a directory reads as none, and never blocks', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'local-json-'))
+    try {
+      await fs.writeFile(path.join(dir, 'ok.json'), '{"a":1}')
+      expect(await readLocalJson(path.join(dir, 'ok.json'))).toEqual({ a: 1 })
+      await fs.mkdir(path.join(dir, 'dir.json'))
+      expect(await readLocalJson(path.join(dir, 'dir.json'))).toBeNull()
+      // a pipe with no writer would hang a read
+      execFileSync('mkfifo', [path.join(dir, 'pipe.json')])
+      expect(await readLocalJson(path.join(dir, 'pipe.json'))).toBeNull()
+      expect(await readLocalJson(path.join(dir, 'absent.json'))).toBeNull()
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
   })
 })

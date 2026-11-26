@@ -326,7 +326,7 @@ const ARGS: Record<string, Record<string, unknown>> = {
 }
 
 /** Tools that must have reached the hostile platform, or the echo channel was never exercised. */
-const MUST_REACH_PLATFORM = ['list_models', 'get_classes', 'search_mitre_attack', 'manage_controls', 'export_model', 'query_controls', 'get_kg_chain', 'get_class_guide', 'triage_review', 'manage_dispositions', 'hidden_edges']
+const MUST_REACH_PLATFORM = ['list_models', 'get_classes', 'search_mitre_attack', 'manage_controls', 'export_model', 'query_controls', 'get_kg_chain', 'get_class_guide', 'triage_review', 'manage_dispositions', 'hidden_edges', 'hidden_edges published']
 
 describe('token canary (built server over stdio)', () => {
   let root: string
@@ -419,6 +419,13 @@ describe('token canary (built server over stdio)', () => {
         if (platform.graphqlRequests > before) reached.push(name)
         leaks.push(...leaksIn(name, text))
         if (text.includes('tokens.json') || text.includes(sandbox.home)) leaks.push(`${name}: token store path`)
+        if (name === 'hidden_edges') {
+          // The read-back of published edges asks the review module itself: its answer is scanned too.
+          const sent = platform.graphqlRequests
+          const back = textOf(await s.client.callTool({ name, arguments: { action: 'published', directory_path: 'canary-hidden-edges' } }))
+          if (platform.graphqlRequests > sent) reached.push('hidden_edges published')
+          leaks.push(...leaksIn('hidden_edges published', back))
+        }
         if (name === 'model_state_settle') {
           // Past the schema and the store: the item was recorded.
           expect(JSON.parse(text)).toMatchObject({ recorded: 1, decisions: { confirm: 1 } })

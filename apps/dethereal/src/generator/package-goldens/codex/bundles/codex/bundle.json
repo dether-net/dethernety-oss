@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "harness": "codex",
   "version": "<VERSION>",
-  "generatedFrom": "aceadd0a66a91b69e7ed8cb2d7ad25aed08cadecddf0a7eba85392de8a722eff",
-  "contentHash": "015fecc3e07cab7f11eef1d896cb74114af32b62c83165d815cfa573b626954c",
+  "generatedFrom": "6bc2934bbd9352d826cefdd65ddc966544dae8394fbe7a87581674475f3fe49b",
+  "contentHash": "02db83723bf85b18e0934eed2c946b9ed2cea19a2b5763c342ac1e50c15f9459",
   "files": [
     {
       "path": "bundles/codex/.agents/plugins/marketplace.json",
@@ -15,7 +15,7 @@
     },
     {
       "path": "bundles/codex/agents/dethereal-hidden-edge-analyst.toml",
-      "sha256": "b4080ba42fdcb1ace09e7ace7a068d6419bb2eb910a8b8ea05663d88df02b3d8"
+      "sha256": "0056f1ac997def2a8c6e2cfecdfebd4e55a424323b475554d4c9619b57b1d625"
     },
     {
       "path": "bundles/codex/agents/dethereal-infrastructure-scout-scoped.toml",
@@ -231,7 +231,11 @@
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/hidden-edges/SKILL.md",
-      "sha256": "fb89b74b22059f0accbdf92d7477850f9e3f4d8dcd768b46577e5e5e2f5de56f"
+      "sha256": "d6e3c0eb767ab979a220136c74196afb1f2b831b92399d9a0f20a9015972570e"
+    },
+    {
+      "path": "bundles/codex/plugins/dethereal/skills/hidden-edges/hidden-edges-publish.md",
+      "sha256": "ad265dbdeedb0e384c54e60d4fa4db4434bf29b8981abd4b017d31a2198ce345"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/login/SKILL.md",
@@ -239,7 +243,7 @@
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/remove/SKILL.md",
-      "sha256": "df6f9a6992373e79fe924b58a51e0a54566922463e14270fcec4cd90d1c0400b"
+      "sha256": "27f2da8cf74e11430b3ed902c745940003b0487164bc1372b27fa9cf6752abe6"
     },
     {
       "path": "bundles/codex/plugins/dethereal/skills/remove/git-undo.md",

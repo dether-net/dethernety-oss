@@ -1,0 +1,165 @@
+{
+ "contract": 1,
+ "module": "dethernety-hidden-edges",
+ "version": "0.2.0",
+ "table_hash": "c1861b0035e871422084cabdcd65c684d86757434586fca92db6067e10e7019a",
+ "regime": {
+  "kg": "kg_absent",
+  "reason": "unavailable"
+ },
+ "candidates": [
+  {
+   "id": "he:2203e51cfc2c2a4d",
+   "kind": "host-escape",
+   "source": "A",
+   "target": "B",
+   "technique_ids": [
+    "T1611"
+   ],
+   "cited_techniques": [
+    "T1611"
+   ],
+   "exposure_ids": [
+    "x"
+   ],
+   "totals": {
+    "exposure_ids": 1,
+    "facts": 2,
+    "cited_techniques": 1
+   },
+   "rows": [
+    "host-escape/he-1"
+   ],
+   "tier": "high",
+   "defaults": {
+    "required_capability": "targeted",
+    "required_privilege": "admin",
+    "granted_privilege": "system"
+   },
+   "fields": {
+    "escape_vector": "configuration"
+   },
+   "facts": [
+    "attributes:C1#container_capabilities_dropped_to_minimal",
+    "attributes:C1#container_privileged_mode_disabled"
+   ],
+   "class": {
+    "id": "5dd61304-76ae-4439-893f-2eba21c6c77a",
+    "name": "Hidden Edge: Host Escape"
+   }
+  },
+  {
+   "id": "he:c674947b432ed48a",
+   "kind": "host-escape",
+   "source": "A",
+   "target": "D",
+   "technique_ids": [
+    "T1611"
+   ],
+   "cited_techniques": [
+    "T1611"
+   ],
+   "exposure_ids": [
+    "x"
+   ],
+   "totals": {
+    "exposure_ids": 1,
+    "facts": 2,
+    "cited_techniques": 1
+   },
+   "rows": [
+    "host-escape/he-1"
+   ],
+   "tier": "high",
+   "defaults": {
+    "required_capability": "targeted",
+    "required_privilege": "admin",
+    "granted_privilege": "system"
+   },
+   "fields": {
+    "escape_vector": "configuration"
+   },
+   "facts": [
+    "attributes:C1#container_capabilities_dropped_to_minimal",
+    "attributes:C1#container_privileged_mode_disabled"
+   ],
+   "class": {
+    "id": "5dd61304-76ae-4439-893f-2eba21c6c77a",
+    "name": "Hidden Edge: Host Escape"
+   }
+  },
+  {
+   "id": "he:b4a82c93d58cb249",
+   "kind": "host-escape",
+   "source": "E",
+   "target": "N",
+   "technique_ids": [
+    "T1611"
+   ],
+   "cited_techniques": [
+    "T1611"
+   ],
+   "exposure_ids": [
+    "m"
+   ],
+   "totals": {
+    "exposure_ids": 1,
+    "facts": 0,
+    "cited_techniques": 1
+   },
+   "rows": [
+    "host-escape/he-1"
+   ],
+   "tier": "low",
+   "defaults": {
+    "required_capability": "targeted",
+    "required_privilege": "admin",
+    "granted_privilege": "system"
+   },
+   "fields": {
+    "escape_vector": "unstated"
+   },
+   "facts": [],
+   "class": {
+    "id": "5dd61304-76ae-4439-893f-2eba21c6c77a",
+    "name": "Hidden Edge: Host Escape"
+   }
+  }
+ ],
+ "counts": {
+  "elementsWithoutClass": 0,
+  "elementsWithSeveralClasses": 0,
+  "boundariesWithSeveralParents": 0,
+  "boundaryDepthCut": false,
+  "flowsWithSeveralEnds": 0,
+  "exposuresOnSeveralElements": 0,
+  "danglingReferences": 0,
+  "attributeKeysDropped": 0,
+  "exposures_read": 2,
+  "exposures_feeding": 2,
+  "exposures_without_row": 0,
+  "hidden_edge_anchors_skipped": 0,
+  "anchors_without_segment": 0,
+  "anchors_without_host": 0,
+  "containers_without_host": 0,
+  "landings_without_segment": 0,
+  "flows_not_credential_bearing": 0,
+  "items_not_credential": 0,
+  "pairs_over_anchor_budget": 0,
+  "excluded_external_pair": 0,
+  "excluded_declared_flow": 0,
+  "excluded_reached_type": 0,
+  "excluded_by_breaker": 0,
+  "excluded_by_decision": 0,
+  "peers_capped": 0,
+  "kind_budget_dropped": 0,
+  "excluded_foothold_type": 2,
+  "kg_classes_capped": 0,
+  "boundaries": 5,
+  "components": 6,
+  "flows": 0,
+  "dataItems": 0,
+  "exposures": 2,
+  "controls": 0
+ }
+}

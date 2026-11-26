@@ -26,7 +26,7 @@ describe('hiddenEdgeCandidates', () => {
     const answer: any = JSON.parse(await resolvers.Query.hiddenEdgeCandidates(null, { modelId: 'm' }, { user: { sub: 'u1' } }));
     expect(answer).toMatchObject({ contract: CONTRACT_VERSION, module: MODULE_NAME, regime: { kg: 'kg_absent', reason: 'no_data' } });
     expect(Array.isArray(answer.candidates)).toBe(true);
-    expect(answer.counts).toMatchObject({ boundaries: 2, components: 2, flows: 1, dataItems: 1, exposures: 3, controls: 1 });
+    expect(answer.counts).toMatchObject({ boundaries: 2, components: 3, flows: 1, dataItems: 1, exposures: 3, controls: 1 });
     expect(sessions).toHaveLength(1);
     expect(sessions[0].config).toEqual({ database: 'memgraph', defaultAccessMode: 'READ' });
     expect(sessions[0].closed).toBe(true);
@@ -79,6 +79,34 @@ describe('hiddenEdgeCandidates', () => {
     const without: any = await mod.candidates({ modelId: 'm', options: JSON.stringify({ excluded: [first.id] }) });
     expect(without.candidates.map((c: any) => c.id)).not.toContain(first.id);
     expect(without.counts.excluded_by_decision).toBeGreaterThan(0);
+  });
+
+  it('answers in the contract asked for, and stamps a refusal with it once the options parse', async () => {
+    const mod = new DethernetyHiddenEdgesModule(fakeDriver().driver, logger());
+    const plain: any = await mod.candidates({ modelId: 'm' });
+    const asked: any = await mod.candidates({ modelId: 'm', options: JSON.stringify({ contract: 1 }) });
+    expect(asked).toEqual(plain);
+    expect(asked.contract).toBe(1);
+    const two: any = await mod.candidates({ modelId: 'm', options: JSON.stringify({ contract: 2 }) });
+    expect([two.contract, two.mode]).toEqual([2, 'candidates']);
+    expect(two.candidates.map(({ explain: _x, ...c }: any) => c)).toEqual(plain.candidates);
+    expect(two.candidates.every((c: any) => Array.isArray(c.explain.parts))).toBe(true);
+    // options that do not parse are refused as contract 1, which every client reads
+    expect(await mod.candidates({ modelId: 'm', options: JSON.stringify({ contract: 3 }) })).toMatchObject({ contract: 1, refusal: { code: 'options_invalid', detail: 'contract' } });
+    expect(await mod.candidates({ modelId: 'm', options: JSON.stringify({ contract: 2, excluded: ['he:1'] }) })).toMatchObject({ contract: 1, refusal: { code: 'options_invalid' } });
+    // once they parse, a refusal is in the contract asked for
+    const missing = new DethernetyHiddenEdgesModule(fakeDriver({ missing: true }).driver, logger());
+    expect(await missing.candidates({ modelId: 'm', options: JSON.stringify({ contract: 2 }) })).toMatchObject({ contract: 2, refusal: { code: 'model_not_found' } });
+  });
+
+  it('logs each phase’s duration at debug, and nothing of the model', async () => {
+    const log = { ...logger(), debug: vi.fn() };
+    const mod = new DethernetyHiddenEdgesModule(fakeDriver().driver, log);
+    const resolve = mod.getResolvers({ driver: fakeDriver().driver, logger: log }).Query.hiddenEdgeCandidates as any;
+    const text = await resolve(null, { modelId: 'm' }, { user: { sub: 'someone' } });
+    expect(JSON.parse(text).candidates.length).toBeGreaterThan(0);
+    expect(log.debug).toHaveBeenCalledTimes(1);
+    expect(log.debug.mock.calls[0][0]).toMatch(/^dethernety-hidden-edges: phases \(ms\) read=\d+ fold=\d+ match=\d+ bound=\d+ kg=\d+ explain=\d+ stringify=\d+$/);
   });
 
   it('refuses an option it does not read, so a newer client never has one dropped silently', async () => {

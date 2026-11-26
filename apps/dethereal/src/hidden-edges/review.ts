@@ -3,25 +3,47 @@
  * this process only, as triage's reviews are; nothing here writes a file or calls the platform.
  *
  * The grammar is triage's, with `reject`:
- *   accept <n>[,<n>…] · skip <n>… · reject <n>… · show <n> · show rejected · accept-all · done ·
+ *   accept <n>[,<n>…] · accept <n> affirm <k>[,<k>…] [note: <text>] · skip <n>… · reject <n>… · show <n> ·
+ *   show rejected · accept-all · done ·
  *   edit <n> capability: <v> | required: <v> | granted: <v> | <the candidate's field>: <v> | rationale: <text>
  *
- * `accept-all` accepts only the candidates that may be accepted in bulk (not on pending exposures only, not edited);
+ * An accept affirms nothing, unless it names the findings to affirm: `affirm <k>` takes the numbers `show <n>` gives
+ * its cited findings, each pending with no disposition, with an optional note for their reason. `accept-all` accepts
+ * only the candidates that may be accepted in bulk (not on pending exposures only, not edited), and affirms nothing;
  * `accept-all` and `done` close the review.
  */
 import { randomBytes } from 'node:crypto'
+import { redactSecrets } from '../auth/redact.js'
+import { REASON_MAX } from '../triage/dispositions.js'
 import type { ExposureState } from '../triage/exposures.js'
 import { textProblem } from '../triage/review.js'
+import { replyProblem } from '../utils/settlement.js'
 import { CAPABILITIES, PRIVILEGES, type BaseValues } from './contract.js'
 import type { Candidate } from './answer.js'
+import type { Limits } from './explain.js'
 import type { LocalModel } from './local.js'
 import type { Seen } from './open.js'
 import type { ReadDecision } from './records.js'
+import type { EdgeWorkspace } from './workspace.js'
 
 export const REVIEW_STORE = { reviews: 20, idleMs: 2 * 60 * 60 * 1000 } as const
-export const REVIEW_LIMITS = { rationaleChars: 1000, evidence: 10 } as const
+export const REVIEW_LIMITS = { rationaleChars: 1000, evidence: 10, reasonChars: 300 } as const
+
+/** The marker an affirmation's reason ends with: the operator accepted the edge it rests on. */
+export const AFFIRM_MARKER = ' — hidden edge accepted by the operator'
+/** What follows the operator's note in an affirmation's reason, naming the edge. */
+export const affirmSuffix = (candidateId: string): string => ` (affirmed with the accepted hidden edge ${candidateId})`
+/** The reason a finding named in `accept <n> affirm <k>` is affirmed with, before the marker. */
+export const affirmReason = (note: string | null, candidateId: string): string =>
+  note
+    ? `${note}${affirmSuffix(candidateId)}`
+    : `Affirmed by the operator, who named it in "accept … affirm" for hidden edge ${candidateId}; no note given`
+/** The longest note whose reason, with the marker, still fits the platform's limit. */
+export const NOTE_MAX = REASON_MAX - (affirmReason('x', `he:${'0'.repeat(16)}`).length - 1) - AFFIRM_MARKER.length
 
 export type Choice = 'open' | 'accept' | 'skip' | 'reject'
+export const STANCES = ['for', 'against', 'unclear'] as const
+export type Stance = (typeof STANCES)[number]
 
 export interface ReviewCandidate extends Candidate {
   n: number
@@ -32,10 +54,16 @@ export interface ReviewCandidate extends Candidate {
   base: BaseValues
   /** The analyst's locators for it */
   evidence: string[]
+  /** The analyst's stance and its one-line reason: an argument, never a decision; null until the analyst returns one */
+  argument: { stance: Stance; reason: string | null } | null
   /** The operator changed it: never in accept-all */
   edited: boolean
-  /** Accepted through accept-all: it affirms nothing (a pending exposure is affirmed only by its own accept) */
+  /** Accepted through accept-all: it affirms nothing (a finding is affirmed only by an accept that names it) */
   bulk: boolean
+  /** The cited findings its accept affirms, named in `accept <n> affirm <k>`; none for any other accept */
+  affirm: string[]
+  /** The operator's note for their reason, or null */
+  note: string | null
 }
 
 export interface HiddenEdgeReview {
@@ -52,6 +80,12 @@ export interface HiddenEdgeReview {
   header: Record<string, unknown>
   closed: boolean
   touched: number
+  /** The review workspace as open found it; absent when open did not ask */
+  workspace?: EdgeWorkspace
+  /** Its publish to the review workspace: a published review is decided there, never here */
+  published?: { at: string; analysis_id: string; unconfirmed?: true }
+  /** The extended answer's rationale, row by row, and its limits: what `show` says beside a candidate's explanation */
+  explained?: { rationale: Record<string, string>; limits: Limits | null }
 }
 
 // =============================================================================
@@ -111,6 +145,7 @@ export class ReplyRefusal extends Error {
 
 export type ReplyEffect =
   | { verb: 'accept' | 'skip' | 'reject'; ns: number[] }
+  | { verb: 'accept'; ns: [number]; affirm: number[]; note: boolean }
   | { verb: 'edit'; n: number; field: string }
   | { verb: 'show'; n: number }
   | { verb: 'show_rejected'; rejected: Array<{ id: string; kind: string; source: string; target: string }> }
@@ -145,8 +180,11 @@ export function applyHiddenEdgeReply(r: HiddenEdgeReview, reply: string): ReplyE
     case 'accept':
     case 'skip':
     case 'reject': {
+      if (verb === 'accept' && /\baffirm\b/i.test(rest)) return acceptAffirming(r, rest)
+      if (verb === 'accept' && /\bnote:/i.test(rest)) throw new ReplyRefusal('argument_invalid', 'a note goes with the findings it is the reason for: accept <n> affirm <k>[,<k>…] note: <text>')
+      // a plain accept affirms nothing; a skip or reject drops what an earlier accept named
       const ns = numbers(rest, count)
-      for (const n of ns) Object.assign(r.candidates[n - 1]!, { choice: verb, bulk: false })
+      for (const n of ns) Object.assign(r.candidates[n - 1]!, { choice: verb, bulk: false, affirm: [], note: null })
       return { verb, ns }
     }
     case 'show': {
@@ -163,7 +201,7 @@ export function applyHiddenEdgeReply(r: HiddenEdgeReview, reply: string): ReplyE
       for (const c of r.candidates) {
         if (c.choice !== 'open') continue
         if (bulkAcceptable(c)) {
-          Object.assign(c, { choice: 'accept', bulk: true })
+          Object.assign(c, { choice: 'accept', bulk: true, affirm: [], note: null })
           accepted.push(c.n)
         } else held.push(c.n)
       }
@@ -203,6 +241,43 @@ export function applyHiddenEdgeReply(r: HiddenEdgeReview, reply: string): ReplyE
     default:
       throw new ReplyRefusal('reply_unparsed', 'the reply starts with accept, skip, reject, edit, show, accept-all or done')
   }
+}
+
+/**
+ * `accept <n> affirm <k>[,<k>…] [note: <text>]`: one candidate, accepted with the cited findings named to affirm.
+ * Each `<k>` is a finding's number in `show <n>`, pending with no disposition, and named by no other accept here; the
+ * note is one line, short enough that the reason with its marker fits the platform's limit, and holds none of this
+ * session's credentials (it is written to the platform).
+ */
+function acceptAffirming(r: HiddenEdgeReview, rest: string): ReplyEffect {
+  const m = /^(\d{1,3})\s+affirm\s+(.*?)(?:\s*\bnote:\s*(.*))?$/is.exec(rest)
+  if (!m) throw new ReplyRefusal('reply_unparsed', 'accept <n> affirm <k>[,<k>…] [note: <text>]: one candidate, then the numbers of its findings')
+  const [n] = numbers(m[1]!, r.candidates.length)
+  const c = r.candidates[n! - 1]!
+  const ks = m[2]!.split(/[\s,]+/).filter(Boolean)
+  if (!ks.length || !ks.every((k) => /^\d{1,3}$/.test(k))) throw new ReplyRefusal('reply_unparsed', 'name the findings by the numbers show <n> gives them')
+  const numbered = [...new Set(ks.map(Number))]
+  const unknown = numbered.filter((k) => k < 1 || k > c.exposure_ids.length)
+  if (unknown.length) throw new ReplyRefusal('argument_invalid', `candidate ${n} cites no finding ${unknown.join(', ')}: show ${n} numbers them`)
+  const ids = numbered.map((k) => c.exposure_ids[k - 1]!)
+  const notPending = numbered.filter((_, i) => {
+    const e = r.exposures.get(ids[i]!)
+    return !e || e.lifecycle !== 'pending' || e.disposition_kind !== null
+  })
+  if (notPending.length) throw new ReplyRefusal('argument_invalid', `finding ${notPending.join(', ')} of candidate ${n} is not pending with no disposition: only those are affirmed here`)
+  const other = r.candidates.find((o) => o !== c && o.choice === 'accept' && o.affirm.some((id) => ids.includes(id)))
+  if (other) throw new ReplyRefusal('argument_invalid', `a finding named here is already affirmed with candidate ${other.n}: one accept affirms it`)
+  let note: string | null = null
+  if (m[3] !== undefined) {
+    const text = m[3].trim()
+    if (!text) throw new ReplyRefusal('argument_invalid', 'the note is empty: leave it out, or give it after note:')
+    if (/[\r\n]/.test(text) || replyProblem(text)) throw new ReplyRefusal('argument_invalid', 'the note is one line, with no invisible or control characters')
+    if (text.length > NOTE_MAX) throw new ReplyRefusal('argument_invalid', `the note is ${text.length} characters; at most ${NOTE_MAX}, so that its reason fits the platform's limit`)
+    if (redactSecrets(text) !== text) throw new ReplyRefusal('argument_invalid', "the note holds this session's credentials: give it without them")
+    note = text
+  }
+  Object.assign(c, { choice: 'accept', bulk: false, affirm: ids, note })
+  return { verb: 'accept', ns: [n!], affirm: numbered, note: note !== null }
 }
 
 /** The candidates a closed review applies: accepted and rejected ones. */
