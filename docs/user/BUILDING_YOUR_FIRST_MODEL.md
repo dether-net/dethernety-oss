@@ -72,20 +72,21 @@ flowchart LR
 
 You'll do most of your work in the **data flow editor**. Here are its parts, so the steps below make sense. You open it for the first time in [Create your model](#create-your-model).
 
-![The empty data flow editor for E-commerce Platform, with eight numbered callouts. 1 marks the model name at the top left. 2 to 5 mark the four buttons stacked under it. 6 marks the palette on the right with Process, Store, External Entity, and Boundary. 7 marks the "Select an item" bar along the bottom. 8 marks the zoom controls at the bottom right.](images/first-model/editor-tour.webp)
+![The empty data flow editor for E-commerce Platform, with nine numbered callouts. 1 marks the model name at the top left. 2 to 6 mark the five buttons stacked under it, in two groups with a gap between them: 2 Search and 3 Edit lock, the open padlock, then 4 Model settings, 5 Zoning overview, and 6 Analyses. 7 marks the palette on the right with Process, Store, External Entity, and Boundary. 8 marks the "Select an item" bar along the bottom. 9 marks the zoom controls at the bottom right.](images/first-model/editor-tour.webp)
 
 1. **Model name**: the model you're editing.
-2. **Model settings**: opens the model dialog, where you edit the name, description, and compliance drivers, or export the model.
+2. **Search** (magnifier icon, or Ctrl+F, ⌘F on a Mac): finds components, boundaries, and data flows by name. Pick a match to select it and centre the view on it.
 3. **Edit lock**: switches between edit mode (open padlock, tooltip *Edit mode (click to lock)*) and view mode (closed padlock, tooltip *View mode (click to edit)*).
-4. **Zoning overview**: lists every boundary and its trust zone.
-5. **Analyses** (sparkle icon): creates and runs analyses on the model.
-6. **Palette**: the four element types, **Process**, **Store**, **External Entity**, and **Boundary**. Click its header to collapse or expand it.
-7. **Properties panel**: shows the settings of whatever you select. It reads *Select an item* until you select something. Use the chevron at its right end to expand or collapse it.
-8. **Canvas controls**: zoom in, zoom out, fit view, and the interactivity lock.
+4. **Model settings**: opens the model dialog, where you edit the name, description, and compliance drivers, or export the model.
+5. **Zoning overview**: lists every boundary and its trust zone.
+6. **Analyses** (sparkle icon): creates and runs analyses on the model.
+7. **Palette**: the four element types, **Process**, **Store**, **External Entity**, and **Boundary**. Click its header to collapse or expand it.
+8. **Properties panel**: shows the settings of whatever you select. It reads *Select an item* until you select something. Use the chevron at its right end to expand or collapse it.
+9. **Canvas controls**: zoom in, zoom out, fit view, and the interactivity lock.
 
 The canvas is a boundary too. It is the model's **Default Boundary**, the outermost container that holds everything else. Click an empty spot on the canvas and the panel reads *Boundary: Default Boundary*. It has no **Zoning** tab, so you give trust zones to the boundaries you draw inside it.
 
-> **Important:** When you reopen a model later, it opens in **view mode**: the padlock (3) is closed and the palette (6) is collapsed. Nothing you drag or click changes the model. Click the padlock to start editing, then click the palette header to expand it. A brand-new model opens ready to edit.
+> **Important:** When you reopen a model later, it opens in **view mode**: the padlock (3) is closed and the palette (7) is collapsed. Click the padlock to start editing, then click the palette header to expand it. Dropping an element from the palette also turns edit mode on, but moving, resizing, or connecting existing elements needs the padlock open. A brand-new model opens ready to edit.
 
 ---
 
@@ -124,7 +125,7 @@ The buttons along the bottom of the dialog have icons but no tooltips:
 | 5 | **Delete** | Deletes the model, after you confirm by typing its name. |
 | 6 | **Open data flow editor** | Saves, then opens the model on the canvas. |
 
-To come back to this dialog later, click **Model settings** (2) in the editor, or click the settings icon on the model's tile in the Browser. Right-clicking the tile also works.
+To come back to this dialog later, click **Model settings** (4) in the editor, or click the settings icon on the model's tile in the Browser. Right-clicking the tile also works.
 
 > **Note:** The model has no module step. The classes you pick for boundaries, components, and data flows come from the modules installed on your deployment, and every model gets the same set. See [Where the classes you can pick come from](UNDERSTANDING_MODULES.md#where-the-classes-you-can-pick-come-from).
 
@@ -280,11 +281,13 @@ New exposures are **pending**: nobody has reviewed them yet. **Affirm** confirms
 Before you run the report, make sure the model is complete.
 
 1. **Every element has a class.** No orange **?** badges are left on the canvas.
-2. **Every boundary has a trust zone.** Click **Zoning overview** (4). The dialog lists each boundary with its trust zone, role, and channels. The chip at the top reads **0 unclassified**. If it doesn't, turn on **Show only unclassified** to find the boundary you missed.
+2. **Every boundary has a trust zone.** Click **Zoning overview** (5). The dialog lists each boundary with its trust zone, role, and channels. The chip at the top reads **0 unclassified**. If it doesn't, turn on **Show only unclassified** to find the boundary you missed.
 
    ![The Zoning overview dialog. A "0 unclassified" chip and a "Show only unclassified" switch are at the top. The table lists DMZ, Internal Network, and Database Zone with their declared trust zones, the role Undecided, and their channels.](images/first-model/zoning-overview.webp)
 
 3. **The diagram matches the plan.** Compare your canvas with the figure in [What you will build](#what-you-will-build): seven components, three boundaries with their zone chips, six flows, and a gold outline on Customer Database.
+
+> **Tip:** On a busy canvas, press Ctrl+F (⌘F on a Mac) and type part of a name. Every match stays lit and the rest of the canvas dims.
 
 ---
 
@@ -292,7 +295,7 @@ Before you run the report, make sure the model is complete.
 
 Analyses come from modules, not from the core platform, so the analysis types you can run depend on the modules your deployment has installed. **A stock install has one analysis type, Threat Report.** It reads your model as it stands and summarises its residual risk: which exposures are open, which crown jewels can be reached, and where flows cross boundaries. It runs in seconds, asks you no questions, and never changes the model. Additional modules can add other analysis types.
 
-1. Click **Analyses** (5), the sparkle icon. A dialog titled *Analysis: E-commerce Platform* opens.
+1. Click **Analyses** (6), the sparkle icon. A dialog titled *Analysis: E-commerce Platform* opens.
 2. Click **+ New Analysis**. A menu lists one entry for each available analysis type. Click **Threat Report**.
 3. A row appears, named *Threat Report*, with the status **Ready**. Click **Run**.
 4. Within a few seconds, the status changes to **Done** and the button changes to **View results**. Click it.
@@ -372,7 +375,7 @@ You can save a model as a portable ZIP archive, for a backup, to share with a co
 
 ### Export a model
 
-1. Open the model dialog: click **Model settings** (2) in the editor, or click the settings icon on the model's tile in the Browser.
+1. Open the model dialog: click **Model settings** (4) in the editor, or click the settings icon on the model's tile in the Browser.
 2. Click **Export** (3, the download icon). The dialog saves the model and opens **Export Model**.
 3. Click the download button. Your browser saves `<model name>-export.zip`.
 
