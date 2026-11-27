@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { Edge, Node } from '@vue-flow/core'
-import { FLOW_ARROW_IN, FLOW_ARROW_OUT, neighbourhood, neighbourhoodCss } from '../flowNeighbourhood'
+import { FLOW_ARROW_IN, FLOW_ARROW_OUT, neighbourhood, neighbourhoodCss, searchCss } from '../flowNeighbourhood'
 
 const node = (id: string, type: string): Node => ({ id, type, position: { x: 0, y: 0 }, data: { label: id } })
 const edge = (id: string, source: string, target: string): Edge => ({ id, source, target })
@@ -123,5 +123,37 @@ describe('neighbourhoodCss', () => {
     const hostile = 'x"] {} body { display: none } [data-id="\\\n'
     const css = neighbourhoodCss({ focusId: hostile, focusKind: 'component', inEdgeIds: [], outEdgeIds: [], nodeIds: [] })
     expect(css).toBe('.dt-flow-focus .vue-flow__node[data-id="x\\"] {} body { display: none } [data-id=\\"\\\\\\a "] { opacity: 1; }')
+  })
+})
+
+describe('searchCss', () => {
+  it('is empty with no search or no matches, so nothing dims', () => {
+    expect(searchCss(null)).toBe('')
+    expect(searchCss([])).toBe('')
+  })
+
+  it('lights and outlines matched components and boundaries, and draws matched flows in the foreground', () => {
+    const css = searchCss([
+      { id: 'web', kind: 'component' },
+      { id: 'dmz', kind: 'boundary' },
+      { id: 'f1', kind: 'flow' },
+    ])
+    const rules = css.split('}').map(r => r.trim()).filter(Boolean)
+    const lit = rules.find(r => r.includes('opacity: 1;')) ?? ''
+    for (const sel of ['.vue-flow__node[data-id="web"]', '.vue-flow__node[data-id="dmz"]', '.vue-flow__edge[data-id="f1"]']) {
+      expect(lit).toContain(sel)
+    }
+    const outline = rules.find(r => r.includes('outline:')) ?? ''
+    expect(outline).toContain('[data-id="web"]')
+    expect(outline).toContain('[data-id="dmz"]')
+    expect(outline).not.toContain('[data-id="f1"]')
+    const stroke = rules.find(r => r.includes('stroke:')) ?? ''
+    expect(stroke).toContain('.vue-flow__edge[data-id="f1"] .vue-flow__edge-path')
+    expect(stroke).toContain('--v-theme-on-background')
+    expect(css).not.toContain('marker-end')
+  })
+
+  it('escapes ids as the neighbourhood rules do', () => {
+    expect(searchCss([{ id: 'a"b', kind: 'component' }])).toContain('[data-id="a\\"b"]')
   })
 })

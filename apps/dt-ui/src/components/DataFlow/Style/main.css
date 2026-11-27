@@ -144,8 +144,9 @@
 }
 
 /* Neighbourhood focus: while a component or a data flow is selected, the canvas dims everything but the selection's
-   neighbourhood. `.dt-flow-focus` rides the VueFlow root; the elements that stay lit, and the in/out colours of a
-   component's flows, come from the per-selection stylesheet DataFlow.vue writes (utils/flowNeighbourhood.ts). These
+   neighbourhood, and while the canvas search has a query, everything but its matches. `.dt-flow-focus` rides the
+   VueFlow root; the elements that stay lit, and the in/out colours of a component's flows, come from the stylesheet
+   DataFlow.vue writes for the current selection or search (utils/flowNeighbourhood.ts). These
    rules sit at `:where()` specificity so that sheet always wins over them, whatever order the two load in.
    Boundaries never dim: they are the context that shows which flows cross a trust boundary. Dimmed elements keep the
    pointer, so clicking one moves the focus to it. */
