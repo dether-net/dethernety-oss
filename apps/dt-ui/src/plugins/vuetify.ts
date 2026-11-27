@@ -110,6 +110,10 @@ export default createVuetify({
           'nodecolor-selected-3': colors.blueGrey.darken3,
           // Crown-jewel gold (node treatment + settings toggle).
           crownjewel: '#FFC84B',
+          // A selected component's flows on the canvas: into it, out of it. Kept clear of the crown-jewel gold and of
+          // the red/orange that read as risk.
+          'flow-in': '#3949ab',
+          'flow-out': '#00796b',
         },
       },
       dark: {
@@ -138,6 +142,9 @@ export default createVuetify({
           'nodecolor-selected-3': '#2a3441',
           // Crown-jewel gold (node treatment + settings toggle).
           crownjewel: '#FFC84B',
+          // A selected component's flows on the canvas (see the light theme).
+          'flow-in': '#7aa2f7',
+          'flow-out': '#2a9d8f',
         },
       },
     },

@@ -224,6 +224,27 @@ Interactive diagram editor built on Vue Flow.
 - Multi-select with Shift+Click
 - Nested boundaries with parent-child relationships
 - Real-time property editing with JSONForms
+- Neighbourhood highlight on selection (see [Neighbourhood highlight](#neighbourhood-highlight))
+
+#### Neighbourhood highlight
+
+Selecting a component (process, store or external entity) brings its neighbourhood forward: its inbound flows draw in the `flow-in` colour and its outbound flows in `flow-out`, both thicker and with an arrowhead of the same colour, and the components at their other ends are outlined. Selecting a data flow draws that flow thicker in the foreground colour and outlines its two ends. Everything else on the canvas dims.
+
+- Boundaries never dim: they show which flows cross a trust boundary.
+- Dimmed elements keep the pointer, so clicking one moves the highlight to it.
+- A selected boundary, the empty canvas (which selects the default boundary) or no selection gives no highlight.
+- A flow from a component to itself counts as outbound.
+- The highlight follows `flowStore.selectedItem` (a single selection) and is read from the current `nodes` and `edges`, not the selected object, so a deleted element clears it and a rerouted or reloaded one updates it.
+
+**Mechanism.** `neighbourhood()` computes the focus, its inbound and outbound flow ids and its neighbouring components; `neighbourhoodCss()` turns that into rules that name the lit elements by Vue Flow's `data-id` attribute. `DataFlow.vue` writes the rules into one `<style data-dt-flow-focus>` element in the document head (through `textContent`, never markup), drops it when there is no highlight and removes it on unmount, and sets the `dt-flow-focus` class on the VueFlow root while a highlight is active.
+
+- Nothing is written to the store's elements or to `node.class`, which the [crown-jewel class](./LLD/FLOW_STORE.md#crown-jewel-node-class) and the drag-intersection feedback already use.
+- Ids are escaped as CSS string values, so an unexpected id cannot end the attribute string or the rule.
+- The static dimming in `main.css` sits at `:where()` specificity, so the per-selection rules win whatever order the two stylesheets load in.
+- The arrowheads are two markers of their own (`FLOW_ARROW_IN`, `FLOW_ARROW_OUT`) in a hidden SVG `<defs>`: an edge's Vue Flow arrowhead keeps the colour of its marker definition, not the line's stroke. Their size is fixed in canvas units (`markerUnits="userSpaceOnUse"`), so a thicker line does not grow its arrow.
+- The two colours are the `flow-in` and `flow-out` theme tokens, defined in both the light and dark themes.
+
+**Source:** `apps/dt-ui/src/utils/flowNeighbourhood.ts` (`neighbourhood`, `neighbourhoodCss`, `FLOW_ARROW_IN`, `FLOW_ARROW_OUT`), applied in `components/DataFlow/DataFlow.vue` (`focus`); dimming in `components/DataFlow/Style/main.css` ("Neighbourhood focus"); colours in `plugins/vuetify.ts`.
 
 #### Boundary Zoning
 
