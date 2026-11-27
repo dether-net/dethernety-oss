@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { DtFolder, Folder } from '@dethernety/dt-core'
+import { DtFolder, Folder, type ContentIndex } from '@dethernety/dt-core'
 import apolloClient from '@/plugins/apolloClient'
 
 export const useFolderStore = defineStore('folder', () => {
@@ -75,18 +75,38 @@ export const useFolderStore = defineStore('folder', () => {
     }
   }
 
-  const fetchFolders = async (): Promise<void> => {
+  /**
+   * `quiet`: a refresh in the background (the Browser search's, on each focus), which leaves the loading and error
+   * state alone, so the page shows no loading placeholders for it; a failure keeps the folders as they were.
+   */
+  const fetchFolders = async ({ quiet = false }: { quiet?: boolean } = {}): Promise<void> => {
     try {
-      isLoading.value = true
-      error.value = ''
+      if (!quiet) {
+        isLoading.value = true
+        error.value = ''
+      }
       const results = await dtFolder.getFolders()
       folders.value = [...results]
     } catch (err) {
       // Set error state and resolve (no re-throw): callers read folderStore.error
       // and surface it, rather than catching an unhandled rejection / aborting init.
-      error.value = handleApiError(err as Error, 'fetch')
+      if (quiet) console.error('Folder refresh error:', err)
+      else error.value = handleApiError(err as Error, 'fetch')
     } finally {
-      isLoading.value = false
+      if (!quiet) isLoading.value = false
+    }
+  }
+
+  /**
+   * Every model and control across all folders (id, name, folder), for the Browser's search. Kept out of the store's
+   * state: the search holds what it last fetched. Resolves null when the fetch fails, with the reason logged.
+   */
+  const fetchContentIndex = async (): Promise<ContentIndex | null> => {
+    try {
+      return await dtFolder.getContentIndex()
+    } catch (err) {
+      console.error('Folder content index error:', err)
+      return null
     }
   }
 
@@ -222,7 +242,7 @@ export const useFolderStore = defineStore('folder', () => {
     error,
     
     // Actions
-    fetchFolders, createFolder, deleteFolder, updateFolder,
+    fetchFolders, fetchContentIndex, createFolder, deleteFolder, updateFolder,
   }
 }, {
   persist: {

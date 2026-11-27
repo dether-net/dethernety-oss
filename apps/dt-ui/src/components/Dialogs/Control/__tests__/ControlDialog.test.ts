@@ -500,3 +500,30 @@ describe('ControlDialog — saving attributes', () => {
     expect(vm(w).lastLoadedAttributes).toEqual({ feeds: ['nvd', 'ghsa'], owners: ['a'], tags: [''] })
   })
 })
+
+describe('ControlDialog — title', () => {
+  // The Browser's search opens a control from any folder, so the control need not be in the store's folder list.
+  it('names a control that is not in the folder list from the control it loaded', async () => {
+    mocks.store.controls = []
+    mocks.store.getControl.mockResolvedValue({ id: 'ctrl-1', name: 'Card vault WAF', controlClasses: [] })
+    const w = shallowMount(ControlDialog, {
+      props: { show: true, id: 'ctrl-1', showFileActions: false },
+      global: { renderStubDefaultSlot: true },
+    })
+    await flushPromises()
+    expect(w.text()).toContain('Control: Card vault WAF')
+  })
+
+  it('shows the name it was last saved with, not the one it was loaded with', async () => {
+    mocks.store.controls = []
+    mocks.store.getControl.mockResolvedValue({ id: 'ctrl-1', name: 'Old name', controlClasses: [] })
+    const w = shallowMount(ControlDialog, {
+      props: { show: true, id: 'ctrl-1', showFileActions: false },
+      global: { renderStubDefaultSlot: true },
+    })
+    await flushPromises()
+    ;(w.vm as unknown as { initialState: { name: string } }).initialState.name = 'New name'
+    await flushPromises()
+    expect(w.text()).toContain('Control: New name')
+  })
+})

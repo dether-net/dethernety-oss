@@ -99,7 +99,7 @@
           </span>
           <span class="display-2 font-weight-bold mb-5">dether.net</span>
           <p class="headline mb-4">
-            de-threat your security posture with intelligent threat analysis.
+            Built to analyse, at the pace of change.
           </p>
           <v-row>
             <v-col cols="auto">

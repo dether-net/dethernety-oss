@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { Edge, Node } from '@vue-flow/core'
-import { normalise, searchCanvas } from '../flowSearch'
+import { searchCanvas } from '../flowSearch'
 
 const node = (id: string, type: string, label: string, parentNode = ''): Node =>
   ({ id, type, position: { x: 0, y: 0 }, data: { label }, parentNode })
@@ -20,13 +20,6 @@ const edges = [
   edge('f2', 'api-gw', 'pay', 'API call'),
 ]
 const ids = (q: string) => searchCanvas(q, nodes, edges, 'Default boundary').map(r => r.id)
-
-describe('normalise', () => {
-  it('drops accents, folds case and collapses whitespace', () => {
-    expect(normalise('  Café   ORDERS ')).toBe('cafe orders')
-    expect(normalise('Ångström')).toBe('angstrom')
-  })
-})
 
 describe('searchCanvas', () => {
   it('finds nothing for an empty or blank query', () => {

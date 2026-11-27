@@ -2,7 +2,26 @@ import { DtUtils } from '../dt-utils/dt-utils.js'
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
 import { Folder } from '../interfaces/core-types-interface.js'
-import { GET_FOLDERS, CREATE_FOLDER, DELETE_FOLDER, UPDATE_FOLDER } from './dt-folder-gql.js'
+import { GET_CONTENT_INDEX, GET_FOLDERS, CREATE_FOLDER, DELETE_FOLDER, UPDATE_FOLDER } from './dt-folder-gql.js'
+
+/** A model or control as a search over the folders sees it. `folderId` is undefined for one at the root (Home). */
+export interface ContentIndexEntry {
+  id: string
+  name: string
+  folderId?: string
+}
+
+/** Every model and control, across all folders. */
+export interface ContentIndex {
+  models: ContentIndexEntry[]
+  controls: ContentIndexEntry[]
+}
+
+// The schema's folder relation is a list, with at most one folder; empty at the root.
+type RawIndexEntry = { id: string, name?: string | null, folder?: { id: string }[] | null }
+
+const toIndexEntry = ({ id, name, folder }: RawIndexEntry): ContentIndexEntry =>
+  ({ id, name: name ?? '', folderId: folder?.[0]?.id || undefined })
 
 export class DtFolder {
   private dtUtils: DtUtils
@@ -40,6 +59,23 @@ export class DtFolder {
       return []
     } catch (error) {
       throw error
+    }
+  }
+
+  /**
+   * Every model and control in every folder, with only its id, name and folder: what a search over the folders needs,
+   * in one light query rather than the full model and control queries per folder.
+   * @returns Promise of the models and the controls
+   */
+  getContentIndex = async (): Promise<ContentIndex> => {
+    const response = await this.dtUtils.performQuery<{ models?: RawIndexEntry[], controls?: RawIndexEntry[] }>({
+      query: GET_CONTENT_INDEX,
+      action: 'getContentIndex',
+      fetchPolicy: 'network-only'
+    })
+    return {
+      models: (response.models ?? []).map(toIndexEntry),
+      controls: (response.controls ?? []).map(toIndexEntry),
     }
   }
 

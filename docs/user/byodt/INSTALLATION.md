@@ -1076,7 +1076,7 @@ Browse to <http://127.0.0.1:3000>, or select **Open platform →** in the consol
 
 **Result:** the Dethernety home page loads, with cards for **Data Flow Models**, **Control Catalog**, **Issues** and **Modules**.
 
-![The Dethernety platform home page at 127.0.0.1:3000. A banner reads "de-threat your security posture with intelligent threat analysis" above a Browse Content button, and below it four cards: Data Flow Models with Open Model, Control Catalog with Open Control, Issues with Manage Issues, and Modules with Configure Modules.](../images/first-model/platform-home.webp)
+![The Dethernety platform home page at 127.0.0.1:3000. A banner reads "Built to analyse, at the pace of change." above a Browse Content button, and below it four cards: Data Flow Models with Open Model, Control Catalog with Open Control, Issues with Manage Issues, and Modules with Configure Modules.](../images/first-model/platform-home.webp)
 
 The deployment is installed. Continue with the [Quick Start](../QUICK_START.md#draw-the-model) for a first finding in minutes, or [Building Your First Model](../BUILDING_YOUR_FIRST_MODEL.md) for a full threat model.
 

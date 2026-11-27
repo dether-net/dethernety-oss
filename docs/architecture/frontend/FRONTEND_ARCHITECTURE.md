@@ -119,7 +119,7 @@ This centralized approach provides:
 | **FlowStore** | Data flow diagram | Node/edge management, optimistic updates, undo/redo, Vue Flow integration |
 | **AnalysisStore** | AI analysis | Analysis execution, real-time result streaming via subscriptions, status tracking |
 | **ModelsStore** | Threat model CRUD | Model listing, creation, deletion, metadata management |
-| **FolderStore** | Folder hierarchy | Folder tree management, model organization, navigation state |
+| **FolderStore** | Folder hierarchy | Folder tree management, model organization, navigation state, the content index behind the [Browser search](#browser-search) (`fetchContentIndex`) |
 | **IssueStore** | Issue tracking | Issue CRUD, status management, element linkage |
 | **ControlsStore** | Security controls | Control management, countermeasure handling, MITRE D3FEND integration |
 | **ModulesStore** | Module management | Available modules, module metadata, class definitions, class-identity admin actions (`fetchModulesWithIdentity`, `migrateClassId`, `reviveOrphanedClass`, `deleteOrphanedClass`, `runIdentityMigration`) |
@@ -278,7 +278,7 @@ Ctrl+F (⌘F on macOS) or the magnifier button at the top of the canvas rail ope
 - A pick resolves through `resolveEditorLink`, and `selectAndFrame`, shared with the element link, selects it in the store and in Vue Flow and fits the view on it: a node on itself, a flow on its two ends. A result no longer on the canvas selects nothing.
 - `openSearch` serves both the shortcut (`onSearchShortcut`, a document `keydown` listener from mount to unmount) and the rail button (`open-search` from `DataFlowBackground.vue`), and always refocuses the field.
 
-**Source:** `apps/dt-ui/src/utils/flowSearch.ts` (`searchCanvas`, `normalise`, `CanvasSearchResult`) and `components/DataFlow/CanvasSearch.vue`; lighting in `utils/flowNeighbourhood.ts` (`searchCss`); wired in `components/DataFlow/DataFlow.vue` (`canvasCss`, `openSearch`, `onSearchShortcut`, `selectAndFrame`); rail button in `components/DataFlow/DataFlowBackground.vue`.
+**Source:** `apps/dt-ui/src/utils/flowSearch.ts` (`searchCanvas`, `CanvasSearchResult`) and `components/DataFlow/CanvasSearch.vue`; name matching in `utils/nameMatch.ts` (`normalise`, `rankName`), shared with the [Browser search](#browser-search); lighting in `utils/flowNeighbourhood.ts` (`searchCss`); wired in `components/DataFlow/DataFlow.vue` (`canvasCss`, `openSearch`, `onSearchShortcut`, `selectAndFrame`); rail button in `components/DataFlow/DataFlowBackground.vue`.
 
 #### Boundary Zoning
 
@@ -539,6 +539,36 @@ The dialog edits the client, the author and the project, each with a counter, an
 - **Save sends only the keys the user changed,** so it leaves what another editor set in other keys. A changed custom-field list is sent whole.
 - **The suggestion** (`suggestReportDetails`) is offered only when the form is entirely empty, as a one-line summary. **Use these details** fills every field from it; nothing is saved until **Save**.
 
+### 10. Browser
+
+`pages/browser.vue` (`/browser?dir=<folder id>`, `dir=root` for Home) shows one folder: its subfolders, then its models and controls as tiles. The header holds the [folder path](#folder-path), the [Browser search](#browser-search) and the folder buttons. The folder shown is also `folderStore.selectedFolder`, which is persisted, so the left rail's **Browser** link, which names no `dir`, returns to it.
+
+#### Browser search
+
+A field in the header, between the folder path and the folder buttons (placeholder "Search models and controls"), finds models and controls by name in every folder. Folders themselves are not searched. A list under the field shows up to 50 results, each with its kind (Model or Control) and its folder path. Enter or a click opens a result: a model in the data flow editor, a control in its dialog over the Browser. Alt+Enter or the row's folder icon (**Show in folder**) goes to the result's folder, scrolls its tile into view and outlines it for 2.5 seconds.
+
+- Matching is the [canvas search](#canvas-search)'s: case, accents and repeated whitespace are ignored, and the whole name ranks first, then the name's start, then a word's start inside it, then anywhere. Within a rank: by name, then models before controls, then by folder path. An item with no name is never found.
+- A path longer than four entries shows as Home / … / the last two, as the [folder path](#folder-path) does; the row's tooltip has the full path.
+- The arrow keys move through the list and wrap. Esc clears the query; with the field empty, Esc leaves it. The field's clear button empties it. Leaving the field hides the list and keeps the query.
+- Below a window width of 1100px the field is a magnifier button. The field it opens folds back into the button when it loses the focus with nothing typed. A window narrowed while the field is in use keeps the field open.
+- Until the first index arrives the list reads "Searching…". If that fetch fails it reads "The search is unavailable right now. Click into the field to try again."
+
+**Mechanism.** The content index is the id, name and folder id of every model and control. `DtFolder.getContentIndex()` reads it in one light query (`GET_CONTENT_INDEX`, `network-only`), and `folderStore.fetchContentIndex()` passes it on without keeping it in the store's state, resolving `null` on failure. `BrowserSearch.vue` fetches it, and the folder list with it (`folderStore.fetchFolders({ quiet: true })`, which leaves the page's loading and error state alone), each time the field gains the focus, so items and folders created, renamed or moved since, here or elsewhere, are found and placed. The last index stays in use while the next loads or if it fails, and an earlier fetch that answers late is dropped. Matching runs in the browser: `searchContent()` folds and ranks names with `normalise()` and `rankName()` from `utils/nameMatch.ts`, the functions the canvas search uses, and builds each path from the store's folder list with `folderAncestors()`, the walk the folder path uses.
+
+- Like `CanvasSearch.vue`, the field is a text field with a list of its own (the combobox pattern), so the query outlives the focus.
+- The list is teleported to the app root (`.v-application`, so the theme applies) and placed under the field with `position: fixed`, from the field's box, again on resize and on any scroll while it shows. Inside the header it would be clipped by the header card, which is also translucent and painted over by the content below it.
+- Opening a model (`openFromSearch`) first sets `folderStore.selectedFolder` to the model's folder and replaces the Browser's URL with that folder's `dir`, then pushes `/dataflow?id=<model>`. Back and the rail's **Browser** link then return to the model's folder. A flag (`leavingForModel`) stops that interim navigation from fetching the folder's models and controls. If the editor navigation is refused or throws (a guard, or the editor's code failing to load), the flag is cleared and the page loads the folder its URL now names.
+- Show in folder (`showInFolder`) pushes the folder's `dir` when it is not the one shown and sets `foundId`. Once models and controls have loaded, the tile whose `data-browser-item` is that id scrolls into view and carries `tile-found` until the timer clears it.
+- A control from another folder is not in `controlsStore.controls`, which holds the folder shown; `ControlDialog` then takes its title from the name the control was last saved with.
+
+**Source:** `apps/dt-ui/src/components/Browser/BrowserSearch.vue`; matching in `utils/browserSearch.ts` (`searchContent`, `pathText`, `BrowserSearchResult`) and `utils/nameMatch.ts` (`normalise`, `rankName`); wired in `pages/browser.vue` (`openFromSearch`, `showInFolder`, `compactSearch`); index in `stores/folderStore.ts` (`fetchContentIndex`) and dt-core's `DtFolder.getContentIndex` (see [DtFolder](../dt-core/GRAPHQL_OPERATIONS.md#dtfolder)). Tests: `components/Browser/__tests__/BrowserSearch.test.ts`, `pages/__tests__/browser.search.test.ts`, `utils/__tests__/browserSearch.test.ts`, `utils/__tests__/nameMatch.test.ts`.
+
+#### Folder path
+
+The header's breadcrumbs show the path from Home to the folder shown. A trail of more than four entries, Home included, shows Home, a "…" button and the last two folders; the button opens a menu of the folders in between. Each name is cut with an ellipsis after 180px, with the full name as its tooltip. The trail takes the room the search and the folder buttons leave, and gives way first.
+
+**Source:** `apps/dt-ui/src/utils/breadcrumbs.ts` (`folderAncestors`, `collapseTrail`, both also used for the search's paths), applied in `pages/browser.vue` (`buildBreadcrumbs`, `trail`). Tests: `utils/__tests__/breadcrumbs.test.ts`, `pages/__tests__/browser.search.test.ts`.
+
 ---
 
 ## Build Configuration
@@ -658,7 +688,7 @@ Routes auto-generated from `pages/` directory:
 |------|-------|---------------|
 | `pages/index.vue` | `/` | Yes |
 | `pages/dataflow.vue` | `/dataflow?id=<model>&element=<id>&tab=<name>`: `id` opens the model; `element` and `tab` are optional, see [Linking to an element](#linking-to-an-element) | Yes |
-| `pages/browser.vue` | `/browser` | Yes |
+| `pages/browser.vue` | `/browser?dir=<folder>`: `dir` is a folder id, or `root` for Home; without it the remembered folder opens, see [Browser](#10-browser) | Yes |
 | `pages/issues.vue` | `/issues` | Yes |
 | `pages/modules.vue` | `/modules` | Yes |
 | `pages/login.vue` | `/login` | No |

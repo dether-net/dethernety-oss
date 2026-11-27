@@ -427,6 +427,7 @@ You built a complete threat model and worked it through to a tracked issue. Alon
 
 ## Next steps
 
+- **[Finding a Control or Model](WORKING_WITH_SECURITY_CONTROLS.md#finding-a-control-or-model)**: find your model again by name from the search field in the Browser's header, whatever folder it is in.
 - **[Boundary Trust Zones](BOUNDARY_TRUST_ZONES.md)**: declare which boundaries may talk to each other with approved channels, then see the result on the report's **Boundary Crossings** tab.
 - **[Managing Findings](MANAGING_FINDINGS.md)**: affirm the risks that are real and dispose of the ones that aren't.
 - **[Working with Findings](threat-report/WORKING_WITH_FINDINGS.md)**: triage the **Residual Risk** ledger in the Threat Report.

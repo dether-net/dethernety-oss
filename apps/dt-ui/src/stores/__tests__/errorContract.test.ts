@@ -57,6 +57,25 @@ describe('folderStore.fetchFolders', () => {
     expect(store.error).toBe('')
     expect(store.folders.length).toBe(1)
   })
+  it('a quiet refresh leaves loading and error alone, and keeps the folders on failure', async () => {
+    const store = useFolderStore()
+    getFoldersMock.mockResolvedValue([{ id: 'f1' }])
+    await store.fetchFolders()
+
+    let release: (value: unknown) => void = () => {}
+    getFoldersMock.mockReturnValueOnce(new Promise(resolve => { release = resolve }))
+    const pending = store.fetchFolders({ quiet: true })
+    expect(store.isLoading).toBe(false)
+    release([{ id: 'f1' }, { id: 'f2' }])
+    await pending
+    expect(store.folders.length).toBe(2)
+
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    getFoldersMock.mockRejectedValueOnce(boom())
+    await expect(store.fetchFolders({ quiet: true })).resolves.toBeUndefined()
+    expect(store.error).toBe('')
+    expect(store.folders.length).toBe(2)
+  })
 })
 
 describe('issueStore.fetchIssueClasses', () => {

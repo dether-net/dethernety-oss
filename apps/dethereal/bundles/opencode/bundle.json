@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "harness": "opencode",
-  "version": "0.8.0-dev.1",
+  "version": "0.8.0-dev.2",
   "generatedFrom": "6bc2934bbd9352d826cefdd65ddc966544dae8394fbe7a87581674475f3fe49b",
   "contentHash": "83d664ed3c827a6abbe3453529454f72ad6b6c2d8d511fe4cf4834e4d2ca897d",
   "files": [

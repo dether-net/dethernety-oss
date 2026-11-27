@@ -30,7 +30,8 @@ The Browser is your primary interface for creating and managing reusable control
 
 **1. Navigate to Browser**:
 - Open the **Browser** section in Dethernety
-- Use the breadcrumbs at the top to move through folders
+- Use the breadcrumbs at the top to move through folders. In a folder four or more levels below **Home**, they show **Home**, a **…** button (click it for the folders in between), and the last two folders; hover over a cut-off name to read it in full
+- To find a control or model in any folder, use the search field in the header. See [Finding a Control or Model](#finding-a-control-or-model)
 - The buttons at the top right of the folder area create, rename, move, and delete folders
 
 **2. Create the control**:
@@ -193,6 +194,22 @@ Countermeasures are not listed on the element — they belong to the control. Op
 ### Across the model
 
 Element-by-element inspection tells you what is assigned, not what is covered. For the model-wide picture — which techniques your live exposures reach, which controls counter them, how strongly, and where the honest gaps are — use the Threat Report's **Coverage & Gaps** tab. It is the surface that reads the MITRE relations described above, and it deliberately reports coverage tier by tier rather than as a single percentage. See [Understanding Coverage and Gaps](threat-report/UNDERSTANDING_COVERAGE.md).
+
+## Finding a Control or Model
+
+The search field in the Browser's header finds a control or a model by name in every folder, so you don't need to know where it is.
+
+1. In the Browser, click the **Search models and controls** field, between the folder path and the folder buttons. In a narrow window it is a magnifier button: click it to open the field.
+2. Type part of the name. Case and accents don't matter. A list opens under the field with up to 50 matches, best first: an exact name, then names that start with your text, then names with a word that starts with it. Each match shows **Model** or **Control** and the folder it is in. Hover over the folder to see its full path.
+3. Pick a match. Use the arrow keys to move through the list, or point at a row.
+   - **To open it**, click it or press Enter. A control opens in its **Control** dialog. A model opens in the data flow editor.
+   - **To see it in its folder**, click the folder icon on its row (tooltip **Show in folder**) or press Alt+Enter (Option+Enter on a Mac). The Browser opens the folder and outlines the tile for a moment.
+
+When you open a model from the search, the Browser first moves to the model's folder. Your web browser's Back button, or **Browser** in the left rail, brings you back to that folder.
+
+Your text stays in the field when you click elsewhere. Press Esc to clear it, and Esc again to leave the field. The clear button (**×**) also clears it.
+
+The search finds models and controls only, not folders. If nothing matches, the list reads *No matches*.
 
 ## Control Management Best Practices
 

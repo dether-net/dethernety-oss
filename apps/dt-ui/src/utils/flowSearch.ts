@@ -1,4 +1,5 @@
 import type { Edge, Node } from '@vue-flow/core'
+import { normalise, rankName } from './nameMatch'
 
 /** One element the canvas search found. `type` is the node type, or `FLOW` for a data flow. */
 export interface CanvasSearchResult {
@@ -8,25 +9,6 @@ export interface CanvasSearchResult {
   name: string
   /** Where it is: the boundary that holds a component or boundary, or a flow's two ends ("web → db"). */
   context: string
-}
-
-/**
- * Text as the search compares it: accents dropped (é → e), case folded, runs of whitespace as one space, trimmed. NFD
- * splits an accented letter into the letter and its combining mark, and the marks are removed.
- */
-export const normalise = (text: string): string =>
-  text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim()
-
-/** 0 the whole name, 1 the name's start, 2 a word's start inside it, 3 anywhere; null for no match. */
-const rank = (name: string, query: string): number | null => {
-  if (name === query) return 0
-  if (name.startsWith(query)) return 1
-  let at = name.indexOf(query)
-  if (at === -1) return null
-  for (; at !== -1; at = name.indexOf(query, at + 1)) {
-    if (!/[\p{L}\p{N}]/u.test(name[at - 1])) return 2
-  }
-  return 3
 }
 
 const KIND_ORDER = { component: 0, boundary: 1, flow: 2 } as const
@@ -53,7 +35,7 @@ export function searchCanvas(
   const found: { result: CanvasSearchResult, rank: number, key: string }[] = []
   const consider = (result: CanvasSearchResult) => {
     const key = normalise(result.name)
-    const r = key ? rank(key, q) : null
+    const r = key ? rankName(key, q) : null
     if (r !== null) found.push({ result, rank: r, key })
   }
 

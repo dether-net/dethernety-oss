@@ -763,6 +763,7 @@ Manages organizational folders.
 | Method | Description | Parameters | Returns |
 |--------|-------------|------------|---------|
 | `getFolders` | Get every folder, each with its `parentFolder` flattened to a single object | `none` | `Promise<Folder[]>` |
+| `getContentIndex` | Get every model and control in every folder, with only its id, name and folder id (`GET_CONTENT_INDEX`, `network-only`) | `none` | `Promise<ContentIndex>` |
 | `createFolder` | Create new folder | `folder: Folder` (positional) | `Promise<Folder>` |
 | `updateFolder` | Update folder | `folder: Folder` (positional) | `Promise<boolean>` |
 | `deleteFolder` | Delete folder | `folderId: string` (positional) | `Promise<boolean>` |
@@ -775,6 +776,14 @@ Manages organizational folders.
 > `parentFolder` whenever the folder names one. It returns a boolean, not the updated folder — callers
 > that need the new state re-read through `getFolders`. The hierarchy is not a query argument; it is
 > reconstructed from the `parentFolder` on each returned folder.
+
+> **The content index is for a search over the folders.** `getContentIndex` reads all models and
+> controls in one light query instead of the full model and control queries per folder. It resolves
+> `ContentIndex` (`{ models, controls }`, both `ContentIndexEntry[]`), where each entry is
+> `{ id, name, folderId? }`: `name` is an empty string when the item has none, and `folderId` is
+> absent for an item at the root (Home), whose folder relation (a list of at most one) is empty. A failed
+> query throws; the dt-ui caller
+> ([Browser search](../frontend/FRONTEND_ARCHITECTURE.md#browser-search)) catches it.
 
 ---
 

@@ -22,6 +22,7 @@ declare module 'vue' {
     BoundaryPeerPreview: typeof import('./components/DataFlow/BoundaryPicker/BoundaryPeerPreview.vue')['default']
     BoundaryPickerSheet: typeof import('./components/DataFlow/BoundaryPicker/BoundaryPickerSheet.vue')['default']
     BoundaryZoningOverview: typeof import('./components/DataFlow/BoundaryZoning/BoundaryZoningOverview.vue')['default']
+    BrowserSearch: typeof import('./components/Browser/BrowserSearch.vue')['default']
     CanvasSearch: typeof import('./components/DataFlow/CanvasSearch.vue')['default']
     CascadeDeleteDialog: typeof import('./components/Dialogs/Module/CascadeDeleteDialog.vue')['default']
     ClassPicker: typeof import('./components/DataFlow/ClassPicker/ClassPicker.vue')['default']

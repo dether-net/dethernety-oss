@@ -1,4 +1,5 @@
 <script setup lang="ts">
+  import { computed, nextTick, onMounted, ref, watch } from 'vue'
   import { useFolderStore } from '@/stores/folderStore'
   import { useModelsStore } from '@/stores/modelsStore'
   import { useControlsStore } from '@/stores/controlsStore'
@@ -6,6 +7,10 @@
   import type { Folder } from '@dethernety/dt-core'
   import { Control, Model } from '@dethernety/dt-core'
   import { getNewName } from '@/utils/dataFlowUtils'
+  import { collapseTrail, folderAncestors } from '@/utils/breadcrumbs'
+  import type { BrowserSearchResult } from '@/utils/browserSearch'
+  import { useDisplay } from 'vuetify'
+  import BrowserSearch from '@/components/Browser/BrowserSearch.vue'
 
   interface SnackBar {
     show: boolean
@@ -60,38 +65,78 @@
     }
   })
 
-  const buildBreadcrumbs = (folder: Folder | undefined): { title: string, to: string }[] => {
-    if (!folder) {
-      return [{
-        title: '🏠 Home',
-        to: '/browser?dir=root',
-      }]
+  const buildBreadcrumbs = (folder: Folder | undefined): { title: string, to: string }[] => [
+    { title: '🏠 Home', to: '/browser?dir=root' },
+    ...folderAncestors(folder?.id, folderStore.folders)
+      .map(ancestor => ({ title: ancestor.name || '', to: `/browser?dir=${ancestor.id}` })),
+  ]
+
+  // The header's trail: Home, an ellipsis with a menu of the folders it hides, and the last two, when the path is deep.
+  const trail = computed(() => collapseTrail(breadcrumbs.value))
+
+  // Below this width the search is a magnifier button that opens the field, so the trail keeps its room.
+  const { width: windowWidth } = useDisplay()
+  const compactSearch = computed(() => windowWidth.value < 1100)
+
+  // Set while a model picked in the search opens: the Browser's URL is first moved to the model's folder, so that the
+  // way back (the Back button, or the rail's Browser link through the remembered folder) lands there, and that
+  // navigation must not fetch a folder the page is about to leave.
+  let leavingForModel = false
+
+  // The folder the Browser shows, as the `dir` it navigates by.
+  const shownDir = () => folderStore.selectedFolder?.id ?? 'root'
+
+  const openFromSearch = async (result: BrowserSearchResult) => {
+    if (result.kind === 'control') {
+      selectedControlId.value = result.id
+      showControlDialog.value = true
+      return
     }
-
-    const trail: { title: string, to: string }[] = []
-    let currentFolder: Folder | undefined = folder
-
-    while (currentFolder) {
-      trail.unshift({
-        title: currentFolder.name || '',
-        to: `/browser?dir=${currentFolder.id}`,
-      })
-
-      if (currentFolder.parentFolder?.id) {
-        currentFolder = folderStore.folders.find(f => f.id === currentFolder?.parentFolder?.id) || undefined
-      } else {
-        currentFolder = undefined
-      }
+    const dir = result.folderId ?? 'root'
+    const moveFirst = shownDir() !== dir
+    leavingForModel = true
+    folderStore.selectedFolder = result.folderId
+      ? folderStore.folders.find(folder => folder.id === result.folderId)
+      : undefined
+    let failure: unknown
+    try {
+      if (moveFirst) await router.replace({ path: '/browser', query: { dir } })
+      failure = await router.push({ path: '/dataflow', query: { id: result.id } })
+    } catch (error) {
+      // A navigation that throws (a guard, or the editor's code failing to load) rather than reporting a failure.
+      failure = error
     }
-
-    if (trail.length === 0 || !trail[0]?.title?.includes('🏠')) {
-      trail.unshift({
-        title: '🏠 Home',
-        to: '/browser?dir=root',
-      })
+    if (failure) {
+      // Still here: show the folder the URL now names. The way out cleared the content (onBeforeRouteLeave) before
+      // the navigation failed, so it is fetched again.
+      leavingForModel = false
+      loadFolderView()
     }
-    return trail
   }
+
+  // "Show in folder": go to the item's folder and point at its tile for a moment, once the folder's content is in.
+  const foundId = ref<string | null>(null)
+  let foundTimer: ReturnType<typeof setTimeout> | null = null
+
+  const showInFolder = (result: BrowserSearchResult) => {
+    const dir = result.folderId ?? 'root'
+    if (shownDir() !== dir) router.push({ path: '/browser', query: { dir } })
+    // Through null, so that showing the same item again points at it again.
+    foundId.value = null
+    nextTick(() => { foundId.value = result.id })
+  }
+
+  watch([foundId, () => modelsStore.isLoading || controlsStore.isLoading], ([id, loading]) => {
+    if (foundTimer) {
+      clearTimeout(foundTimer)
+      foundTimer = null
+    }
+    if (!id || loading) return
+    nextTick(() => {
+      document.querySelector(`[data-browser-item="${CSS.escape(id)}"]`)?.scrollIntoView?.({ block: 'nearest' })
+    })
+    foundTimer = setTimeout(() => { foundId.value = null }, 2500)
+  })
 
   // Resolve selectedFolder from the URL + rebuild breadcrumbs. Pure state — no
   // network — so it can safely re-run whenever the folder list changes (rename /
@@ -110,6 +155,7 @@
   const loadFolderView = () => {
     if (route.path !== '/browser') return
     syncFolderSelection()
+    if (leavingForModel) return
     modelsStore.fetchModels({ folderId: folderStore.selectedFolder?.id || undefined })
     controlsStore.fetchControls({ folderId: folderStore.selectedFolder?.id || undefined })
   }
@@ -289,6 +335,10 @@
       clearTimeout(contentSkeletonTimer)
       contentSkeletonTimer = null
     }
+    if (foundTimer) {
+      clearTimeout(foundTimer)
+      foundTimer = null
+    }
     modelsStore.resetStore()
   })
 </script>
@@ -305,9 +355,42 @@
           color="background"
         >
           <v-card-title>
-            <div class="d-flex flex-row justify-space-between">
-              <v-breadcrumbs :items="breadcrumbs" />
-              <div class="px-2 pb-2">
+            <!-- The trail takes the room that is left and gives way first; the search and the folder buttons keep
+                 their width. -->
+            <div class="d-flex flex-row align-center browser-header">
+              <nav aria-label="Folder path" class="browser-trail">
+                <v-breadcrumbs class="browser-breadcrumbs">
+                  <template v-for="(crumb, i) in trail.shown" :key="crumb?.to ?? 'hidden'">
+                    <v-breadcrumbs-divider v-if="i > 0" />
+                    <v-menu v-if="crumb === null" location="bottom start">
+                      <template #activator="{ props: menuProps }">
+                        <v-btn
+                          v-bind="menuProps"
+                          aria-label="Show the folders in between"
+                          class="browser-trail-more"
+                          color="on-surface"
+                          density="comfortable"
+                          icon="mdi-dots-horizontal"
+                          size="small"
+                          variant="text"
+                        />
+                      </template>
+                      <v-list density="compact">
+                        <v-list-item v-for="hidden in trail.hidden" :key="hidden.to" :title="hidden.title" :to="hidden.to" />
+                      </v-list>
+                    </v-menu>
+                    <v-breadcrumbs-item v-else :disabled="i === trail.shown.length - 1" :to="crumb.to">
+                      <span class="browser-crumb" :title="crumb.title">{{ crumb.title }}</span>
+                    </v-breadcrumbs-item>
+                  </template>
+                </v-breadcrumbs>
+              </nav>
+              <BrowserSearch
+                :compact="compactSearch"
+                @open="openFromSearch"
+                @show="showInFolder"
+              />
+              <div class="px-2 pb-2 browser-folder-actions">
                 <v-btn
                   class="mx-1"
                   color="secondary"
@@ -497,7 +580,9 @@
                 <v-card
                   border="opacity-100 primary md"
                   class="ma-2 opacity-90 rounded-lg elevation-11 pa-0 context-card opacity-90"
+                  :class="{ 'tile-found': foundId === model.id }"
                   color="surface"
+                  :data-browser-item="model.id"
                   height="100px"
                   rounded="lg"
                   width="220px"
@@ -578,7 +663,9 @@
                 <v-card
                   border="opacity-100 secondary md"
                   class="ma-2 opacity-90 rounded-lg elevation-11 pa-0 context-card opacity-90"
+                  :class="{ 'tile-found': foundId === control.id }"
                   color="surface"
+                  :data-browser-item="control.id"
                   height="100px"
                   rounded="lg"
                   width="220px"
@@ -747,6 +834,41 @@
 .tile-action-icon:hover,
 .tile-action-icon:focus-visible {
   opacity: 1;
+}
+
+/* Header: the trail shrinks (min-width 0) and clips; each crumb is cut with an ellipsis, its full name on hover. */
+.browser-header {
+  gap: 8px;
+}
+
+.browser-trail {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.browser-breadcrumbs {
+  flex-wrap: nowrap;
+}
+
+.browser-crumb {
+  display: inline-block;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.browser-folder-actions {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* The tile the search's "show in folder" points at, for a moment. */
+.tile-found {
+  outline: 3px solid rgb(var(--v-theme-warning));
+  outline-offset: 3px;
 }
 
 /* Dashed outline distinguishes the empty-state create affordance from real cards. */
