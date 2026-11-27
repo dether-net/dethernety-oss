@@ -1,4 +1,5 @@
 import type { Edge, Node } from '@vue-flow/core'
+import type { CanvasSearchResult } from './flowSearch'
 
 /** The node types a data flow can start or end at. Boundaries hold components; they are not one end of a flow. */
 const COMPONENT_TYPES = new Set(['PROCESS', 'STORE', 'EXTERNAL_ENTITY'])
@@ -72,22 +73,33 @@ const cssString = (value: string): string =>
 const nodeSel = (id: string) => `.dt-flow-focus .vue-flow__node[data-id=${cssString(id)}]`
 const edgeSel = (id: string) => `.dt-flow-focus .vue-flow__edge[data-id=${cssString(id)}]`
 
+/** Collects rules; a rule with no selectors is left out. */
+const ruleSet = () => {
+  const rules: string[] = []
+  return {
+    lit: (selectors: string[], body: string) => {
+      if (selectors.length) rules.push(`${selectors.join(',\n')} { ${body} }`)
+    },
+    css: () => rules.join('\n'),
+  }
+}
+
+const LIT_OUTLINE = 'outline: 2px solid rgba(var(--v-theme-on-background), 0.7); outline-offset: 3px;'
+const FOREGROUND_FLOW = 'stroke: rgb(var(--v-theme-on-background)); stroke-width: 3;'
+
 /**
  * The rules that bring a neighbourhood forward. The dimming itself is static (main.css, under `.dt-flow-focus`, at
  * `:where()` specificity), so these only need to name the elements that stay lit.
  */
 export function neighbourhoodCss(n: FlowNeighbourhood | null): string {
   if (!n) return ''
-  const rules: string[] = []
-  const lit = (selectors: string[], body: string) => {
-    if (selectors.length) rules.push(`${selectors.join(',\n')} { ${body} }`)
-  }
+  const { lit, css } = ruleSet()
 
   const focusNode = n.focusKind === 'component' ? [nodeSel(n.focusId)] : []
   const focusEdge = n.focusKind === 'flow' ? [edgeSel(n.focusId)] : []
   lit([...focusNode, ...n.nodeIds.map(nodeSel), ...focusEdge, ...[...n.inEdgeIds, ...n.outEdgeIds].map(edgeSel)], 'opacity: 1;')
-  lit(n.nodeIds.map(nodeSel), 'outline: 2px solid rgba(var(--v-theme-on-background), 0.7); outline-offset: 3px;')
-  lit(focusEdge.map(s => `${s} .vue-flow__edge-path`), 'stroke: rgb(var(--v-theme-on-background)); stroke-width: 3;')
+  lit(n.nodeIds.map(nodeSel), LIT_OUTLINE)
+  lit(focusEdge.map(s => `${s} .vue-flow__edge-path`), FOREGROUND_FLOW)
   lit(
     n.inEdgeIds.map(id => `${edgeSel(id)} .vue-flow__edge-path`),
     `stroke: rgb(var(--v-theme-flow-in)); stroke-width: 3; marker-end: url(#${FLOW_ARROW_IN});`,
@@ -96,5 +108,21 @@ export function neighbourhoodCss(n: FlowNeighbourhood | null): string {
     n.outEdgeIds.map(id => `${edgeSel(id)} .vue-flow__edge-path`),
     `stroke: rgb(var(--v-theme-flow-out)); stroke-width: 3; marker-end: url(#${FLOW_ARROW_OUT});`,
   )
-  return rules.join('\n')
+  return css()
+}
+
+/**
+ * The rules that light the canvas search's matches: matched components and boundaries are outlined, matched flows
+ * drawn thicker in the foreground colour, and the rest dims as for a neighbourhood. No matches (or no search) gives no
+ * rules, so nothing dims.
+ */
+export function searchCss(matches: Pick<CanvasSearchResult, 'id' | 'kind'>[] | null): string {
+  if (!matches?.length) return ''
+  const { lit, css } = ruleSet()
+  const nodeIds = matches.filter(m => m.kind !== 'flow').map(m => m.id)
+  const edgeIds = matches.filter(m => m.kind === 'flow').map(m => m.id)
+  lit([...nodeIds.map(nodeSel), ...edgeIds.map(edgeSel)], 'opacity: 1;')
+  lit(nodeIds.map(nodeSel), LIT_OUTLINE)
+  lit(edgeIds.map(id => `${edgeSel(id)} .vue-flow__edge-path`), FOREGROUND_FLOW)
+  return css()
 }

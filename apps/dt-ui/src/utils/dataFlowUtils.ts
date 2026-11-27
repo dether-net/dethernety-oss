@@ -67,7 +67,10 @@ export function useDragAndDrop () {
     draggedType.value = type
     isDragging.value = true
 
+    // dragend as well as drop: a drag cancelled with Esc, or released outside the window, ends with no drop, and a
+    // dragged type left behind would make a later drag from outside the page look like one from the palette.
     document.addEventListener('drop', onDragEnd)
+    document.addEventListener('dragend', onDragEnd)
   }
 
   function onDragOver (event: DragEvent): void {
@@ -91,6 +94,7 @@ export function useDragAndDrop () {
     isDragOver.value = false
     draggedType.value = null
     document.removeEventListener('drop', onDragEnd)
+    document.removeEventListener('dragend', onDragEnd)
   }
 
   /**

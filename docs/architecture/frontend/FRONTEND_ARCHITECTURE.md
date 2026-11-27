@@ -225,6 +225,19 @@ Interactive diagram editor built on Vue Flow.
 - Nested boundaries with parent-child relationships
 - Real-time property editing with JSONForms
 - Neighbourhood highlight on selection (see [Neighbourhood highlight](#neighbourhood-highlight))
+- Search the canvas by name with Ctrl/⌘F (see [Canvas search](#canvas-search))
+- View mode and edit mode behind a padlock on the canvas rail (see [Edit lock](#edit-lock))
+
+#### Edit lock
+
+The canvas is either in view mode (locked) or edit mode, held in `flowStore.editMode` and toggled by the padlock button on the canvas rail. A model with elements opens locked; an empty model opens unlocked, since the only thing to do with it is add to it. Locked, the canvas does not move, connect or reroute elements, Backspace deletes nothing, and boundaries show no resize handles.
+
+- Dropping an element from the palette onto a locked canvas turns edit mode on, creates the element and says so in a snackbar ("Edit mode is on. Click the padlock to lock the canvas again."). It is the drop that unlocks, not opening the palette or starting the drag, so a cancelled drag changes nothing.
+- A drag let go over the palette itself is taken back, locked or not: a drop there would put the element where the panel hides it.
+- Anything else dragged onto a locked canvas, a file from the desktop say, is refused.
+- The palette's drag state ends with the drag, dropped or not (`useDragAndDrop` clears it on the document's `drop` and `dragend`), so a later drag from outside the page is never taken for one from the palette.
+
+**Source:** `apps/dt-ui/src/stores/flowStore.ts` (`editMode`, `openedEmpty`, set in `fetchData`); padlock in `components/DataFlow/DataFlowBackground.vue`; the lock-bound Vue Flow props and the drop in `components/DataFlow/DataFlow.vue` (`handleDragOver`, `onCanvasDrop`); resize handles in `components/DataFlow/Nodes/BoundaryNode.vue`; drag state in `utils/dataFlowUtils.ts` (`useDragAndDrop`). Tests: `components/DataFlow/__tests__/DataFlow.paletteDrop.test.ts`, `utils/__tests__/dataFlowUtils.dragAndDrop.test.ts`.
 
 #### Neighbourhood highlight
 
@@ -236,7 +249,7 @@ Selecting a component (process, store or external entity) brings its neighbourho
 - A flow from a component to itself counts as outbound.
 - The highlight follows `flowStore.selectedItem` (a single selection) and is read from the current `nodes` and `edges`, not the selected object, so a deleted element clears it and a rerouted or reloaded one updates it.
 
-**Mechanism.** `neighbourhood()` computes the focus, its inbound and outbound flow ids and its neighbouring components; `neighbourhoodCss()` turns that into rules that name the lit elements by Vue Flow's `data-id` attribute. `DataFlow.vue` writes the rules into one `<style data-dt-flow-focus>` element in the document head (through `textContent`, never markup), drops it when there is no highlight and removes it on unmount, and sets the `dt-flow-focus` class on the VueFlow root while a highlight is active.
+**Mechanism.** `neighbourhood()` computes the focus, its inbound and outbound flow ids and its neighbouring components; `neighbourhoodCss()` turns that into rules that name the lit elements by Vue Flow's `data-id` attribute. `DataFlow.vue` writes the rules into one `<style data-dt-flow-focus>` element in the document head (through `textContent`, never markup), drops it when there is no highlight and removes it on unmount, and sets the `dt-flow-focus` class on the VueFlow root while a highlight is active. The same element and class carry the [canvas search](#canvas-search)'s matches while it has a query: `canvasCss` picks the search's rules or the neighbourhood's.
 
 - Nothing is written to the store's elements or to `node.class`, which the [crown-jewel class](./LLD/FLOW_STORE.md#crown-jewel-node-class) and the drag-intersection feedback already use.
 - Ids are escaped as CSS string values, so an unexpected id cannot end the attribute string or the rule.
@@ -244,7 +257,28 @@ Selecting a component (process, store or external entity) brings its neighbourho
 - The arrowheads are two markers of their own (`FLOW_ARROW_IN`, `FLOW_ARROW_OUT`) in a hidden SVG `<defs>`: an edge's Vue Flow arrowhead keeps the colour of its marker definition, not the line's stroke. Their size is fixed in canvas units (`markerUnits="userSpaceOnUse"`), so a thicker line does not grow its arrow.
 - The two colours are the `flow-in` and `flow-out` theme tokens, defined in both the light and dark themes.
 
-**Source:** `apps/dt-ui/src/utils/flowNeighbourhood.ts` (`neighbourhood`, `neighbourhoodCss`, `FLOW_ARROW_IN`, `FLOW_ARROW_OUT`), applied in `components/DataFlow/DataFlow.vue` (`focus`); dimming in `components/DataFlow/Style/main.css` ("Neighbourhood focus"); colours in `plugins/vuetify.ts`.
+**Source:** `apps/dt-ui/src/utils/flowNeighbourhood.ts` (`neighbourhood`, `neighbourhoodCss`, `searchCss`, `FLOW_ARROW_IN`, `FLOW_ARROW_OUT`), applied in `components/DataFlow/DataFlow.vue` (`focus`, `canvasCss`); dimming in `components/DataFlow/Style/main.css` ("Neighbourhood focus"); colours in `plugins/vuetify.ts`.
+
+#### Canvas search
+
+Ctrl+F (⌘F on macOS) or the magnifier button at the top of the canvas rail opens a search field next to the rail. Typing lights every component, boundary and data flow whose name contains the text, and dims the rest: matched components and boundaries are outlined, matched flows drawn thicker in the foreground colour. A list under the field shows the best matches, each with its type and where it is: the boundary that holds it, or a flow's two ends ("web → db"). Picking a result selects it, frames it as an [element link](#linking-to-an-element) does, and closes the search. Esc or the close icon closes it and leaves the selection as it was.
+
+- Matching ignores case, accents and repeated whitespace. The whole name ranks first, then the name's start, then a word's start inside it, then anywhere; within a rank by name, then components before boundaries before flows.
+- An element with no name is never found, and neither is the model's default boundary, which is not a canvas node; its name is the context of what sits at the root.
+- The list shows at most 50 results; the canvas lights every match. A query with no matches shows "No matches" and dims nothing.
+- While the search has a query, its matches replace the selection's neighbourhood on the canvas; with the query emptied or the search closed, the neighbourhood shows again.
+- Leaving the field hides the list only: the query and the lit matches stay while the canvas is panned or a match is clicked, and clicking back into the field shows the list again.
+- The arrow keys move through the list and wrap; Enter picks the active result. Esc goes no further than the search.
+- The shortcut takes the F key by letter or by position, so a non-Latin layout works. It stands down while typing in another input, text area or editable text, and while a dialog or menu is open (a tooltip or snackbar does not count), leaving the browser's find to them; inside the search's own field it stays the search's. Asking for the search while it is open puts the cursor back in the field.
+- The search starts empty each time it opens, and closes when the editor switches to another model.
+
+**Mechanism.** `searchCanvas()` compares the query with node labels and flow labels, both folded by `normalise()`, and returns every match, ranked. `CanvasSearch.vue` is a text field with a result list of its own rather than `v-autocomplete`, which clears its search text on blur and sets it to the picked value, while here the query must outlive the field's focus. It emits every match while it is open with a query (`matches`, `null` otherwise) and the picked result (`pick`), and exposes `focus()`.
+
+- `DataFlow.vue` keeps `searchOpen` and `searchMatches`. `canvasCss` uses `searchCss()` while there is a match list and `neighbourhoodCss()` otherwise, in the same per-selection stylesheet as the [Neighbourhood highlight](#neighbourhood-highlight); an empty match list gives no rules, so nothing dims.
+- A pick resolves through `resolveEditorLink`, and `selectAndFrame`, shared with the element link, selects it in the store and in Vue Flow and fits the view on it: a node on itself, a flow on its two ends. A result no longer on the canvas selects nothing.
+- `openSearch` serves both the shortcut (`onSearchShortcut`, a document `keydown` listener from mount to unmount) and the rail button (`open-search` from `DataFlowBackground.vue`), and always refocuses the field.
+
+**Source:** `apps/dt-ui/src/utils/flowSearch.ts` (`searchCanvas`, `normalise`, `CanvasSearchResult`) and `components/DataFlow/CanvasSearch.vue`; lighting in `utils/flowNeighbourhood.ts` (`searchCss`); wired in `components/DataFlow/DataFlow.vue` (`canvasCss`, `openSearch`, `onSearchShortcut`, `selectAndFrame`); rail button in `components/DataFlow/DataFlowBackground.vue`.
 
 #### Boundary Zoning
 

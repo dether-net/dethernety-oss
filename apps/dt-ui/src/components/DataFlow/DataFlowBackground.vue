@@ -26,7 +26,9 @@
   const showZoningOverview = ref(false)
   const showAnalyses = ref(false)
   const props = defineProps<Props>()
-  const emits = defineEmits(['update:openSettings', 'update:snackBar', 'update:analysisResults', 'openModel', 'editModel', 'delete:node', 'delete:edge', 'redirect:issue', 'clear-freshly-created', 'requested-tab-applied'])
+  const emits = defineEmits(['update:openSettings', 'update:snackBar', 'update:analysisResults', 'openModel', 'editModel', 'delete:node', 'delete:edge', 'redirect:issue', 'clear-freshly-created', 'requested-tab-applied', 'open-search'])
+  // The shortcut is DataFlow.vue's (it owns the search); the tooltip names the one this platform uses.
+  const searchTooltip = `Search the canvas (${typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+'}F)`
   const openSettings = ref(props.openSettings)
   const modelName = ref(props.modelName)
   const modelId = ref(props.modelId)
@@ -263,23 +265,27 @@
     <!-- Canvas rail. One flex column rather than four hand-positioned boxes:
          the toggles were each a fixed-position div with its own hardcoded `top`,
          so the stack could only grow by copy-paste, and the pitch was restated
-         at every step. Order is unchanged from when these were separate. -->
+         at every step. Two groups, a gap between them. First the canvas tools,
+         used all the time: search (its field, CanvasSearch.vue, opens level with
+         the top of the rail, where its result list covers the least of the
+         canvas) and the edit lock. Then the model-wide panels in the order the
+         work goes: describe the model, zone its boundaries, analyse it. -->
     <div class="canvas-rail">
-      <v-tooltip v-if="props.modelId" location="right" text="Model settings">
+      <v-tooltip location="right" :text="searchTooltip">
         <template #activator="{ props: tip }">
           <div
             v-bind="tip"
-            aria-label="Open model settings"
+            aria-label="Search the canvas"
             class="rail-btn pa-1 px-2 border-md rounded-lg border-opacity-25 elevation-5"
             role="button"
             tabindex="0"
-            @click="editModel"
-            @keydown.enter.prevent="editModel"
-            @keydown.space.prevent="editModel"
+            @click="emits('open-search')"
+            @keydown.enter.prevent="emits('open-search')"
+            @keydown.space.prevent="emits('open-search')"
           >
             <v-icon
               color="tertiary"
-              icon="mdi-receipt-text-edit-outline"
+              icon="mdi-magnify"
               size="large"
               variant="outlined"
             />
@@ -305,6 +311,30 @@
             <v-icon
               :color="flowStore.editMode ? 'warning' : 'tertiary'"
               :icon="flowStore.editMode ? 'mdi-lock-open-variant-outline' : 'mdi-lock-outline'"
+              size="large"
+              variant="outlined"
+            />
+          </div>
+        </template>
+      </v-tooltip>
+
+      <div aria-hidden="true" class="rail-group-gap" />
+
+      <v-tooltip v-if="props.modelId" location="right" text="Model settings">
+        <template #activator="{ props: tip }">
+          <div
+            v-bind="tip"
+            aria-label="Open model settings"
+            class="rail-btn pa-1 px-2 border-md rounded-lg border-opacity-25 elevation-5"
+            role="button"
+            tabindex="0"
+            @click="editModel"
+            @keydown.enter.prevent="editModel"
+            @keydown.space.prevent="editModel"
+          >
+            <v-icon
+              color="tertiary"
+              icon="mdi-receipt-text-edit-outline"
               size="large"
               variant="outlined"
             />
@@ -430,10 +460,15 @@
   z-index: 1000;
   display: flex;
   flex-direction: column;
-  /* The button box measures 40px (4px padding + 2px border + a 28px large
-     icon, doubled), so 15px reproduces the 55px pitch the three toggles were
-     hand-positioned at and the first three keep their exact former positions. */
-  gap: 15px;
+  /* Buttons of one group sit close; the groups sit three times as far apart,
+     so the rail reads as two groups rather than five evenly spaced buttons. */
+  gap: 8px;
+}
+
+/* Between the canvas tools and the model panels. An empty item, so the rail's
+   gap falls on both sides of it: 8 + 8 + 8 = 24px between the groups. */
+.rail-group-gap {
+  height: 8px;
 }
 
 .rail-btn {

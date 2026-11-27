@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed, nextTick, onBeforeUnmount, ref, useAttrs, watch, Teleport } from 'vue'
+  import { computed, nextTick, onBeforeUnmount, onMounted, ref, useAttrs, watch, Teleport } from 'vue'
   import { Controls } from '@vue-flow/controls'
   import {
     Connection,
@@ -11,8 +11,10 @@
     VueFlow,
   } from '@vue-flow/core'
   import { getId, getNewName, nodeTypes, useDragAndDrop } from '@/utils/dataFlowUtils'
-  import { resolveEditorLink, type SettingsTab } from '@/utils/editorLink'
-  import { FLOW_ARROW_IN, FLOW_ARROW_OUT, neighbourhood, neighbourhoodCss } from '@/utils/flowNeighbourhood'
+  import { resolveEditorLink, type EditorLinkTarget, type SettingsTab } from '@/utils/editorLink'
+  import { FLOW_ARROW_IN, FLOW_ARROW_OUT, neighbourhood, neighbourhoodCss, searchCss } from '@/utils/flowNeighbourhood'
+  import type { CanvasSearchResult } from '@/utils/flowSearch'
+  import CanvasSearch from '@/components/DataFlow/CanvasSearch.vue'
   import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 
   import { useFlowStore, crownJewelClass } from '@/stores/flowStore'
@@ -101,8 +103,18 @@
     { id: FLOW_ARROW_IN, color: 'rgb(var(--v-theme-flow-in))' },
     { id: FLOW_ARROW_OUT, color: 'rgb(var(--v-theme-flow-out))' },
   ]
+
+  // The canvas search (CanvasSearch.vue). While it is open with a query, its matches take the canvas over from the
+  // selection's neighbourhood: they stay lit and the rest dims, or with no matches nothing dims. Closed, or with an
+  // empty query, `searchMatches` is null and the neighbourhood shows again.
+  const searchOpen = ref(false)
+  const searchMatches = ref<CanvasSearchResult[] | null>(null)
+  const rootLabel = computed(() => (flowStore.defaultBoundary?.data?.label as string | undefined) || 'Default boundary')
+
+  const canvasCss = computed(() =>
+    searchMatches.value ? searchCss(searchMatches.value) : neighbourhoodCss(focus.value))
   let focusStyle: HTMLStyleElement | null = null
-  watch(() => neighbourhoodCss(focus.value), css => {
+  watch(canvasCss, css => {
     if (!css) {
       focusStyle?.remove()
       focusStyle = null
@@ -116,10 +128,57 @@
     // textContent, never markup: the rules carry element ids.
     focusStyle.textContent = css
   }, { immediate: true })
+  // Opening always puts the cursor in the field, also when the search is already open but the focus is elsewhere
+  // (on the canvas, after a pan), so the shortcut and the rail button never do nothing.
+  const canvasSearch = ref<{ focus: () => void } | null>(null)
+  const openSearch = () => {
+    searchOpen.value = true
+    nextTick(() => canvasSearch.value?.focus())
+  }
+
+  // Ctrl/⌘F opens the search while the editor is showing. The F is the letter F on a Latin layout (on Dvorak the key
+  // that types F, not the one where F sits on QWERTY, which types U); on a layout whose letters are not Latin, it is the
+  // key in F's position. It stands down while typing elsewhere (an input, a text area, editable text) and while an
+  // overlay that takes the keyboard is open (a dialog or a menu; a tooltip or a snackbar does not count), so it never
+  // steals the browser's find from them. In the search's own field it stays the search's.
+  const onSearchShortcut = (e: KeyboardEvent) => {
+    if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return
+    const isF = /^[a-z]$/i.test(e.key) ? e.key.toLowerCase() === 'f' : e.code === 'KeyF'
+    if (!isF) return
+    const target = e.target as HTMLElement | null
+    const inSearch = !!target?.closest?.('.canvas-search')
+    if (!inSearch && target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return
+    if (!inSearch && document.querySelector('.v-overlay--active:not(.v-tooltip):not(.v-snackbar)')) return
+    e.preventDefault()
+    openSearch()
+  }
+  onMounted(() => document.addEventListener('keydown', onSearchShortcut))
+
   onBeforeUnmount(() => {
+    document.removeEventListener('keydown', onSearchShortcut)
     focusStyle?.remove()
     focusStyle = null
   })
+
+  // Selects a resolved element in the store (which the settings panel reads) and in vue-flow (which draws the
+  // selection; outside a Shift multi-select this clears any other), then frames it: a node on itself, a flow on its two
+  // ends. The default boundary is no canvas node, so it is only selected, as a click on the empty canvas does.
+  const selectAndFrame = (target: EditorLinkTarget) => {
+    flowStore.setSelectedItem({ item: target.item })
+    if (target.kind === 'node') addSelectedNodes(getNodes.value.filter(n => n.id === target.item.id))
+    if (target.kind === 'edge') addSelectedEdges(getEdges.value.filter(e => e.id === target.item.id))
+    if (target.focusNodeIds.length) fitView({ nodes: target.focusNodeIds, padding: 0.4, maxZoom: 1.5 })
+  }
+
+  const onSearchPick = (result: CanvasSearchResult) => {
+    const target = resolveEditorLink({ element: result.id }, {
+      nodes: flowStore.nodes,
+      edges: flowStore.edges,
+      defaultBoundary: flowStore.defaultBoundary,
+      defaultBoundaryId: flowStore.defaultBoundaryId,
+    })
+    if (target) selectAndFrame(target)
+  }
   const snackBar = ref<SnackBar>({ show: false, message: '', color: '' })
   // Covers the canvas until the model is loaded AND framed, hiding both the
   // empty-canvas flash and the fitView() viewport jump on first paint.
@@ -167,11 +226,7 @@
       }
       return
     }
-    flowStore.setSelectedItem({ item: link.item })
-    // The canvas shows a selection through vue-flow's own flag; the default boundary is no canvas node (as a pane click).
-    if (link.kind === 'node') addSelectedNodes(getNodes.value.filter(n => n.id === link.item.id))
-    if (link.kind === 'edge') addSelectedEdges(getEdges.value.filter(e => e.id === link.item.id))
-    if (link.focusNodeIds.length) fitView({ nodes: link.focusNodeIds, padding: 0.4, maxZoom: 1.5 })
+    selectAndFrame(link)
     if (link.tab) {
       requestedTab.value = link.tab
       openSettings.value = true
@@ -599,6 +654,8 @@
     // freshlyCreatedId is component-local (not in flowStore.resetStore's scope).
     // Carry-over would point at a node that no longer exists in the new model.
     freshlyCreatedId.value = null
+    // A search typed against the previous model would light the new one's matches for a query no one typed there.
+    searchOpen.value = false
     flowStore.resetStore()
     loadAndFrame(updatedModelId)
     flowStore.fetchControls()
@@ -638,8 +695,10 @@
     openSettings.value = false
   }
 
+  // A drag from the palette is accepted on a locked canvas too: dropping it turns edit mode on (onCanvasDrop). Anything
+  // else dragged over a locked canvas, a file from the desktop say, is refused.
   const handleDragOver = (event: DragEvent) => {
-    if (!flowStore.editMode) return
+    if (!flowStore.editMode && !draggedType.value) return
     onDragOver(event)
 
     if (!draggedType.value) return
@@ -681,6 +740,21 @@
     }
   }
 
+  // Dropping an element from the palette is a deliberate edit, so on a locked canvas it turns edit mode on and says so,
+  // rather than failing with no word of why. It is the drop that unlocks, not opening the palette or starting the drag,
+  // so a cancelled drag changes nothing. Moving, resizing and connecting what is already there stay behind the lock.
+  // A drag let go over the palette itself is taken back, locked or not: the panel sits on the canvas, and a drop there
+  // would put the element where the panel hides it.
+  const onCanvasDrop = (event: DragEvent) => {
+    if ((event.target as Element | null)?.closest?.('.sidebar-container')) return
+    if (!flowStore.editMode) {
+      if (!draggedType.value) return
+      flowStore.editMode = true
+      snackBar.value = { show: true, message: 'Edit mode is on. Click the padlock to lock the canvas again.', color: 'info' }
+    }
+    onDrop(event, onNodeDrop)
+  }
+
   const handleDragLeave = () => {
     onDragLeave()
 
@@ -698,11 +772,11 @@
   <!-- eslint-disable vue/attribute-hyphenation -->
   <!-- eslint-disable vue/no-lone-template -->
   <!-- eslint-disable vue/v-on-event-hyphenation -->
-  <div class="data-flow-root dnd-flow" v-bind="attrs" @drop="(event: DragEvent) => { if (!flowStore.editMode) return; onDrop(event, onNodeDrop) }">
+  <div class="data-flow-root dnd-flow" v-bind="attrs" @drop="onCanvasDrop">
     <VueFlow
       :apply-default="false"
       class="vue-flow"
-      :class="{ 'dt-flow-focus': focus !== null }"
+      :class="{ 'dt-flow-focus': canvasCss !== '' }"
       :connection-line-options="{ markerEnd: 'arrowclosed' }"
       :default-viewport="{ zoom: 1.5 }"
       :delete-key-code="flowStore.editMode ? 'Backspace' : null"
@@ -738,6 +812,7 @@
         @delete:node="onNodeDelete"
         @edit-model="editModel"
         @open-model="openModel"
+        @open-search="openSearch"
         @redirect:issue="redirectToIssue"
         @requested-tab-applied="requestedTab = null"
         @update:open-settings="openSettings = $event"
@@ -767,6 +842,16 @@
         position="bottom-right"
       />
     </VueFlow>
+
+    <CanvasSearch
+      ref="canvasSearch"
+      v-model="searchOpen"
+      :edges="flowStore.edges"
+      :nodes="flowStore.nodes"
+      :root-label="rootLabel"
+      @matches="searchMatches = $event"
+      @pick="onSearchPick"
+    />
 
     <!-- The arrowheads of a focused component's flows, one per direction (`marker-end` in neighbourhoodCss). The size
          is fixed in canvas units, so a thicker focused line does not grow its arrow. -->
