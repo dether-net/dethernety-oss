@@ -148,13 +148,14 @@
    VueFlow root; the elements that stay lit, and the in/out colours of a component's flows, come from the stylesheet
    DataFlow.vue writes for the current selection or search (utils/flowNeighbourhood.ts). These
    rules sit at `:where()` specificity so that sheet always wins over them, whatever order the two load in.
-   Boundaries never dim: they are the context that shows which flows cross a trust boundary. Dimmed elements keep the
-   pointer, so clicking one moves the focus to it. */
+   Boundaries never dim: they are the context that shows which flows cross a trust boundary. Nor do the palette's
+   tiles (PaletteWindow.vue), which borrow the node classes for their look and sit inside the VueFlow root: dimmed,
+   they would read as disabled. Dimmed elements keep the pointer, so clicking one moves the focus to it. */
 .vue-flow__node,
 .vue-flow__edge {
   transition: opacity 0.15s ease;
 }
-.dt-flow-focus :where(.vue-flow__node:not(.vue-flow__node-BOUNDARY)) {
+.dt-flow-focus :where(.vue-flow__node:not(.vue-flow__node-BOUNDARY, .palette-node)) {
   opacity: 0.35;
 }
 .dt-flow-focus :where(.vue-flow__edge) {
