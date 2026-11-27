@@ -1,6 +1,26 @@
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
 
+/** Every model and control with only what a search over the folders needs: id, name and the folder that holds it. */
+export const GET_CONTENT_INDEX = gql`
+  query GetContentIndex {
+    models {
+      id
+      name
+      folder {
+        id
+      }
+    }
+    controls {
+      id
+      name
+      folder {
+        id
+      }
+    }
+  }
+`
+
 export const GET_FOLDERS = gql`
   query GetFolders {
     folders {

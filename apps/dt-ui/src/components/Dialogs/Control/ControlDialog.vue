@@ -841,7 +841,7 @@
     onCountermeasureFailed, onCountermeasureCreated, showCountermeasureDialog,
     showClassControl, showClassControlDialog,
     lastLoadedAttributes, storedAttributeKeys, attributesSchema, attributesUiSchema, attributesLoading, attributesTemplateWarning,
-    saveAttributes, onAttributesSaveAndClose,
+    saveAttributes, onAttributesSaveAndClose, initialState,
   })
 
 </script>
@@ -864,8 +864,10 @@
       <v-card-title class="pa-0">
         <v-sheet class="pa-2 ma-0 text-body-1 d-flex flex-row justify-space-between" color="primary" density="compact" variant="plain">
           <div>
+            <!-- A control opened from the Browser's search need not be in the store's folder list: then the name it
+                 was last saved with. -->
             <v-icon color="tertiary" size="small">mdi-shield-sword-outline</v-icon>
-            <span class="ml-2 text-body-1">Control: {{ controlsStore.controls.find(control => control.id === id)?.name }}</span>
+            <span class="ml-2 text-body-1">Control: {{ controlsStore.controls.find(control => control.id === id)?.name ?? initialState.name }}</span>
           </div>
           <v-btn
             color="foreground"
@@ -1212,7 +1214,7 @@
           buffered-mode
           :item-class="currentItemClass"
           :item-id="props.id ?? null"
-          :item-name="controlsStore.controls.find(control => control.id === id)?.name ?? null"
+          :item-name="controlsStore.controls.find(control => control.id === id)?.name ?? (initialState.name || null)"
           :show="showClassControlDialog"
           @attributes:save="onAttributesSave"
           @attributes:save-and-close="onAttributesSaveAndClose"
