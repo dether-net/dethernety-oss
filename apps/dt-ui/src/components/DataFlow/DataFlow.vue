@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed, nextTick, ref, useAttrs, Teleport } from 'vue'
+  import { computed, nextTick, onBeforeUnmount, ref, useAttrs, watch, Teleport } from 'vue'
   import { Controls } from '@vue-flow/controls'
   import {
     Connection,
@@ -12,6 +12,7 @@
   } from '@vue-flow/core'
   import { getId, getNewName, nodeTypes, useDragAndDrop } from '@/utils/dataFlowUtils'
   import { resolveEditorLink, type SettingsTab } from '@/utils/editorLink'
+  import { FLOW_ARROW_IN, FLOW_ARROW_OUT, neighbourhood, neighbourhoodCss } from '@/utils/flowNeighbourhood'
   import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 
   import { useFlowStore, crownJewelClass } from '@/stores/flowStore'
@@ -90,6 +91,35 @@
   const getChildNodes = (node: Node) => getNodes.value.filter(n => n.parentNode === node.id)
 
   const selectedItem = computed(() => flowStore.selectedItem)
+
+  // The selection's neighbourhood: a component's flows in and out and the components at their other ends, or a flow's
+  // two ends. The rest of the canvas dims (`.dt-flow-focus` in main.css). The lit elements are named by `data-id` in a
+  // stylesheet of their own, so nothing is written to the store's elements or to their `class`, which the crown-jewel
+  // and drag-intersection styles already use.
+  const focus = computed(() => neighbourhood(selectedItem.value, flowStore.nodes, flowStore.edges))
+  const arrows = [
+    { id: FLOW_ARROW_IN, color: 'rgb(var(--v-theme-flow-in))' },
+    { id: FLOW_ARROW_OUT, color: 'rgb(var(--v-theme-flow-out))' },
+  ]
+  let focusStyle: HTMLStyleElement | null = null
+  watch(() => neighbourhoodCss(focus.value), css => {
+    if (!css) {
+      focusStyle?.remove()
+      focusStyle = null
+      return
+    }
+    if (!focusStyle) {
+      focusStyle = document.createElement('style')
+      focusStyle.dataset.dtFlowFocus = ''
+      document.head.appendChild(focusStyle)
+    }
+    // textContent, never markup: the rules carry element ids.
+    focusStyle.textContent = css
+  }, { immediate: true })
+  onBeforeUnmount(() => {
+    focusStyle?.remove()
+    focusStyle = null
+  })
   const snackBar = ref<SnackBar>({ show: false, message: '', color: '' })
   // Covers the canvas until the model is loaded AND framed, hiding both the
   // empty-canvas flash and the fitView() viewport jump on first paint.
@@ -672,6 +702,7 @@
     <VueFlow
       :apply-default="false"
       class="vue-flow"
+      :class="{ 'dt-flow-focus': focus !== null }"
       :connection-line-options="{ markerEnd: 'arrowclosed' }"
       :default-viewport="{ zoom: 1.5 }"
       :delete-key-code="flowStore.editMode ? 'Backspace' : null"
@@ -736,6 +767,32 @@
         position="bottom-right"
       />
     </VueFlow>
+
+    <!-- The arrowheads of a focused component's flows, one per direction (`marker-end` in neighbourhoodCss). The size
+         is fixed in canvas units, so a thicker focused line does not grow its arrow. -->
+    <svg aria-hidden="true" class="dt-flow-markers" height="0" width="0">
+      <defs>
+        <marker
+          v-for="arrow in arrows"
+          :id="arrow.id"
+          :key="arrow.id"
+          markerHeight="25"
+          markerUnits="userSpaceOnUse"
+          markerWidth="25"
+          orient="auto-start-reverse"
+          refX="0"
+          refY="0"
+          viewBox="-10 -10 20 20"
+        >
+          <polyline
+            points="-5,-4 0,0 -5,4 -5,-4"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            :style="{ stroke: arrow.color, fill: arrow.color, strokeWidth: 1 }"
+          />
+        </marker>
+      </defs>
+    </svg>
 
     <Transition name="canvas-fade">
       <div v-if="isCanvasLoading" class="canvas-loading-overlay">
@@ -835,6 +892,14 @@
 .vue-flow {
   width: 100%;
   height: 100%;
+}
+
+.dt-flow-markers {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
 }
 
 .vue-flow__container {
