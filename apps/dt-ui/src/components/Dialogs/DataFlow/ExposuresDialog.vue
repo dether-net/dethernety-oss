@@ -44,7 +44,7 @@
     @keydown.esc="onClose"
     @update:model-value="(val) => { if (!val) onClose() }"
   >
-    <v-card class="overflow-hidden pa-0 ma-0 rounded-lg">
+    <v-card class="d-flex flex-column overflow-hidden pa-0 ma-0 rounded-lg">
       <v-card-title class="pa-0">
         <v-sheet
           class="pa-2 ma-0 text-body-1 d-flex flex-row justify-space-between"
@@ -72,15 +72,31 @@
           />
         </v-sheet>
       </v-card-title>
-      <v-card-text class="pa-0">
-        <ExposuresPanel
-          variant="expanded"
-          :selected-item="selectedItem"
-          :exposures="exposures"
-          @update-form="emit('updateForm')"
-          @redirect:issue="emit('redirect:issue')"
-        />
+      <!-- The panel sits on an elevated inner card, as in the other dialogs, and fills the height under the title. -->
+      <v-card-text class="exposures-dialog-body">
+        <v-card class="exposures-dialog-sheet border-thin elevation-8">
+          <ExposuresPanel
+            variant="expanded"
+            :selected-item="selectedItem"
+            :exposures="exposures"
+            @update-form="emit('updateForm')"
+            @redirect:issue="emit('redirect:issue')"
+          />
+        </v-card>
       </v-card-text>
     </v-card>
   </v-dialog>
 </template>
+
+<style scoped>
+  .exposures-dialog-body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .exposures-dialog-sheet {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+</style>

@@ -59,7 +59,7 @@ Open a component, security boundary, or data flow's **settings panel** (double-c
 - **Add to Issue** — copies this element to the clipboard for adding to an *existing* issue. See [Adding elements to an existing issue](#adding-elements-to-an-existing-issue).
 - **One button per issue class** — creates a new issue of that class, already linked to this element.
 
-The same sheet appears on the **Exposures** tab of an element (and in the maximized Exposures dialog), on each exposure row. An issue raised from an exposure is pre-named *`<Exposure> Issue on <element>`* with the description *`Exposure: <exposure description>`* — the only creation path that pre-fills a name.
+The same sheet appears on each exposure row of an element's **Exposures** tab, and in the maximized Exposures dialog at the right end of the selected exposure's action buttons. An issue raised from an exposure is pre-named *`<Exposure> Issue on <element>`* with the description *`Exposure: <exposure description>`* — the only creation path that pre-fills a name.
 
 ### From the Model dialog
 

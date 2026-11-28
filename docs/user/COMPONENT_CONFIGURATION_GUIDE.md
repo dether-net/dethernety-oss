@@ -171,7 +171,7 @@ On an **Attributes** form — of a component, boundary, data flow, data item, co
 
 ## Operation & version
 
-Once a component or a security boundary has a class, its **Attributes** tab starts with a panel the platform adds, whichever module the class comes from: **Operation & version** on a component, **Operation** on a boundary. It is closed by default, and if you switch the form to tabs, it is the first tab. It records who runs the element and which software it is. Click the panel's information icon for guidance on each field.
+Once a component or a security boundary has a class, its **Attributes** tab starts with a panel the platform adds, whichever module the class comes from: **Operation & version** on a component, **Operation** on a boundary. It is closed by default. It records who runs the element and which software it is. Click the panel's information icon for guidance on each field.
 
 The panel is missing where the tab shows no form split into panels, for example a read-only notice in place of the class's attributes.
 

@@ -71,7 +71,6 @@
   const showNodeDeleteDialog = ref(false)
   const showEdgeDeleteDialog = ref(false)
   const showAttributesDialog = ref(false)
-  const attributesDialogUseExpansionPanels = ref(true)
 
   // Form data — pendingFormData is the UI buffer; commits apply it to the store via saveItem.
   const pendingFormData = ref<FormData>({ name: '', class: '', model: '', modelName: '', description: '', category: '' })
@@ -1147,46 +1146,36 @@
             </v-tabs-window-item>
 
             <v-tabs-window-item value="attributes">
-              <v-sheet class="flex-grow-1 pa-4 attributes-form">
-                <AttributesForm
-                  :item-class="itemClass"
-                  :item-id="selectedItem?.id ?? null"
-                  :attributes-data="pendingAttributes"
-                  :schema="attributesSchema"
-                  :uischema="attributesUiSchema"
-                  :is-loading="attributesFormLoading"
-                  :template-warning="attributesTemplateWarning"
-                  :use-expansion-panels="attributesDialogUseExpansionPanels"
-                  @attributes:changed="onAttributesChanged"
-                  @form:updated="() => {}"
-                />
-              </v-sheet>
-              <v-hover>
-                <template #default="{ isHovering, props }">
-                  <v-sheet
-                    class="position-absolute top-0 right-0 ma-0 mt-0 mr-1 pa-0 d-flex flex-row align-center justify-center border-thin border-tertiary border-opacity-50 rounded-lg opacity-80"
-                  >
-                    <v-fab
-                      v-bind="props"
-                      class="ma-1"
-                      color="tertiary"
-                      :icon="attributesDialogUseExpansionPanels ? 'mdi-tab' : 'mdi-table-column'"
-                      :size="isHovering ? 'large' : 'small'"
-                      variant="plain"
-                      @click="attributesDialogUseExpansionPanels = !attributesDialogUseExpansionPanels"
-                    />
-                    <v-fab
-                      v-bind="props"
-                      class="ma-1"
-                      color="tertiary"
-                      icon="mdi-window-maximize"
-                      :size="isHovering ? 'large' : 'small'"
-                      variant="plain"
-                      @click="showAttributesDialog = true"
-                    />
-                  </v-sheet>
-                </template>
-              </v-hover>
+              <div class="attributes-row">
+                <v-sheet class="pa-4 attributes-form">
+                  <AttributesForm
+                    :item-class="itemClass"
+                    :item-id="selectedItem?.id ?? null"
+                    :attributes-data="pendingAttributes"
+                    :schema="attributesSchema"
+                    :uischema="attributesUiSchema"
+                    :is-loading="attributesFormLoading"
+                    :template-warning="attributesTemplateWarning"
+                    @attributes:changed="onAttributesChanged"
+                    @form:updated="() => {}"
+                  />
+                </v-sheet>
+                <!-- The expanded view, as the Exposures tab opens its own: beside the panels, so it can't cover them. -->
+                <div class="attributes-expand pt-3 pr-2">
+                  <v-tooltip text="Open expanded view" location="top">
+                    <template #activator="{ props: tProps }">
+                      <v-btn
+                        v-bind="tProps"
+                        aria-label="Open expanded view"
+                        color="secondary"
+                        icon="mdi-window-maximize"
+                        variant="text"
+                        @click="showAttributesDialog = true"
+                      />
+                    </template>
+                  </v-tooltip>
+                </div>
+              </div>
             </v-tabs-window-item>
 
             <v-tabs-window-item value="data">
@@ -1408,9 +1397,18 @@
     overflow-y: hidden;
   }
 
+  /* The panels and, beside them, the button that opens the expanded view. */
+  .attributes-row {
+    display: flex;
+  }
   .attributes-form {
+    flex: 1 1 auto;
+    min-width: 0;
     height: 290px !important;
     overflow-y: auto;
+  }
+  .attributes-expand {
+    flex: 0 0 auto;
   }
 
   .attributes-form :deep(.json-forms) {
