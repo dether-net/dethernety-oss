@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { markRaw, ref, computed, watch, provide } from 'vue'
+  import { markRaw, ref, watch, provide } from 'vue'
   import { JsonForms } from '@jsonforms/vue'
   import { extendedVuetifyRenderers } from '@jsonforms/vue-vuetify'
   import type { UISchemaElement } from '@jsonforms/core'
@@ -18,7 +18,6 @@
     uischema?: UISchemaElement | null;
     isLoading?: boolean;
     templateWarning?: boolean;
-    useExpansionPanels?: boolean;
   }
 
   const props = withDefaults(defineProps<Props>(), {
@@ -27,19 +26,15 @@
     uischema: null,
     isLoading: false,
     templateWarning: false,
-    useExpansionPanels: true
   })
 
-  // Create a computed property for renderers
-  const renderers = computed(() => markRaw([
-    ...(props.useExpansionPanels 
-      ? [{ tester: customCategorizationTester, renderer: CustomCategorizationRenderer }]
-      : []
-    ),
+  // A template's categories render as expansion panels (JSON Forms' own tabbed rendering is not offered).
+  const renderers = markRaw([
+    { tester: customCategorizationTester, renderer: CustomCategorizationRenderer },
     // Booleans answer Yes, No or Not answered, so an answer can be taken back.
     { tester: triStateBooleanTester, renderer: TriStateBooleanRenderer },
     ...extendedVuetifyRenderers,
-  ]))
+  ])
 
   // Internal reactive data that mirrors props
   const internalAttributesData = ref(props.attributesData)

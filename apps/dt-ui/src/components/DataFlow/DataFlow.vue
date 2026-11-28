@@ -837,9 +837,13 @@
         <BoundaryNode :id="props.id" :data="props.data" @resize:start="onBoundaryResize" />
       </template>
 
+      <!-- Zoom in, zoom out and fit view. Vue Flow's own interactivity lock is hidden: the rail's edit lock
+           (flowStore.editMode) is the one lock. Vue Flow's would unlock dragging and connecting in view mode,
+           and lock selecting, which nothing turns back on. -->
       <Controls
         class="controls"
         position="bottom-right"
+        :show-interactive="false"
       />
     </VueFlow>
 

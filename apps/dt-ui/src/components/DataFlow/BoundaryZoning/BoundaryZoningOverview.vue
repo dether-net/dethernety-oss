@@ -259,7 +259,7 @@
     @click:outside="onClose"
     @keydown.esc="onClose"
   >
-    <v-card class="overflow-hidden pa-0 ma-0 rounded-lg boundary-zoning-overview">
+    <v-card class="d-flex flex-column overflow-hidden pa-0 ma-0 rounded-lg boundary-zoning-overview">
       <v-card-title class="pa-0">
         <v-sheet
           class="pa-2 ma-0 d-flex flex-row justify-space-between align-center"
@@ -274,177 +274,186 @@
         </v-sheet>
       </v-card-title>
 
-      <v-card-text class="pa-4">
-        <v-data-table
-          class="zoning-table"
-          density="comfortable"
-          :headers="headers"
-          item-value="id"
-          :items="displayRows"
-          :items-per-page="-1"
-          :model-value="selectedIds"
-          show-select
-          @update:model-value="selectedIds = $event"
-        >
-          <!-- Toolbar: closure nudge + filter (left), bulk set-zone (right). -->
-          <template #top>
-            <div class="d-flex align-center mb-3 ga-3 flex-wrap">
-              <v-chip
-                :color="unclassifiedCount ? 'warning' : 'success'"
-                size="small"
-                variant="tonal"
-                class="unclassified-chip"
-              >
-                {{ unclassifiedCount }} unclassified
-              </v-chip>
-              <v-switch
-                v-model="onlyUnclassified"
-                class="only-unclassified-switch"
-                color="warning"
-                density="compact"
-                hide-details
-                label="Show only unclassified"
-              />
-              <!-- Tree mode only: fold/unfold every branch at once (constraint C, for large models). -->
-              <div v-if="!onlyUnclassified" class="d-flex align-center ga-1 expand-controls">
-                <v-btn
-                  class="expand-all-btn"
-                  prepend-icon="mdi-unfold-more-horizontal"
+      <!-- The table sits on an elevated inner card, as in the other dialogs, and fills the height under the title.
+           Only its rows scroll: the toolbar (#top) and the column headers stay put. Every row is always shown, so
+           there is no pager. -->
+      <v-card-text class="zoning-body">
+        <v-card class="zoning-sheet border-thin elevation-8">
+          <v-data-table
+            class="zoning-table pa-4"
+            density="comfortable"
+            fixed-header
+            :headers="headers"
+            hide-default-footer
+            item-value="id"
+            :items="displayRows"
+            :items-per-page="-1"
+            :model-value="selectedIds"
+            show-select
+            @update:model-value="selectedIds = $event"
+          >
+            <!-- Toolbar: closure nudge + filter (left), bulk set-zone (right). -->
+            <template #top>
+              <div class="d-flex align-center mb-3 ga-3 flex-wrap">
+                <v-chip
+                  :color="unclassifiedCount ? 'warning' : 'success'"
                   size="small"
-                  variant="text"
-                  @click="expandAll"
+                  variant="tonal"
+                  class="unclassified-chip"
                 >
-                  Expand all
-                </v-btn>
-                <v-btn
-                  class="collapse-all-btn"
-                  prepend-icon="mdi-unfold-less-horizontal"
-                  size="small"
-                  variant="text"
-                  @click="collapseAll"
-                >
-                  Collapse all
-                </v-btn>
-              </div>
-              <v-spacer />
-              <v-menu v-if="selectedIds.length">
-                <template #activator="{ props: menuProps }">
+                  {{ unclassifiedCount }} unclassified
+                </v-chip>
+                <v-switch
+                  v-model="onlyUnclassified"
+                  class="only-unclassified-switch"
+                  color="warning"
+                  density="compact"
+                  hide-details
+                  label="Show only unclassified"
+                />
+                <!-- Tree mode only: fold/unfold every branch at once (constraint C, for large models). -->
+                <div v-if="!onlyUnclassified" class="d-flex align-center ga-1 expand-controls">
                   <v-btn
-                    v-bind="menuProps"
-                    class="bulk-set-btn"
-                    color="primary"
-                    :loading="bulkBusy"
-                    prepend-icon="mdi-shield-edit-outline"
-                    variant="flat"
+                    class="expand-all-btn"
+                    color="secondary"
+                    prepend-icon="mdi-unfold-more-horizontal"
+                    size="small"
+                    variant="text"
+                    @click="expandAll"
                   >
-                    {{ bulkBtnLabel }}
+                    Expand all
                   </v-btn>
-                </template>
-                <v-list density="compact" class="bulk-zone-menu">
-                  <template v-for="item in ZONE_SELECT_ITEMS" :key="item.title">
-                    <v-list-subheader v-if="item.type === 'subheader'">{{ item.title }}</v-list-subheader>
-                    <v-list-item
-                      v-else
-                      :subtitle="item.subtitle"
-                      :title="item.title"
-                      @click="bulkSetZone(item.value as Zone)"
-                    />
+                  <v-btn
+                    class="collapse-all-btn"
+                    color="secondary"
+                    prepend-icon="mdi-unfold-less-horizontal"
+                    size="small"
+                    variant="text"
+                    @click="collapseAll"
+                  >
+                    Collapse all
+                  </v-btn>
+                </div>
+                <v-spacer />
+                <v-menu v-if="selectedIds.length">
+                  <template #activator="{ props: menuProps }">
+                    <v-btn
+                      v-bind="menuProps"
+                      class="bulk-set-btn"
+                      color="primary"
+                      :loading="bulkBusy"
+                      prepend-icon="mdi-shield-edit-outline"
+                      variant="flat"
+                    >
+                      {{ bulkBtnLabel }}
+                    </v-btn>
                   </template>
-                  <v-divider />
-                  <v-list-item
-                    class="bulk-clear-item"
-                    subtitle="Fall back to the inherited / default zone"
-                    title="Clear (inherit)"
-                    @click="bulkSetZone(null)"
-                  />
-                </v-list>
-              </v-menu>
-            </div>
-          </template>
+                  <v-list density="compact" class="bulk-zone-menu">
+                    <template v-for="item in ZONE_SELECT_ITEMS" :key="item.title">
+                      <v-list-subheader v-if="item.type === 'subheader'">{{ item.title }}</v-list-subheader>
+                      <v-list-item
+                        v-else
+                        :subtitle="item.subtitle"
+                        :title="item.title"
+                        @click="bulkSetZone(item.value as Zone)"
+                      />
+                    </template>
+                    <v-divider />
+                    <v-list-item
+                      class="bulk-clear-item"
+                      subtitle="Fall back to the inherited / default zone"
+                      title="Clear (inherit)"
+                      @click="bulkSetZone(null)"
+                    />
+                  </v-list>
+                </v-menu>
+              </div>
+            </template>
 
-          <!-- Trust-zone cell: inline editor (declared) + resolution caption. -->
-          <template #item.zone="{ item }">
-            <div class="zone-cell py-1">
-              <v-select
-                class="zone-cell-select"
-                :class="{ 'zone-ghosted': item.declared == null }"
-                :aria-label="`Trust zone for ${item.name}`"
-                clearable
-                density="compact"
-                :disabled="bulkBusy"
-                hide-details
-                :items="ZONE_SELECT_ITEMS"
-                item-title="title"
-                item-value="value"
-                :loading="isRowSaving(item.id)"
-                :model-value="item.declared"
-                :placeholder="item.declared == null ? ZONE_LABEL[item.ez.zone] : undefined"
-                :persistent-placeholder="item.declared == null"
-                @update:model-value="onSetZone(item.id, $event)"
-              >
-                <template #item="{ props: itemProps, item: zi }">
-                  <v-list-subheader v-if="zi.raw.type === 'subheader'">{{ zi.raw.title }}</v-list-subheader>
-                  <v-list-item v-else v-bind="itemProps" :subtitle="zi.raw.subtitle" />
-                </template>
-              </v-select>
-              <span
-                class="zone-source-caption text-caption"
-                :class="item.ez.source === 'declared' ? 'text-medium-emphasis' : 'text-disabled'"
-              >
-                {{ sourceCaption(item.ez) }}
-              </span>
-            </div>
-          </template>
+            <!-- Trust-zone cell: inline editor (declared) + resolution caption. -->
+            <template #item.zone="{ item }">
+              <div class="zone-cell py-1">
+                <v-select
+                  class="zone-cell-select"
+                  :class="{ 'zone-ghosted': item.declared == null }"
+                  :aria-label="`Trust zone for ${item.name}`"
+                  clearable
+                  density="compact"
+                  :disabled="bulkBusy"
+                  hide-details
+                  :items="ZONE_SELECT_ITEMS"
+                  item-title="title"
+                  item-value="value"
+                  :loading="isRowSaving(item.id)"
+                  :model-value="item.declared"
+                  :placeholder="item.declared == null ? ZONE_LABEL[item.ez.zone] : undefined"
+                  :persistent-placeholder="item.declared == null"
+                  @update:model-value="onSetZone(item.id, $event)"
+                >
+                  <template #item="{ props: itemProps, item: zi }">
+                    <v-list-subheader v-if="zi.raw.type === 'subheader'">{{ zi.raw.title }}</v-list-subheader>
+                    <v-list-item v-else v-bind="itemProps" :subtitle="zi.raw.subtitle" />
+                  </template>
+                </v-select>
+                <span
+                  class="zone-source-caption text-caption"
+                  :class="item.ez.source === 'declared' ? 'text-medium-emphasis' : 'text-disabled'"
+                >
+                  {{ sourceCaption(item.ez) }}
+                </span>
+              </div>
+            </template>
 
-          <!-- Role chip. -->
-          <template #item.role="{ item }">
-            <v-chip size="x-small" variant="tonal">{{ item.role }}</v-chip>
-          </template>
+            <!-- Role chip. -->
+            <template #item.role="{ item }">
+              <v-chip size="x-small" variant="tonal">{{ item.role }}</v-chip>
+            </template>
 
-          <!-- Name cell — the ONLY indented column (checkbox + zone/role/channels stay on a straight edge).
-               Twisty for a parent; a collapsed parent surfaces a roll-up "⚠ N unclassified" text badge so a
-               fold never loses the worklist (constraint A). Unclassified rows are highlighted. The WHOLE cell
-               toggles a parent (bigger click target); the twisty `.stop`s so it doesn't double-fire. -->
-          <template #item.name="{ item }">
-            <div
-              class="name-cell d-flex align-center"
-              :class="{ 'name-cell--expandable': item.hasChildren }"
-              :style="{ paddingLeft: item.depth * 20 + 'px' }"
-              @click="item.hasChildren && toggle(item.id)"
-            >
-              <!-- No own @click: the click (mouse or keyboard Enter/Space → native click) bubbles to the
-                   cell's @click, so the twisty toggles exactly once and stays the explicit AT affordance. -->
-              <v-btn
-                v-if="item.hasChildren"
-                class="twisty-btn"
-                :icon="expanded.has(item.id) ? 'mdi-chevron-down' : 'mdi-chevron-right'"
-                size="x-small"
-                variant="text"
-                density="comfortable"
-                :aria-label="twistyLabel(item)"
-                :aria-expanded="expanded.has(item.id)"
-              />
-              <span v-else class="twisty-spacer" />
-              <span
-                class="boundary-name"
-                :class="{ 'unclassified-name': item.ez.source === 'default' }"
-                :title="item.name"
+            <!-- Name cell — the ONLY indented column (checkbox + zone/role/channels stay on a straight edge).
+                 Twisty for a parent; a collapsed parent surfaces a roll-up "⚠ N unclassified" text badge so a
+                 fold never loses the worklist (constraint A). Unclassified rows are highlighted. The WHOLE cell
+                 toggles a parent (bigger click target); the twisty `.stop`s so it doesn't double-fire. -->
+            <template #item.name="{ item }">
+              <div
+                class="name-cell d-flex align-center"
+                :class="{ 'name-cell--expandable': item.hasChildren }"
+                :style="{ paddingLeft: item.depth * 20 + 'px' }"
+                @click="item.hasChildren && toggle(item.id)"
               >
-                {{ item.name }}
-              </span>
-              <v-chip
-                v-if="!expanded.has(item.id) && item.unclassifiedDescendants"
-                class="rollup-unclassified ml-2"
-                color="warning"
-                prepend-icon="mdi-alert"
-                size="x-small"
-                variant="tonal"
-              >
-                {{ item.unclassifiedDescendants }} unclassified
-              </v-chip>
-            </div>
-          </template>
-        </v-data-table>
+                <!-- No own @click: the click (mouse or keyboard Enter/Space → native click) bubbles to the
+                     cell's @click, so the twisty toggles exactly once and stays the explicit AT affordance. -->
+                <v-btn
+                  v-if="item.hasChildren"
+                  class="twisty-btn"
+                  :icon="expanded.has(item.id) ? 'mdi-chevron-down' : 'mdi-chevron-right'"
+                  size="x-small"
+                  variant="text"
+                  density="comfortable"
+                  :aria-label="twistyLabel(item)"
+                  :aria-expanded="expanded.has(item.id)"
+                />
+                <span v-else class="twisty-spacer" />
+                <span
+                  class="boundary-name"
+                  :class="{ 'unclassified-name': item.ez.source === 'default' }"
+                  :title="item.name"
+                >
+                  {{ item.name }}
+                </span>
+                <v-chip
+                  v-if="!expanded.has(item.id) && item.unclassifiedDescendants"
+                  class="rollup-unclassified ml-2"
+                  color="warning"
+                  prepend-icon="mdi-alert"
+                  size="x-small"
+                  variant="tonal"
+                >
+                  {{ item.unclassifiedDescendants }} unclassified
+                </v-chip>
+              </div>
+            </template>
+          </v-data-table>
+        </v-card>
       </v-card-text>
     </v-card>
 
@@ -464,6 +473,29 @@
 </template>
 
 <style scoped>
+  /* Height chain: dialog card → body → inner card → table → its scroll wrapper, so only the rows scroll. */
+  .zoning-body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .zoning-sheet {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .zoning-table {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .zoning-table :deep(.v-table__wrapper) {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
   .zone-cell {
     display: flex;
     flex-direction: column;

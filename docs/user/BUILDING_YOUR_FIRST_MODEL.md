@@ -82,7 +82,7 @@ You'll do most of your work in the **data flow editor**. Here are its parts, so 
 6. **Analyses** (sparkle icon): creates and runs analyses on the model.
 7. **Palette**: the four element types, **Process**, **Store**, **External Entity**, and **Boundary**. Click its header to collapse or expand it.
 8. **Properties panel**: shows the settings of whatever you select. It reads *Select an item* until you select something. Use the chevron at its right end to expand or collapse it.
-9. **Canvas controls**: zoom in, zoom out, fit view, and the interactivity lock.
+9. **Canvas controls**: zoom in, zoom out, and fit view.
 
 The canvas is a boundary too. It is the model's **Default Boundary**, the outermost container that holds everything else. Click an empty spot on the canvas and the panel reads *Boundary: Default Boundary*. It has no **Zoning** tab, so you give trust zones to the boundaries you draw inside it.
 
@@ -270,7 +270,7 @@ Each class you picked comes with policies that derive **exposures**: weaknesses 
 2. Click the tab's expand button. The **Exposures of Customer Database** dialog opens.
 3. Click an exposure to see its score, attack vector, and the techniques that exploit it, such as *Network Sniffing (T1040)* or *Adversary-in-the-Middle (T1557)*.
 
-![The "Exposures of Customer Database" dialog. A list of exposures, each marked pending, is on the left. On the right is the selected exposure's detail: a score, the ADJACENT attack vector, a tag, the techniques that exploit it, and the Affirm, Dispose, and Customize buttons.](images/first-model/exposures-dialog.webp)
+![The "Exposures of Customer Database" dialog. A list of exposures, each marked pending, is on the left. On the right, under the selected exposure's name, are the Affirm, Dispose, and Customize buttons, with an issue button at the far right. Below them are the exposure's description, a score, the ADJACENT attack vector, a tag, and the techniques that exploit it.](images/first-model/exposures-dialog.webp)
 
 New exposures are **pending**: nobody has reviewed them yet. **Affirm** confirms one as a real risk, **Dispose** mutes one that doesn't apply (with a reason), and **Customize** makes an editable copy. You can leave them all pending for now. You review them in bulk in the Threat Report. [Managing Findings](MANAGING_FINDINGS.md) explains each decision.
 

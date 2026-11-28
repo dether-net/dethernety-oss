@@ -205,7 +205,7 @@ Have a look:
 1. Select **Orders API** and open its **Attributes** tab. The questions are grouped under headings such as **Authentication & Access** and **Application Security**. Most are yes-or-no questions that offer **Yes**, **No** and **Not answered**.
 2. Expand **Application Security**. **Parameterized Queries Used** is **Not answered**.
 
-   The questions are marked as required, and an unanswered one shows *is a required property* in red. That is expected: you can save with questions left unanswered. To see the questions in a larger dialog, *Attributes of Orders API*, with a guide to each one beside it, click the right-hand of the two buttons at the top right of the tab.
+   The questions are marked as required, and an unanswered one shows *is a required property* in red. That is expected: you can save with questions left unanswered. To see the questions in a larger dialog, *Attributes of Orders API*, with a guide to each one beside it, click the tab's expand button at the top right, beside the questions (tooltip **Open expanded view**).
 3. Open the **Exposures** tab. It shows how many exposures the class derived.
 
 Don't answer anything yet. You come back to this in [Try it: answer the questions](#try-it-answer-the-questions).

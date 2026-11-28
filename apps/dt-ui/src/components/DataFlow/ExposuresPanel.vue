@@ -415,7 +415,7 @@
 </script>
 
 <template>
-  <div>
+  <div :class="{ 'exposures-panel-expanded': variant === 'expanded' }">
     <!-- COMPACT: the in-tab data-table (default variant). -->
     <template v-if="variant === 'compact'">
     <v-data-table
@@ -690,188 +690,197 @@
 
         <!-- Detail pane. Fully gated on selectedExposure so a refetch null-window
              (or a just-deleted row) can't dereference undefined. -->
-        <v-col cols="8" class="exposures-detail pa-4">
+        <v-col cols="8" class="exposures-detail">
           <template v-if="selectedExposure">
-            <!-- Header -->
-            <div class="d-flex align-center mb-2">
-              <v-tooltip
-                v-if="provenanceInfo(selectedExposure).kind !== 'none'"
-                :text="provenanceInfo(selectedExposure).tooltip"
-                location="top"
-              >
-                <template #activator="{ props: tProps }">
-                  <v-icon
-                    v-bind="tProps"
-                    class="mr-2"
-                    :color="provenanceInfo(selectedExposure).iconColor"
-                    :icon="provenanceInfo(selectedExposure).iconName"
-                    size="20"
-                  />
-                </template>
-              </v-tooltip>
-              <span class="text-h6 text-capitalize">{{ selectedExposure.name?.replaceAll('_', ' ') }}</span>
-              <LifecycleBadge :item="selectedExposure" class="ml-2" finding-type="EXPOSURE" />
-              <span
-                v-if="lifecycleStatus(selectedExposure) === 'pending'"
-                class="text-caption text-medium-emphasis ml-2"
-              >(pending)</span>
-            </div>
-
-            <!-- Description -->
-            <p v-if="selectedExposure.description" class="text-body-2 mb-3">{{ selectedExposure.description }}</p>
-
-            <!-- Metadata strip (only fields that are present). "Score" — not "CVSS":
-                 the platform score is a 0–10 CVSS-like triage value, not strict CVSS. -->
-            <div class="d-flex flex-wrap ga-2 mb-3">
-              <v-chip v-if="selectedExposure.score != null" size="small" variant="tonal">Score {{ selectedExposure.score }}</v-chip>
-              <v-chip v-if="selectedExposure.attackVector" size="small" variant="tonal">Vector {{ selectedExposure.attackVector }}</v-chip>
-              <v-chip v-if="selectedExposure.type" size="small" variant="outlined">{{ selectedExposure.type }}</v-chip>
-              <v-chip v-if="selectedExposure.category" size="small" variant="outlined">{{ selectedExposure.category }}</v-chip>
-            </div>
-
-            <!-- Exploited by -->
-            <div
-              v-if="selectedExposure.exploitedBy?.length || selectedExposure.exploitedByAtlas?.length || selectedExposure.unresolvedReferences?.length"
-              class="mb-3"
-            >
-              <div class="text-subtitle-2 mb-1">
-                Exploited by
-                <UnresolvedReferencesBadge :references="selectedExposure.unresolvedReferences" />
+            <!-- Head: the name and the actions, fixed above the scrolling body so the actions keep their place
+                 whatever the exposure's length. -->
+            <div class="exposures-detail-head px-4 pt-4">
+              <div class="d-flex align-center mb-2">
+                <v-tooltip
+                  v-if="provenanceInfo(selectedExposure).kind !== 'none'"
+                  :text="provenanceInfo(selectedExposure).tooltip"
+                  location="top"
+                >
+                  <template #activator="{ props: tProps }">
+                    <v-icon
+                      v-bind="tProps"
+                      class="mr-2"
+                      :color="provenanceInfo(selectedExposure).iconColor"
+                      :icon="provenanceInfo(selectedExposure).iconName"
+                      size="20"
+                    />
+                  </template>
+                </v-tooltip>
+                <span class="text-h6 text-capitalize">{{ selectedExposure.name?.replaceAll('_', ' ') }}</span>
+                <LifecycleBadge :item="selectedExposure" class="ml-2" finding-type="EXPOSURE" />
+                <span
+                  v-if="lifecycleStatus(selectedExposure) === 'pending'"
+                  class="text-caption text-medium-emphasis ml-2"
+                >(pending)</span>
               </div>
-              <v-list class="py-0" density="compact">
-                <v-list-item
-                  v-for="t in selectedExposure.exploitedBy"
-                  :key="t.id"
-                  class="px-2 rounded"
-                  @click="openAttackTechniqueDialog(t.attack_id)"
-                >
-                  <v-list-item-title>{{ t.name }} ({{ t.attack_id }})</v-list-item-title>
-                  <v-list-item-subtitle v-if="t.description" class="text-wrap">{{ t.description }}</v-list-item-subtitle>
-                </v-list-item>
-                <v-list-item
-                  v-for="t in selectedExposure.exploitedByAtlas || []"
-                  :key="t.id"
-                  class="px-2 rounded"
-                  :href="mitreUrl(t.atlas_id) ?? undefined"
-                  rel="noopener noreferrer"
-                  target="_blank"
-                >
-                  <v-list-item-title>{{ t.name }} ({{ t.atlas_id }}) — MITRE ATLAS</v-list-item-title>
-                  <v-list-item-subtitle v-if="t.description" class="text-wrap">{{ t.description }}</v-list-item-subtitle>
-                </v-list-item>
-              </v-list>
-            </div>
 
-            <!-- Suggested mitigations (generic — not controls applied to this element) -->
-            <div v-if="selectedExposure.mitigationSuggestions?.length" class="mb-3">
-              <div class="text-subtitle-2">Suggested mitigations</div>
-              <p class="text-caption text-medium-emphasis mb-1">
-                Generic suggestions for this exposure type — not controls applied to this element.
-              </p>
-              <ul class="text-body-2 ml-4">
-                <li v-for="(m, i) in selectedExposure.mitigationSuggestions" :key="i">{{ m }}</li>
-              </ul>
-            </div>
-
-            <!-- Detection methods -->
-            <div v-if="selectedExposure.detectionMethods?.length" class="mb-3">
-              <div class="text-subtitle-2 mb-1">Detection methods</div>
-              <ul class="text-body-2 ml-4">
-                <li v-for="(d, i) in selectedExposure.detectionMethods" :key="i">{{ d }}</li>
-              </ul>
-            </div>
-
-            <!-- Tags -->
-            <div v-if="selectedExposure.tags?.length" class="mb-3">
-              <div class="text-subtitle-2 mb-1">Tags</div>
-              <v-chip v-for="(tag, i) in selectedExposure.tags" :key="i" class="ma-1" size="x-small">{{ tag }}</v-chip>
-            </div>
-
-            <!-- Disposition block (only when the finding carries an attributed disposition) -->
-            <v-sheet v-if="showDispositionBlock" class="pa-3 mb-3 rounded border-thin">
-              <div class="d-flex align-center mb-1">
-                <span class="text-subtitle-2">Disposition ({{ dispositionKindLabel(selectedExposure.dispositionKind) }})</span>
-                <v-chip
-                  v-if="selectedExposure.dispositionStale"
-                  class="ml-2"
+              <!-- State-gated action bar. Replicates the compact ladder's v-if/v-else-if
+                   ORDER exactly (stale before pending, etc.), reusing the same handlers. -->
+              <div class="d-flex align-center flex-wrap ga-1 mb-2">
+                <!-- Lifecycle (leads) -->
+                <v-btn
+                  v-if="isUserAuthored(selectedExposure)"
+                  color="error"
+                  prepend-icon="mdi-trash-can"
+                  variant="text"
+                  @click="deleteExposure(selectedExposure.id)"
+                >Delete</v-btn>
+                <v-btn
+                  v-else-if="selectedExposure.dispositionStale"
                   color="warning"
-                  size="x-small"
-                  variant="flat"
-                >Stale — needs review</v-chip>
+                  prepend-icon="mdi-refresh"
+                  variant="text"
+                  @click="onReview(selectedExposure)"
+                >Review</v-btn>
+                <template v-else-if="lifecycleStatus(selectedExposure) === 'pending'">
+                  <v-btn color="info" :prepend-icon="AFFIRM_ICON" variant="text" @click="onAffirm(selectedExposure)">Affirm</v-btn>
+                  <v-btn color="secondary" :prepend-icon="DISPOSE_ICON" variant="text" @click="onDispose(selectedExposure)">Dispose</v-btn>
+                </template>
+                <v-btn
+                  v-else-if="lifecycleStatus(selectedExposure) === 'confirmed'"
+                  color="tertiary"
+                  prepend-icon="mdi-note-edit-outline"
+                  variant="text"
+                  @click="onAffirmEdit(selectedExposure)"
+                >Add note</v-btn>
+                <v-btn
+                  v-else
+                  color="tertiary"
+                  :prepend-icon="DISPOSE_ICON"
+                  variant="text"
+                  @click="onDispose(selectedExposure)"
+                >Edit disposition</v-btn>
+
+                <!-- Structural: edit (USER) | supersede (live SYSTEM) -->
+                <v-btn
+                  v-if="isUserAuthored(selectedExposure)"
+                  prepend-icon="mdi-pencil"
+                  variant="text"
+                  @click="editExposure(selectedExposure.id)"
+                >Edit</v-btn>
+                <v-btn
+                  v-else-if="lifecycleStatus(selectedExposure) !== 'disposed'"
+                  color="secondary"
+                  prepend-icon="mdi-content-duplicate"
+                  variant="text"
+                  @click="onSupersede(selectedExposure)"
+                >Customize</v-btn>
+
+                <v-spacer />
+
+                <!-- Issue (last), at the right edge: the wrapper keeps the selector's v-fab, a growing flex item,
+                     from taking half the free space from the spacer. -->
+                <div class="flex-0-0">
+                  <IssueSelector
+                    :id="selectedExposure.id || ''"
+                    :name="selectedExposure.name || ''"
+                    :description="selectedExposure.description || ''"
+                    @add:issue="onAddIssue"
+                    @copy:issue="onCopyToIssue"
+                  />
+                </div>
               </div>
+              <v-divider />
+            </div>
+
+            <!-- Body: scrolls on its own below the head. -->
+            <div class="exposures-detail-body px-4 py-3">
+              <!-- Disposition block (only when the finding carries an attributed disposition). First, as the record
+                   that Review and Edit disposition act on. -->
+              <v-sheet v-if="showDispositionBlock" class="pa-3 mb-3 rounded border-thin">
+                <div class="d-flex align-center mb-1">
+                  <span class="text-subtitle-2">Disposition ({{ dispositionKindLabel(selectedExposure.dispositionKind) }})</span>
+                  <v-chip
+                    v-if="selectedExposure.dispositionStale"
+                    class="ml-2"
+                    color="warning"
+                    size="x-small"
+                    variant="flat"
+                  >Stale — needs review</v-chip>
+                </div>
+                <div
+                  v-if="selectedExposure.dispositionedBy || selectedExposure.dispositionedAt"
+                  class="text-caption text-medium-emphasis"
+                >
+                  by {{ selectedExposure.dispositionedBy || 'unknown' }}<span v-if="selectedExposure.dispositionedAt"> · {{ formatDate(selectedExposure.dispositionedAt) }}</span>
+                </div>
+                <p v-if="selectedExposure.dispositionReason" class="text-body-2 mt-1 mb-0">{{ selectedExposure.dispositionReason }}</p>
+              </v-sheet>
+
+              <!-- Description -->
+              <p v-if="selectedExposure.description" class="text-body-2 mb-3">{{ selectedExposure.description }}</p>
+
+              <!-- Metadata strip (only fields that are present). "Score" — not "CVSS":
+                   the platform score is a 0–10 CVSS-like triage value, not strict CVSS. -->
+              <div class="d-flex flex-wrap ga-2 mb-3">
+                <v-chip v-if="selectedExposure.score != null" size="small" variant="tonal">Score {{ selectedExposure.score }}</v-chip>
+                <v-chip v-if="selectedExposure.attackVector" size="small" variant="tonal">Vector {{ selectedExposure.attackVector }}</v-chip>
+                <v-chip v-if="selectedExposure.type" size="small" variant="outlined">{{ selectedExposure.type }}</v-chip>
+                <v-chip v-if="selectedExposure.category" size="small" variant="outlined">{{ selectedExposure.category }}</v-chip>
+              </div>
+
+              <!-- Exploited by -->
               <div
-                v-if="selectedExposure.dispositionedBy || selectedExposure.dispositionedAt"
-                class="text-caption text-medium-emphasis"
+                v-if="selectedExposure.exploitedBy?.length || selectedExposure.exploitedByAtlas?.length || selectedExposure.unresolvedReferences?.length"
+                class="mb-3"
               >
-                by {{ selectedExposure.dispositionedBy || 'unknown' }}<span v-if="selectedExposure.dispositionedAt"> · {{ formatDate(selectedExposure.dispositionedAt) }}</span>
+                <div class="text-subtitle-2 mb-1">
+                  Exploited by
+                  <UnresolvedReferencesBadge :references="selectedExposure.unresolvedReferences" />
+                </div>
+                <v-list class="py-0" density="compact">
+                  <v-list-item
+                    v-for="t in selectedExposure.exploitedBy"
+                    :key="t.id"
+                    class="px-2 rounded"
+                    @click="openAttackTechniqueDialog(t.attack_id)"
+                  >
+                    <v-list-item-title>{{ t.name }} ({{ t.attack_id }})</v-list-item-title>
+                    <v-list-item-subtitle v-if="t.description" class="text-wrap">{{ t.description }}</v-list-item-subtitle>
+                  </v-list-item>
+                  <v-list-item
+                    v-for="t in selectedExposure.exploitedByAtlas || []"
+                    :key="t.id"
+                    class="px-2 rounded"
+                    :href="mitreUrl(t.atlas_id) ?? undefined"
+                    rel="noopener noreferrer"
+                    target="_blank"
+                  >
+                    <v-list-item-title>{{ t.name }} ({{ t.atlas_id }}) — MITRE ATLAS</v-list-item-title>
+                    <v-list-item-subtitle v-if="t.description" class="text-wrap">{{ t.description }}</v-list-item-subtitle>
+                  </v-list-item>
+                </v-list>
               </div>
-              <p v-if="selectedExposure.dispositionReason" class="text-body-2 mt-1 mb-0">{{ selectedExposure.dispositionReason }}</p>
-            </v-sheet>
 
-            <v-divider class="mb-3" />
+              <!-- Suggested mitigations (generic — not controls applied to this element) -->
+              <div v-if="selectedExposure.mitigationSuggestions?.length" class="mb-3">
+                <div class="text-subtitle-2">Suggested mitigations</div>
+                <p class="text-caption text-medium-emphasis mb-1">
+                  Generic suggestions for this exposure type — not controls applied to this element.
+                </p>
+                <ul class="text-body-2 ml-4">
+                  <li v-for="(m, i) in selectedExposure.mitigationSuggestions" :key="i">{{ m }}</li>
+                </ul>
+              </div>
 
-            <!-- State-gated action bar. Replicates the compact ladder's v-if/v-else-if
-                 ORDER exactly (stale before pending, etc.), reusing the same handlers. -->
-            <div class="d-flex align-center flex-wrap ga-1">
-              <!-- Lifecycle (leads) -->
-              <v-btn
-                v-if="isUserAuthored(selectedExposure)"
-                color="error"
-                prepend-icon="mdi-trash-can"
-                variant="text"
-                @click="deleteExposure(selectedExposure.id)"
-              >Delete</v-btn>
-              <v-btn
-                v-else-if="selectedExposure.dispositionStale"
-                color="warning"
-                prepend-icon="mdi-refresh"
-                variant="text"
-                @click="onReview(selectedExposure)"
-              >Review</v-btn>
-              <template v-else-if="lifecycleStatus(selectedExposure) === 'pending'">
-                <v-btn color="info" :prepend-icon="AFFIRM_ICON" variant="text" @click="onAffirm(selectedExposure)">Affirm</v-btn>
-                <v-btn color="secondary" :prepend-icon="DISPOSE_ICON" variant="text" @click="onDispose(selectedExposure)">Dispose</v-btn>
-              </template>
-              <v-btn
-                v-else-if="lifecycleStatus(selectedExposure) === 'confirmed'"
-                color="tertiary"
-                prepend-icon="mdi-note-edit-outline"
-                variant="text"
-                @click="onAffirmEdit(selectedExposure)"
-              >Add note</v-btn>
-              <v-btn
-                v-else
-                color="tertiary"
-                :prepend-icon="DISPOSE_ICON"
-                variant="text"
-                @click="onDispose(selectedExposure)"
-              >Edit disposition</v-btn>
+              <!-- Detection methods -->
+              <div v-if="selectedExposure.detectionMethods?.length" class="mb-3">
+                <div class="text-subtitle-2 mb-1">Detection methods</div>
+                <ul class="text-body-2 ml-4">
+                  <li v-for="(d, i) in selectedExposure.detectionMethods" :key="i">{{ d }}</li>
+                </ul>
+              </div>
 
-              <!-- Structural: edit (USER) | supersede (live SYSTEM) -->
-              <v-btn
-                v-if="isUserAuthored(selectedExposure)"
-                prepend-icon="mdi-pencil"
-                variant="text"
-                @click="editExposure(selectedExposure.id)"
-              >Edit</v-btn>
-              <v-btn
-                v-else-if="lifecycleStatus(selectedExposure) !== 'disposed'"
-                color="secondary"
-                prepend-icon="mdi-content-duplicate"
-                variant="text"
-                @click="onSupersede(selectedExposure)"
-              >Customize</v-btn>
-
-              <v-spacer />
-
-              <!-- Issue (last) -->
-              <IssueSelector
-                :id="selectedExposure.id || ''"
-                :name="selectedExposure.name || ''"
-                :description="selectedExposure.description || ''"
-                @add:issue="onAddIssue"
-                @copy:issue="onCopyToIssue"
-              />
+              <!-- Tags -->
+              <div v-if="selectedExposure.tags?.length" class="mb-3">
+                <div class="text-subtitle-2 mb-1">Tags</div>
+                <v-chip v-for="(tag, i) in selectedExposure.tags" :key="i" class="ma-1" size="x-small">{{ tag }}</v-chip>
+              </div>
             </div>
           </template>
         </v-col>
@@ -965,13 +974,33 @@
     justify-items: center;
     float: right;
   }
-  /* Expanded (master-detail) panes: independent scroll within the 85vh dialog. */
-  .exposures-expanded {
+  /* Expanded (master-detail): the panel fills the height its host gives it (ExposuresDialog), the two panes run that
+     full height, so the list's border divides them top to bottom, and each scrolls on its own. In the detail pane only
+     the body scrolls: the head with the actions stays put. */
+  .exposures-panel-expanded {
     height: 100%;
+    display: flex;
+    flex-direction: column;
   }
-  .exposures-list,
+  .exposures-expanded {
+    flex: 1 1 auto;
+    min-height: 0;
+    flex-wrap: nowrap;
+  }
+  .exposures-list {
+    overflow-y: auto;
+  }
   .exposures-detail {
-    max-height: calc(85vh - 140px);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .exposures-detail-head {
+    flex: 0 0 auto;
+  }
+  .exposures-detail-body {
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
   }
 </style>
